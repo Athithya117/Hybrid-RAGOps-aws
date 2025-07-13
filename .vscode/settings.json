@@ -1,0 +1,17 @@
+{
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
+
+  //  Use Ruff for formatting instead of Black
+  "python.formatting.provider": "none",   // disables black/isort auto-selection
+
+  //  Use Ruff extension instead of flake8 for linting
+  "python.linting.enabled": false,        // disables built-in flake8/pylint
+  "ruff.enable": true,                    // Ruff extension handles lint+format
+
+  // Format on save
+  "editor.formatOnSave": true,
+
+  // Integrated terminal defaults
+  "terminal.integrated.defaultProfile.linux": "bash"
+}
