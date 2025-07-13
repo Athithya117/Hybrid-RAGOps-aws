@@ -270,3 +270,42 @@ Repeat for other triplets like `["Product X", "costs", "$500"]`.
 
 
 
+.
+├── Makefile                             # Automation of build/run commands (e.g., testing, cleaning)
+├── README.md                            # Documentation of the project, pipeline overview, and usage
+├── data                                 # Storage for various stages of data during the indexing pipeline
+│   ├── chunked                          # Contains normalized, structured text chunks
+│   ├── parsed                           # Parsed raw text before chunking or embedding
+│   └── raw                              # Original unprocessed input files (PDFs, DOCXs, etc.)
+├── efs                                  # Placeholder for Elastic File System or model storage
+│   └── models                           # Houses model directories used in parsing/embedding
+│       ├── bge                          # BAAI General Embedding (BGE) models for vectorization
+│       ├── faster-whisper               # Fast ASR model used for MP3 transcription
+│       ├── llama                        # LLM directory, possibly for downstream QA or RAG
+│       └── relik                        # Custom/local model or pipeline logic (e.g., for re-ranking)
+├── export.sh                            # Shell script to export data or push to remote stores
+├── indexing_pipelines                   # Main indexing code and requirements
+│   ├── requirements.txt                 # Dependencies for the indexing pipeline
+│   └── unstructured                     # Parsing modules for unstructured documents
+│       ├── __init__.py                  # Marks this directory as a Python package
+│       └── parsing                      # Contains individual parsers for each input format
+│           ├── __init__.py              # Initializes the parsing submodule
+│           ├── docx_parser.py           # Extracts and normalizes content from .docx files
+│           ├── fallback_pdf_parser.py   # Fallback logic when primary PDF parsing fails
+│           ├── html_parser.py           # Extracts and cleans text from HTML files using BS4/trafilatura
+│           ├── image_parser.py          # OCR + layout parsing for PNG, JPG using PaddleOCR + LayoutXLM
+│           ├── mp3_parser.py            # Audio transcription using semantic-codec + faster-whisper
+│           ├── multilingual_pdf_parser.py  # Handles multilingual PDFs via LayoutXLM
+│           ├── ocr_multilingual_pdf_parser.py  # OCR + multilingual layout parsing pipeline
+│           ├── ocr_pdf_parser.py        # Handles OCR-only (monolingual) PDFs via LayoutLMv3
+│           ├── pptx_parser.py           # Extracts text + metadata from PowerPoint files (.pptx)
+│           ├── router.py                # 🚦 Main routing engine:
+│                                        #    - Detects format, OCR needs, multilingual status
+│                                        #    - Dynamically assigns parsing strategy
+│                                        #    - Uses `ray.data` for scalable distributed preprocessing
+│                                        #    - Uses `hashlib` to hash input files for deduplication/versioning
+│           └── txt_parser.py            # Simple line or paragraph extraction for .txt files
+└── utils                                # Helper scripts for environment setup and data ingestion
+    ├── create_s3.py                     # Creates/configures an S3 bucket (used for file input/output)
+    ├── sync_data_with_s3.py             # Syncs raw/parsed/chunked files between local and S3
+    └── web_scraper.py                   # Extracts data from webpages for HTML ingestion
