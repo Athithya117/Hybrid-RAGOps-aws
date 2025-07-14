@@ -69,7 +69,7 @@ Vagrant.configure("2") do |config|
 
     # === Base tools ===
     apt-get update -y
-    apt-get install -y make curl git ca-certificates gnupg lsb-release software-properties-common unzip build-essential
+    apt-get install -y make curl git gh tree ca-certificates gnupg lsb-release software-properties-common unzip build-essential
 
     # === Docker Installation ===
     mkdir -p /etc/apt/keyrings

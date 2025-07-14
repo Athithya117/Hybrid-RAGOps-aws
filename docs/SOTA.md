@@ -358,3 +358,29 @@ Repeat for other triplets like `["Product X", "costs", "$500"]`.
 | **mGTE‑TRM**      | 306 M  | 8,192   | 58.9          | 71.3                  | \~7× faster     |
 | **BGE‑M3 Dense**  | 560 M  | 8,192   | \~64.8        | \~68.9                | Baseline        |
 | **BGE‑M3 Sparse** | 560 M  | 8,192   | \~55.1        | —                     | —               |
+
+
+
+
+# **AutoOpsScaler — A LowOps environment to implement the top GenAI scaling statergy**
+
+## KubeRay on EKS + Karpenter is the leading production strategy for highly scalable, cost-effective GenAI clusters.
+| **Aspect**                           | **KubeRay on EKS + Karpenter**                                        | **Alternatives (summary)**                                                                         |
+| ------------------------------------ | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| **Node provisioning latency**        | Sub‑minute: just‑in‑time EC2 nodes on unschedulable Ray pods          | 2–5 min boot (Cluster Autoscaler, EC2, Fargate); instant but opaque (serverless)                   |
+| **GPU flexibility & fractional use** | Any EC2 GPU (A10G/A100/H100); Ray supports fractional scheduling      | Predefined pools(EKS-Auto), no fractional (EKS CA); limited SKUs (GKE); no GPU (Fargate)                     |
+| **Spot + On‑Demand cost mix**        | Optimized Spot usage with fallback; Ray handles preemptions           | Slower rebalancing (CA); extra fees (EKS‑Auto); manual Spot handling (EC2); high cost (serverless) |
+| **Observability & debugging**        | Full: Kubernetes events, Ray Dashboard, Prometheus                    | Limited logs (managed Ray services); less verbose (CA); manual scripts (EC2)                       |
+| **Operational overhead**             | Minimal: single Karpenter CRD + RayService, fewer IAM policies        | Multiple CRDs/HPA/KEDA/CA rules; custom EC2 scripts; YAML bloat                                    |
+| **Self‑healing**                     | Automatic node replacement and Ray task restarts                      | Slower node recovery (CA); manual scripts (EC2); vendor dependent (serverless)                     |
+| **Use‑case suitability**             | Top choice: LLM training, fine‑tuning, batch inference, RAG pipelines | Prototype only (serverless); stateless services (ECS); DIY clusters (bare‑metal)                   |
+
+---
+## **AutoOpsScaler** significantly reduces manual complexity by providing a declarative, fully automated backend for KubeRay on EKS + Karpenter, along with a highly modular AI stack to run production workloads from day one — all built with modern tools and best practices.
+
+* **Provisions infrastructure:** VPC, EKS, Karpenter, IAM, networking
+* **Configures Ray clusters:** fractional GPU scheduling, Serve, Train, and Data components
+* **Modular AI stack:** deploy LLMs, embedding models, self-managed Postgres (Zalando), and a vector DB (Qdrant) — fully within your cluster, with high flexibility to plug in external API keys or skip deploying certain stages
+* **Enables safe autoscaling:** sub-minute GPU scaling with Spot fallback
+* **Provides observability:** Ray Dashboard, Prometheus, Grafana, Kubernetes events, and metrics
+* **Abstracts complexity:** Makefile commands and dynamic Python modules handle infrastructure provisioning and deployment

@@ -11,7 +11,6 @@ KUBECTL_VERSION="v1.29.0"
 EKSCTL_VERSION="v0.174.0"
 FLUX_VERSION="v2.2.3"
 HELM_VERSION="v3.14.3"
-TERRAFORM_VERSION="1.5.7"
 NODE_VERSION="20.x"
 PYTHON_VERSION="3.11.8"
 
@@ -163,12 +162,14 @@ install_pyenv
 install_aws_cli
 install_kubectl
 install_eksctl
+install_node_vite
 install_flux
 install_helm
 install_pulumi
-install_node_vite
 install_python
 mkdir -p tmp
+clear
 
-echo "[✓] All tools installed & pinned with zero interactive prompts."
 echo "→ Open a new terminal or run 'source ~/.bashrc' to use ${PYTHON_VERSION} by default."
+
+
