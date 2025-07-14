@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-NAME="autoopsscaler"
+NAME="RAG8s"
 SSH_DIR="$HOME/.ssh"
 SSH_CONFIG="$SSH_DIR/config"
 
@@ -10,6 +10,9 @@ chmod 700 "$SSH_DIR"
 
 echo "Starting VM: $NAME..."
 vagrant up
+
+echo "Reloading VM to apply Docker group permissions..."
+vagrant reload
 
 echo "Cleaning old SSH block for $NAME..."
 if [ -f "$SSH_CONFIG" ]; then
@@ -31,11 +34,6 @@ fi
 
 echo "Installing VS Code extensions..."
 code --install-extension ms-vscode-remote.remote-ssh
-code --install-extension charliermarsh.ruff
-code --install-extension necatiarslan.aws-s3-vscode-extension
-code --install-extension ms-python.python
-code --install-extension ms-azuretools.vscode-docker
-code --install-extension ms-kubernetes-tools.vscode-kubernetes-tools
 
 echo "Verifying SSH..."
 ssh -q "$NAME" exit && echo "✔️ SSH works!" || { echo "❌ SSH failed."; exit 1; }
