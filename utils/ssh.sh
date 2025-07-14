@@ -11,9 +11,8 @@ chmod 700 "$SSH_DIR"
 echo "Starting VM: $NAME..."
 vagrant up
 
-echo "Reloading VM to apply Docker group permissions..."
+echo "Reloading VM to apply Docker group changes..."
 vagrant reload --provision
-
 
 echo "Cleaning old SSH block for $NAME..."
 if [ -f "$SSH_CONFIG" ]; then
@@ -33,7 +32,7 @@ else
   echo "⚠️ Warning: No private key found for $NAME"
 fi
 
-echo "Installing VS Code extensions..."
+echo "Installing VS Code Remote SSH extension..."
 code --install-extension ms-vscode-remote.remote-ssh
 
 echo "Verifying SSH..."
