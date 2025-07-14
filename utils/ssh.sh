@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-NAME="RAG8s"
+NAME="rag8s"
 SSH_DIR="$HOME/.ssh"
 SSH_CONFIG="$SSH_DIR/config"
 
