@@ -12,7 +12,8 @@ echo "Starting VM: $NAME..."
 vagrant up
 
 echo "Reloading VM to apply Docker group permissions..."
-vagrant reload
+vagrant reload --provision
+
 
 echo "Cleaning old SSH block for $NAME..."
 if [ -f "$SSH_CONFIG" ]; then
