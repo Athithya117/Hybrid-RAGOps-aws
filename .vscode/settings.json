@@ -1,17 +1,19 @@
 {
+  // Persist remote platform as Linux
+  "remote.SSH.remotePlatform": {
+    "your-linux-host-or-pattern": "linux"
+  },
+
+  // Files auto save after 1 second delay
   "files.autoSave": "afterDelay",
   "files.autoSaveDelay": 1000,
-
-  //  Use Ruff for formatting instead of Black
-  "python.formatting.provider": "none",   // disables black/isort auto-selection
-
-  //  Use Ruff extension instead of flake8 for linting
-  "python.linting.enabled": false,        // disables built-in flake8/pylint
-  "ruff.enable": true,                    // Ruff extension handles lint+format
-
-  // Format on save
+  // Use Ruff for Python formatting (disable black/isort)
+  "python.formatting.provider": "none",
+  // Disable built-in linting; enable Ruff extension
+  "python.linting.enabled": false,
+  "ruff.enable": true,
+  // Format files automatically on save
   "editor.formatOnSave": true,
-
-  // Integrated terminal defaults
+  // Default integrated terminal profile on Linux is bash
   "terminal.integrated.defaultProfile.linux": "bash"
 }
