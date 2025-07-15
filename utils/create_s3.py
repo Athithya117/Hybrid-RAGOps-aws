@@ -6,8 +6,7 @@ def create_local_folders(base_path="."):
     folders = [
         "data/raw/",
         "data/parsed/",
-        "data/prechunked/",
-        "data/latechunked/",
+        "data/chunked/",
         "pulumi/",
         "backups/qdrant/",
         "backups/arrangodb/"
@@ -15,7 +14,7 @@ def create_local_folders(base_path="."):
     for folder in folders:
         path = os.path.join(base_path, folder)
         os.makedirs(path, exist_ok=True)
-        print(f"Created folder: {path}")
+        print(f"Created local folder: {path}")
 
 def create_s3_bucket():
     # Load environment variables
@@ -65,12 +64,30 @@ def create_s3_bucket():
     )
     print("Public access blocked.")
 
-    return bucket_name
+    return bucket_name, s3
+
+def create_s3_folders(bucket_name, s3_client):
+    folders = [
+        "data/raw/",
+        "data/parsed/",
+        "data/chunked/",
+        "pulumi/",
+        "backups/qdrant/",
+        "backups/arrangodb/"
+    ]
+    for folder in folders:
+        # Upload a zero-byte object with the folder name to simulate folder
+        s3_client.put_object(Bucket=bucket_name, Key=folder)
+        print(f"Created folder-like prefix in S3: {folder}")
 
 if __name__ == "__main__":
     print("Creating local folders...")
     create_local_folders()
     print("Local folders created.\n")
 
-    bucket = create_s3_bucket()
-    print(f"\nS3 Bucket ready: {bucket}")
+    bucket_name, s3_client = create_s3_bucket()
+    print(f"\nS3 Bucket ready: {bucket_name}")
+
+    print("Creating folder-like prefixes in S3 bucket...")
+    create_s3_folders(bucket_name, s3_client)
+    print("S3 folder-like prefixes created.")
