@@ -2,7 +2,22 @@ import os
 import boto3
 import uuid
 
-def create_versioned_s3_bucket():
+def create_local_folders(base_path="."):
+    folders = [
+        "data/raw/",
+        "data/parsed/",
+        "data/prechunked/",
+        "data/latechunked/",
+        "pulumi/",
+        "backups/qdrant/",
+        "backups/arrangodb/"
+    ]
+    for folder in folders:
+        path = os.path.join(base_path, folder)
+        os.makedirs(path, exist_ok=True)
+        print(f"Created folder: {path}")
+
+def create_s3_bucket():
     # Load environment variables
     access_key = os.environ.get("AWS_ACCESS_KEY_ID")
     secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
@@ -38,13 +53,6 @@ def create_versioned_s3_bucket():
     except Exception as e:
         raise Exception(f"Bucket creation failed: {e}")
 
-    # Enable versioning
-    s3.put_bucket_versioning(
-        Bucket=bucket_name,
-        VersioningConfiguration={"Status": "Enabled"}
-    )
-    print("Versioning enabled.")
-
     # Block all public access
     s3.put_public_access_block(
         Bucket=bucket_name,
@@ -60,6 +68,9 @@ def create_versioned_s3_bucket():
     return bucket_name
 
 if __name__ == "__main__":
-    bucket = create_versioned_s3_bucket()
-    print(f"S3 Bucket ready: {bucket}")
+    print("Creating local folders...")
+    create_local_folders()
+    print("Local folders created.\n")
 
+    bucket = create_s3_bucket()
+    print(f"\nS3 Bucket ready: {bucket}")

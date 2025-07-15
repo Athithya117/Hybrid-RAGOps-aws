@@ -15,7 +15,7 @@ layoutparser==0.3.4
 layoutparser[layoutmodels]==0.3.4
 
 # Audio ASR
-faster-whisper==1.0.3        # Stable and verified release
+faster-whisper==1.0.3        
 
 # Language Detection
 fasttext==0.9.2
