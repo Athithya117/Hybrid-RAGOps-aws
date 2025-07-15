@@ -33,7 +33,7 @@ rm -rf $HOME/RAG8s && mkdir $HOME/RAG8s && cd $HOME/RAG8s && git config --global
 
  ### **After a system reboot**, the VM will be shut down. Always start it manually before doing ssh.
 
-  * Open VirtualBox → Right-click the VM → **Start → Headless Start and wait atleast 30-60 seconds before opening vscode**
+  * Open VirtualBox → Right-click the VM → **Start → Headless Start and wait atleast 45-60 seconds before opening vscode**
 
   ![Start the VM](.vscode/Start_the_VM.png)
 
