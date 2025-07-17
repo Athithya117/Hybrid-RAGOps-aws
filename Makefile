@@ -13,3 +13,5 @@ login:
 s3:
 	python3 utils/create_s3.py
 	rm -rf pulumi backups
+
+	
