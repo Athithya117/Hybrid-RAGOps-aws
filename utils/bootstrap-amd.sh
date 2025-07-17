@@ -35,7 +35,7 @@ install_prereqs() {
     build-essential curl unzip wget gnupg lsb-release software-properties-common git \
     python3.10 python3.10-venv python3.10-dev python3-pip jq \
     make libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev llvm \
-    libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev
+    libncursesw5-dev xz-utils tk-dev libxml2-dev ffmpeg libmagic1 libxmlsec1-dev libffi-dev liblzma-dev
 }
 
 install_pyenv() {

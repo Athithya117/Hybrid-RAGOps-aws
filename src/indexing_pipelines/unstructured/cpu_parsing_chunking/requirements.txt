@@ -1,15 +1,23 @@
+# Force CPU-only PyTorch
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+torchaudio
+
 boto3
 pdfplumber
 PyMuPDF
-fasttext
+fasttext==0.9.3
 extractous
-semantic-codec
+git+https://github.com/haoheliu/SemantiCodec-inference.git
 faster-whisper
 paddleocr
 paddlepaddle
+pydub
+ffmpeg-python
 numpy
 pillow
 python-magic
 python-dotenv
-tqdm          
-rich           
+tqdm
+rich
