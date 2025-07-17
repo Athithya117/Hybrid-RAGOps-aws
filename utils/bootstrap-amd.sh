@@ -168,7 +168,10 @@ install_helm
 install_pulumi
 install_python
 mkdir -p tmp
+mkdir -p efs && cd efs && wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin && cd -
+
 clear
+
 
 echo "→ Open a new terminal or run 'source ~/.bashrc' to use ${PYTHON_VERSION} by default."
 

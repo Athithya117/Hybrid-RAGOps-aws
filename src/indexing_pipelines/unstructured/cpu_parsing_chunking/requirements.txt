@@ -1,0 +1,15 @@
+boto3
+pdfplumber
+PyMuPDF
+fasttext
+extractous
+semantic-codec
+faster-whisper
+paddleocr
+paddlepaddle
+numpy
+pillow
+python-magic
+python-dotenv
+tqdm          
+rich           
