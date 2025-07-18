@@ -1,9 +1,10 @@
+#python 3.10.12, ubuntu-22.04
+
 # Force CPU-only PyTorch
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
 torchvision
 torchaudio
-
 boto3
 pdfplumber
 PyMuPDF
