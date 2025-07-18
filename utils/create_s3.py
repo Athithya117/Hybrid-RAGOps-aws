@@ -2,12 +2,14 @@ import os
 import boto3
 import uuid
 
+
 def create_local_folders(base_path="."):
     folders = [
         "data/raw/",
         "data/chunked/",
-        "pulumi/",
-        "backups/dbs/"
+        "backups/dbs/qdrant/",
+        "backups/dbs/arrangodb/",
+        "backups/dbs/valkeye/"
     ]
     for folder in folders:
         path = os.path.join(base_path, folder)
@@ -69,8 +71,9 @@ def create_s3_folders(bucket_name, s3_client):
         "data/raw/",
         "data/chunked/",
         "pulumi/",
-        "backups/qdrant/",
-        "backups/arrangodb/"
+        "backups/dbs/qdrant/",
+        "backups/dbs/arrangodb/",
+        "backups/dbs/valkeye/"
     ]
     for folder in folders:
         # Upload a zero-byte object with the folder name to simulate folder

@@ -8,7 +8,19 @@ export S3_BUCKET_NAME=e2e-rag-system16
 export PYTHONPATH=$(pwd)
 
 
-aws s3 ls $S3_BUCKET_NAME/data/raw/
+
+export QDRANT_HOST=localhost
+export QDRANT_GRPC_PORT=6334
+export QDRANT_COLLECTION=my_vectors
+
+export VALKEY_HOST=localhost
+export VALKEY_PORT=6379
+
+export ARANGO_HOST=localhost
+export ARANGO_PORT=8529
+export ARANGO_DB_NAME=mydb
+export ARANGO_USERNAME=root
+export ARANGO_PASSWORD=myarrango414
 
 
 

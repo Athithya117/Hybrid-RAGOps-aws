@@ -6,6 +6,7 @@ push:
 
 s3:
 	python3 utils/create_s3.py
-	rm -rf pulumi backups
+	aws s3 ls $S3_BUCKET_NAME/data/raw/
+
 
 	
