@@ -7,8 +7,7 @@ def create_local_folders(base_path="."):
         "data/raw/",
         "data/chunked/",
         "pulumi/",
-        "backups/qdrant/",
-        "backups/arrangodb/"
+        "backups/dbs/"
     ]
     for folder in folders:
         path = os.path.join(base_path, folder)
@@ -19,7 +18,7 @@ def create_s3_bucket():
     # Load environment variables
     access_key = os.environ.get("AWS_ACCESS_KEY_ID")
     secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
-    region = os.environ.get("AWS_REGION", "us-east-1")
+    region = os.environ.get("AWS_REGION")
     bucket_name = os.environ.get("S3_BUCKET_NAME", f"e2e-rag-bucket-{uuid.uuid4().hex[:8]}")
 
     # Validate required values
