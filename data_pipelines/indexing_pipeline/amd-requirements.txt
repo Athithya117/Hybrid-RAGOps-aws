@@ -1,4 +1,4 @@
-#python 3.10.12, ubuntu-22.04
+# python 3.10.12, ubuntu-22.04
 
 # Force CPU-only PyTorch
 --extra-index-url https://download.pytorch.org/whl/cpu
@@ -22,3 +22,6 @@ python-magic
 python-dotenv
 tqdm
 rich
+ray
+qdrant-client
+python-arango

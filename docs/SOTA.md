@@ -55,7 +55,7 @@ zh_yue Cantonese
 For ultra-high throughput, consider batching requests, using ONNX optimized pipelines, or running quantized inference — these can further boost speed while retaining accuracy
 
 
-Run this model using ONNX or GGUF quantization via optimum or ctransformers to get sub-10 ms latency per query even on budget CPUs
+Run this model using GGUF quantization via optimum or ctransformers to get sub-10 ms latency per query even on budget CPUs
 
 
 
