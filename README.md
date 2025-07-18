@@ -9,18 +9,17 @@ export PYTHONPATH=$(pwd)
 
 
 
-export QDRANT_HOST=localhost
-export QDRANT_GRPC_PORT=6334
 export QDRANT_COLLECTION=my_vectors
-
-export VALKEY_HOST=localhost
-export VALKEY_PORT=6379
-
-export ARANGO_HOST=localhost
-export ARANGO_PORT=8529
 export ARANGO_DB_NAME=mydb
 export ARANGO_USERNAME=root
 export ARANGO_PASSWORD=myarrango414
+
+# latest as of mid 2025
+export QDRANT_IMAGE=qdrant/qdrant:v1.13.4
+export VALKEY_IMAGE=valkey/valkey:8.1.3-alpine
+export ARANGO_IMAGE=arangodb/arangodb:3.12.5
+
+
 
 
 
