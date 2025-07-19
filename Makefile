@@ -9,7 +9,7 @@ s3:
 	aws s3 ls "$S3_BUCKET_NAME/data/raw/" --recursive | head -n 25
 
 install:
-	sudo bash utils/bootstrap-amd.sh
+	bash utils/bootstrap-amd.sh
 
 tree-dev:
 	tree -a -I '.git|.venv|prod|docs|tmp'

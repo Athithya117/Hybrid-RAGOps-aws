@@ -1,8 +1,8 @@
 # python 3.11.8, amd-ubuntu-22.04
 
-# Force CPU-only PyTorch
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
+transformers
 torchvision
 torchaudio
 boto3
@@ -20,6 +20,10 @@ pillow
 python-magic
 tqdm
 rich
+pandas
 ray
 qdrant-client
 python-arango
+sglang
+https://github.com/amazon-science/ReFinED/archive/refs/tags/V1.zip
+

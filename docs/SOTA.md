@@ -73,40 +73,6 @@ This is the full, enriched payload per vector chunk to be indexed in Qdrant:
 ```sh
 
 
-{
-  "id": "chunk_{sha256}_{chunk_index}",
-  "embedding": [],
-  "payload": {
-    "document_id": "{sha256}",
-    "chunk_id": "chunk_{chunk_index}",
-    "chunk_index": 0,
-    "text": "Text content or transcript here.",
-    "parser": "paddleocr + layoutLM + python-docx",
-    "pipeline_stage": "embedded",
-    "source": {
-      "path": "s3://bucket/data/raw/file.docx",
-      "hash": "sha256:abc123...",
-      "file_type": "docx",
-      "page_number": null,
-      "start_time": null,
-      "end_time": null,
-      "line_range": [0, 5],
-      "section_title": null
-    },
-    "metadata": {
-      "language": "en",
-      "is_multilingual": false,
-      "is_ocr": false,
-      "chunk_type": "paragraph" | "page" | "audio_segment",
-      "timestamp": "2025-07-01T00:00:00Z",
-      "tags": []
-    },
-    "entities": [],
-    "triplets": []
-  }
-}
-
-
 
 
 ```
