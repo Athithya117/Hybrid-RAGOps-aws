@@ -8,8 +8,7 @@ def create_local_folders(base_path="."):
         "data/raw/",
         "data/chunked/",
         "backups/dbs/qdrant/",
-        "backups/dbs/arrangodb/",
-        "backups/dbs/valkeye/"
+        "backups/dbs/arrangodb/"
     ]
     for folder in folders:
         path = os.path.join(base_path, folder)
@@ -72,8 +71,7 @@ def create_s3_folders(bucket_name, s3_client):
         "data/chunked/",
         "pulumi/",
         "backups/dbs/qdrant/",
-        "backups/dbs/arrangodb/",
-        "backups/dbs/valkeye/"
+        "backups/dbs/arrangodb/"
     ]
     for folder in folders:
         # Upload a zero-byte object with the folder name to simulate folder
