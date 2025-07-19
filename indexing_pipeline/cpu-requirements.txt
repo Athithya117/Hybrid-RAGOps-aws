@@ -1,4 +1,4 @@
-# python 3.11.8, amd-ubuntu-22.04
+# python 3.10.12, amd-ubuntu-22.04
 
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
@@ -25,5 +25,9 @@ ray
 qdrant-client
 python-arango
 sglang
-https://github.com/amazon-science/ReFinED/archive/refs/tags/V1.zip
+
+
+pip install git+https://github.com/mrpeerat/mReFinED.git --no-deps
+
+
 

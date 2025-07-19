@@ -18,7 +18,7 @@ preconfigure() {
   echo "[*] Preconfiguring system..."
   sudo apt-get update -yq
   sudo apt-get upgrade -yq
-  sudo apt-get install -yq tree debconf-utils gh git zip unzip make
+  sudo apt-get install -yq tree debconf-utils gh git zip unzip make python3.10-venv python3-pip
   for q in \
     "needrestart needrestart/restart boolean true" \
     "needrestart needrestart/restart-without-asking boolean true" \
@@ -237,4 +237,5 @@ install_pulumi
 install_node_vite
 install_fasttext
 
+pip install --upgrade pip wheel cache
 clear
