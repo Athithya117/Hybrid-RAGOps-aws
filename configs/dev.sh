@@ -6,14 +6,24 @@ export AWS_REGION=ap-south-1
 export S3_BUCKET_NAME=e2e-rag-system16  # give a complex and unique name
 export PYTHONPATH=$(pwd)
 
+export GITHUB_TOKEN=
+export GITHUB_USER=
+export REPO=RAG8s
+
 
 flux bootstrap github \
-  --owner=<your_github_user> \
-  --repository=RAG8s \
+  --owner=$GITHUB_USER \
+  --repository=$REPO \
   --branch=main \
   --path=infra/fluxCD/dev \
   --personal
 
+kubectl delete kustomization flux-system -n flux-system
+kubectl apply -f infra/fluxCD/flux-system/dev-kustomization.yaml
+
+docker run -d --name sslip-dns --restart=unless-stopped \
+  -p 5353:53/udp \
+  cunnie/sslip.io-dns-server
 
 
 

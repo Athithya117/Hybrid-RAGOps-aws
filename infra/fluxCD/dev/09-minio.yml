@@ -1,0 +1,33 @@
+infra/fluxCD/
+├── dev/
+│   ├── 00-namespaces.yml
+│   ├── 01-storageclass.yml
+│   ├── 02-vault-operator.yml
+│   ├── 03-external-secrets-operator.yml
+│   ├── 04-secret-store.yml
+│   ├── 05-cert-manager.yml                  # TLS certificates (after ESO, since it may need secrets)
+│   ├── 06-cloudflare-external-dns.yml       # external-dns to manage Cloudflare DNS
+│   ├── 07-traefik.yml                        # Ingress controller
+│   ├── 08-external-secrets/
+│   │   ├── cloudflare-api-token.yml         # For cert-manager and external-dns
+│   │   ├── arangodb-secrets.yml
+│   │   ├── qdrant-secrets.yml
+│   │   ├── app-configs.yml
+│   ├── 09-qdrant.yml
+│   ├── 10-arangodb.yml
+│   ├── 11-ray-operator.yml
+│   ├── 12-indexing-rayjob.yml
+│   ├── 13-inference-rayservice.yml
+│   ├── 14-monitoring-stack.yml
+│   ├── 15-logging-agent.yml
+│   ├── 16-grafana-dashboards.yml
+│   ├── 17-pdbs.yml
+│   └── kustomization.yaml
+
+
+├── flux-system/
+│   ├── dev-kustomization.yaml
+│   └── prod-kustomization.yaml
+
+├── prod/
+│   └── ... (same structure as dev)

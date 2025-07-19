@@ -238,4 +238,10 @@ install_node_vite
 install_fasttext
 
 pip install --upgrade pip wheel cache
+curl -LO https://github.com/getsops/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64
+chmod +x sops-v3.8.1.linux.amd64
+sudo mv sops-v3.8.1.linux.amd64 /usr/local/bin/sops
+sops --version
+
+
 clear
