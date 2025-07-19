@@ -1,4 +1,4 @@
-# python 3.10.12, ubuntu-22.04
+# python 3.10.12, amd-ubuntu-22.04
 
 # Force CPU-only PyTorch
 --extra-index-url https://download.pytorch.org/whl/cpu
@@ -10,7 +10,6 @@ pdfplumber
 PyMuPDF
 fasttext==0.9.3
 extractous
-git+https://github.com/haoheliu/SemantiCodec-inference.git
 faster-whisper
 paddleocr
 paddlepaddle
@@ -19,7 +18,6 @@ ffmpeg-python
 numpy
 pillow
 python-magic
-python-dotenv
 tqdm
 rich
 ray
