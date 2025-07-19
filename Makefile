@@ -1,8 +1,7 @@
 push:
-	git config pull.rebase false
 	git add .
 	git commit -m "new"
-	git push origin main
+	git push origin main --force
 
 s3:
 	python3 utils/create_s3.py
