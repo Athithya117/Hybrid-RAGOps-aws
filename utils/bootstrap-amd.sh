@@ -174,8 +174,9 @@ mkdir -p backups/dbs/arrangodb
 
 
 wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin
-
+pip install -r data_pipelines/indexing_pipeline/amd-requirements.txt --upgrade
 clear
 
 
 echo "→ Open a new terminal or run 'source ~/.bashrc' to use ${PYTHON_VERSION} by default."
+
