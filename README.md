@@ -1,61 +1,68 @@
 
 
 
-export AWS_ACCESS_KEY_ID=
-export AWS_SECRET_ACCESS_KEY=
-export AWS_REGION=ap-south-1
-export S3_BUCKET_NAME=e2e-rag-system16
-export PYTHONPATH=$(pwd)
-
-
-
-export QDRANT_COLLECTION=my_vectors
-export ARANGO_DB_NAME=mydb
-export ARANGO_USERNAME=root
-export ARANGO_PASSWORD=myarrango414
-
-# latest stable as of mid 2025
-export QDRANT_IMAGE=qdrant/qdrant:v1.13.4
-export VALKEY_IMAGE=valkey/valkey:8.1.3-alpine
-export ARANGO_IMAGE=arangodb/arangodb:3.12.5
 
 
 
 
+### **Prerequisite:**
+
+A full Linux setup is required (do **not** use Docker Desktop, WSL,devcontainers).
+
+---
+
+## **One-time installation prerequisites**
+
+| Windows                                                                                                              | macOS/Linux                                                        |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| [Visual Studio Code](https://code.visualstudio.com/) *(required)*                                                    | [Visual Studio Code](https://code.visualstudio.com/) *(required)*  |
+| [Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170) | *(not required)*                                                   |
+| [Git](https://git-scm.com/downloads)                                                                                 | [Git](https://git-scm.com/downloads)                               |
+| [Vagrant 2.4.3](https://developer.hashicorp.com/vagrant/downloads)                                                   | [Vagrant 2.4.3](https://developer.hashicorp.com/vagrant/downloads) |
+| [VirtualBox 7.0.14](https://download.virtualbox.org/virtualbox/7.0.14/)                                                              | [VirtualBox 7.0.14](https://download.virtualbox.org/virtualbox/7.0.14/)            |
+
+> **Note:** If using windows search windows features and **Turn off Hyper‑V , Windows Hypervisor Platform** and delete **Windows Subsystem for Linux (WSL2)** if possible 
+
+
+---
+
+## **Restart your system and get started**
+
+> Open a **Git Bash** terminal and run the following command. The first run will take longer(20-30 minutes) as the Ubuntu Jammy VM will be downloaded. Select only Linux if prompted in vscode
+
+```bash
+rm -rf $HOME/RAG8s && mkdir $HOME/RAG8s && cd $HOME/RAG8s && git config --global core.autocrlf false && git clone https://github.com/Athithya-Sakthivel/RAG8s.git && cd RAG8s && bash utils/ssh.sh
+```
+> The default configs are RAM = 11GB, vcpus=10 and no gpu , override it in the Vagrantfile if needed 
+---
+
+## **Important: VM Lifecycle**
+
+ ### **After a system reboot**, the VM will be shut down. Always start it manually before doing ssh.
+
+  * Open VirtualBox → Right-click the VM → **Start → Headless Start and wait atleast 45-60 seconds before opening vscode**
+
+  ![Start the VM](.vscode/Start_the_VM.png)
 
 
 
-{
-  "id": "chunk_{sha256}_{chunk_index}",
-  "embedding": [],
-  "payload": {
-    "document_id": "{sha256}",
-    "chunk_id": "chunk_{chunk_index}",
-    "chunk_index": 0,
-    "text": "Text content or transcript here.",
-    "parser": "paddleocr + layoutLM + python-docx",
-    "pipeline_stage": "embedded",
-    "source": {
-      "path": "s3://bucket/data/raw/file.docx",
-      "hash": "sha256:abc123...",
-      "file_type": "docx",
-      "page_number": null,
-      "start_time": null,
-      "end_time": null,
-      "line_range": [0, 5],
-      "section_title": null
-    },
-    "metadata": {
-      "language": "en",
-      "is_multilingual": false,
-      "is_ocr": false,
-      "chunk_type": "paragraph" | "page" | "audio_segment",
-      "timestamp": "2025-07-01T00:00:00Z",
-      "tags": []
-    },
-    "entities": [],
-    "triplets": []
-  }
-}
+### Login to your github account
+```
+make login
+```
+
+### Install the neccessary cli tools, py packages 
+```
+make install
+```
+
+
+
+
+
+
+
+
+
 
 
