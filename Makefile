@@ -1,5 +1,5 @@
 push:
-	git pull
+	git config pull.rebase false
 	git add .
 	git commit -m "new"
 	git push origin main
