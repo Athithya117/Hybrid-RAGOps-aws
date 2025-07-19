@@ -27,6 +27,41 @@ preconfigure() {
   sudo sed -i 's/#\$nrconf{restart} = .*/\$nrconf{restart} = '\''a'\'';/' /etc/needrestart/needrestart.conf || true
 }
 
+
+install_k3d() {
+  echo "[*] Installing k3d..."
+  if ! command -v k3d &>/dev/null; then
+    curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+  fi
+}
+
+create_k3d_cluster() {
+  echo "[*] Creating k3d cluster 'rag-dev'..."
+
+  # Delete cluster if exists (idempotent)
+  if k3d cluster list | grep -q '^rag-dev'; then
+    k3d cluster delete rag-dev
+  fi
+
+  # Create cluster with 1 server (control-plane) and 2 agents (workers)
+  # Enable metrics-server for autoscaling if needed
+  k3d cluster create rag-dev \
+    --servers 1 \
+    --agents 2 \
+    --port "8080:80@loadbalancer" \
+    --port "6443:6443@server:0" \
+    --k3s-arg "--disable=traefik@server:0" \
+    --wait
+
+  # Set kubeconfig context
+  export KUBECONFIG="$(k3d kubeconfig write rag-dev)"
+  kubectl config use-context k3d-rag-dev
+
+  echo "[*] k3d cluster 'rag-dev' created and kubeconfig set."
+}
+
+
+
 install_prereqs() {
   echo "[*] Installing base packages & pyenv build deps..."
   sudo apt-get update -yq
@@ -167,15 +202,18 @@ install_flux
 install_helm
 install_pulumi
 install_python
+install_k3d
+create_k3d_cluster
 
 mkdir -p tmp
 mkdir -p backups/dbs/qdrant
 mkdir -p backups/dbs/arrangodb
+mkdir -p models
 
-
-wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin
+cd models && wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin && cd -
 pip install -r data_pipelines/indexing_pipeline/amd-requirements.txt --upgrade
 clear
+
 
 
 echo "→ Open a new terminal or run 'source ~/.bashrc' to use ${PYTHON_VERSION} by default."
