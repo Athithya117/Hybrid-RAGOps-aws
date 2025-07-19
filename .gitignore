@@ -6,3 +6,5 @@ backups
 models
 02-secrets.yml
 tmp.md
+*.zip
+.zip

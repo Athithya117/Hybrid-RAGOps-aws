@@ -17,7 +17,7 @@ PYTHON_VERSION="3.11.8"
 preconfigure() {
   echo "[*] Preconfiguring system to avoid interactive prompts..."
   sudo apt-get update -yq
-  sudo apt-get install -yq tree debconf-utils
+  sudo apt-get install -yq tree debconf-utils gh git zip unzip
   for q in \
     "needrestart needrestart/restart boolean true" \
     "needrestart needrestart/restart-without-asking boolean true" \

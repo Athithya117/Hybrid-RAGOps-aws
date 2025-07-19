@@ -11,4 +11,15 @@ s3:
 install:
 	sudo bash utils/bootstrap-amd.sh
 
+tree-dev:
+	tree -a -I '.git|.venv|prod|docs|tmp'
+
+backup:
+	zip "$$(basename $$PWD)_$$(date +%Y%m%d_%H%M%S).zip" \
+	$$(find . -type f -size -100M \
+		! -path "*/.git/*" \
+		! -path "*/.venv/*" \
+		! -path "*/tmp/*" \
+		! -path "models/*")
+
 
