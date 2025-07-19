@@ -2,6 +2,8 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+export DEBIAN_FRONTEND=noninteractive
+
 # Versions
 KUBECTL_VERSION="v1.29.0"
 EKSCTL_VERSION="v0.174.0"
@@ -15,7 +17,8 @@ FASTTEXT_MODEL_FILE="lid.176.bin"
 preconfigure() {
   echo "[*] Preconfiguring system..."
   sudo apt-get update -yq
-  sudo apt-get install -yq tree debconf-utils gh git zip unzip
+  sudo apt-get upgrade -yq
+  sudo apt-get install -yq tree debconf-utils gh git zip unzip make
   for q in \
     "needrestart needrestart/restart boolean true" \
     "needrestart needrestart/restart-without-asking boolean true" \
@@ -42,6 +45,8 @@ install_prereqs() {
 install_docker() {
   echo "[*] Installing Docker..."
 
+  export DEBIAN_FRONTEND=noninteractive
+
   DOCKER_VERSION="5:24.0.7-1~ubuntu.22.04~jammy"
   DOCKER_CLI_VERSION="5:24.0.7-1~ubuntu.22.04~jammy"
   CONTAINERD_VERSION="1.6.25-1"
@@ -49,27 +54,41 @@ install_docker() {
   if dpkg -l | grep -q "docker-ce.*${DOCKER_VERSION}"; then
     echo " - Docker ${DOCKER_VERSION} already installed"
   else
+    # Remove old Docker versions (ignore errors)
     sudo apt-get remove -y docker docker-engine docker.io containerd runc || true
+
     sudo apt-get update -y
     sudo apt-get install -y ca-certificates curl gnupg lsb-release
+
     sudo install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-      sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+
+    # Overwrite GPG file non-interactively
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo tee /etc/apt/keyrings/docker.gpg > /dev/null
+
+    # Add Docker repo
     echo \
       "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
       https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
       sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
     sudo apt-get update -y
+
+    # Allow downgrades and install specific versions
     sudo apt-get install -y \
       docker-ce="${DOCKER_VERSION}" \
       docker-ce-cli="${DOCKER_CLI_VERSION}" \
       containerd.io="${CONTAINERD_VERSION}" \
-      docker-buildx-plugin docker-compose-plugin
+      docker-buildx-plugin docker-compose-plugin \
+      --allow-downgrades
+
+    # Add user to docker group (idempotent)
     sudo groupadd docker 2>/dev/null || true
     sudo usermod -aG docker "$USER"
+
     echo " - Docker installed"
   fi
 
+  # Append docker group logic to ~/.bashrc (if not already added)
   if ! grep -q 'DOCKER_GROUP_APPLIED' ~/.bashrc; then
     cat >> ~/.bashrc <<'EOF'
 
@@ -87,6 +106,7 @@ EOF
     echo " - Added docker group activation block to ~/.bashrc"
   fi
 }
+
 
 install_aws_cli() {
   echo "[*] Installing AWS CLI v2..."
