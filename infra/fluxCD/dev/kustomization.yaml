@@ -1,0 +1,19 @@
+# infra/fluxCD/dev/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - 00-namespaces.yml
+  - 01-configmap.yml
+  - 03-storageclass.yml
+  - 04-qdrant-operator.yml
+  - 05-qdrant-instance.yml
+  - 06-arangodb-operator.yml
+  - 07-arangodb-cluster.yml
+  - 08-valkey.yml
+  - 09-ray-operator.yml
+  - 10-indexing-rayjob.yml
+  - 11-inference-rayservice.yml
+  - 12-monitoring-stack.yml
+  - 13-logging-agent.yml
+  - 14-grafana-dashboards.yml
+  - 15-pdbs.yml
