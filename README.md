@@ -1,5 +1,3 @@
-
-
 **NVIDIA (June 2025)** recommends **page-level chunking** as the most accurate and consistent baseline:
 
 > “Page-level chunking achieved the highest average accuracy (0.648) with the lowest standard deviation (0.107)... It outperformed token- and section-level chunking.”

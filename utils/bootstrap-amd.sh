@@ -243,5 +243,9 @@ chmod +x sops-v3.8.1.linux.amd64
 sudo mv sops-v3.8.1.linux.amd64 /usr/local/bin/sops
 sops --version
 
+mkdir -p backups/dbs/qdrant
+mkdir -p backups/dbs/arrangodb
+mkdir -p backups/dbs/valkeye
+
 
 clear

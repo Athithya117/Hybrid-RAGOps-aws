@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - 00-namespaces.yml
+  - 01-longhorn.yml
+  - 02-storageclass.yml
+  - 03-configmap.yml
+  - 04-secrets.yml
+  - 05-cloudflare.yml
+  - 06-traefik.yml
+  - 07-qdrant.yml
+  - 08-arangodb.yml
+  - 09-valkeye.yml
+  - 10-ray-operator.yml
+  - 11-indexing-rayjob.yml
+  - 12-inference-rayservice.yml
+  - 13-monitoring-stack.yml
+  - 14-logging-agent.yml
+  - 15-grafana-dashboards.yml
+  - 16-pdbs.yml
