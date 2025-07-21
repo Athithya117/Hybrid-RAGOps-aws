@@ -127,6 +127,7 @@ rpds-py==0.26.0
 ruamel.yaml==0.18.14
 ruamel.yaml.clib==0.2.12
 s3transfer==0.13.1
+safetensors==0.5.3
 scikit-learn==1.7.1
 scipy==1.15.3
 shapely==2.1.1
@@ -143,6 +144,7 @@ torch==2.7.1+cpu
 torchaudio==2.7.1+cpu
 torchvision==0.22.1+cpu
 tqdm==4.67.1
+transformers==4.53.2
 typing-inspect==0.9.0
 typing-inspection==0.4.1
 typing_extensions==4.14.1

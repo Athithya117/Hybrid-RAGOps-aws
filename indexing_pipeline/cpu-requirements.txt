@@ -24,10 +24,5 @@ pandas
 ray
 qdrant-client
 python-arango
-sglang
-
-
-pip install git+https://github.com/mrpeerat/mReFinED.git --no-deps
-
 
 
