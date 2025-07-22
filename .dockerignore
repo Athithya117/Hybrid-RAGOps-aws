@@ -5,7 +5,11 @@ lid.176.bin
 backups
 models
 02-secrets.yml
+tmp.md
 *.zip
 .zip
 IYDKNYKN.md
 to_know.md
+.venv2
+commands.md
+cli.md

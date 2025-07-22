@@ -7,8 +7,8 @@ s3:
 	python3 utils/create_s3.py
 	aws s3 ls "$S3_BUCKET_NAME/data/raw/" --recursive | head -n 25
 
-install-o:
-	bash utils/bootstrap-on-prem.sh
+install:
+	bash utils/bootstrap-amd.sh
 
 tree-o:
 	tree -a -I '.git|.venv|aws|docs|tmp|utils|aws-kustomization.yaml|raw|chunked'
