@@ -8,6 +8,14 @@ export VALKEY_PASSWORD="yourValkeyPass"
 
 ```
 
+
+export S3_BUCKET=e2e-ragsystem-16
+export DEVICE=cpu
+
+
+
+
+
 ```sh
 
 {

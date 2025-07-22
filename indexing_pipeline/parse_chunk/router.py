@@ -9,7 +9,6 @@ from tqdm import tqdm
 from io import BytesIO
 import sys
 
-# --- Config & Env Validation ---
 def env_or_fail(var, default=None, mandatory=True):
     val = os.environ.get(var, default)
     if mandatory and val is None:
@@ -28,7 +27,6 @@ s3 = boto3.client("s3")
 def log(*args, **kwargs):
     print(*args, **kwargs, flush=True)
 
-# --- S3 helpers ---
 def list_raw_files():
     paginator = s3.get_paginator('list_objects_v2')
     pages = paginator.paginate(Bucket=S3_BUCKET, Prefix=S3_RAW_PREFIX)
@@ -123,12 +121,13 @@ def main():
             continue
 
         try:
-            module = importlib.import_module(f"formats.{module_name}")
+            # FIXED import here:
+            module = importlib.import_module(f"indexing_pipeline.parse_chunk.formats.{module_name}")
             if not hasattr(module, "parse_file"):
-                log(f"Skipping: formats.{module_name} has no parse_file()")
+                log(f"Skipping: indexing_pipeline.parse_chunk.formats.{module_name} has no parse_file()")
                 continue
         except Exception as e:
-            log(f"Skipping: Error importing formats.{module_name} → {e}")
+            log(f"Skipping: Error importing indexing_pipeline.parse_chunk.formats.{module_name} → {e}")
             continue
 
         log(f"Processing: {key} (module: {module_name})")

@@ -6,13 +6,9 @@ transformers
 torchvision
 torchaudio
 boto3
-pdfplumber
 PyMuPDF
-fasttext==0.9.3
 extractous
 faster-whisper
-paddleocr
-paddlepaddle
 pydub
 ffmpeg-python
 numpy
@@ -24,5 +20,6 @@ pandas
 ray
 qdrant-client
 python-arango
-
+paddleocr
+paddlepaddle
 
