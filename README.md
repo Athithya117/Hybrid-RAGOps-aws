@@ -8,105 +8,76 @@ export VALKEY_PASSWORD="yourValkeyPass"
 
 ```
 
+```
 
 export S3_BUCKET=e2e-ragsystem-16
-export DEVICE=cpu
+export DEVICE=cpu              # or gpu
+export EMBED_MODEL="intfloat/e5-base"
+# or
+export EMBED_MODEL="elastic/multilingual-e5-small-optimized"
+export LOAD_IN=int8    # or float16
 
 
+```
 
+
+---
+
+| **Model**                                   | **MRR\@10 / MTEB** | **Parameters** | **Size (float32)** | **Embedding Dim** | **Max Tokens** | **VRAM (float32)** | **VRAM (float16)** | **VRAM (int8)** |
+| ------------------------------------------- | ------------------ | -------------- | ------------------ | ----------------- | -------------- | ------------------ | ------------------ | --------------- |
+| **elastic/multilingual-e5-small-optimized** | \~ 64.4 MRR\@10    | \~ 110 M       | –                  | 384               | 512            | \~ 1–1.5 GB        | N/A (already int8) | \~ 1 GB         |
+| **elastic/multilingual-e5-small**           | 64.4 MRR\@10       | \~ 110 M       | \~ 440 MB          | 384               | 512            | \~ 2–3 GB          | \~ 1.5–2 GB        | \~ 1–1.2 GB     |
+| **elastic/multilingual-e5-base**            | \~ 65.9 MRR\@10    | \~ 260 M       | \~ 1.0 GB          | 768               | 512            | \~ 4–6 GB          | \~ 2.5–3.5 GB      | \~ 1.5–2.0 GB   |
+| **elastic/multilingual-e5-large**           | \~ 70.5 MTEB       | \~ 500 M       | \~ 2.0 GB          | 1024              | 512            | \~ 8–10 GB         | \~ 4.5–6 GB        | \~ 2.5–3.5 GB   |
+| **intfloat/e5-small**                       | 64.4 MRR\@10       | \~ 110 M       | \~ 440 MB          | 384               | 512            | \~ 2–3 GB          | \~ 1.5–2 GB        | \~ 1–1.2 GB     |
+| **intfloat/e5-base**                        | \~ 65.9 MRR\@10    | \~ 260 M       | \~ 1.0 GB          | 768               | 512            | \~ 4–6 GB          | \~ 2.5–3.5 GB      | \~ 1.5–2.0 GB   |
+| **intfloat/e5-large**                       | \~ 70.5 MTEB       | \~ 500 M       | \~ 2.0 GB          | 1024              | 512            | \~ 8–10 GB         | \~ 4.5–6 GB        | \~ 2.5–3.5 GB   |
+
+---
+
+### the default is elastic/multilingual-e5-small-optimized, its optimized for CPU but if GPU scaling, use small/base/large.
+
+---
+
+---
 
 
 ```sh
 
 {
-  "id": "chunk_d4c3b4e1_page_1", // Unique ID for the chunk: format = chunk_<sha256>_<scope> (e.g., page, segment, etc.)
+  "id": "chunk_<document_sha256>_<chunk_index>",          // Unique global ID for the chunk: includes doc hash and position
   "payload": {
-    "document_id": "d4c3b4e1", // SHA256 hash of full file (universal doc ID across formats)
-    "chunk_id": "chunk_1", // Index within document, stable and deterministic
-    "chunk_index": 0, // 0-based index for ordering in the document
+    "document_id": "<document_sha256>",                   // SHA256 of the full file (used for deduplication and lineage)
+    "chunk_id": "<document_sha256>_<chunk_index>",        // Local ID for chunk, deterministic within a document
+    "chunk_index": 0,                                     // 0-based index, used for ordering chunks during retrieval
+    "text": "chunk text content",                         // Actual text of this chunk (paragraph, page, heading, etc.)
 
-    "text": "Extracted text content here", // Main textual content of the chunk (OCR, transcription, plain text, etc.)
+    "source_path": "s3://bucket/file.pdf",                // Resolved full URI of the original file (can be local or cloud)
+    "source_hash": "<document_sha256>",                   // Redundant doc hash (used for quick reference)
 
-    "parser": "paddleocr+pdfplumber+fitz", // Toolchain used to generate this chunk
-    // Examples:
-    // HTML: "extractous+beautifulsoup"
-    // Audio: "faster-whisper+ffmpeg+pydub"
-    // CSV: "ray.data.read_csv"
-
-    "pipeline_stage": "extracted", // Can be: "extracted", "enriched", "indexed", etc.
-
-    "source_path": "s3://bucket/path/file.pdf", // Full resolved path from which data came (supports s3://, file://, etc.)
-    "source_hash": "d4c3b4e1", // Used to detect duplicates
-
-    "file_type": "pdf", // MIME-derived or extension-based type: "audio", "html", "csv", "json", etc.
-
-    // === Format-specific fields ===
-    "page_number": 1, // PDFs, ePubs: required. For HTML/CSV, set null or omit.
-    "start_time": null, // Audio/Video: set to segment start in seconds (e.g., 12.4)
-    "end_time": null,   // Audio/Video: set to segment end in seconds (e.g., 35.2)
-
-    "line_range": [20, 35], // For PDFs, CSVs, HTML: line/row index range that formed this chunk
-    // Audio: null
-    // HTML: [<start_tag_line>, <end_tag_line>] for heading blocks
-
-    "bbox": [0, 0, 612, 792], // PDF/HTML: pixel coordinates [x0, y0, x1, y1] of chunk
-    // CSV: null
-    // Audio: null
+    "file_type": "pdf",                                   // One of: pdf, html, mp3, csv, txt, etc. (prefer MIME-based detection)
+    "page_number": 1,                                     // For PDFs/ePubs: the 1-based page index. Null for non-paged types
+    "start_time": null,                                   // For audio/video: start time of chunk in seconds. Else null
+    "end_time": null,                                     // For audio/video: end time in seconds. Else null
+    "line_range": null,                                   // For tabular/text: [start_line, end_line] range; else null
+    "bbox": null,                                         // For visual formats (PDF, HTML): [x0, y0, x1, y1] pixel bbox. Else null
 
     "metadata": {
-      "language": "en", // ISO 639-1 language code
-      "is_multilingual": false, // True if detected language is mixed (via fastText)
-
-      "is_ocr": true, // True only if OCR fallback triggered
-      // For Audio: false
-      // For HTML/CSV: false
-
-      "chunk_type": "page", // Semantic chunk type:
-      // PDF: "page"
-      // Audio: "segment"
-      // HTML: "section", "paragraph", "heading"
-      // CSV: "rows"
-      // JSON: "record", "group"
-
-      "timestamp": "2025-07-21T19:00:00Z", // UTC ISO timestamp of when chunk was created
-
-      "tags": [], // Any auto/external tags (e.g., "footer", "header", "invoice", "title")
-
-      "confidence": 0.94, // OCR or ASR confidence if available, null otherwise
-
-      "layout_tags": ["paragraph", "heading"] // Detected structural labels (esp. for HTML/PDFs)
+      "language": "en",                                   // ISO 639-1 language code. Use fastText or langdetect if needed
+      "is_multilingual": false,                           // True if mixed language content detected
+      "is_ocr": false,                                    // True if OCR was applied (fallback on image-based PDFs)
+      "chunk_type": "paragraph",                          // "paragraph", "heading", "page", "table", "section", etc.
+      "timestamp": "2025-07-23T20:30:00Z",                // UTC timestamp of chunk creation (ISO 8601 format)
+      "tags": [],                                         // Optional labels: "title", "header", "invoice", etc.
+      "layout_tags": ["heading", "paragraph"],            // Structural tags inferred from layout model
+      "confidence": null                                  // OCR/ASR confidence score (0.0–1.0); null if not applicable
     },
 
-    "entities": [], // List of extracted entities with optional metadata
-    "triplets": [], // Subject–predicate–object tuples
-    "embedding": [] // Floating point vector, 
+    "entities": [],                                     // Optional: NER output as list of {text, type, span, confidence}
+    "embedding": []                                     // Optional: vector embedding (float list) to be added post-parsing
   },
 
-  "tables": [
-    {
-      "table_id": "d4c3b4e1_page_1_table_0", // Unique ID for table
-      "table_index": 0, // Per-page or per-chunk table index
-      "page_number": 1, // Set to chunk's page (for CSV/JSON: null or row_range[0])
-      "bbox": [100, 150, 500, 300], // Table bounding box (if extracted from a page layout)
-      "rows": [
-        ["Header1", "Header2"],
-        ["Row1Col1", "Row1Col2"]
-      ]
-      // For CSV: table_id is the same as chunk_id, bbox = null
-      // For JSON: explode array fields into synthetic tables
-    },
-
-    {
-      "table_id": "d4c3b4e1_page_1_table_1",
-      "table_index": 1,
-      "page_number": 1,
-      "bbox": [100, 400, 500, 550],
-      "rows": [
-        ["A", "B"],
-        ["1", "2"]
-      ]
-    }
-  ]  // or null
+  "tables": null                                          // Optional: list of extracted tables; null if no tables present
 }
 
 

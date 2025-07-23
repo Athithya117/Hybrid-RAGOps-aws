@@ -6,20 +6,9 @@ transformers
 torchvision
 torchaudio
 boto3
-PyMuPDF
-extractous
-faster-whisper
-pydub
-ffmpeg-python
-numpy
-pillow
-python-magic
-tqdm
-rich
+docling
 pandas
 ray
 qdrant-client
 python-arango
-paddleocr
-paddlepaddle
 
