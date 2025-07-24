@@ -2,6 +2,10 @@
 
 IFS=$'\n\t'
 
+
+
+
+
 # Logging
 log() { echo -e "\e[32m[+]\e[0m $1"; }
 err() { echo -e "\e[31m[!]\e[0m $1" >&2; }
