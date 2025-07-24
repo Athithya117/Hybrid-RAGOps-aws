@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
-
 install_k3d() {
   echo "[*] Installing k3d..."
   if ! command -v k3d &>/dev/null; then
