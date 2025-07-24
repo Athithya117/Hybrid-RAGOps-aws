@@ -14,7 +14,7 @@ install:
 	bash utils/bootstrap-amd.sh
 
 tree-o:
-	tree -a -I '.git|.venv|aws|docs|tmp|utils|aws-kustomization.yaml|raw|chunked'
+	tree -a -I '.git|.venv|aws|docs|tmp|aws-kustomization.yaml|raw|chunked'
 
 backup:
 	zip "$$(basename $$PWD)_$$(date +%Y%m%d_%H%M%S).zip" \

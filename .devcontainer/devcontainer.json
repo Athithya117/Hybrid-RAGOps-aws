@@ -11,13 +11,12 @@
     "-v", "/var/run/docker.sock:/var/run/docker.sock"
   ],
   "remoteUser": "root",
-  "postCreateCommand": "docker version || echo '⚠️ Docker socket not accessible. Ensure Docker is running and shared with volume.'",
+  "postCreateCommand": "chmod +x utils/install.sh && ./utils/install.sh",
   "workspaceFolder": "/workspace",
   "mounts": [
     "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
   ],
-  "features": {},
-  "settings": {}
+  "features": {}
 }
 
 
