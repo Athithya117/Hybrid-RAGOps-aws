@@ -5,6 +5,7 @@
     "context": "."
   },
   "runArgs": [
+    //  "--gpus", "all",
     "--cap-add=SYS_PTRACE",
     "--security-opt=seccomp=unconfined"
   ],
