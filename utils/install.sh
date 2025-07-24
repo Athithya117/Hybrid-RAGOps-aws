@@ -170,3 +170,6 @@ install_pulumi
 install_node_vite
 
 echo "[*] Setup complete"
+
+
+
