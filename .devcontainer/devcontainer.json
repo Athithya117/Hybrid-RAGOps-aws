@@ -1,16 +1,16 @@
 {
-  "name": "ubuntu-22.04-root",
+  "name": "RAG8s",
   "build": {
     "dockerfile": "Dockerfile",
     "context": "."
   },
   "runArgs": [
-    //  "--gpus", "all",
     "--cap-add=SYS_PTRACE",
-    "--security-opt=seccomp=unconfined"
+    "--security-opt=seccomp=unconfined",
+    "-v", "/var/run/docker.sock:/var/run/docker.sock"
   ],
   "remoteUser": "root",
-  "postCreateCommand": "apt update && apt install -y curl git sudo",
+  "postCreateCommand": "apt update && apt install -y docker.io && docker version",
   "workspaceFolder": "/workspace",
   "mounts": [
     "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"

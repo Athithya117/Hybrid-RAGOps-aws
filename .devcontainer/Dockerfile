@@ -8,8 +8,11 @@ RUN apt-get update && \
     curl \
     git \
     sudo \
-    tree make gh \
+    tree \
+    make \
+    gh \
     vim \
+    docker.io \
     ca-certificates \
     gnupg \
     lsb-release \
