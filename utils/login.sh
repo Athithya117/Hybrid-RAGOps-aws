@@ -5,30 +5,29 @@ IFS=$'\n\t'
 log() { echo "[+] $1"; }
 err() { echo "[!] $1" >&2; }
 
-# Ensure dependencies
-command -v gh >/dev/null 2>&1 || { err "Install: apt install -y gh"; exit 1; }
-command -v git >/dev/null 2>&1 || { err "Install: apt install -y git"; exit 1; }
+# Check dependencies
+command -v gh >/dev/null || { err "Install: apt install -y gh"; exit 1; }
+command -v git >/dev/null || { err "Install: apt install -y git"; exit 1; }
 
-# Prompt or use env vars
-[[ -z "${GH_USERNAME:-}" ]] && read -rp "GitHub username: " GH_USERNAME
-[[ -z "${GH_EMAIL:-}" ]] && read -rp "GitHub email: " GH_EMAIL
+# Ask user input if not set
+read -rp "Enter your GitHub username: " GH_USERNAME
+read -rp "Enter your GitHub email: " GH_EMAIL
+echo "👉 Generate a PAT with repo scope: https://github.com/settings/tokens/new"
+read -rsp "Enter your GitHub Personal Access Token (PAT): " GH_TOKEN && echo
 
-# The token stored in GH_TOKEN env is used by gh automatically.
-if [[ -z "${GH_TOKEN:-}" ]]; then
-  echo "👉 Generate a PAT with repo scope: https://github.com/settings/tokens/new"
-  read -rsp "Enter your GitHub PAT: " TOKEN
-  echo ""
-  export GH_TOKEN="$TOKEN"
-fi
+# Export to current session
+export GH_USERNAME GH_EMAIL GH_TOKEN
+log "Exported GH_USERNAME, GH_EMAIL, GH_TOKEN as environment variables."
 
-log "Using GH_TOKEN for authentication"
+# Authenticate headlessly
+log "Logging in GitHub CLI with PAT..."
+echo "$GH_TOKEN" | gh auth login --with-token --hostname github.com
 
-# Configure Git via gh credential helper :contentReference[oaicite:7]{index=7}
-git config --global credential.https://github.com.helper ""
-git config --global credential.https://github.com.helper "!$(which gh) auth git-credential"
+# Setup Git to use gh for credentials
+gh auth setup-git --hostname github.com
 
-# Git configs
+# Configure Git identity
 git config --global user.name "$GH_USERNAME"
 git config --global user.email "$GH_EMAIL"
 
-log "✅ GitHub CLI and Git configured for non‑interactive PAT use"
+log "✅ GitHub CLI authenticated and Git config complete."
