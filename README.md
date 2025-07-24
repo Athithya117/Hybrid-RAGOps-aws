@@ -1,5 +1,5 @@
 
-```
+```sh
 export QDRANT_GRPC_HOST="localhost"
 export QDRANT_GRPC_PORT=6334
 export ARANGO_ROOT_USERNAME="root"
@@ -8,36 +8,37 @@ export VALKEY_PASSWORD="yourValkeyPass"
 
 ```
 
-```
+```sh
 
-export S3_BUCKET=e2e-ragsystem-16
-export DEVICE=cpu              # or gpu
-export EMBED_MODEL="intfloat/e5-base"
-# or
+export PYTHONPATH=$(pwd)
+export S3_BUCKET=e2e-rag-system16  
+export S3_RAW_PREFIX=data/raw/
+export S3_CHUNKED_PREFIX=data/chunked/
+export CHUNK_FORMAT=json    # or jsonl for storage efficieny if headless mode
+export DEVICE=cpu      # or gpu
 export EMBED_MODEL="elastic/multilingual-e5-small-optimized"
 export LOAD_IN=int8    # or float16
 
 
 ```
 
-
----
-
-| **Model**                                   | **MRR\@10 / MTEB** | **Parameters** | **Size (float32)** | **Embedding Dim** | **Max Tokens** | **VRAM (float32)** | **VRAM (float16)** | **VRAM (int8)** |
-| ------------------------------------------- | ------------------ | -------------- | ------------------ | ----------------- | -------------- | ------------------ | ------------------ | --------------- |
-| **elastic/multilingual-e5-small-optimized** | \~ 64.4 MRR\@10    | \~ 110 M       | –                  | 384               | 512            | \~ 1–1.5 GB        | N/A (already int8) | \~ 1 GB         |
-| **elastic/multilingual-e5-small**           | 64.4 MRR\@10       | \~ 110 M       | \~ 440 MB          | 384               | 512            | \~ 2–3 GB          | \~ 1.5–2 GB        | \~ 1–1.2 GB     |
-| **elastic/multilingual-e5-base**            | \~ 65.9 MRR\@10    | \~ 260 M       | \~ 1.0 GB          | 768               | 512            | \~ 4–6 GB          | \~ 2.5–3.5 GB      | \~ 1.5–2.0 GB   |
-| **elastic/multilingual-e5-large**           | \~ 70.5 MTEB       | \~ 500 M       | \~ 2.0 GB          | 1024              | 512            | \~ 8–10 GB         | \~ 4.5–6 GB        | \~ 2.5–3.5 GB   |
-| **intfloat/e5-small**                       | 64.4 MRR\@10       | \~ 110 M       | \~ 440 MB          | 384               | 512            | \~ 2–3 GB          | \~ 1.5–2 GB        | \~ 1–1.2 GB     |
-| **intfloat/e5-base**                        | \~ 65.9 MRR\@10    | \~ 260 M       | \~ 1.0 GB          | 768               | 512            | \~ 4–6 GB          | \~ 2.5–3.5 GB      | \~ 1.5–2.0 GB   |
-| **intfloat/e5-large**                       | \~ 70.5 MTEB       | \~ 500 M       | \~ 2.0 GB          | 1024              | 512            | \~ 8–10 GB         | \~ 4.5–6 GB        | \~ 2.5–3.5 GB   |
-
 ---
 
 ### the default is elastic/multilingual-e5-small-optimized, its optimized for CPU but if GPU scaling, use small/base/large.
 
+
 ---
+| **Model**                                   | **MRR\@10 / MTEB**                          | **Params** | **Size (float32)** | **Embed Dim** | **Max Tokens** | **VRAM (fp32)** | **VRAM (fp16)** | **VRAM (int8)** |
+| ------------------------------------------- | ------------------------------------------- | ---------- | ------------------ | ------------- | -------------- | --------------- | --------------- | --------------- |
+| **elastic/multilingual-e5-small-optimized** | \~ 64.4 MRR\@10 (average)  | \~ 110 M   | – (int8 quant)     | 384           | 512            | \~ 1–1.5 GB     | n/a             | \~ 1 GB         |
+| **elastic/multilingual-e5-small**           | 64.4 MRR\@10 (average)     | \~ 110 M   | \~ 440 MB          | 384           | 512            | \~ 2–3 GB       | \~ 1.5–2 GB     | \~ 1–1.2 GB     |
+| **elastic/multilingual-e5-base**            | 65.9 MRR\@10 (average)     | \~ 260 M   | \~ 1.0 GB          | 768           | 512            | \~ 4–6 GB       | \~ 2.5–3.5 GB   | \~ 1.5–2 GB     |
+| **elastic/multilingual-e5-large**           | n/a (not published)                         | \~ 500 M   | \~ 2.0 GB          | 1024          | 512            | \~ 8–10 GB      | \~ 4.5–6 GB     | \~ 2.5–3.5 GB   |
+| **intfloat/e5-small**                       | 64.4 MRR\@10 (average)     | \~ 110 M   | \~ 440 MB          | 384           | 512            | \~ 2–3 GB       | \~ 1.5–2 GB     | \~ 1–1.2 GB     |
+| **intfloat/e5-base**                        | 65.9 MRR\@10 (average)     | \~ 260 M   | \~ 1.0 GB          | 768           | 512            | \~ 4–6 GB       | \~ 2.5–3.5 GB   | \~ 1.5–2 GB     |
+| **intfloat/e5-large**                       | n/a (not published)                         | \~ 500 M   | \~ 2.0 GB          | 1024          | 512            | \~ 8–10 GB      | \~ 4.5–6 GB     | \~ 2.5–3.5 GB   |
+
+
 
 ---
 
@@ -63,7 +64,6 @@ export LOAD_IN=int8    # or float16
     "bbox": null,                                         // For visual formats (PDF, HTML): [x0, y0, x1, y1] pixel bbox. Else null
 
     "metadata": {
-      "language": "en",                                   // ISO 639-1 language code. Use fastText or langdetect if needed
       "is_multilingual": false,                           // True if mixed language content detected
       "is_ocr": false,                                    // True if OCR was applied (fallback on image-based PDFs)
       "chunk_type": "paragraph",                          // "paragraph", "heading", "page", "table", "section", etc.

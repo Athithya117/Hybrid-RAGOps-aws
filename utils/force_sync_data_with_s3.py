@@ -1,9 +1,16 @@
 """
-THIS FORCE SYNC FILE IS FOR DEV PURPOSE ONLY. IF USING FOR PROD, MAKE SURE UPLOAD/DOWNLOAD ARGUMENT IS CORRECT.
+sync:
 
 python3 utils/force_sync_data_with_s3.py --upload
 (OR)
 python3 utils/force_sync_data_with_s3.py --download
+
+force sync:
+
+python3 utils/force_sync_data_with_s3.py --upload --force
+(OR)
+python3 utils/force_sync_data_with_s3.py --download --force
+
 """
 
 
@@ -16,10 +23,7 @@ import boto3
 import ray
 from botocore.exceptions import ClientError
 
-# Initialize Ray with env-controlled settings
 ray.init(ignore_reinit_error=True)
-
-# Get concurrency from env or fallback
 CONCURRENCY = int(os.environ.get("RAY_CONCURRENT_FILES", 4))
 
 def get_s3_client():
@@ -45,6 +49,12 @@ def download_file(s3_key: str, rel_path: str, bucket: str, local_base: str):
     s3.download_file(bucket, s3_key, str(target))
     return rel_path
 
+@ray.remote(max_retries=3)
+def delete_s3_file(bucket: str, s3_key: str):
+    s3 = get_s3_client()
+    s3.delete_object(Bucket=bucket, Key=s3_key)
+    return s3_key
+
 def list_local_files(base_dir):
     base = Path(base_dir)
     return [(str(p.resolve()), p.relative_to(base).as_posix())
@@ -62,24 +72,45 @@ def list_s3_objects(bucket, prefix):
                 out.append((key, rel))
     return out
 
-def upload_directory(base_dir, bucket, prefix, max_concurrency):
-    files = list_local_files(base_dir)
+def upload_directory(base_dir, bucket, prefix, max_concurrency, force=False):
+    local_files = dict(list_local_files(base_dir))
+    remote_files = dict(list_s3_objects(bucket, prefix)) if force else {}
+
+    # Delete stale remote files not present locally
+    if force:
+        stale_keys = [k for k, rel in remote_files.items() if rel not in local_files.values()]
+        ray.get([delete_s3_file.remote(bucket, key) for key in stale_keys])
+        print(f"Removed {len(stale_keys)} stale object(s) from S3.")
+
+    # Upload current files
     futures = []
-    for path, rel in files:
+    for path, rel in local_files.items():
         futures.append(upload_file.options(num_cpus=1).remote(path, rel, bucket, prefix))
         if len(futures) >= max_concurrency:
             done, futures = ray.wait(futures, num_returns=1)
     ray.get(futures)
     print("Upload complete")
 
-def download_directory(bucket, base_dir, prefix, max_concurrency):
-    objects = list_s3_objects(bucket, prefix)
-    print(f"Found {len(objects)} object(s) under prefix '{prefix}'")
-    if not objects:
-        print("Nothing to download; check S3_PREFIX or bucket contents.")
-        return
+def download_directory(bucket, base_dir, prefix, max_concurrency, force=False):
+    remote_files = dict(list_s3_objects(bucket, prefix))
+    local_files = dict(list_local_files(base_dir)) if force else {}
+
+    # Delete stale local files not present in S3
+    if force:
+        stale_paths = [
+            str(Path(base_dir) / rel)
+            for rel in local_files.values() if rel not in remote_files.values()
+        ]
+        for path in stale_paths:
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+        print(f"Removed {len(stale_paths)} stale local file(s).")
+
+    # Download current files
     futures = []
-    for key, rel in objects:
+    for key, rel in remote_files.items():
         futures.append(download_file.options(num_cpus=1).remote(key, rel, bucket, base_dir))
         if len(futures) >= max_concurrency:
             done, futures = ray.wait(futures, num_returns=1)
@@ -90,19 +121,20 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--upload", action="store_true")
     parser.add_argument("--download", action="store_true")
+    parser.add_argument("--force", action="store_true", help="Force sync by deleting extra files.")
     args = parser.parse_args()
 
-    bucket = os.environ.get("S3_BUCKET_NAME")
-    prefix = "data"  # Fixed prefix
+    bucket = os.environ.get("S3_BUCKET")
+    prefix = "data"
     concurrency = CONCURRENCY
 
     if not bucket:
-        raise RuntimeError("S3_BUCKET_NAME env variable is not set.")
+        raise RuntimeError("S3_BUCKET env variable is not set.")
 
     if args.upload:
-        upload_directory("data", bucket, prefix, concurrency)
+        upload_directory("data", bucket, prefix, concurrency, force=args.force)
     elif args.download:
-        download_directory(bucket, "data", prefix, concurrency)
+        download_directory(bucket, "data", prefix, concurrency, force=args.force)
     else:
         parser.print_help()
         sys.exit(1)
