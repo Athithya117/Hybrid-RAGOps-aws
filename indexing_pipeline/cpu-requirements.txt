@@ -6,9 +6,13 @@ transformers
 torchvision
 torchaudio
 boto3
-docling
+rapidocr-onnxruntime
+huggingface_hub
+PyMuPDF
+pdfplumber
 pandas
 ray
 qdrant-client
 python-arango
+extractous
 

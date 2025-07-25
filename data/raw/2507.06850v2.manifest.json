@@ -1,0 +1,8 @@
+{
+  "sha256": "5771e51112feafbb225bb874416feb4ad99d520366b8c985e9420397ef3d3b45",
+  "s3_key": "data/raw/2507.06850v2.pdf",
+  "parser_version": "2.42.1",
+  "pipeline_run_id": "cbf1c0c0-d9be-4c6b-b2be-d53bbafb4be9",
+  "mime_type": "application/pdf",
+  "timestamp": "2025-07-25T02:01:38.246582Z"
+}

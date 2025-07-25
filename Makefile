@@ -1,5 +1,8 @@
-login:
-	bash utils/login.sh
+pull:
+	git add .
+	git commit -m "new"
+	git config pull.rebase false
+	git pull
 
 push:
 	git add .
@@ -8,10 +11,7 @@ push:
 
 s3:
 	python3 utils/create_s3.py
-	aws s3 ls "$S3_BUCKET_NAME/data/raw/" --recursive | head -n 25
-
-install:
-	bash utils/bootstrap-amd.sh
+	aws s3 ls "s3://$S3_BUCKET/" --recursive | head -n 100
 
 tree-o:
 	tree -a -I '.git|.venv|aws|docs|tmp|aws-kustomization.yaml|raw|chunked'
@@ -23,6 +23,7 @@ backup:
 		! -path "*/.venv/*" \
 		! -path "*/tmp/*" \
 		! -path "models/*")
+
 
 
 clean:
