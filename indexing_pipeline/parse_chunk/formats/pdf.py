@@ -1,110 +1,104 @@
-import os, boto3, json, logging, time
+import os
+import json
+import logging
+import boto3
+import fitz           # PyMuPDF
+import pdfplumber
+import cv2
+import numpy as np
 from io import BytesIO
 from datetime import datetime
-from huggingface_hub import snapshot_download
-from docling.document_converter import DocumentConverter, InputFormat, PdfFormatOption
-from docling.datamodel.base_models import DocumentStream
-from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions, TableFormerMode
+from rapidocr_onnxruntime import RapidOCR
 
-# ENV VARS
-S3_BUCKET = os.environ["S3_BUCKET"]
-IS_MULTILINGUAL = os.getenv("IS_MULTILINGUAL", "false").lower() == "true"
-PDF_TABLE_MODE = os.getenv("PDF_TABLE_MODE", "accurate").lower()
-CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
+# --- ENV ---
+S3_BUCKET        = os.environ["S3_BUCKET"]
+CHUNK_FORMAT     = os.getenv("CHUNK_FORMAT", "json").lower()
 assert CHUNK_FORMAT in ("json", "jsonl")
-os.environ["DOCLING_OCR_ENGINE"] = "rapidocr"
-os.environ.setdefault("RAPIDOCR_CACHE", os.path.expanduser("~/.cache/rapidocr"))
+IMAGE_PREFIX     = os.getenv("S3_IMAGE_PREFIX", "data/images/")
+CHUNK_PREFIX     = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/")
 
-logging.getLogger("pdf_parser").setLevel(logging.INFO)
 log = logging.getLogger("pdf_parser")
-s3 = boto3.client("s3")
-_CONVERTER = None
+log.setLevel(logging.INFO)
+s3  = boto3.client("s3")
 
-def get_rapidocr_models():
-    repo = snapshot_download("SWHL/RapidOCR", cache_dir=os.environ["RAPIDOCR_CACHE"])
-    det = os.path.join(repo, "PP-OCRv4", "ch_PP-OCRv4_det_infer.onnx")
-    rec = os.path.join(repo, "PP-OCRv4/ch_PP-OCRv4_rec_infer.onnx") if IS_MULTILINGUAL \
-          else os.path.join(repo, "PP-OCRv3/en_PP-OCRv3_rec_infer.onnx")
-    cls = os.path.join(repo, "PP-OCRv3/ch_ppocr_mobile_v2.0_cls_train.onnx")
-    return det, rec, cls
-
-def create_docling_converter():
-    det, rec, cls = get_rapidocr_models()
-    ocr_opts = RapidOcrOptions(det_model_path=det, rec_model_path=rec, cls_model_path=cls)
-    pdf_opts = PdfPipelineOptions(do_ocr=True, do_table_structure=(PDF_TABLE_MODE == "accurate"))
-    pdf_opts.ocr_options = ocr_opts
-    pdf_opts.table_structure_options.mode = TableFormerMode.ACCURATE if PDF_TABLE_MODE == "accurate" else TableFormerMode.FAST
-    return DocumentConverter({InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_opts)})
-
-def _get_converter():
-    global _CONVERTER
-    if _CONVERTER is None:
-        _CONVERTER = create_docling_converter()
-    return _CONVERTER
+ocr = RapidOCR()  # native ONNX OCR
 
 def parse_file(s3_key: str, manifest: dict):
     raw = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
     source = f"s3://{S3_BUCKET}/{s3_key}"
     doc_id = manifest["sha256"]
-    result = _get_converter().convert(source=DocumentStream(source, BytesIO(raw)))
 
-    if result.status != result.status.SUCCESS:
-        raise RuntimeError(f"Docling conversion failed: {result.status}")
-
-    full_text = result.document.export_to_text()
-    pages = full_text.split("\f")
+    # open in both libraries
+    pdf_stream = BytesIO(raw)
+    mp_doc = fitz.open(stream=raw, filetype="pdf")
+    pl_doc = pdfplumber.open(pdf_stream)
 
     saved = 0
-    for idx, page_text in enumerate(pages):
-        page_text = page_text.strip()
-        if not page_text:
-            continue
+    for page_index in range(len(mp_doc)):
+        fitz_page    = mp_doc[page_index]
+        plumber_page = pl_doc.pages[page_index]
+        page_num     = page_index + 1
 
-        start_t = time.perf_counter()
-
-        chunk_id = f"{doc_id}_{idx}"
-        obj = {
-            "id": f"chunk_{chunk_id}",
-            "payload": {
-                "document_id": doc_id,
-                "chunk_id": chunk_id,
-                "chunk_index": idx,
-                "text": page_text,
-                "source_path": source,
-                "source_hash": doc_id,
-                "file_type": "pdf",
-                "page_number": idx + 1,
-                "start_time": None,
-                "end_time": None,
-                "line_range": None,
-                "metadata": {
-                    "is_multilingual": IS_MULTILINGUAL,
-                    "is_ocr": True,
-                    "chunk_type": "page",
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                    "chunk_duration_ms": None,
-                    "errors": [],
-                    "tags": [],
-                    "layout_tags": [],
-                    "confidence": None,
-                    "decision_trace": []
-                },
-                "entities": [],
-                "embedding": []
+        chunk_id = f"{doc_id}_{page_index}"
+        payload = {
+            "document_id": doc_id,
+            "chunk_id":   chunk_id,
+            "page_number": page_num,
+            "source_path": source,
+            "text":       "",
+            "tables":     [],
+            "images":     [],
+            "metadata": {
+                "used_ocr": False,
+                "num_tables": 0,
+                "num_images": 0,
+                "timestamp": datetime.utcnow().isoformat() + "Z"
             }
         }
 
-        end_t = time.perf_counter()
-        duration_ms = (end_t - start_t) * 1000
-        obj["payload"]["metadata"]["chunk_duration_ms"] = round(duration_ms, 3)
+        # 1) native text → OCR fallback
+        text = fitz_page.get_text("text").strip()
+        if text:
+            payload["text"] = text
+        else:
+            # render → numpy → OCR
+            pix = fitz_page.get_pixmap(dpi=300)
+            arr = np.frombuffer(pix.samples, dtype=np.uint8)
+            arr = arr.reshape(pix.height, pix.width, pix.n)
+            if pix.n == 4:
+                arr = cv2.cvtColor(arr, cv2.COLOR_BGRA2BGR)
+            ocr_res, _ = ocr(arr)
+            lines = [r[1] for r in ocr_res if r[1].strip()]
+            payload["text"] = "\n".join(lines)
+            payload["metadata"]["used_ocr"] = True
 
-        ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
-        prefix = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/")
-        key = f"{prefix}{doc_id}_{idx}.{ext}"
-        body = (json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8") if CHUNK_FORMAT == "jsonl" \
-               else json.dumps(obj, indent=2, ensure_ascii=False).encode("utf-8")
+        # 2) tables
+        tables = plumber_page.extract_tables()
+        if tables:
+            payload["tables"] = tables
+            payload["metadata"]["num_tables"] = len(tables)
+
+        # 3) images
+        for img_idx, img_info in enumerate(fitz_page.get_images(full=True)):
+            xref = img_info[0]
+            pix  = fitz.Pixmap(mp_doc, xref)
+            if pix.n == 4:
+                pix = fitz.Pixmap(fitz.csRGB, pix)
+            img_key  = f"{IMAGE_PREFIX}{doc_id}/page{page_num}_img{img_idx+1}.png"
+            img_bytes= pix.tobytes("png")
+            s3.put_object(Bucket=S3_BUCKET, Key=img_key, Body=img_bytes, ContentType="image/png")
+            payload["images"].append(f"s3://{S3_BUCKET}/{img_key}")
+            payload["metadata"]["num_images"] += 1
+
+        # 4) upload chunk JSON
+        ext   = "jsonl" if CHUNK_FORMAT=="jsonl" else "json"
+        key   = f"{CHUNK_PREFIX}{chunk_id}.{ext}"
+        body  = (json.dumps(payload, ensure_ascii=False)+"\n").encode() if ext=="jsonl" \
+                else json.dumps(payload, indent=2, ensure_ascii=False).encode()
         s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body, ContentType="application/json")
-        log.info(f"Uploaded chunk {idx} to s3://{S3_BUCKET}/{key}")
+        log.info(f"Uploaded chunk page {page_num} → s3://{S3_BUCKET}/{key}")
         saved += 1
 
+    pl_doc.close()
+    mp_doc.close()
     return {"saved_chunks": saved}
