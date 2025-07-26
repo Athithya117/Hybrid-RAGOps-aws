@@ -1,94 +1,110 @@
-import os, json
+import os, boto3, json, logging, time
 from io import BytesIO
 from datetime import datetime
-import boto3
-from docling.datamodel.base_models import DocumentStream, InputFormat
-from docling.datamodel.pipeline_options import (
-    PdfPipelineOptions,
-    RapidOcrOptions,
-    TableFormerMode
-)
-from docling.document_converter import DocumentConverter, PdfFormatOption
-from indexing_pipeline.parse_chunk.router import log
+from huggingface_hub import snapshot_download
+from docling.document_converter import DocumentConverter, InputFormat, PdfFormatOption
+from docling.datamodel.base_models import DocumentStream
+from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions, TableFormerMode
 
-# ENVIRONMENT
+# ENV VARS
+S3_BUCKET = os.environ["S3_BUCKET"]
 IS_MULTILINGUAL = os.getenv("IS_MULTILINGUAL", "false").lower() == "true"
-DOCLING_CACHE = os.getenv("DOCLING_ARTIFACTS_PATH", None)
-TABLE_MODE = os.getenv("TABLE_MODE", "accurate").lower()
+PDF_TABLE_MODE = os.getenv("PDF_TABLE_MODE", "accurate").lower()
+CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
+assert CHUNK_FORMAT in ("json", "jsonl")
+os.environ["DOCLING_OCR_ENGINE"] = "rapidocr"
+os.environ.setdefault("RAPIDOCR_CACHE", os.path.expanduser("~/.cache/rapidocr"))
 
+logging.getLogger("pdf_parser").setLevel(logging.INFO)
+log = logging.getLogger("pdf_parser")
+s3 = boto3.client("s3")
+_CONVERTER = None
 
-# Setup PdfPipelineOptions with RapidOCR integration
-pdf_opts = PdfPipelineOptions(do_table_structure=True, do_ocr=True)
-if TABLE_MODE == "fast":
-    pdf_opts.table_structure_options.mode = TableFormerMode.FAST
-else:
-    pdf_opts.table_structure_options.mode = TableFormerMode.ACCURATE
+def get_rapidocr_models():
+    repo = snapshot_download("SWHL/RapidOCR", cache_dir=os.environ["RAPIDOCR_CACHE"])
+    det = os.path.join(repo, "PP-OCRv4", "ch_PP-OCRv4_det_infer.onnx")
+    rec = os.path.join(repo, "PP-OCRv4/ch_PP-OCRv4_rec_infer.onnx") if IS_MULTILINGUAL \
+          else os.path.join(repo, "PP-OCRv3/en_PP-OCRv3_rec_infer.onnx")
+    cls = os.path.join(repo, "PP-OCRv3/ch_ppocr_mobile_v2.0_cls_train.onnx")
+    return det, rec, cls
 
-if DOCLING_CACHE:
-    pdf_opts.artifacts_path = DOCLING_CACHE
+def create_docling_converter():
+    det, rec, cls = get_rapidocr_models()
+    ocr_opts = RapidOcrOptions(det_model_path=det, rec_model_path=rec, cls_model_path=cls)
+    pdf_opts = PdfPipelineOptions(do_ocr=True, do_table_structure=(PDF_TABLE_MODE == "accurate"))
+    pdf_opts.ocr_options = ocr_opts
+    pdf_opts.table_structure_options.mode = TableFormerMode.ACCURATE if PDF_TABLE_MODE == "accurate" else TableFormerMode.FAST
+    return DocumentConverter({InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_opts)})
 
-# For multilingual OCR, supply RapidOcrOptions using ONNX paths
-if os.getenv("RAPIDOCR_MODEL_DOWNLOAD_PATH"):
-    from huggingface_hub import snapshot_download
-    download_path = snapshot_download(repo_id="SWHL/RapidOCR")
-    det = os.path.join(download_path, "PP‑OCRv4", os.getenv("RAPIDOCR_DET_MODEL", "en_PP‑OCRv3_det_infer.onnx"))
-    rec = os.path.join(download_path, "PP‑OCRv4", os.getenv("RAPIDOCR_REC_MODEL", IS_MULTILINGUAL and "ch_PP‑OCRv4_rec_server_infer.onnx" or "en_PP‑OCRv3_rec_infer.onnx"))
-    cls = os.path.join(download_path, "PP‑OCRv3", "ch_ppocr_mobile_v2.0_cls_infer.onnx")
-    pdf_opts.ocr_options = RapidOcrOptions(det_model_path=det, rec_model_path=rec, cls_model_path=cls)
+def _get_converter():
+    global _CONVERTER
+    if _CONVERTER is None:
+        _CONVERTER = create_docling_converter()
+    return _CONVERTER
 
-conv = DocumentConverter({
-    InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_opts)
-})
+def parse_file(s3_key: str, manifest: dict):
+    raw = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
+    source = f"s3://{S3_BUCKET}/{s3_key}"
+    doc_id = manifest["sha256"]
+    result = _get_converter().convert(source=DocumentStream(source, BytesIO(raw)))
 
-def parse_file(s3_key, manifest):
-    log(f"Docling parsing PDF {s3_key}, multilingual={IS_MULTILINGUAL}", level="INFO")
-    s3 = boto3.client("s3")
-    raw = s3.get_object(Bucket=os.getenv("S3_BUCKET"), Key=s3_key)["Body"].read()
-    ds = DocumentStream(name=s3_key, stream=BytesIO(raw))
-    result = conv.convert(source=ds)
-    doc = result.document
-    ocr_used = result.pipeline_steps.get("ocr_used", False)
+    if result.status != result.status.SUCCESS:
+        raise RuntimeError(f"Docling conversion failed: {result.status}")
 
-    chunks = []
-    total_chars = 0
+    full_text = result.document.export_to_text()
+    pages = full_text.split("\f")
 
-    # pre-index tables per page
-    tables_by_page = {}
-    for table in doc.tables:
-        tables_by_page.setdefault(table.page_number - 1, []).append(table.export_to_dict())
+    saved = 0
+    for idx, page_text in enumerate(pages):
+        page_text = page_text.strip()
+        if not page_text:
+            continue
 
-    for page_no, pg in enumerate(doc.pages):
-        text = "\n".join(t.text for t in pg.texts)
-        total_chars += len(text)
-        cid = f"{manifest['sha256']}_{page_no}"
+        start_t = time.perf_counter()
 
-        tables = tables_by_page.get(page_no) or None
-
-        payload = {
-            "document_id": manifest["sha256"],
-            "chunk_id": cid,
-            "chunk_index": page_no,
-            "text": text,
-            "source_path": f"s3://{os.getenv('S3_BUCKET')}/{s3_key}",
-            "source_hash": manifest["sha256"],
-            "file_type": "pdf",
-            "page_number": page_no + 1,
-            "start_time": None, "end_time": None, "line_range": None, "bbox": None,
-            "metadata": {
-                "is_multilingual": IS_MULTILINGUAL,
-                "is_ocr": ocr_used,
-                "chunk_type": "page",
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "tags": [], "layout_tags": [],
-                "confidence": None,
-                "errors": [],
-                "decision_trace": []
-            },
-            "entities": [], "embedding": []
+        chunk_id = f"{doc_id}_{idx}"
+        obj = {
+            "id": f"chunk_{chunk_id}",
+            "payload": {
+                "document_id": doc_id,
+                "chunk_id": chunk_id,
+                "chunk_index": idx,
+                "text": page_text,
+                "source_path": source,
+                "source_hash": doc_id,
+                "file_type": "pdf",
+                "page_number": idx + 1,
+                "start_time": None,
+                "end_time": None,
+                "line_range": None,
+                "metadata": {
+                    "is_multilingual": IS_MULTILINGUAL,
+                    "is_ocr": True,
+                    "chunk_type": "page",
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "chunk_duration_ms": None,
+                    "errors": [],
+                    "tags": [],
+                    "layout_tags": [],
+                    "confidence": None,
+                    "decision_trace": []
+                },
+                "entities": [],
+                "embedding": []
+            }
         }
 
-        chunks.append({"id": f"chunk_{cid}", "payload": payload, "tables": tables})
-        log(f"Docling chunk page {page_no} text_len={len(text)} tables={(len(tables) if tables else 0)}", level="DEBUG")
+        end_t = time.perf_counter()
+        duration_ms = (end_t - start_t) * 1000
+        obj["payload"]["metadata"]["chunk_duration_ms"] = round(duration_ms, 3)
 
-    log(f"Extracted {len(chunks)} pages, total chars={total_chars}", level="INFO")
-    return chunks
+        ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+        prefix = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/")
+        key = f"{prefix}{doc_id}_{idx}.{ext}"
+        body = (json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8") if CHUNK_FORMAT == "jsonl" \
+               else json.dumps(obj, indent=2, ensure_ascii=False).encode("utf-8")
+        s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body, ContentType="application/json")
+        log.info(f"Uploaded chunk {idx} to s3://{S3_BUCKET}/{key}")
+        saved += 1
+
+    return {"saved_chunks": saved}

@@ -17,12 +17,12 @@ tree:
 	tree -a -I '.git|.venv|aws|docs|models|tmp|aws-kustomization.yaml|raw|chunked'
 
 backup:
-	zip "$$(basename $$PWD)_$$(date +%Y%m%d_%H%M%S).zip" \
-	$$(find . -type f -size -100M \  
+	zip "$$(basename $$PWD)_$$(date +%Y%m%d_%H%M%S).zip" $$(find . -type f -size -100M \
 		! -path "*/.git/*" \
 		! -path "*/.venv/*" \
 		! -path "*/tmp/*" \
 		! -path "models/*")
+
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} + && find . -name "*.pyc" -delete

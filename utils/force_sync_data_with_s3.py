@@ -5,9 +5,9 @@ python3 utils/force_sync_data_with_s3.py --upload
 (OR)
 python3 utils/force_sync_data_with_s3.py --download
 
-force sync:
+force sync: deletes what's not in local data/ or deletes what's not in s3://<bucket_name>/data/
 
-python3 utils/force_sync_data_with_s3.py --upload --force
+python3 utils/force_sync_data_with_s3.py --upload --force   
 (OR)
 python3 utils/force_sync_data_with_s3.py --download --force
 

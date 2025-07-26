@@ -12,17 +12,21 @@
 
 ```sh
 
+
 export PYTHONPATH=$(pwd)
+export LOG_LEVEL=INFO                # or DEBUG if not headless
 export S3_BUCKET=e2e-rag-system16
 export IS_MULTILINGUAL=true          # or false if your data is english only  
 export S3_RAW_PREFIX=data/raw/    
 export S3_CHUNKED_PREFIX=data/chunked/
 export CHUNK_FORMAT=json              # or jsonl for storage efficieny during headless mode       
-export RAPIDOCR_CACHE="/home/user/RAG8s/models/" 
-export DOCLING_ARTIFACTS_PATH="/home/user/RAG8s/models/"
 export PDF_PARSER="docling"           # or extractous if a faster parser is required and if pdfs doesnt have complex layout/tables
 export PDF_TABLE_MODE="accurate"     # or fast (ignore if not using Docling)
-export LOG_LEVEL=INFO               # or DEBUG
+export DOCLING_OCR_ENGINE=rapidocr    
+
+
+
+
 
 export EMBEDDING_EL_DEVICE=cpu      # or gpu for embedding and entity linking models
 export EMBED_MODEL="elastic/multilingual-e5-small-optimized" # or View recommendations
@@ -91,9 +95,7 @@ export LOAD_IN=int8
 
     "file_type": "pdf",                                   // One of: pdf, html, mp3, csv, txt, etc. (prefer MIME-based detection)
     "page_number": 1,                                     // For PDFs/ePubs: the 1-based page index. Null for non-paged types
-    "start_time": null,                                   // For audio/video: start time of chunk in seconds. Else null
-    "end_time": null,                                     // For audio/video: end time in seconds. Else null
-    "line_range": null,                                   // For tabular/text: [start_line, end_line] range; else null
+
     "bbox": null,                                         // For visual formats (PDF, HTML): [x0, y0, x1, y1] pixel bbox. Else null
 
     "metadata": {
