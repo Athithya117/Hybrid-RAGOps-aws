@@ -1,49 +1,76 @@
 
-```sh
-export QDRANT_GRPC_HOST="localhost"
-export QDRANT_GRPC_PORT=6334
-export ARANGO_ROOT_USERNAME="root"
-export ARANGO_ROOT_PASSWORD="superSecret"
-export VALKEY_PASSWORD="yourValkeyPass"
 
-```
+# STEP 2/3 - indexing_pipeline
+
+#### **NVIDIA (June 2025)** : Page-level chunking is the baseline best https://developer.nvidia.com/blog/finding-the-best-chunking-strategy-for-accurate-ai-responses/
+
+> “Page-level chunking is the overall winner: Our experiments clearly show that page-level chunking achieved the highest average accuracy (0.648) across all datasets and the lowest standard deviation (0.107), showing more consistent performance across different content types. Page-level chunking demonstrated superior overall performance when compared to both token-based chunking and section-level chunking.” 
+
+#### RAG8s implements page-wise chunking and similar chunking for scalability without losing accuracy
+
+
 
 ```sh
 
 export PYTHONPATH=$(pwd)
 export S3_BUCKET=e2e-rag-system16
-export IS_MULTILINGUAL=true  # or false if your data is english only  
+export IS_MULTILINGUAL=true          # or false if your data is english only  
 export S3_RAW_PREFIX=data/raw/    
 export S3_CHUNKED_PREFIX=data/chunked/
-export CHUNK_FORMAT=json    # or jsonl for storage efficieny during headless mode
-export IS_MULTILINGUAL="true"                    # Enable if PDFs may contain multiple languages (e.g., CJK, RTL)
-export RAPIDOCR_CACHE="/home/user/RAG8s/models/" # Directory to cache RapidOCR ONNX models (speeds up repeated runs)
-export OCR_DPI="300"                             # DPI used to rasterize PDF page for OCR (higher = better quality)
-export OCR_CONF_THRESHOLD="0.6"                  # Minimum OCR confidence to accept detected text
-export MIN_TEXT_LEN="30"                         # Minimum text length for a method (PyMuPDF/pdfplumber/OCR) to be accepted
-export LOG_LEVEL="DEBUG"                         # Logging verbosity: DEBUG, INFO, WARN, ERROR
-
+export CHUNK_FORMAT=json              # or jsonl for storage efficieny during headless mode       
+export RAPIDOCR_CACHE="/home/user/RAG8s/models/" 
+export DOCLING_ARTIFACTS_PATH="/home/user/RAG8s/models/"
+export PDF_PARSER="docling"           # or extractous if a faster parser is required and if pdfs doesnt have complex layout/tables
+export PDF_TABLE_MODE="accurate"     # or fast (ignore if not using Docling)
+export LOG_LEVEL=INFO               # or DEBUG
 
 export EMBEDDING_EL_DEVICE=cpu      # or gpu for embedding and entity linking models
-export EMBED_MODEL="elastic/multilingual-e5-small-optimized"  
-export LOAD_IN=int8    # or float16
-
-
+export EMBED_MODEL="elastic/multilingual-e5-small-optimized" # or View recommendations
+export LOAD_IN=int8   
 
 
 ```
 
+
+<details>
+  <summary> View recommendations(Click the triangle)</summary>
+
+
+## Recommendations:
+  ### 1. The same embedding and EL model should be used in both indexing pipeline and in inference pipeline(deployment) so choose wisely.
+  ### 2. Smaller models performs closer to larger models, so even if you need slightly higher accuracy, choose smaller models as the inference will have graph based multi hop retreival also. The fusion of multiple smaller and int8 versions is better than fewer large models. 
+  ### 3. `elastic/multilingual-e5-small-optimized` is a highly efficient multilingual model supporting 90+ languages but supports dense(similarity) retreival only. 
+  ### 4. `Alibaba-NLP/gte-multilingual-base(mGTE-TRM)` have long‑context support and improved multilingual retrieval. It supports both sparse(keyword) and dense(similarity) retreival but there isn't an english only version of `mGTE-TRM`
+  ### 5. Use `Alibaba‑NLP/gte-modernbert-base` or `intfloat/e5-small` if the data is english only. If sparse retreival also needed, choose `mGTE‑TRM`
+  ### 6. For the env variable `EMBED_MODEL`, kindly choose only the models in these tables as they were tested in RAG8s.
+
 ---
+
+### Recommeded models:
+| **Model**                                   | **MRR @10 / MTEB**                                  | **Params** | **Size (float32)**    | **Embed Dim** | **Max Tokens** | **VRAM (fp32)** | **VRAM (fp16)** | **VRAM (int8)** |
+| ------------------------------------------- | --------------------------------------------------- | ---------- | --------------------- | ------------- | -------------- | --------------- | --------------- | --------------- |
+| **Alibaba-NLP/gte-multilingual-base**    | \~ 68–71 MRR\@10 (MIRE M) / \~ 71 nDCG\@10 (MIRACL) | \~ 304 M   | \~ 1.2 GB (est.)      | 768–1024      | 8192           | \~ 5–7 GB       | \~ 3–4 GB       | \~ 1.8–2.2 GB   |
+| **elastic/multilingual‑e5‑small‑optimized** | \~ 64.4 MRR\@10 (average)                           | \~ 110 M   | – (int8 quant)        | 384           | 512            | \~ 1–1.5 GB     | n/a             | \~ 1 GB         |
+| **Alibaba‑NLP/gte-modernbert-base**                   | \~ 64.38 avg                                        | \~ 149 M   | \~ 0.67 GB (≈ 670 MB) | 768           | 8192           | \~ 5–6 GB       | \~ 3–4 GB       | \~ 2–2.5 GB     |
+
+---
+
+### Other models to compare: 
 | **Model**                                   | **MRR\@10 / MTEB**                          | **Params** | **Size (float32)** | **Embed Dim** | **Max Tokens** | **VRAM (fp32)** | **VRAM (fp16)** | **VRAM (int8)** |
 | ------------------------------------------- | ------------------------------------------- | ---------- | ------------------ | ------------- | -------------- | --------------- | --------------- | --------------- |
-| **elastic/multilingual-e5-small-optimized** | \~ 64.4 MRR\@10 (average)  | \~ 110 M   | – (int8 quant)     | 384           | 512            | \~ 1–1.5 GB     | n/a             | \~ 1 GB         |
 | **elastic/multilingual-e5-small**           | 64.4 MRR\@10 (average)     | \~ 110 M   | \~ 440 MB          | 384           | 512            | \~ 2–3 GB       | \~ 1.5–2 GB     | \~ 1–1.2 GB     |
 | **elastic/multilingual-e5-base**            | 65.9 MRR\@10 (average)     | \~ 260 M   | \~ 1.0 GB          | 768           | 512            | \~ 4–6 GB       | \~ 2.5–3.5 GB   | \~ 1.5–2 GB     |
 | **elastic/multilingual-e5-large**           | n/a (not published)                         | \~ 500 M   | \~ 2.0 GB          | 1024          | 512            | \~ 8–10 GB      | \~ 4.5–6 GB     | \~ 2.5–3.5 GB   |
 | **intfloat/e5-small**                       | 64.4 MRR\@10 (average)     | \~ 110 M   | \~ 440 MB          | 384           | 512            | \~ 2–3 GB       | \~ 1.5–2 GB     | \~ 1–1.2 GB     |
 | **intfloat/e5-base**                        | 65.9 MRR\@10 (average)     | \~ 260 M   | \~ 1.0 GB          | 768           | 512            | \~ 4–6 GB       | \~ 2.5–3.5 GB   | \~ 1.5–2 GB     |
 | **intfloat/e5-large**                       | n/a (not published)                         | \~ 500 M   | \~ 2.0 GB          | 1024          | 512            | \~ 8–10 GB      | \~ 4.5–6 GB     | \~ 2.5–3.5 GB   |
+| **gte‑base‑en‑v1.5**  | \~ 62.39 avg           | \~ 137 M   | \~ 0.22 GB (≈ 220 MB) | 768           | 8192           | \~ 2.5–3.5 GB   | \~ 1.5–2.5 GB   | \~ 1 GB         |
+| **gte‑large‑en‑v1.5** | \~ 63.13 avg           | \~ 434 M   | \~ 0.67 GB (≈ 670 MB) | 1024          | 8192           | \~ 5–7 GB       | \~ 3–4 GB       | \~ 2–2.5 GB     |
 
+</details>
+
+---
+---
 
 
 ---
@@ -89,56 +116,8 @@ export LOAD_IN=int8    # or float16
 
 ```
 
-## Research Support
-
-**NVIDIA (June 2025)** : Page-level chunking is the baseline best https://developer.nvidia.com/blog/finding-the-best-chunking-strategy-for-accurate-ai-responses/
-
-> “Page-level chunking achieved the highest average accuracy (0.648) with the lowest standard deviation (0.107)... It outperformed token- and section-level chunking.”
-> — [NVIDIA Developer Blog](https://developer.nvidia.com/blog/finding-the-best-chunking-strategy-for-accurate-ai-responses/?utm_source=chatgpt.com)
-
-**We'll use page-wise and similar as the default** for structured/unstructured docs.
-
-
 ---
 
-
-| **Component**                         | **Tool(s)**                                          | **Exact Chunking Strategy**                                                                                                                                                                                           | **Why Chosen for Scalability**                                                                                                    |
-| ------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| **Audio Transcription**               | `faster-whisper`, `pydub`, `ffmpeg-python`           | Audio is loaded using `pydub`; sliced into 20–30s segments based on silence threshold (`pydub.silence.detect_nonsilent`). Each segment becomes a chunk with `start_time`, `end_time`.                                 | `faster-whisper` (CTranslate2) enables real-time CPU/GPU inference. `ffmpeg` ensures format compatibility and slicing efficiency. |
-| **HTML Parsing**                      | `extractous`                                         | HTML is parsed with `BeautifulSoup`; `<h*>`, `<p>`, `<section>` are treated as delimiters. Chunks are formed from contiguous text blocks under the same section or heading.                                           | Lightweight, preserves HTML hierarchy; chunking respects semantic structure for retrieval alignment.                              |
-| **PDF Parsing + OCR**                 | `pdfplumber`, `PyMuPDF`, `paddleocr`, `paddlepaddle` | Default: 1 page = 1 chunk. If page is too sparse or OCR-detected, fallback to paragraph-based chunking using line height + spacing heuristics (`line_gap > 1.5x median`). OCR fallback kicks in for image-heavy PDFs. | Multilingual, layout-aware, reliable fallback. All parsing piped through unified structure into Ray pipelines.                    |
-| **CSV Chunking**                      | `ray.data.read_csv()` + `.window()`                  | `ray.data.read_csv(path)` → auto schema detection. Chunked using: `ds.window(bytes_per_window=N)` where `N = max(5120, avg_row_len * CSV_ROWS_PER_CHUNK)`. `CSV_ROWS_PER_CHUNK = ceil(2048 / avg_char_per_row)`       | Windowed loading avoids memory spikes. Scales across files and cores. Streaming support for massive CSVs.                         |
-| **JSON Chunking**                     | `ray.data.read_json()` + `.window()`                 | For JSON Lines: each line = record. Chunked using `ds.window(size=RECORDS_PER_CHUNK)`. `RECORDS_PER_CHUNK = ceil(4096 / avg_chars_per_record)`. For nested JSON: flatten → explode arrays → chunk by depth grouping.  | Handles deeply nested JSON using recursive flattening. Dynamically adapts to record size and depth.                               |
-| **Pipeline Orchestration**            | `ray` (core, actors, tasks)                          | Each chunking stage is a Ray task/actor. File routing logic handled by `ray.remote(main_dispatcher)`. Parallel across cores or Ray cluster nodes.                                                                     | Ray enables both local & distributed mode. Shared object store improves I/O and communication between stages.                     |
-| **Model Serving / Inference**         | `sglang`                                             | Each chunk processed asynchronously via batched inference pipeline: `embedding`, `reranking`, `entity linking`. Response includes latency + output fields (`entities`, `triplets`).                                   | Multi-model engine. Supports CPU inference or GPU fallback. Token streaming for long chunk tolerance.                             |
-| **Main Parser Entry Point**           | `indexing_pipeline/index.py`                         | MIME-type or file extension–based dispatch (`.endswith()`/`mimetypes.guess_type()`). Then routed to correct chunking handler. Each handler outputs a JSONL file to `/data/chunked/`.                                  | Modular dispatch layer. Easy to extend with new handlers (e.g., `.xml`, `.epub`).                                                 |
-| **Content Hashing / Deduplication**   | `hashlib`                                            | Full file is streamed → `sha256(file_bytes)` becomes `document_id`. Each chunk ID is `chunk_{sha256}_{chunk_index}`.                                                                                                  | SHA256 ensures uniqueness and stability. Streaming hash avoids full memory load.                                                  |
-| **S3 I/O**                            | `boto3`                                              | Files pulled using `s3.download_fileobj()` or `s3.get_object()` with stream buffer. Chunked outputs are written using `s3.upload_fileobj()` or multipart upload.                                                      | Supports large files and secure IAM-backed access. Built-in retry, error handling, multipart upload.                              |
-| **Entity Linking (Multilingual)**     | `ReFinED`                                            | Each chunk’s `text` passed to `refined.get_entities(text)`. Output merged into `entities[]`. Handles multilingual mentions and coref resolution.                                                                      | High performance on CPU/GPU, fast and light, multilingual disambiguation works across >9 languages.                               |
-| **Embedding Generation**              | `elastic/multilingual-e5-small-optimized`            | Chunk’s `text` sent to `AutoModel.from_pretrained(...)` → forward pass for CLS token → vector appended to `.embedding`. Token limit handled via truncation or sliding window.                                         | High performance, distilled architecture. Efficient at production scale.                                                          |
-| **Vector Index**                      | `qdrant-client`                                      | Vector with chunk metadata inserted via `qdrant_client.upload_collections()`. Supports `filter`, `metadata`, `payload` for hybrid search. HNSW handles scale well.                                                    | Fast ANN search, persistent, supports metadata filtering. Easy to shard by file/doc/tenant.                                       |
-| **Knowledge Graph / Triplet Storage** | `python-arango`                                      | Triplets extracted from chunk (via NER/RE) are inserted as AQL `UPSERT` into document and edge collections. Document key = `chunk_id`.                                                                                | ACID + graph model in one. Good for hybrid KB + RAG backends.                                                                     |
-
-
----
-
-### indexing_pipeline/
-
-| **Component**                         | **Tool(s)**                                          | **Exact Chunking Strategy**                                                                                                                                                        | **Why Chosen for Scalability**                                                                                     |
-| ------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **Audio Transcription**               | `faster-whisper`, `pydub`, `ffmpeg-python`           | Audio is loaded using `pydub`; sliced into 20–30s segments using silence detection (`pydub.silence.detect_nonsilent`). Each segment becomes a chunk with `start_time`, `end_time`. | `faster-whisper` (CTranslate2) enables fast CPU/GPU transcription. `ffmpeg` ensures universal audio compatibility. |
-| **HTML Parsing**                      | `extractous`, `BeautifulSoup`                        | HTML parsed with `BeautifulSoup`; headings (`<h*>`), paragraphs, and sections form logical delimiters.                                                                             | Lightweight, DOM-aware; preserves document structure and metadata during chunking.                                 |
-| **PDF Parsing + OCR**                 | `pdfplumber`, `PyMuPDF`, `paddleocr`, `paddlepaddle` | Default: 1 page = 1 chunk. For sparse/visual PDFs: fallback to paragraph chunking using spacing heuristics (`line_gap > 1.5x median`). OCR used for image-heavy scans.             | Multilingual, layout-aware parsing; fallback improves resilience. Runs within Ray pipeline.                        |
-| **CSV Chunking**                      | `ray.data.read_csv()` + `.window()`                  | Parsed with `ray.data`. Chunked using `ds.window(bytes_per_window=N)` where `N = max(5120, avg_row_len * CSV_ROWS_PER_CHUNK)`. Adaptive based on content size.                     | Efficient streaming, avoids memory spikes, parallelizable across nodes.                                            |
-| **JSON Chunking**                     | `ray.data.read_json()` + `.window()`                 | JSONL: one line = one record. For nested: flatten → explode arrays → chunk using grouping by field depth or record size.                                                           | Robust handling of complex structures. Adaptive chunk size per nesting and token count.                            |
-| **Pipeline Orchestration**            | `ray` (core, actors, tasks)                          | Each stage (parsing, chunking, embedding) runs as Ray actor or task. Orchestrated by dispatcher using `ray.remote`.                                                                | Enables parallel processing, distributed execution, and shared memory across stages.                               |
-| **Main Parser Entry Point**           | `indexing_pipeline/index.py`                         | Dispatch based on file extension or MIME type via `mimetypes.guess_type()` or `.endswith()`. Handler routes to proper parser, outputs JSONL to `/data/chunked/`.                   | Modular dispatcher. Easy to add custom formats or override handlers.                                               |
-| **Content Hashing / Deduplication**   | `hashlib`                                            | Stream full file to compute SHA256 → becomes `document_id`. Chunks get `chunk_{sha256}_{chunk_index}`.                                                                             | Guarantees uniqueness. Streaming avoids full memory usage on large files.                                          |
-| **S3 I/O**                            | `boto3`                                              | Uses `s3.download_fileobj()` or `get_object()` with streaming. Output written via `upload_fileobj()` or multipart upload.                                                          | Supports massive files, IAM-secured access, auto-retry, and resumable uploads.                                     |
-| **Entity Linking (Multilingual)**     | `ReFinED`                                            | Chunk text passed to `refined.get_entities(text)` → merged into `entities[]`. Handles multi-language linking and coreference.                                                      | Lightweight and accurate. Handles multilingual corpora efficiently on CPU/GPU.                                     |
-| **Embedding Generation**              | `elastic/multilingual-e5-small-optimized`            | Chunk text → passed through `AutoModel.from_pretrained()` → CLS vector extracted → stored as `.embedding`. Handles truncation/sliding window.                                      | Small, multilingual, production-ready model. High speed with good quality tradeoff.                                |
-| **Vector Index**                      | `qdrant-client`                                      | Vectors inserted into Qdrant with `upload_collections()`. Metadata used for filters and hybrid search. Uses HNSW indexing.                                                         | Fast ANN search. Easy to shard and scale. Supports metadata and full-text hybrid retrieval.                        |
-| **Knowledge Graph / Triplet Storage** | `python-arango`                                      | Extracted triplets stored as `UPSERT` into ArangoDB doc and edge collections. Keys derived from `chunk_id`.                                                                        | Graph-native storage with AQL. Scales well for hybrid knowledge-backed retrieval.                                  |
 
 ---
 
@@ -167,7 +146,7 @@ export LOAD_IN=int8    # or float16
 | **Infrastructure as Code (IaC)** | `Pulumi`                                     | All AWS resources (EKS, S3, IAM, AMIs, etc.) provisioned via `Pulumi` in Python. Supports env-based configs and secrets from SOPS.                | Unified infra layer with Git versioning. Easy to compose and reuse components.                        |
 | **Kubernetes Platform**          | `AWS EKS`, `KubeRay`, `Karpenter`            | All workloads (Ray, vLLM, DSPy, ArangoDB, Qdrant) deployed on EKS. `KubeRay` handles Ray cluster lifecycle. `Karpenter` handles node autoscaling. | Native autoscaling, GPU-aware scheduling, self-healing. Cost-efficient compute management.            |
 | **Ingress & Routing**            | `Traefik`, `Cloudflare`                      | Traefik deployed as ingress controller with HTTPS + routing rules. Cloudflare handles DNS + WAF + CDN.                                            | Secured, cached API routing. Cloudflare protects public endpoints, minimizes latency.                 |
-| **Secrets & GitOps**             | `FluxCD`, `SOPS`, `SealedSecrets`            | Secrets encrypted with SOPS (`.yaml` + GPG/AWS KMS). All workloads managed via GitOps using `FluxCD` and synced periodically.                     | Declarative, auditable infra with secure secret rotation. Enables Git-based DR and versioned deploys. |
+| **Secrets & GitOps**             | `argoCD`, `SOPS`, `SealedSecrets`            | Secrets encrypted with SOPS (`.yaml` + GPG/AWS KMS). All workloads managed via GitOps using `argoCD` and synced periodically.                     | Declarative, auditable infra with secure secret rotation. Enables Git-based DR and versioned deploys. |
 | **Metrics & Dashboards**         | `Prometheus`, `Grafana`                      | App metrics scraped via Prometheus. Dashboards for indexing, inference latency, chunk count, memory use, request trace count.                     | Realtime insight into system performance and bottlenecks.                                             |
 | **LLM Call Tracing**             | `Helicone`                                   | All OpenAI-compatible requests (via DSPy/vLLM) routed through Helicone proxy. Logs prompt/response pairs, costs, durations.                       | Centralized LLM API observability. Enables debugging and optimization of prompt logic.                |
 | **RAG Pipeline Observability**   | `RAGAI-Catalyst`                             | Logs and visualizes RAG stages: retrieval, rerank, generation. Integrated with Prometheus for end-to-end trace.                                   | Fine-grained insight into hybrid retrieval and generation quality.                                    |

@@ -13,18 +13,16 @@ s3:
 	python3 utils/create_s3.py
 	aws s3 ls "s3://$S3_BUCKET/" --recursive | head -n 100
 
-tree-o:
-	tree -a -I '.git|.venv|aws|docs|tmp|aws-kustomization.yaml|raw|chunked'
+tree:
+	tree -a -I '.git|.venv|aws|docs|models|tmp|aws-kustomization.yaml|raw|chunked'
 
 backup:
 	zip "$$(basename $$PWD)_$$(date +%Y%m%d_%H%M%S).zip" \
-	$$(find . -type f -size -100M \
+	$$(find . -type f -size -100M \  
 		! -path "*/.git/*" \
 		! -path "*/.venv/*" \
 		! -path "*/tmp/*" \
 		! -path "models/*")
-
-
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} + && find . -name "*.pyc" -delete

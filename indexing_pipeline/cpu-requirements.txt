@@ -8,11 +8,10 @@ torchaudio
 boto3
 rapidocr-onnxruntime
 huggingface_hub
-PyMuPDF
-pdfplumber
+docling
+docling-ibm-models
 pandas
 ray
 qdrant-client
 python-arango
 extractous
-

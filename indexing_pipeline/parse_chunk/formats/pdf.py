@@ -1,136 +1,132 @@
 # indexing_pipeline/parse_chunk/formats/pdf.py
 
-import os, time, json
+import os
+import boto3
+import json
 from io import BytesIO
 from datetime import datetime
 
-import fitz  # PyMuPDF
-import pdfplumber
-import boto3
-from rapidocr_onnxruntime import RapidOCR
+from docling.datamodel.base_models import InputFormat, DocumentStream
+from docling.datamodel.pipeline_options import (
+    PdfPipelineOptions,
+    TableStructureOptions,
+    TableFormerMode
+)
+from docling.document_converter import DocumentConverter, PdfFormatOption
+
 from indexing_pipeline.parse_chunk.router import log
 
-# ENVIRONMENT VARIABLES + DEFAULTS
-S3_BUCKET = os.getenv("S3_BUCKET")
-assert S3_BUCKET, "S3_BUCKET must be set"
-CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "jsonl").lower()
-assert CHUNK_FORMAT in ("jsonl", "json")
+# ─── ENVIRONMENT ────────────────────────────────────────────────────────────────
+S3_BUCKET       = os.environ["S3_BUCKET"]
 IS_MULTILINGUAL = os.getenv("IS_MULTILINGUAL", "false").lower() == "true"
-RAPIDOCR_CACHE = os.getenv("RAPIDOCR_CACHE", "/tmp")
-OCR_DPI = int(os.getenv("OCR_DPI", "200"))
-OCR_CONF_THRESHOLD = float(os.getenv("OCR_CONF_THRESHOLD", "0.5"))
-MIN_TEXT_LEN = int(os.getenv("MIN_TEXT_LEN", "20"))
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+DOCLING_CACHE   = os.getenv("DOCLING_ARTIFACTS_PATH", None)
+TABLE_MODE      = os.getenv("TABLE_MODE", "accurate").lower()
 
-# Setup S3 and OCR
+# ─── S3 CLIENT ──────────────────────────────────────────────────────────────────
 s3 = boto3.client("s3")
-os.makedirs(RAPIDOCR_CACHE, exist_ok=True)
-ocr = RapidOCR(
-    det_model_dir=os.path.join(RAPIDOCR_CACHE, "det"),
-    rec_model_dir=os.path.join(RAPIDOCR_CACHE, "rec"),
-    cls_model_dir=os.path.join(RAPIDOCR_CACHE, "cls")
+
+# ─── DOCING PIPELINE SETUP ──────────────────────────────────────────────────────
+# TableFormerMode.ACCURATE is more robust but slower; FAST is quicker
+table_mode = (
+    TableFormerMode.ACCURATE
+    if TABLE_MODE != "fast"
+    else TableFormerMode.FAST
 )
 
-def parse_page(doc, raw_bytes, pi):
-    info = {"page_number": pi + 1, "errors": [], "decision_trace": []}
+# Build PdfPipelineOptions with required sub‑models
+pdf_opts = PdfPipelineOptions(
+    do_ocr=True,
+    is_multilingual=IS_MULTILINGUAL,
+    do_table_structure=True,
+    table_structure_options=TableStructureOptions(
+        do_cell_matching=True,
+        mode=table_mode
+    ),
+    # artifacts_path tells Docling where to cache layout & table models
+    artifacts_path=DOCLING_CACHE
+)
 
-    text = ""
-    source = "empty"
-    conf = 0.0
+converter = DocumentConverter({
+    InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_opts)
+})
 
-    # 1. Try PyMuPDF
-    try:
-        page = doc.load_page(pi)
-        text0 = page.get_text("text", flags=0).strip()
-        info["decision_trace"].append(f"pymupdf_len={len(text0)}")
-        if len(text0) >= MIN_TEXT_LEN:
-            return text0, "pymupdf", 1.0, info
-    except Exception as e:
-        info["errors"].append(f"pymupdf:{e}")
+# ─── PARSER ENTRYPOINT ──────────────────────────────────────────────────────────
+def parse_file(s3_key: str, manifest: dict) -> list[dict]:
+    """
+    Downloads the PDF at `s3_key`, runs Docling to detect layout, tables, OCR 
+    and emits one JSON-serializable chunk per page.
+    """
+    log(f"Docling parsing PDF {s3_key}  multilingual={IS_MULTILINGUAL}", level="INFO")
 
-    # 2. Try pdfplumber
-    try:
-        with pdfplumber.open(BytesIO(raw_bytes)) as pdf2:
-            p2 = pdf2.pages[pi]
-            text2 = (p2.extract_text() or "").strip()
-            info["decision_trace"].append(f"pdfplumber_len={len(text2)}")
-            if len(text2) >= MIN_TEXT_LEN:
-                return text2, "pdfplumber", 0.9, info
-    except Exception as e:
-        info["errors"].append(f"pdfplumber:{e}")
-
-    # 3. Finally fallback to OCR
-    try:
-        pix = page.get_pixmap(dpi=OCR_DPI)
-        ocr_res, _ = ocr(pix.tobytes("png"))
-        filtered = [t for _, t, c in ocr_res if c >= OCR_CONF_THRESHOLD]
-        cleaned = " ".join(filtered).strip()
-        avg = sum(c for _, _, c in ocr_res) / len(ocr_res) if ocr_res else 0.0
-        info["decision_trace"].append(f"ocr_len={len(cleaned)}_conf={avg:.2f}")
-        if len(cleaned) >= MIN_TEXT_LEN:
-            return cleaned, "rapidocr", avg, info
-    except Exception as e:
-        info["errors"].append(f"ocr:{e}")
-
-    # fallback to whatever best
-    return text, source, conf, info
-
-def parse_file(s3_key, manifest):
-    log(f"Parsing PDF {s3_key} (multi={IS_MULTILINGUAL})", level=LOG_LEVEL)
+    # 1) Download raw bytes
     try:
         raw = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
     except Exception as e:
-        log(f"S3 download error: {e}", level="ERROR")
+        log(f"Failed to download {s3_key}: {e}", level="ERROR")
         return []
 
+    # 2) Wrap in DocumentStream and convert
+    stream = DocumentStream(name=s3_key, stream=BytesIO(raw))
     try:
-        doc = fitz.open(stream=raw, filetype="pdf")
+        result = converter.convert(source=stream)
     except Exception as e:
-        log(f"Invalid PDF open: {e}", level="ERROR")
+        log(f"Docling conversion error for {s3_key}: {e}", level="ERROR")
         return []
 
+    doc = result.document
     chunks = []
     total_chars = 0
 
-    for pi in range(doc.page_count):
-        start = time.time()
-        text, src, conf, info = parse_page(doc, raw, pi)
-        elapsed = int((time.time() - start) * 1000)
+    # 3) Page‑by‑page chunking
+    for page_no, page in enumerate(doc.pages):
+        # Combine all text spans in reading order
+        text = "\n".join(span.text for span in page.texts).strip()
         total_chars += len(text)
 
-        cid = f"{manifest['sha256']}_{pi}"
+        # Extract tables on this page (if any)
+        tables = [
+            tbl.export_to_dict() 
+            for tbl in doc.tables 
+            if tbl.page_number == page_no + 1
+        ] or None
+
+        # Build the chunk payload
+        cid = f"{manifest['sha256']}_{page_no}"
         payload = {
             "document_id": manifest["sha256"],
             "chunk_id": cid,
-            "chunk_index": pi,
+            "chunk_index": page_no,
             "text": text,
             "source_path": f"s3://{S3_BUCKET}/{s3_key}",
             "source_hash": manifest["sha256"],
             "file_type": "pdf",
-            "page_number": pi + 1,
+            "page_number": page_no + 1,
             "start_time": None,
             "end_time": None,
             "line_range": None,
             "bbox": None,
             "metadata": {
                 "is_multilingual": IS_MULTILINGUAL,
-                "is_ocr": (src == "rapidocr"),
+                "is_ocr": result.pipeline_steps.get("ocr_used", False),
                 "chunk_type": "page",
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "tags": [],
                 "layout_tags": [],
-                "confidence": conf,
-                "errors": info["errors"],
-                "decision_trace": info["decision_trace"],
+                "confidence": None,
+                "errors": [],
+                "decision_trace": []
             },
             "entities": [],
             "embedding": []
         }
-        chunks.append({"id": f"chunk_{cid}", "payload": payload, "tables": None})
-        log(f"Page {pi}: src={src} conf={conf:.2f} len={len(text)} time={elapsed}ms",
-            level="DEBUG")
 
-    doc.close()
-    log(f"Extracted {len(chunks)} pages, {total_chars} chars total", level=LOG_LEVEL)
+        chunks.append({
+            "id": f"chunk_{cid}",
+            "payload": payload,
+            "tables": tables
+        })
 
-    return chunks if CHUNK_FORMAT == "jsonl" else [json.loads(json.dumps(c)) for c in chunks]
+        log(f"Page {page_no+1}: text_len={len(text)} tables={len(tables or [])}", level="DEBUG")
+
+    log(f"Extracted {len(chunks)} pages, total_chars={total_chars}", level="INFO")
+    return chunks

@@ -1,8 +1,0 @@
-{
-  "sha256": "7114f4c2601539bebaa62b79204d2787d1865ab7c5251030c9543f7afd153b7a",
-  "s3_key": "data/raw/random_multilingual_pdf.pdf",
-  "parser_version": "2.42.1",
-  "pipeline_run_id": "cbf1c0c0-d9be-4c6b-b2be-d53bbafb4be9",
-  "mime_type": "application/pdf",
-  "timestamp": "2025-07-25T02:01:59.331313Z"
-}
