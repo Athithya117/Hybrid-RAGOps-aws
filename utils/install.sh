@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
 : "${USER:=root}"
 echo "[*] Running setup.sh as user: $USER"
@@ -45,13 +44,11 @@ install_eksctl() {
   rm -f /tmp/eksctl.tar.gz
 }
 
-install_flux() {
-  FLUX_VERSION="v2.2.3"
-  curl -fsSL https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/flux_${FLUX_VERSION#v}_linux_amd64.tar.gz -o /tmp/flux.tgz
-  tar -xzf /tmp/flux.tgz -C /tmp
-  mv /tmp/flux /usr/local/bin/
-  chmod +x /usr/local/bin/flux
-  rm -f /tmp/flux.tgz
+install_argocd() {
+  ARGOCD_VERSION="v2.11.3"
+  curl -sSL -o /tmp/argocd https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64
+  chmod +x /tmp/argocd
+  mv /tmp/argocd /usr/local/bin/argocd
 }
 
 install_helm() {
@@ -85,28 +82,29 @@ install_sops() {
   mv sops-v${SOPS_VERSION}.linux.amd64 /usr/local/bin/sops
 }
 
-# Run all install functions
-install_aws_cli
-install_kubectl
-install_eksctl
-install_flux
-install_helm
-install_pulumi
-install_node_vite
-install_sops
-
-mkdir -p /workspace/backups/dbs/qdrant /workspace/backups/dbs/arrangodb
-
-
-
 install_k3d() {
   echo "[*] Installing k3d..."
   if ! command -v k3d &>/dev/null; then
     curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
   fi
 }
+
+
+# Run all install functions
+install_aws_cli
+install_kubectl
+install_eksctl
+install_argocd
+install_helm
+install_pulumi
+install_node_vite
+install_sops
 install_k3d
+
+mkdir -p /workspace/backups/dbs/qdrant /workspace/backups/dbs/arrangodb /workspace/data/ /workspace/models
+
+
 clear
 
-echo "[*] Setup complete"
+echo "Setup complete"
 
