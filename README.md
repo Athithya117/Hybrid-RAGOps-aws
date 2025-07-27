@@ -16,28 +16,46 @@
 export PYTHONPATH=$(pwd)
 export LOG_LEVEL=INFO                # or DEBUG if not headless
 export S3_BUCKET=e2e-rag-system16
-export IS_MULTILINGUAL=true          # or false if your data is english only  
+export IS_ENGLISH=true
+export IS_MULITLINGUAL=true
+export OTHER_LANGUAGES=ta,hi         # or (see below table) , paddle2onnx conversion for non english/chinese models. Ignore if IS_MULTILINGUAL=false
 export S3_RAW_PREFIX=data/raw/    
 export S3_CHUNKED_PREFIX=data/chunked/
-export CHUNK_FORMAT=json              # or jsonl for storage efficieny during headless mode       
-export PDF_PARSER="docling"           # or extractous if a faster parser is required and if pdfs doesnt have complex layout/tables
-export PDF_TABLE_MODE="accurate"     # or fast (ignore if not using Docling)
-export DOCLING_OCR_ENGINE=rapidocr    
-
-
+export CHUNK_FORMAT=json             # or jsonl for storage efficieny during headless mode       
+export MIN_IMG_SIZE_BYTES=3072      # Filter out small images(often unneccessary black images) under 3 KB 
+export OCR_RENDER_DPI=300           # Image rendering quality, higher = higher accuracy and cost and higher chance of extracting tiny texts
 
 
 
 export EMBEDDING_EL_DEVICE=cpu      # or gpu for embedding and entity linking models
 export EMBED_MODEL="elastic/multilingual-e5-small-optimized" # or View recommendations
-export LOAD_IN=int8   
+export LOAD_IN=int8
+
 
 
 ```
 
+| Language (abbr)        | Language (abbr)           | Language (abbr)   | Language (abbr)                 | Language (abbr)              |
+| ---------------------- | ------------------------- | ----------------- | ------------------------------- | ---------------------------- |
+| Chinese & English (ch) | Arabic (ar)               | Hindi (hi)        | Uyghur (ug)                     | Persian (fa)                 |
+| Urdu (ur)              | Serbian Latin (rs\_latin) | Occitan (oc)      | Italian (it)                    | Marathi (mr)                 |
+| Spanish (es)           | Nepali (ne)               | Portuguese (pt)   | Serbian Cyrillic (rs\_cyrillic) | Russian (ru)                 |
+| Bulgarian (bg)         | Ukrainian (uk)            | Estonian (et)     | Belarusian (be)                 | Irish (ga)                   |
+| Telugu (te)            | Croatian (hr)             | Saudi Arabia (sa) | Hungarian (hu)                  | Tamil (ta)                   |
+| Indonesian (id)        | Afrikaans (af)            | Icelandic (is)    | Azerbaijani (az)                | Kurdish (ku)                 |
+| Bosnian (bs)           | Lithuanian (lt)           | Czech (cs)        | Latvian (lv)                    | Welsh (cy)                   |
+| Maori (mi)             | Danish (da)               | Malay (ms)        | Maltese (mt)                    | Adyghe (ady)                 |
+| Dutch (nl)             | Kabardian (kbd)           | Norwegian (no)    | Avar (ava)                      | Polish (pl)                  |
+| Dargwa (dar)           | Romanian (ro)             | Ingush (inh)      | Slovak (sk)                     | Lak (lbe)                    |
+| Lezghian (lez)         | Slovenian (sl)            | Albanian (sq)     | Tabassaran (tab)                | Swedish (sv)                 |
+| Bihari (bh)            | Swahili (sw)              | Maithili (mai)    | Tagalog (tl)                    | Angika (ang)                 |
+| Turkish (tr)           | Bhojpuri (bho)            | Uzbek (uz)        | Magahi (mah)                    | Vietnamese (vi)              |
+| Nagpur (sck)           | Mongolian (mn)            | Newari (new)      | Abaza (abq)                     | Goan Konkani (gom)           |
+| French (fr)            | German (german)           | Japanese (japan)  | Korean (korean)                 | Chinese Trad. (chinese\_cht) |
+
 
 <details>
-  <summary> View recommendations(Click the triangle)</summary>
+  <summary> View embedding and EL models recommendations(Click the triangle)</summary>
 
 
 ## Recommendations:

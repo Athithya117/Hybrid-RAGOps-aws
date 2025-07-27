@@ -1,0 +1,8 @@
+{
+  "sha256": "d547e2608318a1ea54f7e14124c1e4b27cad92092ac455cf717ad62b1c09a56e",
+  "s3_key": "data/raw/graphrag_ocr_heavy.pdf",
+  "parser_version": "2.42.1",
+  "pipeline_run_id": "8b385b3d-eca8-4320-a917-c707af903570",
+  "mime_type": "application/pdf",
+  "timestamp": "2025-07-27T02:25:50.016223Z"
+}

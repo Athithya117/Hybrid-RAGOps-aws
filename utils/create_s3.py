@@ -6,7 +6,6 @@ import uuid
 def create_local_folders(base_path="."):
     folders = [
         "data/raw/",
-        "data/chunked/",
         "backups/dbs/qdrant/",
         "backups/dbs/arrangodb/"
     ]
@@ -68,7 +67,6 @@ def create_s3_bucket():
 def create_s3_folders(bucket_name, s3_client):
     folders = [
         "data/raw/",
-        "data/chunked/",
         "pulumi/",
         "backups/dbs/qdrant/",
         "backups/dbs/arrangodb/"
