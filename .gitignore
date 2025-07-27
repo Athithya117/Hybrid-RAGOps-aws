@@ -13,8 +13,10 @@ data_sample
 myenv
 images
 
-
-
+__pycache__
+__pycache__
+*.__pycache__
+*.pyc
 python3 -m venv myenv
 source myenv/bin/activate
 
@@ -22,3 +24,5 @@ pip install --upgrade pip
 
 pip install huggingface_hub docling opencv-python
 pip install rapidocr_onnxruntime
+
+

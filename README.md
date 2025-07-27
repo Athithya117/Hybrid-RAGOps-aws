@@ -9,53 +9,47 @@
 #### RAG8s implements page-wise chunking and similar chunking for scalability without losing accuracy
 
 
+detects page's language  =  x/y/z/etc if TESSERACT_LANG=x+y+z+etc
+
 
 ```sh
-
-
-export PYTHONPATH=$(pwd)
-export LOG_LEVEL=INFO                # or DEBUG if not headless
 export S3_BUCKET=e2e-rag-system16
-export IS_ENGLISH=true
-export IS_MULITLINGUAL=true
-export OTHER_LANGUAGES=ta,hi         # or (see below table) , paddle2onnx conversion for non english/chinese models. Ignore if IS_MULTILINGUAL=false
-export S3_RAW_PREFIX=data/raw/    
-export S3_CHUNKED_PREFIX=data/chunked/
-export CHUNK_FORMAT=json             # or jsonl for storage efficieny during headless mode       
-export MIN_IMG_SIZE_BYTES=3072      # Filter out small images(often unneccessary black images) under 3 KB 
-export OCR_RENDER_DPI=300           # Image rendering quality, higher = higher accuracy and cost and higher chance of extracting tiny texts
+export S3_RAW_PREFIX=data/raw/         
+export S3_CHUNKED_PREFIX=data/chunked/ 
+export CHUNK_FORMAT=json              # (OR) 'jsonl' for faster read and storage efficiency for headless use
+export DISABLE_OCR=false              # (OR) true = disable ocr and the text in images of docs will not be extracted
+export PDF_OCR=tesseract              # 'tesseract' = best for multilingual (OR) 'rapidocr' = better for complex english/chinese ocr but slightly slower
+export FORCE_OCR=false                # (OR) true = always OCR; false = skip if text exists(false recommended)
+export OCR_RENDER_DPI=250             # higher dpi = high quality image = higher cost and higher chance of extracting tiny texts
+export MIN_IMG_SIZE_BYTES=3072       # Filter out tiny images under 3 KB (often unneccessary black empty images)
+export IS_MULTILINGUAL=true          # (OR) false if docs are english only
+export TESSERACT_LANG=eng+tam        # Expected set of languages. Ignored if IS_MULTILINGUAL=false
 
 
-
-export EMBEDDING_EL_DEVICE=cpu      # or gpu for embedding and entity linking models
+export HF_TOKEN=
+export EMBEDDING_EL_DEVICE=cpu      # or gpu for indexing with embedding and entity linking models
 export EMBED_MODEL="elastic/multilingual-e5-small-optimized" # or View recommendations
 export LOAD_IN=int8
 
-
-
 ```
 
-| Language (abbr)        | Language (abbr)           | Language (abbr)   | Language (abbr)                 | Language (abbr)              |
-| ---------------------- | ------------------------- | ----------------- | ------------------------------- | ---------------------------- |
-| Chinese & English (ch) | Arabic (ar)               | Hindi (hi)        | Uyghur (ug)                     | Persian (fa)                 |
-| Urdu (ur)              | Serbian Latin (rs\_latin) | Occitan (oc)      | Italian (it)                    | Marathi (mr)                 |
-| Spanish (es)           | Nepali (ne)               | Portuguese (pt)   | Serbian Cyrillic (rs\_cyrillic) | Russian (ru)                 |
-| Bulgarian (bg)         | Ukrainian (uk)            | Estonian (et)     | Belarusian (be)                 | Irish (ga)                   |
-| Telugu (te)            | Croatian (hr)             | Saudi Arabia (sa) | Hungarian (hu)                  | Tamil (ta)                   |
-| Indonesian (id)        | Afrikaans (af)            | Icelandic (is)    | Azerbaijani (az)                | Kurdish (ku)                 |
-| Bosnian (bs)           | Lithuanian (lt)           | Czech (cs)        | Latvian (lv)                    | Welsh (cy)                   |
-| Maori (mi)             | Danish (da)               | Malay (ms)        | Maltese (mt)                    | Adyghe (ady)                 |
-| Dutch (nl)             | Kabardian (kbd)           | Norwegian (no)    | Avar (ava)                      | Polish (pl)                  |
-| Dargwa (dar)           | Romanian (ro)             | Ingush (inh)      | Slovak (sk)                     | Lak (lbe)                    |
-| Lezghian (lez)         | Slovenian (sl)            | Albanian (sq)     | Tabassaran (tab)                | Swedish (sv)                 |
-| Bihari (bh)            | Swahili (sw)              | Maithili (mai)    | Tagalog (tl)                    | Angika (ang)                 |
-| Turkish (tr)           | Bhojpuri (bho)            | Uzbek (uz)        | Magahi (mah)                    | Vietnamese (vi)              |
-| Nagpur (sck)           | Mongolian (mn)            | Newari (new)      | Abaza (abq)                     | Goan Konkani (gom)           |
-| French (fr)            | German (german)           | Japanese (japan)  | Korean (korean)                 | Chinese Trad. (chinese\_cht) |
-
-
 <details>
-  <summary> View embedding and EL models recommendations(Click the triangle)</summary>
+  <summary> View languages table, embedding and EL models recommendations(Click the triangle)</summary>
+
+
+| Language(Abbr)        | Language(Abbr)            | Language(Abbr)  | Language(Abbr)              | Language(Abbr)       | Language(Abbr)             | Language(Abbr)  |
+| --------------------- | ------------------------- | --------------- | --------------------------- | -------------------- | -------------------------- | --------------- |
+| Amharic(amh)          | French(fra)               | Oriya(ori)      | Serbian(srp)                | Urdu(urd)            | Azerbaijani(aze)           | Dutch(nld)      |
+| Assamese(asm)         | French-Fraktur(fra\_frak) | Pashto(pus)     | Serbian-Cyrillic(srp\_cyrl) | Uzbek(uzb)           | Azerbaijani-Cyr(aze\_cyrl) | Esperanto(epo)  |
+| Bosnian(bos)          | Galician(glg)             | Persian(fas)    | Serbian-Latin(srp\_latn)    | Uzbek-Cyr(uzb\_cyrl) | Finnish(fin)               | Latin(lat)      |
+| Catalan(cat)          | German(deu)               | Polish(pol)     | Sinhala(sin)                | Vietnamese(vie)      | Tamil(tam)                 | Hebrew(heb)     |
+| Cebuano(ceb)          | Greek(ell)                | Portuguese(por) | Slovak(slk)                 | Welsh(cym)           | Telugu(tel)                | Hindi(hin)      |
+| Chinese-Sim(chi\_sim) | Gujarati(guj)             | Punjabi(pan)    | Slovenian(slv)              | Yiddish(yid)         | Thai(tha)                  | Hungarian(hun)  |
+| Chinese-Tra(chi\_tra) | Haitian(hat)              | Romanian(ron)   | Spanish(spa)                | Yoruba(yor)          | Tibetan(bod)               | Icelandic(isl)  |
+| Croatian(hrv)         | Hausa(hau)\*              | Russian(rus)    | Swahili(swa)                | Kurdish(kur)         | Japanese(jpn)              | Indonesian(ind) |
+| Czech(ces)            | Khmer(khm)                | Lao(lao)        | Lithuanian(lit)             | Kannada(kan)         | Javanese(jav)              | Italian(ita)    |
+| Danish(dan)           | Korean(kor)               | Latvian(lav)    | Nepali(nep)                 | Sinhala(sin)         | Oriya(ori)                 | Malay(may)\*    |
+| English(eng)          | Tigrinya(tir)             | Estonian(est)   | Tagalog(tgl)                | Turkish(tur)         | Ukrainian(ukr)             | Uyghur(uig)     |
 
 
 ## Recommendations:
@@ -138,6 +132,27 @@ export LOAD_IN=int8
 
 ---
 
+
+---
+
+
+### indexing_pipeline/
+
+| **Component**                         | **Tool(s)**                                          | **Exact Chunking Strategy**                                                                                                                                                        | **Why Chosen for Scalability**                                                                                     |
+| ------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Audio Transcription**               | `faster-whisper`, `pydub`, `ffmpeg-python`           | Audio is loaded using `pydub`; sliced into 20–30s segments using silence detection (`pydub.silence.detect_nonsilent`). Each segment becomes a chunk with `start_time`, `end_time`. | `faster-whisper` (CTranslate2) enables fast CPU/GPU transcription. `ffmpeg` ensures universal audio compatibility. |
+| **HTML Parsing**                      | `extractous`, `BeautifulSoup`                        | HTML parsed with `BeautifulSoup`; headings (`<h*>`), paragraphs, and sections form logical delimiters.                                                                             | Lightweight, DOM-aware; preserves document structure and metadata during chunking.                                 |
+| **PDF Parsing + OCR**                 | `pdfplumber`, `PyMuPDF`, `paddleocr`, `paddlepaddle` | Default: 1 page = 1 chunk. For sparse/visual PDFs: fallback to paragraph chunking using spacing heuristics (`line_gap > 1.5x median`). OCR used for image-heavy scans.             | Multilingual, layout-aware parsing; fallback improves resilience. Runs within Ray pipeline.                        |
+| **CSV Chunking**                      | `ray.data.read_csv()` + `.window()`                  | Parsed with `ray.data`. Chunked using `ds.window(bytes_per_window=N)` where `N = max(5120, avg_row_len * CSV_ROWS_PER_CHUNK)`. Adaptive based on content size.                     | Efficient streaming, avoids memory spikes, parallelizable across nodes.                                            |
+| **JSON Chunking**                     | `ray.data.read_json()` + `.window()`                 | JSONL: one line = one record. For nested: flatten → explode arrays → chunk using grouping by field depth or record size.                                                           | Robust handling of complex structures. Adaptive chunk size per nesting and token count.                            |
+| **Pipeline Orchestration**            | `ray` (core, actors, tasks)                          | Each stage (parsing, chunking, embedding) runs as Ray actor or task. Orchestrated by dispatcher using `ray.remote`.                                                                | Enables parallel processing, distributed execution, and shared memory across stages.                               |
+| **Main Parser Entry Point**           | `indexing_pipeline/index.py`                         | Dispatch based on file extension or MIME type via `mimetypes.guess_type()` or `.endswith()`. Handler routes to proper parser, outputs JSONL to `/data/chunked/`.                   | Modular dispatcher. Easy to add custom formats or override handlers.                                               |
+| **Content Hashing / Deduplication**   | `hashlib`                                            | Stream full file to compute SHA256 → becomes `document_id`. Chunks get `chunk_{sha256}_{chunk_index}`.                                                                             | Guarantees uniqueness. Streaming avoids full memory usage on large files.                                          |
+| **S3 I/O**                            | `boto3`                                              | Uses `s3.download_fileobj()` or `get_object()` with streaming. Output written via `upload_fileobj()` or multipart upload.                                                          | Supports massive files, IAM-secured access, auto-retry, and resumable uploads.                                     |
+| **Entity Linking (Multilingual)**     | `ReFinED`                                            | Chunk text passed to `refined.get_entities(text)` → merged into `entities[]`. Handles multi-language linking and coreference.                                                      | Lightweight and accurate. Handles multilingual corpora efficiently on CPU/GPU.                                     |
+| **Embedding Generation**              | `elastic/multilingual-e5-small-optimized`            | Chunk text → passed through `AutoModel.from_pretrained()` → CLS vector extracted → stored as `.embedding`. Handles truncation/sliding window.                                      | Small, multilingual, production-ready model. High speed with good quality tradeoff.                                |
+| **Vector Index**                      | `qdrant-client`                                      | Vectors inserted into Qdrant with `upload_collections()`. Metadata used for filters and hybrid search. Uses HNSW indexing.                                                         | Fast ANN search. Easy to shard and scale. Supports metadata and full-text hybrid retrieval.                        |
+| **Knowledge Graph / Triplet Storage** | `python-arango`                                      | Extracted triplets stored as `UPSERT` into ArangoDB doc and edge collections. Keys derived from `chunk_id`.                                                                        | Graph-native storage with AQL. Scales well for hybrid knowledge-backed retrieval.                                  |
 
 ---
 

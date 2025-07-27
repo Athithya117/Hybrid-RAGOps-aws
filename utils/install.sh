@@ -101,7 +101,15 @@ install_node_vite
 install_sops
 install_k3d
 
+
+grep -qxF 'export PYTHONPATH=$(pwd)' ~/.bashrc || echo 'export PYTHONPATH=$(pwd)' >> ~/.bashrc
+grep -qxF 'export MODEL_HOME="$(pwd)/models"' ~/.bashrc || echo 'export MODEL_HOME="$(pwd)/models"' >> ~/.bashrc
+grep -qxF 'export HF_HOME="$MODEL_HOME/hf"' ~/.bashrc || echo 'export HF_HOME="$MODEL_HOME/hf"' >> ~/.bashrc
+grep -qxF 'export HF_HUB_CACHE="$HF_HOME/hub"' ~/.bashrc || echo 'export HF_HUB_CACHE="$HF_HOME/hub"' >> ~/.bashrc
+grep -qxF 'export HF_ASSETS_CACHE="$HF_HOME/assets"' ~/.bashrc || echo 'export HF_ASSETS_CACHE="$HF_HOME/assets"' >> ~/.bashrc
+grep -qxF 'export RAPIDOCR_MODEL_DIR="$MODEL_HOME/rapidocr"' ~/.bashrc || echo 'export RAPIDOCR_MODEL_DIR="$MODEL_HOME/rapidocr"' >> ~/.bashrc
 mkdir -p /workspace/backups/dbs/qdrant /workspace/backups/dbs/arrangodb /workspace/data/ /workspace/models
+mkdir -p "$(pwd)/models"
 
 
 clear
