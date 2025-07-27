@@ -7,24 +7,84 @@
 > “Page-level chunking is the overall winner: Our experiments clearly show that page-level chunking achieved the highest average accuracy (0.648) across all datasets and the lowest standard deviation (0.107), showing more consistent performance across different content types. Page-level chunking demonstrated superior overall performance when compared to both token-based chunking and section-level chunking.” 
 
 #### RAG8s implements page-wise chunking and similar chunking for scalability without losing accuracy
+<details>
+  <summary> View chunk stratergies and chunk schema (Click the triangle)</summary>
+
+```sh
+{
+  "document_id": "abc123xyz",
+  "chunk_id": "abc123xyz_1",
+  "page_number": 1,
+  "source_type": "pdf",               // or "html", "docx", etc.
+  "source_path": "s3://bucket/data/raw/doc1.pdf",
+  "line_range": None ,  // or [starting_line, ending_line] for txt, csv, spreadsheets,etc
+  "start_time": None,
+  "end_time": None,  
+  "html_blocks": [
+    {
+      "block_type": "paragraph",
+      "content": "<p>This is a paragraph from HTML source.</p>"
+    },
+    {
+      "block_type": "header",
+      "content": "<h2>Section title</h2>"
+    }
+  ],
+  "markdown_blocks": [
+    {
+      "block_type": "paragraph",
+      "content": "This is a paragraph in markdown format."
+    }
+  ],
+  "text": "This is the full extracted text from the chunk, merged from all sources.",
+  "tables": [
+    [
+      ["Header1", "Header2"],
+      ["Row1Col1", "Row1Col2"]
+    ]
+  ],
+  "images": [
+    "s3://bucket/data/images/doc1/page1_img1.png"
+  ],
+  "image_ocr": [
+    {
+      "image_s3": "s3://bucket/data/images/doc1/page1_img1.png",
+      "text": "Detected text from OCR on the image"
+    }
+  ],
+  "metadata": {
+    "used_ocr": true,
+    "is_multilingual": true,
+    "languages": ["eng", "tam"],
+    "num_tables": 1,
+    "num_images": 1,
+    "timestamp": "2025-07-27T12:00:15Z",
+    "parse_chunk_duration": 356 // example in milliseconds
+  }
+}
 
 
-detects page's language  =  x/y/z/etc if TESSERACT_LANG=x+y+z+etc
 
+
+```
+</details>
+
+
+### Export the neccessary configs.
 
 ```sh
 export S3_BUCKET=e2e-rag-system16
-export S3_RAW_PREFIX=data/raw/         
-export S3_CHUNKED_PREFIX=data/chunked/ 
+export S3_RAW_PREFIX=data/raw/         # Input raw files (PDFs,images,etc)
+export S3_CHUNKED_PREFIX=data/chunked/ # Output after OCR & parsing
 export CHUNK_FORMAT=json              # (OR) 'jsonl' for faster read and storage efficiency for headless use
 export DISABLE_OCR=false              # (OR) true = disable ocr and the text in images of docs will not be extracted
-export PDF_OCR=tesseract              # 'tesseract' = best for multilingual (OR) 'rapidocr' = better for complex english/chinese ocr but slightly slower
+export PDF_OCR=tesseract              # 'tesseract' = best for multilingual (OR)'rapidocr' = better for complex english/chinese ocr but slightly slower
 export FORCE_OCR=false                # (OR) true = always OCR; false = skip if text exists(false recommended)
 export OCR_RENDER_DPI=250             # higher dpi = high quality image = higher cost and higher chance of extracting tiny texts
 export MIN_IMG_SIZE_BYTES=3072       # Filter out tiny images under 3 KB (often unneccessary black empty images)
-export IS_MULTILINGUAL=true          # (OR) false if docs are english only
-export TESSERACT_LANG=eng+tam        # Expected set of languages. Ignored if IS_MULTILINGUAL=false
-
+export IS_MULTILINGUAL=true          # "true" = install language packs. if false, TESSERACT_LANG will be ignored
+export TESSERACT_LANG=eng+tam    # (OR) see mapping table below, to detect page's language = x/y/z/etc if TESSERACT_LANG=x+y+z+etc using fasttext
+export FASTTEXT_MODEL_PATH="models/lid.176.ftz" # (OR) models/lid.176.bin (~126 MB, ~98.3% accuracy), models/lid.176.ftz (~0.9 MB, ≈96.8% accuracy) 
 
 export HF_TOKEN=
 export EMBEDDING_EL_DEVICE=cpu      # or gpu for indexing with embedding and entity linking models
@@ -85,52 +145,6 @@ export LOAD_IN=int8
 
 </details>
 
----
----
-
-
----
-
-
-```sh
-
-{
-  "id": "chunk_<document_sha256>_<chunk_index>",          // Unique global ID for the chunk: includes doc hash and position
-  "payload": {
-    "document_id": "<document_sha256>",                   // SHA256 of the full file (used for deduplication and lineage)
-    "chunk_id": "<document_sha256>_<chunk_index>",        // Local ID for chunk, deterministic within a document
-    "chunk_index": 0,                                     // 0-based index, used for ordering chunks during retrieval
-    "text": "chunk text content",                         // Actual text of this chunk (paragraph, page, heading, etc.)
-
-    "source_path": "s3://bucket/file.pdf",                // Resolved full URI of the original file (can be local or cloud)
-    "source_hash": "<document_sha256>",                   // Redundant doc hash (used for quick reference)
-
-    "file_type": "pdf",                                   // One of: pdf, html, mp3, csv, txt, etc. (prefer MIME-based detection)
-    "page_number": 1,                                     // For PDFs/ePubs: the 1-based page index. Null for non-paged types
-
-    "bbox": null,                                         // For visual formats (PDF, HTML): [x0, y0, x1, y1] pixel bbox. Else null
-
-    "metadata": {
-      "is_multilingual": false,                           // True if mixed language content detected
-      "is_ocr": false,                                    // True if OCR was applied (fallback on image-based PDFs)
-      "chunk_type": "paragraph",                          // "paragraph", "heading", "page", "table", "section", etc.
-      "timestamp": "2025-07-23T20:30:00Z",                // UTC timestamp of chunk creation (ISO 8601 format)
-      "tags": [],                                         // Optional labels: "title", "header", "invoice", etc.
-      "layout_tags": ["heading", "paragraph"],            // Structural tags inferred from layout model
-      "confidence": null                                  // OCR/ASR confidence score (0.0–1.0); null if not applicable
-    },
-
-    "entities": [],                                     // Optional: NER output as list of {text, type, span, confidence}
-    "embedding": []                                     // Optional: vector embedding (float list) to be added post-parsing
-  },
-
-  "tables": null                                          // Optional: list of extracted tables; null if no tables present
-}
-
-
-```
-
----
 
 
 ---

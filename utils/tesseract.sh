@@ -30,3 +30,5 @@ fi
 echo ""
 echo "Tesseract available languages:"
 tesseract --list-langs || echo "tesseract not found or failed"
+
+find . -type f -exec sed -i '/log\.info(f"Uploaded page .*→ s3:\/\/.*")/c\\' {} +

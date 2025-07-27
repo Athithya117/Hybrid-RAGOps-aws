@@ -111,8 +111,20 @@ grep -qxF 'export RAPIDOCR_MODEL_DIR="$MODEL_HOME/rapidocr"' ~/.bashrc || echo '
 mkdir -p /workspace/backups/dbs/qdrant /workspace/backups/dbs/arrangodb /workspace/data/ /workspace/models
 mkdir -p "$(pwd)/models"
 
+# cd into the project models directory
+cd models
+# Download the full-size 126MB model
+wget -O lid.176.bin \
+  https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin
+
+# Download the compressed 1MB model
+wget -O lid.176.ftz \
+  https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz
+
+# Return to the project root
+cd -
 
 clear
 
-echo "Setup complete"
+echo "Bootstrap completed"
 

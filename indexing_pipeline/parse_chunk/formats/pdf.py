@@ -25,7 +25,6 @@ else:
     import pytesseract
     TESSERACT_CMD  = os.getenv("TESSERACT_CMD", "tesseract")
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
-    # build Tesseract config string (languages joined by +)
     raw_langs     = os.getenv("TESSERACT_LANG", "").replace(",", " ").replace(";", " ")
     langs_list    = [l for l in raw_langs.split() if l]
     TESS_CONFIG   = f"-l {'+'.join(langs_list)}" if langs_list else ""
@@ -45,7 +44,6 @@ MIN_IMG_SIZE       = int(os.getenv("MIN_IMG_SIZE_BYTES",  "2048"))
 DEBUG_SAVE_IMG     = os.getenv("DEBUG_SAVE_IMG",    "false").lower() == "true"
 IS_MULTILINGUAL    = os.getenv("IS_MULTILINGUAL",   "false").lower() == "true"
 
-# optional: if you need to install languages at runtime
 OTHER_LANGUAGES    = os.getenv("OTHER_LANGUAGES", "")
 
 # --- Logging & AWS client ---
@@ -59,7 +57,6 @@ def is_valid_text(text: str) -> bool:
     return len(t) > 20 and any(c.isalpha() for c in t)
 
 def do_ocr_tesseract(img: np.ndarray) -> list[str]:
-    # optional preprocess for better results
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     _, bi = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
     pil = Image.fromarray(bi)
@@ -70,7 +67,8 @@ def do_ocr_rapidocr(img: np.ndarray) -> list[str]:
     res = ocr_rapid(img)
     lines = []
     if res and res[0]:
-        for _, txt in res[0]:
+        for item in res[0]:
+            txt = item[1]
             if txt and txt.strip():
                 lines.append(txt.strip())
     return lines
@@ -86,25 +84,32 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
     saved = 0
 
     for idx, page in enumerate(mp_doc):
-        start = datetime.utcnow()
+        process_start = datetime.utcnow()
         page_num = idx + 1
         chunk_id = f"{doc_id}_{idx}"
-        payload = {
-            "document_id": doc_id,
-            "chunk_id": chunk_id,
-            "page_number": page_num,
-            "source_type": "pdf",
-            "source_path": source,
-            "text": "",
-            "tables": [],
-            "images": [],
-            "image_ocr": [],
+        payload       = {
+            "document_id":     doc_id,
+            "chunk_id":        chunk_id,
+            "page_number":     page_num,
+            "source_type":     "pdf",
+            "source_path":     source,
+            "line_range":      None,
+            "start_time":      None,
+            "end_time":        None,
+            "html_blocks":     [],
+            "markdown_blocks": [],
+            "text":            "",
+            "tables":          [],
+            "images":          [],
+            "image_ocr":       [],
             "metadata": {
-                "used_ocr": False,
-                "num_tables": 0,
-                "num_images": 0,
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "parse_chunk_duration": None
+                "used_ocr":             False,
+                "is_multilingual":      IS_MULTILINGUAL,
+                "num_tables":           0,
+                "num_images":           0,
+                "timestamp":            process_start.isoformat() + "Z",
+                "parse_chunk_duration": None,
+                "custom":               {}
             }
         }
 
@@ -169,7 +174,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     img_cv    = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
 
                 h, w = img_cv.shape[:2]
-                if h<100 or w<100 or (w*h)/(pw*ph) < 0.02:
+                if h < 100 or w < 100 or (w * h) / (pw * ph) < 0.02:
                     continue
 
                 lines = []
@@ -196,12 +201,12 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 log.warning(f"Image OCR error p{page_num}#{i}: {e}")
 
         # --- finalize and upload chunk ---
-        duration = (datetime.utcnow() - start).total_seconds() * 1000
+        duration = (datetime.utcnow() - process_start).total_seconds() * 1000
         payload["metadata"]["parse_chunk_duration"] = int(duration)
 
         ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
         key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext}"
-        body = (json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext=="jsonl" \
+        body = (json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" \
                else json.dumps(payload, indent=2, ensure_ascii=False).encode()
 
         s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body, ContentType="application/json")
@@ -212,10 +217,8 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
     pl_doc.close()
     return {"saved_chunks": saved}
 
-
 # --- Example entrypoint for AWS Lambda or CLI ---
 if __name__ == "__main__":
-    # simple CLI: python script.py key '{"sha256": "..."}'
     if len(sys.argv) != 3:
         print("Usage: script.py <s3_key> <manifest_json>", file=sys.stderr)
         sys.exit(1)

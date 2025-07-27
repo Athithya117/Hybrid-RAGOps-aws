@@ -157,7 +157,6 @@ def main():
         manifest = {
             "sha256": sha,
             "s3_key": key,
-            "parser_version": parser_version,
             "pipeline_run_id": run_id,
             "mime_type": detect_mime(key),
             "timestamp": datetime.utcnow().isoformat() + "Z"
