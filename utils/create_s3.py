@@ -87,3 +87,4 @@ if __name__ == "__main__":
     print("Creating folder-like prefixes in S3 bucket...")
     create_s3_folders(bucket_name, s3_client)
     print("S3 folder-like prefixes created.")
+

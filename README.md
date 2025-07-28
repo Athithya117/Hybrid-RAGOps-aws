@@ -73,18 +73,30 @@
 ### Export the neccessary configs.
 
 ```sh
+
+
+
 export S3_BUCKET=e2e-rag-system16
 export S3_RAW_PREFIX=data/raw/         # Input raw files (PDFs,images,etc)
 export S3_CHUNKED_PREFIX=data/chunked/ # Output after OCR & parsing
-export CHUNK_FORMAT=json              # (OR) 'jsonl' for faster read and storage efficiency for headless use
+export CHUNK_FORMAT=json              # (OR) 'jsonl' for faster read and storage efficiency for headless use(but not readable)
 export DISABLE_OCR=false              # (OR) true = disable ocr and the text in images of docs will not be extracted
-export PDF_OCR=tesseract              # 'tesseract' = best for multilingual (OR)'rapidocr' = better for complex english/chinese ocr but slightly slower
+export OCR_ENGINE=tesseract           # 'tesseract' = best for multilingual (OR)'rapidocr' is better for complex english only ocr but slightly slower
 export FORCE_OCR=false                # (OR) true = always OCR; false = skip if text exists(false recommended)
-export OCR_RENDER_DPI=250             # higher dpi = high quality image = higher cost and higher chance of extracting tiny texts
+export OCR_RENDER_DPI=300             # higher dpi = high quality image = higher cost and higher chance of extracting tiny texts
 export MIN_IMG_SIZE_BYTES=3072       # Filter out tiny images under 3 KB (often unneccessary black empty images)
-export IS_MULTILINGUAL=true          # "true" = install language packs. if false, TESSERACT_LANG will be ignored
-export TESSERACT_LANG=eng+tam    # (OR) see mapping table below, to detect page's language = x/y/z/etc if TESSERACT_LANG=x+y+z+etc using fasttext
-export FASTTEXT_MODEL_PATH="models/lid.176.ftz" # (OR) models/lid.176.bin (~126 MB, ~98.3% accuracy), models/lid.176.ftz (~0.9 MB, ≈96.8% accuracy) 
+export IS_MULTILINGUAL=true          # (OR) false, TESSERACT_LANG will be ignored
+export TESSERACT_LANG=eng+tam        # (OR) see mapping table below
+
+
+export HF_TOKEN=
+export EMBEDDING_EL_DEVICE=cpu      # or gpu for indexing with embedding and entity linking models
+export EMBED_MODEL="elastic/multilingual-e5-small-optimized" # or View recommendations
+export LOAD_IN=int8
+
+
+
+
 
 export HF_TOKEN=
 export EMBEDDING_EL_DEVICE=cpu      # or gpu for indexing with embedding and entity linking models
