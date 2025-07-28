@@ -11,40 +11,45 @@ import numpy as np
 from io import BytesIO
 from datetime import datetime
 
-# --- Lazy import OCR backends when needed ---
+# --- Determine OCR backend from env ---
 OCR_BACKEND = os.getenv("PDF_OCR", "rapidocr").strip().lower()
 if OCR_BACKEND not in ("rapidocr", "tesseract"):
     print(f"ERROR: PDF_OCR must be 'rapidocr' or 'tesseract', got '{OCR_BACKEND}'", file=sys.stderr)
     sys.exit(1)
 
+# --- Read multilingual flag and guard invalid combos ---
+IS_MULTILINGUAL = os.getenv("IS_MULTILINGUAL", "false").lower() == "true"
+if IS_MULTILINGUAL and OCR_BACKEND == "rapidocr":
+    print("ERROR: multilingual OCR is only supported with Tesseract. Set PDF_OCR=tesseract when IS_MULTILINGUAL=true", file=sys.stderr)
+    sys.exit(1)
+
+# --- Lazy import OCR backends when needed ---
 if OCR_BACKEND == "rapidocr":
     from rapidocr_onnxruntime import RapidOCR
     ocr_rapid = RapidOCR()
 else:
     from PIL import Image
     import pytesseract
-    TESSERACT_CMD  = os.getenv("TESSERACT_CMD", "tesseract")
+    TESSERACT_CMD = os.getenv("TESSERACT_CMD", "tesseract")
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
-    raw_langs     = os.getenv("TESSERACT_LANG", "").replace(",", " ").replace(";", " ")
-    langs_list    = [l for l in raw_langs.split() if l]
-    TESS_CONFIG   = f"-l {'+'.join(langs_list)}" if langs_list else ""
+    raw_langs   = os.getenv("TESSERACT_LANG", "").replace(",", " ").replace(";", " ")
+    langs_list  = [l for l in raw_langs.split() if l]
+    TESS_CONFIG = f"-l {'+'.join(langs_list)}" if langs_list else ""
 
 # --- Read & validate all other env vars ---
-S3_BUCKET          = os.getenv("S3_BUCKET") or sys.exit("Missing S3_BUCKET")
-S3_RAW_PREFIX      = os.getenv("S3_RAW_PREFIX", "data/raw/")
-S3_IMAGE_PREFIX    = os.getenv("S3_IMAGE_PREFIX", "data/images/")
-S3_CHUNKED_PREFIX  = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/")
-CHUNK_FORMAT       = os.getenv("CHUNK_FORMAT", "json").strip().lower()
+S3_BUCKET         = os.getenv("S3_BUCKET") or sys.exit("Missing S3_BUCKET")
+S3_RAW_PREFIX     = os.getenv("S3_RAW_PREFIX", "data/raw/")
+S3_IMAGE_PREFIX   = os.getenv("S3_IMAGE_PREFIX", "data/images/")
+S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/")
+CHUNK_FORMAT      = os.getenv("CHUNK_FORMAT", "json").strip().lower()
 if CHUNK_FORMAT not in ("json", "jsonl"):
     sys.exit("CHUNK_FORMAT must be 'json' or 'jsonl'")
-DISABLE_OCR        = os.getenv("DISABLE_OCR", "false").lower() == "true"
-FORCE_OCR          = os.getenv("FORCE_OCR", "false").lower() == "true"
-RENDER_DPI         = int(os.getenv("OCR_RENDER_DPI",      "300"))
-MIN_IMG_SIZE       = int(os.getenv("MIN_IMG_SIZE_BYTES",  "2048"))
-DEBUG_SAVE_IMG     = os.getenv("DEBUG_SAVE_IMG",    "false").lower() == "true"
-IS_MULTILINGUAL    = os.getenv("IS_MULTILINGUAL",   "false").lower() == "true"
-
-OTHER_LANGUAGES    = os.getenv("OTHER_LANGUAGES", "")
+DISABLE_OCR       = os.getenv("DISABLE_OCR", "false").lower() == "true"
+FORCE_OCR         = os.getenv("FORCE_OCR", "false").lower() == "true"
+RENDER_DPI        = int(os.getenv("OCR_RENDER_DPI", "300"))
+MIN_IMG_SIZE      = int(os.getenv("MIN_IMG_SIZE_BYTES", "2048"))
+DEBUG_SAVE_IMG    = os.getenv("DEBUG_SAVE_IMG", "false").lower() == "true"
+OTHER_LANGUAGES   = os.getenv("OTHER_LANGUAGES", "")
 
 # --- Logging & AWS client ---
 logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO)
@@ -75,24 +80,27 @@ def do_ocr_rapidocr(img: np.ndarray) -> list[str]:
 
 # --- Main parser function ---
 def parse_file(s3_key: str, manifest: dict) -> dict:
-    raw   = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
-    source= f"s3://{S3_BUCKET}/{s3_key}"
-    doc_id= manifest["sha256"]
+    raw    = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
+    source = f"s3://{S3_BUCKET}/{s3_key}"
+    doc_id = manifest["sha256"]
 
-    mp_doc= fitz.open(stream=raw, filetype="pdf")
-    pl_doc= pdfplumber.open(BytesIO(raw))
-    saved = 0
+    mp_doc = fitz.open(stream=raw, filetype="pdf")
+    pl_doc = pdfplumber.open(BytesIO(raw))
+    saved  = 0
 
     for idx, page in enumerate(mp_doc):
         process_start = datetime.utcnow()
-        page_num = idx + 1
-        chunk_id = f"{doc_id}_{idx}"
-        payload       = {
+        page_num      = idx + 1
+        chunk_id      = f"{doc_id}_{idx}"
+
+        # --- Initialize payload with new 'parser' field ---
+        payload = {
             "document_id":     doc_id,
             "chunk_id":        chunk_id,
             "page_number":     page_num,
             "source_type":     "pdf",
             "source_path":     source,
+            "parser":          OCR_BACKEND,
             "line_range":      None,
             "start_time":      None,
             "end_time":        None,
@@ -210,7 +218,6 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                else json.dumps(payload, indent=2, ensure_ascii=False).encode()
 
         s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body, ContentType="application/json")
-        log.info(f"Uploaded page {page_num} → s3://{S3_BUCKET}/{key}")
         saved += 1
 
     mp_doc.close()
@@ -222,7 +229,7 @@ if __name__ == "__main__":
     if len(sys.argv) != 3:
         print("Usage: script.py <s3_key> <manifest_json>", file=sys.stderr)
         sys.exit(1)
-    key = sys.argv[1]
+    key      = sys.argv[1]
     manifest = json.loads(sys.argv[2])
-    result = parse_file(key, manifest)
+    result   = parse_file(key, manifest)
     print(json.dumps(result, indent=2))

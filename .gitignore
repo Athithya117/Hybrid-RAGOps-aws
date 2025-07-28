@@ -12,6 +12,8 @@ tmp.md
 data_sample
 myenv
 images
+data
+data/
 
 __pycache__
 __pycache__
