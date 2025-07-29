@@ -6,6 +6,7 @@ echo "[*] Running setup.sh as user: $USER"
 export DEBIAN_FRONTEND=noninteractive
 export TZ=Etc/UTC
 
+
 apt-get update -yq
 apt-get upgrade -yq
 

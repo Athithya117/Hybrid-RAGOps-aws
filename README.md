@@ -81,13 +81,12 @@ export S3_RAW_PREFIX=data/raw/         # Input raw files (PDFs,images,etc)
 export S3_CHUNKED_PREFIX=data/chunked/ # Output after OCR & parsing
 export CHUNK_FORMAT=json              # (OR) 'jsonl' for faster read and storage efficiency for headless use(but not readable)
 export DISABLE_OCR=false              # (OR) true = disable ocr and the text in images of docs will not be extracted
-export OCR_ENGINE=tesseract           # 'tesseract' = best for multilingual (OR)'rapidocr' is better for complex english only ocr but slightly slower
+export OCR_ENGINE=tesseract           # (OR) indicocr for indian languages (OR)'rapidocr' for complex english
 export FORCE_OCR=false                # (OR) true = always OCR; false = skip if text exists(false recommended)
-export OCR_RENDER_DPI=300             # higher dpi = high quality image = higher cost and higher chance of extracting tiny texts
+export OCR_RENDER_DPI=300            # higher dpi = high quality image = higher cost and higher chance of extracting tiny texts in multilingual docs
 export MIN_IMG_SIZE_BYTES=3072       # Filter out tiny images under 3 KB (often unneccessary black empty images)
-export IS_MULTILINGUAL=true          # (OR) false, TESSERACT_LANG will be ignored
-export TESSERACT_LANG=eng+tam        # (OR) see mapping table below
-
+export IS_MULTILINGUAL=false         # (OR) if false, TESSERACT_LANG will be ignored
+export TESSERACT_LANG=tam          # see mapping table below. if indicocr, no need to specify language combinations
 
 export HF_TOKEN=
 export EMBEDDING_EL_DEVICE=cpu      # or gpu for indexing with embedding and entity linking models
