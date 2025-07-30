@@ -11,6 +11,7 @@
   <summary> View chunk stratergies and chunk schema (Click the triangle)</summary>
 
 ```sh
+
 {
   "document_id": "abc123xyz",
   "chunk_id": "abc123xyz_1",
@@ -18,7 +19,7 @@
   "source_type": "pdf",               // or "html", "docx", etc.
   "source_path": "s3://bucket/data/raw/doc1.pdf",
   "line_range": None ,  // or [starting_line, ending_line] for txt, csv, spreadsheets,etc
-  "start_time": None,
+  "start_time": None, 
   "end_time": None,  
   "html_blocks": [
     {
@@ -55,7 +56,6 @@
   "metadata": {
     "used_ocr": true,
     "is_multilingual": true,
-    "languages": ["eng", "tam"],
     "num_tables": 1,
     "num_images": 1,
     "timestamp": "2025-07-27T12:00:15Z",
@@ -76,24 +76,18 @@
 
 
 
-export S3_BUCKET=e2e-rag-system16
-export S3_RAW_PREFIX=data/raw/         # Input raw files (PDFs,images,etc)
-export S3_CHUNKED_PREFIX=data/chunked/ # Output after OCR & parsing
-export CHUNK_FORMAT=json              # (OR) 'jsonl' for faster read and storage efficiency for headless use(but not readable)
-export DISABLE_OCR=false              # (OR) true = disable ocr and the text in images of docs will not be extracted
-export OCR_ENGINE=tesseract           # (OR) indicocr for indian languages (OR)'rapidocr' for complex english
-export FORCE_OCR=false                # (OR) true = always OCR; false = skip if text exists(false recommended)
-export OCR_RENDER_DPI=300            # higher dpi = high quality image = higher cost and higher chance of extracting tiny texts in multilingual docs
+export S3_BUCKET=e2e-rag-system16      
+export S3_RAW_PREFIX=data/raw/         
+export S3_CHUNKED_PREFIX=data/chunked/ 
+export S3_IMAGE_PREFIX=data/images/    
+export CHUNK_FORMAT=json             # (OR) 'jsonl' for faster read and storage efficiency for headless use(but not readable)
+export DISABLE_OCR=false             # (OR) true = disable ocr and the text in images of docs will not be extracted(but very fast)
+export OCR_ENGINE=rapidocr           # (OR) `tesseract` for wide lang (OR) `indicocr` for indian languages (OR) `rapidocr` for complex english
+export FORCE_OCR=false               # (OR) true = always OCR; false = skip if text exists(false recommended)
+export OCR_RENDER_DPI=300            # higher dpi = high quality image extraction = higher cost and higher chance of extracting tiny texts
 export MIN_IMG_SIZE_BYTES=3072       # Filter out tiny images under 3 KB (often unneccessary black empty images)
-export IS_MULTILINGUAL=false         # (OR) if false, TESSERACT_LANG will be ignored
-export TESSERACT_LANG=tam          # see mapping table below. if indicocr, no need to specify language combinations
-
-export HF_TOKEN=
-export EMBEDDING_EL_DEVICE=cpu      # or gpu for indexing with embedding and entity linking models
-export EMBED_MODEL="elastic/multilingual-e5-small-optimized" # or View recommendations
-export LOAD_IN=int8
-
-
+export IS_MULTILINGUAL=false         # (OR) true. if false, TESSERACT_LANG will be ignored
+export TESSERACT_LANG=tam            #  for both `indicocr` `tesseract`. see mapping table below. 
 
 
 
@@ -101,6 +95,8 @@ export HF_TOKEN=
 export EMBEDDING_EL_DEVICE=cpu      # or gpu for indexing with embedding and entity linking models
 export EMBED_MODEL="elastic/multilingual-e5-small-optimized" # or View recommendations
 export LOAD_IN=int8
+
+
 
 ```
 
