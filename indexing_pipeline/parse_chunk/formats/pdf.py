@@ -130,7 +130,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             "source_type": "pdf",
             "source_path": source,
             "parser": OCR_BACKEND,
-            "line_range": None,
+            "ocr_token_range": None,
             "start_time": None,
             "end_time": None,
             "html_blocks": [],
@@ -184,8 +184,8 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         elif ocr_lines:
             payload["text"] = "\n".join(ocr_lines)
 
-        # Record character range for this chunk
-        payload["line_range"] = [0, len(payload["text"])]
+        # Record token-range for this chunk
+        payload["ocr_token_range"] = [0, len(payload["text"])]
 
         # --- Table extraction ---
         try:
