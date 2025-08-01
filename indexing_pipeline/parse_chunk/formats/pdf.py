@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import sys
 import json
@@ -15,9 +14,11 @@ from PIL import Image
 import pytesseract
 
 # --- Validate critical env vars ---
-REQUIRED_ENVS = ["S3_BUCKET", "S3_RAW_PREFIX", "S3_CHUNKED_PREFIX", "S3_IMAGE_PREFIX",
-                 "CHUNK_FORMAT", "DISABLE_OCR", "OCR_ENGINE", "FORCE_OCR",
-                 "OCR_RENDER_DPI", "MIN_IMG_SIZE_BYTES", "IS_MULTILINGUAL"]
+REQUIRED_ENVS = [
+    "S3_BUCKET", "S3_RAW_PREFIX", "S3_CHUNKED_PREFIX", "S3_IMAGE_PREFIX",
+    "CHUNK_FORMAT", "DISABLE_OCR", "OCR_ENGINE", "FORCE_OCR",
+    "OCR_RENDER_DPI", "MIN_IMG_SIZE_BYTES", "IS_MULTILINGUAL"
+]
 missing = [v for v in REQUIRED_ENVS if v not in os.environ or os.environ[v] == ""]
 if missing:
     sys.exit(f"ERROR: Missing required env vars: {', '.join(missing)}")
@@ -36,7 +37,7 @@ if OCR_BACKEND not in ("rapidocr", "tesseract", "indicocr"):
 IS_MULTILINGUAL = os.getenv("IS_MULTILINGUAL", "false").lower() == "true"
 if OCR_BACKEND in ("tesseract", "indicocr"):
     raw_langs = os.getenv("TESSERACT_LANG", "").replace(",", " ").replace(";", " ")
-    if not raw_langs and OCR_BACKEND != "rapidocr":
+    if not raw_langs:
         sys.exit("ERROR: TESSERACT_LANG must be set for tesseract/indicocr engines")
 
 # --- AWS & Logging ---
@@ -47,7 +48,6 @@ s3 = boto3.client("s3")
 # --- Tesseract config ---
 TESSERACT_CMD = os.getenv("TESSERACT_CMD", "tesseract")
 pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
-
 raw_langs = os.getenv("TESSERACT_LANG", "").replace(",", " ").replace(";", " ")
 langs_list = [l for l in raw_langs.split() if l]
 TESS_LANGS = '+'.join(langs_list) if langs_list else 'eng'
@@ -110,7 +110,6 @@ def do_ocr_rapidocr(img: np.ndarray) -> list[str]:
 # --- Main parse function ---
 def parse_file(s3_key: str, manifest: dict) -> dict:
     total_start = time.perf_counter()
-
     raw = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
     source = f"s3://{S3_BUCKET}/{s3_key}"
     doc_id = manifest["sha256"]
@@ -152,12 +151,16 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
 
         raw_text = page.get_text("text") or ""
         imgs = page.get_images(full=True) or []
-        needs_ocr = not DISABLE_OCR and (FORCE_OCR or not is_valid_text(raw_text) or bool(imgs))
+        needs_ocr = not DISABLE_OCR and (
+            FORCE_OCR or not is_valid_text(raw_text) or bool(imgs)
+        )
         arr = None
 
         if needs_ocr:
             pix = page.get_pixmap(dpi=RENDER_DPI)
-            arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+            arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+                pix.height, pix.width, pix.n
+            )
             if pix.n == 4:
                 arr = cv2.cvtColor(arr, cv2.COLOR_BGRA2BGR)
             if DEBUG_SAVE_IMG:
@@ -175,23 +178,44 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             except Exception as e:
                 log.warning(f"OCR error p{page_num}: {e}")
 
+        # Only use OCR when native text is missing
         if is_valid_text(raw_text):
             payload["text"] = raw_text.strip()
-            if ocr_lines:
-                payload["text"] += "\n[PAGE_OCR]\n" + "\n".join(ocr_lines)
         elif ocr_lines:
             payload["text"] = "\n".join(ocr_lines)
 
-        # Table extraction
+        # Record character range for this chunk
+        payload["line_range"] = [0, len(payload["text"])]
+
+        # --- Table extraction ---
         try:
             tables = pl_doc.pages[idx].extract_tables() or []
             if tables:
-                payload["tables"] = tables
-                payload["metadata"]["num_tables"] = len(tables)
+                payload["tables"] = []
+                for i, table in enumerate(tables, 1):
+                    try:
+                        # normalize every cell in every row
+                        clean_table = []
+                        for row in table:
+                            clean_row = [
+                                (cell if isinstance(cell, str) else "")
+                                .replace("\n", " ")
+                                .strip()
+                                for cell in row
+                            ]
+                            clean_table.append(clean_row)
+                        payload["tables"].append(clean_table)
+                        payload["metadata"]["num_tables"] = len(payload["tables"])
+
+                        # flatten into text
+                        table_text = "\n".join(["\t".join(r) for r in clean_table if r])
+                        payload["text"] += f"\n[TABLE_{i}]\n{table_text}"
+                    except Exception as e:
+                        log.warning(f"Failed to process table p{page_num}#{i}: {e}")
         except Exception as e:
             log.warning(f"Table error p{page_num}: {e}")
 
-        # Image chunk OCR + upload
+        # --- Image OCR + upload ---
         page_width, page_height = page.rect.width, page.rect.height
         srcs = imgs or (["FULLPAGE"] if needs_ocr else [])
         for i, info in enumerate(srcs, start=1):
@@ -205,16 +229,16 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     if pi.n == 4:
                         pi = fitz.Pixmap(fitz.csRGB, pi)
                     img_bytes = pi.tobytes("png")
-                    img_cv = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
+                    img_cv = cv2.imdecode(
+                        np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR
+                    )
 
-                # Skip tiny/unnecessary images
                 if len(img_bytes) < MIN_IMG_SIZE_BYTES:
                     continue
                 h, w = img_cv.shape[:2]
                 if h < 100 or w < 100 or (w * h) / (page_width * page_height) < 0.02:
                     continue
 
-                # OCR on image chunk
                 lines = []
                 if not DISABLE_OCR:
                     if OCR_BACKEND in ("tesseract", "indicocr"):
@@ -225,8 +249,12 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     continue
 
                 img_key = f"{S3_IMAGE_PREFIX}{doc_id}/page{page_num}_img{i}.png"
-                s3.put_object(Bucket=S3_BUCKET, Key=img_key,
-                              Body=img_bytes, ContentType="image/png")
+                s3.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=img_key,
+                    Body=img_bytes,
+                    ContentType="image/png"
+                )
                 payload["images"].append(f"s3://{S3_BUCKET}/{img_key}")
                 payload["metadata"]["num_images"] += 1
                 payload["text"] += f"\n[IMG_OCR:{i}]\n" + "\n".join(lines)
@@ -234,17 +262,24 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             except Exception as e:
                 log.warning(f"Image OCR error p{page_num}#{i}: {e}")
 
-        # Record per-page duration
+        # Record duration and upload chunk
         page_duration_ms = int((time.perf_counter() - page_start) * 1000)
         payload["metadata"]["parse_chunk_duration"] = page_duration_ms
         log.info(f"Parsed page {page_num} in {page_duration_ms} ms")
 
-        # Upload chunk
         ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
         key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext}"
-        body = (json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" \
-               else json.dumps(payload, indent=2, ensure_ascii=False).encode()
-        s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body, ContentType="application/json")
+        body = (
+            (json.dumps(payload, ensure_ascii=False) + "\n").encode()
+            if ext == "jsonl"
+            else json.dumps(payload, indent=2, ensure_ascii=False).encode()
+        )
+        s3.put_object(
+            Bucket=S3_BUCKET,
+            Key=key,
+            Body=body,
+            ContentType="application/json"
+        )
         saved += 1
 
     mp_doc.close()
