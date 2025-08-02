@@ -16,7 +16,22 @@
   "mounts": [
     "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
   ],
-  "features": {}
+  "features": {},
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode-remote.remote-containers",
+        "ms-vscode-remote.remote-ssh",
+        "tomoki1207.pdf",
+        "astral-sh.ruff"
+      ],
+      "settings": {
+        "files.autoSave": "afterDelay",
+        "files.autoSaveDelay": 1000,
+        "editor.formatOnSave": true,
+        "python.formatting.provider": "ruff",
+        "ruff.organizeImports": true
+      }
+    }
+  }
 }
-
-

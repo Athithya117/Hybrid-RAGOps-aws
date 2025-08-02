@@ -15,7 +15,7 @@ import pytesseract
 
 # --- Validate critical env vars ---
 REQUIRED_ENVS = [
-    "S3_BUCKET", "S3_RAW_PREFIX", "S3_CHUNKED_PREFIX", "S3_IMAGE_PREFIX",
+    "S3_BUCKET", "S3_RAW_PREFIX", "S3_CHUNKED_PREFIX",
     "CHUNK_FORMAT", "DISABLE_OCR", "OCR_ENGINE", "FORCE_OCR",
     "OCR_RENDER_DPI", "MIN_IMG_SIZE_BYTES", "IS_MULTILINGUAL"
 ]
@@ -59,7 +59,6 @@ if override:
 # --- Other configs ---
 S3_BUCKET = os.getenv("S3_BUCKET")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX")
-S3_IMAGE_PREFIX = os.getenv("S3_IMAGE_PREFIX")
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX")
 DISABLE_OCR = os.getenv("DISABLE_OCR", "false").lower() == "true"
 FORCE_OCR = os.getenv("FORCE_OCR", "false").lower() == "true"
@@ -137,6 +136,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             "markdown_blocks": [],
             "text": "",
             "tables": [],
+            # we keep the images list empty, since we won't upload
             "images": [],
             "metadata": {
                 "used_ocr": False,
@@ -166,6 +166,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             if DEBUG_SAVE_IMG:
                 cv2.imwrite(f"/tmp/page_{page_num}.png", arr)
 
+        # Run OCR on the full page if needed
         ocr_lines = []
         if needs_ocr and arr is not None:
             try:
@@ -184,83 +185,63 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         elif ocr_lines:
             payload["text"] = "\n".join(ocr_lines)
 
-        # Record token-range for this chunk
         payload["ocr_token_range"] = [0, len(payload["text"])]
 
         # --- Table extraction ---
         try:
             tables = pl_doc.pages[idx].extract_tables() or []
             if tables:
-                payload["tables"] = []
                 for i, table in enumerate(tables, 1):
-                    try:
-                        # normalize every cell in every row
-                        clean_table = []
-                        for row in table:
-                            clean_row = [
-                                (cell if isinstance(cell, str) else "")
-                                .replace("\n", " ")
-                                .strip()
-                                for cell in row
-                            ]
-                            clean_table.append(clean_row)
-                        payload["tables"].append(clean_table)
-                        payload["metadata"]["num_tables"] = len(payload["tables"])
-
-                        # flatten into text
-                        table_text = "\n".join(["\t".join(r) for r in clean_table if r])
-                        payload["text"] += f"\n[TABLE_{i}]\n{table_text}"
-                    except Exception as e:
-                        log.warning(f"Failed to process table p{page_num}#{i}: {e}")
+                    clean_table = []
+                    for row in table:
+                        clean_row = [
+                            (cell if isinstance(cell, str) else "")
+                            .replace("\n", " ")
+                            .strip()
+                            for cell in row
+                        ]
+                        clean_table.append(clean_row)
+                    payload["tables"].append(clean_table)
+                    payload["metadata"]["num_tables"] = len(payload["tables"])
+                    table_text = "\n".join(["\t".join(r) for r in clean_table if r])
+                    payload["text"] += f"\n[TABLE_{i}]\n{table_text}"
         except Exception as e:
             log.warning(f"Table error p{page_num}: {e}")
 
-        # --- Image OCR + upload ---
-        page_width, page_height = page.rect.width, page.rect.height
-        srcs = imgs or (["FULLPAGE"] if needs_ocr else [])
-        for i, info in enumerate(srcs, start=1):
-            try:
-                if info == "FULLPAGE":
-                    img_bytes = pix.tobytes("png")
-                    img_cv = arr.copy()
-                else:
+        # --- Inline Image OCR only (no upload) ---
+        if imgs:
+            page_w, page_h = page.rect.width, page.rect.height
+            for i, info in enumerate(imgs, start=1):
+                try:
                     xref = info[0]
                     pi = fitz.Pixmap(mp_doc, xref)
                     if pi.n == 4:
                         pi = fitz.Pixmap(fitz.csRGB, pi)
-                    img_bytes = pi.tobytes("png")
-                    img_cv = cv2.imdecode(
-                        np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR
+                    img_arr = cv2.imdecode(
+                        np.frombuffer(pi.tobytes("png"), np.uint8),
+                        cv2.IMREAD_COLOR
                     )
+                    # size checks
+                    if img_arr.size < MIN_IMG_SIZE_BYTES:
+                        continue
+                    h, w = img_arr.shape[:2]
+                    if h < 100 or w < 100 or (w * h) / (page_w * page_h) < 0.02:
+                        continue
 
-                if len(img_bytes) < MIN_IMG_SIZE_BYTES:
-                    continue
-                h, w = img_cv.shape[:2]
-                if h < 100 or w < 100 or (w * h) / (page_width * page_height) < 0.02:
-                    continue
-
-                lines = []
-                if not DISABLE_OCR:
+                    # OCR this image
                     if OCR_BACKEND in ("tesseract", "indicocr"):
-                        lines = do_ocr_tesseract(img_cv)
+                        lines = do_ocr_tesseract(img_arr)
                     else:
-                        lines = do_ocr_rapidocr(img_cv)
-                if not lines:
-                    continue
+                        lines = do_ocr_rapidocr(img_arr)
+                    if not lines:
+                        continue
 
-                img_key = f"{S3_IMAGE_PREFIX}{doc_id}/page{page_num}_img{i}.png"
-                s3.put_object(
-                    Bucket=S3_BUCKET,
-                    Key=img_key,
-                    Body=img_bytes,
-                    ContentType="image/png"
-                )
-                payload["images"].append(f"s3://{S3_BUCKET}/{img_key}")
-                payload["metadata"]["num_images"] += 1
-                payload["text"] += f"\n[IMG_OCR:{i}]\n" + "\n".join(lines)
+                    # append to text; increment count
+                    payload["metadata"]["num_images"] += 1
+                    payload["text"] += f"\n[IMG_OCR:{i}]\n" + "\n".join(lines)
 
-            except Exception as e:
-                log.warning(f"Image OCR error p{page_num}#{i}: {e}")
+                except Exception as e:
+                    log.warning(f"Image OCR error p{page_num}#{i}: {e}")
 
         # Record duration and upload chunk
         page_duration_ms = int((time.perf_counter() - page_start) * 1000)
