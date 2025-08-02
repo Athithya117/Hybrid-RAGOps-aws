@@ -12,10 +12,23 @@
 
 ```sh
 
-
-
-
 ```
+
+| **Component**           | **Tool(s)**                                                                      | **Exact Chunking Strategy**                                                                                                                                                                                          | **Why Chosen for Scalability**                                                                                                    |
+| ----------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **PDF Parsing + OCR**   | PyMuPDF, pdfplumber, Tesseract / RapidOCR / IndicOCR, OpenCV, pytesseract, boto3 | - 1 PDF page = 1 chunk (strict)  <br> - Native text extracted via pdfplumber  <br> - OCR fallback: full-page and image-specific (inline)  <br> - Tables are extracted and injected both as structured and plain text | - Page-wise chunking simplifies parallelism (Ray/multiprocessing)  <br> - OCR is conditional  <br> - Robust on scans/multilingual |
+| **DOC/DOCX Conversion** | LibreOffice CLI (headless), boto3, tempfile, subprocess                          | - Convert `.doc` → `.docx` → `.pdf` using LibreOffice  <br> - Then parsed page-by-page as PDF                                                                                                                        | - Avoids needing custom Word parser  <br> - Ensures 1:1 page fidelity  <br> - Leverages existing PDF pipeline                     |
+| **HTML Parsing**        | extractous, BeautifulSoup                                                        | - Parse HTML DOM tree  <br> - Chunk by headings (`<h1>`–`<h6>`), paragraphs, and sections                                                                                                                            | - Lightweight, preserves semantic structure  <br> - Works on both web pages and embedded HTML                                     |
+| **CSV Chunking**        | ray.data.read\_csv(), `.window()`                                                | - Stream rows  <br> - Chunk based on size heuristics (`max(5120, avg_row_len * ROWS_PER_CHUNK)`)                                                                                                                     | - Efficient streaming for large files  <br> - Memory-safe, scalable via Ray                                                       |
+| **JSON/JSONL**          | ray.data.read\_json(), `.window()`                                               | - JSONL: each line = record  <br> - For nested JSON: flatten → explode arrays → chunk by size/depth                                                                                                                  | - Handles deeply nested or irregular structures  <br> - Flexible chunk size based on token count                                  |
+| **Audio Transcription** | faster-whisper (CTranslate2), pydub, ffmpeg-python                               | - Audio sliced into 20–30s segments via silence detection (`pydub.silence`)  <br> - Each segment transcribed individually                                                                                            | - Faster-Whisper is GPU/CPU efficient  <br> - Segmentation makes long audio scalable and parallelizable                           |
+| **Markdown**            | markdown-it-py, mistune, regex                                                   | - Chunk by heading levels, paragraphs, and code blocks  <br> - Fallback to fixed-token or sentence-based slicing                                                                                                     | - Preserves Markdown structure  <br> - Compatible with LLM indexing and embeddings                                                |
+| **PPTX (PowerPoint)**   | python-pptx, Pillow (optional OCR)                                               | - 1 slide = 1 chunk  <br> - Extract text, speaker notes, images  <br> - OCR fallback on image slides                                                                                                                 | - Natural chunking by slide  <br> - Works well with educational or slide-heavy documents                                          |
+| **EPUB/eBooks**         | ebooklib, BeautifulSoup, html5lib                                                | - Chunk by chapters/headings from EPUB metadata  <br> - Paragraph or heading-based segmentation within chapters                                                                                                      | - Structure-aware  <br> - Works with long-form content like books                                                                 |
+| **Images (Scans)**      | OpenCV, PIL/Pillow, Tesseract or RapidOCR                                        | - 1 image = 1 chunk  <br> - OCR applied to entire image or regions (if detected)                                                                                                                                     | - Useful for form scans, handwritten notes, flyers  <br> - Preserves visual layout                                                |
+| **ZIP Archives**        | zipfile, tarfile, custom dispatcher                                              | - Files extracted, routed to correct parsers based on extension (pdf, docx, txt, etc.)                                                                                                                               | - Allows batch ingestion  <br> - Enables unified multi-file upload experience                                                     |
+| **Plaintext Files**     | open(), re, nltk, tiktoken (optional)                                            | - Chunk by paragraph, newline gaps (`\n\n`), or fixed line/token window                                                                                                                                              | - Extremely lightweight  <br> - Works well with logs, scraped data, or long articles                                              |
+
 </details>
 
 
@@ -23,20 +36,21 @@
 
 ```sh
 
-
-
+export S3_BLOCK_PUBLIC_ACCESS=false
 export S3_BUCKET=e2e-rag-system      # Give a complex name
+
+
 export S3_RAW_PREFIX=data/raw/         
 export S3_CHUNKED_PREFIX=data/chunked/   
 export CHUNK_FORMAT=json               # (OR) 'jsonl' for faster read and storage efficiency for headless use(but not readable)
 export DISABLE_OCR=false               # (OR) true = disable ocr and the text in images of docs will not be extracted(but very fast)
-export OCR_ENGINE=tesseract            #  (OR) `rapidocr` for complex english (OR) `indicocr` for indian languages
+export OCR_ENGINE=tesseract            # (OR) `rapidocr` for complex english (OR) tesseract for fast or multilingual (OR) `indicocr` for indian languages
 export FORCE_OCR=false                 # (OR) true = always OCR; false = skip if text exists(false recommended)
 export OCR_RENDER_DPI=300              # higher dpi = high quality image extraction = higher cost and higher chance of extracting tiny texts
 export MIN_IMG_SIZE_BYTES=3072         # Filter out tiny images under 3 KB (often unneccessary black empty images)
 export IS_MULTILINGUAL=false           # (OR) true. if false, TESSERACT_LANG will be ignored
 export TESSERACT_LANG=eng              #  for both `indicocr` and `tesseract` (but only one lang to avoid noise). refer the mapping table below. 
-export OVERWRITE_DOC_DOCX_TO_PDF=true # (OR) false if dont want to delete original .doc and .docx files in data/raw/
+export OVERWRITE_DOC_DOCX_TO_PDF=true  # (OR) false if dont want to delete original .doc and .docx files in data/raw/
 
 
 export HF_TOKEN=
