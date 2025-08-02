@@ -112,7 +112,14 @@ grep -qxF 'export RAPIDOCR_MODEL_DIR="$MODEL_HOME/rapidocr"' ~/.bashrc || echo '
 mkdir -p /workspace/backups/dbs/qdrant /workspace/backups/dbs/arrangodb /workspace/data/ /workspace/models
 mkdir -p "$(pwd)/models"
 
+add-apt-repository ppa:libreoffice/ppa -y && \
+apt-get update && \
+apt-get install -y libreoffice \
+  ttf-mscorefonts-installer fonts-dejavu fonts-liberation && \
+fc-cache -f -v
+
 clear
 
 echo "Bootstrap completed"
+
 

@@ -4,7 +4,7 @@ import time
 import json
 import uuid
 import boto3
-import xxhash                   
+import xxhash
 import importlib
 import mimetypes
 from datetime import datetime
@@ -71,14 +71,14 @@ def file_sha256(s3_key):
         hasher.update(chunk)
     return hasher.hexdigest()
 
-def manifest_path(s3_key, sha):
+def manifest_path(s3_key, file_hash):
     base = os.path.splitext(s3_key)[0]
     return f"{base}.manifest.json"
 
-def is_already_processed(sha):
+def is_already_processed(file_hash):
     if FORCE_PROCESS:
         return False
-    test_key = f"{S3_CHUNKED_PREFIX}{sha}_0.{CHUNK_FORMAT}"
+    test_key = f"{S3_CHUNKED_PREFIX}{file_hash}_0.{CHUNK_FORMAT}"
     try:
         s3.head_object(Bucket=S3_BUCKET, Key=test_key)
         return True
@@ -88,7 +88,7 @@ def is_already_processed(sha):
         raise
 
 def save_manifest(s3_key, manifest):
-    key = manifest_path(s3_key, manifest["sha256"])
+    key = manifest_path(s3_key, manifest["file_hash"])
     try:
         retry(lambda: s3.put_object(
             Bucket=S3_BUCKET,
@@ -151,17 +151,17 @@ def main():
             continue
 
         try:
-            sha = file_sha256(key)
+            file_hash = file_sha256(key)
         except Exception as e:
             log(f"Hash error for {key}: {e}", level="ERROR")
             continue
 
-        if is_already_processed(sha):
-            log(f"Already processed {sha}, skipping")
+        if is_already_processed(file_hash):
+            log(f"Already processed {file_hash}, skipping")
             continue
 
         manifest = {
-            "sha256": sha,
+            "file_hash": file_hash,
             "s3_key": key,
             "pipeline_run_id": run_id,
             "mime_type": detect_mime(key),
