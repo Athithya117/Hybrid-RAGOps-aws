@@ -4,7 +4,7 @@ import time
 import json
 import uuid
 import boto3
-import hashlib
+import xxhash                   
 import importlib
 import mimetypes
 from datetime import datetime
@@ -60,7 +60,11 @@ def list_raw_files():
                 yield key
 
 def file_sha256(s3_key):
-    hasher = hashlib.sha256()
+    """
+    Compute a 128-bit xxhash of the S3 object for fast, low-collision IDs.
+    Keeps the function name for backward compatibility.
+    """
+    hasher = xxhash.xxh128()
     obj = retry(lambda: s3.get_object(Bucket=S3_BUCKET, Key=s3_key))
     stream = obj["Body"]
     for chunk in iter(lambda: stream.read(8192), b""):
@@ -136,7 +140,9 @@ def main():
             continue
 
         try:
-            mod = importlib.import_module(f"indexing_pipeline.parse_chunk.formats.{module_name}")
+            mod = importlib.import_module(
+                f"indexing_pipeline.parse_chunk.formats.{module_name}"
+            )
             if not hasattr(mod, "parse_file"):
                 log(f"No parse_file() in {module_name}, skipping {key}", level="WARN")
                 continue
@@ -147,7 +153,7 @@ def main():
         try:
             sha = file_sha256(key)
         except Exception as e:
-            log(f"SHA256 error for {key}: {e}", level="ERROR")
+            log(f"Hash error for {key}: {e}", level="ERROR")
             continue
 
         if is_already_processed(sha):
@@ -165,7 +171,9 @@ def main():
         try:
             result = mod.parse_file(key, manifest)
             if not isinstance(result, dict) or "saved_chunks" not in result:
-                raise ValueError("Invalid parse_file() return. Expected dict with 'saved_chunks'.")
+                raise ValueError(
+                    "Invalid parse_file() return. Expected dict with 'saved_chunks'."
+                )
         except Exception as e:
             log(f"Parse error for {key}: {e}", level="ERROR")
             continue

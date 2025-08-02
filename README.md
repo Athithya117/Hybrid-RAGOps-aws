@@ -76,24 +76,9 @@
 
 
 
-export S3_BUCKET=e2e-rag-system16      
+export S3_BUCKET=e2e-rag-system      # Give a complex name
 export S3_RAW_PREFIX=data/raw/         
-export S3_CHUNKED_PREFIX=data/chunked/ 
-export S3_IMAGE_PREFIX=data/images/    
-export CHUNK_FORMAT=json             # (OR) 'jsonl' for faster read and storage efficiency for headless use(but not readable)
-export DISABLE_OCR=false             # (OR) true = disable ocr and the text in images of docs will not be extracted(but very fast)
-export OCR_ENGINE=rapidocr           # (OR) `tesseract` for wide lang and faster (OR) `indicocr` for indian languages (OR) `rapidocr` for complex english
-export FORCE_OCR=false               # (OR) true = always OCR; false = skip if text exists(false recommended)
-export OCR_RENDER_DPI=300            # higher dpi = high quality image extraction = higher cost and higher chance of extracting tiny texts
-export MIN_IMG_SIZE_BYTES=3072       # Filter out tiny images under 3 KB (often unneccessary black empty images)
-export IS_MULTILINGUAL=false         # (OR) true. if false, TESSERACT_LANG will be ignored
-export TESSERACT_LANG=tam            #  for both `indicocr` `tesseract`. see mapping table below. 
-
-
-export S3_BUCKET=e2e-rag-system16      
-export S3_RAW_PREFIX=data/raw/         
-export S3_CHUNKED_PREFIX=data/chunked/ 
-export S3_IMAGE_PREFIX=data/images/    
+export S3_CHUNKED_PREFIX=data/chunked/   
 export CHUNK_FORMAT=json             # (OR) 'jsonl' for faster read and storage efficiency for headless use(but not readable)
 export DISABLE_OCR=false             # (OR) true = disable ocr and the text in images of docs will not be extracted(but very fast)
 export OCR_ENGINE=tesseract           #  (OR) `rapidocr` for complex english (OR) `indicocr` for indian languages
@@ -108,6 +93,7 @@ export HF_TOKEN=
 export EMBEDDING_EL_DEVICE=cpu      # or gpu for indexing with embedding and entity linking models
 export EMBED_MODEL="elastic/multilingual-e5-small-optimized" # or View recommendations
 export LOAD_IN=int8
+
 
 
 

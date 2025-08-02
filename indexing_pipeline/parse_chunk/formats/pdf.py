@@ -136,8 +136,6 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             "markdown_blocks": [],
             "text": "",
             "tables": [],
-            # we keep the images list empty, since we won't upload
-            "images": [],
             "metadata": {
                 "used_ocr": False,
                 "is_multilingual": IS_MULTILINGUAL,

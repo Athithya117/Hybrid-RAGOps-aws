@@ -17,3 +17,4 @@ ray
 qdrant-client
 python-arango
 extractous
+xxhash
