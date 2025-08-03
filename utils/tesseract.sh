@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -e
 
+
+export IS_MULTILINGUAL=false           # (OR) true. if false, TESSERACT_LANG will be ignored
+export TESSERACT_LANG=eng+tam             #  for both `indicocr` and `tesseract` (but only one lang to avoid noise). refer the mapping table below. 
+
+
 # -------------------------------------------------------------------
 # Configuration
 # -------------------------------------------------------------------

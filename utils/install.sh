@@ -91,6 +91,7 @@ install_k3d() {
 }
 
 
+
 # Run all install functions
 install_aws_cli
 install_kubectl
@@ -111,6 +112,16 @@ grep -qxF 'export HF_ASSETS_CACHE="$HF_HOME/assets"' ~/.bashrc || echo 'export H
 grep -qxF 'export RAPIDOCR_MODEL_DIR="$MODEL_HOME/rapidocr"' ~/.bashrc || echo 'export RAPIDOCR_MODEL_DIR="$MODEL_HOME/rapidocr"' >> ~/.bashrc
 mkdir -p /workspace/backups/dbs/qdrant /workspace/backups/dbs/arrangodb /workspace/data/ /workspace/models
 mkdir -p "$(pwd)/models"
+
+
+echo "Installing latest Tesseract 5.x from alex-p PPA..."
+apt-get update -y
+if ! grep -q "^deb .\+ppa.launchpadcontent.net/alex-p/tesseract-ocr5" /etc/apt/sources.list*; then
+   add-apt-repository -y ppa:alex-p/tesseract-ocr5
+fi
+apt-get update -y
+apt-get install -y tesseract-ocr libtesseract-dev libleptonica-dev
+
 
 add-apt-repository ppa:libreoffice/ppa -y && \
 apt-get update && \
