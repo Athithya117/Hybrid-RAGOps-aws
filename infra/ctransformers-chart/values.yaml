@@ -1,0 +1,24 @@
+# infra/ctransformers-chart/values.yaml
+image:
+  repository: ghcr.io/athithya-sakthivel/ctransformers-qwen3-cpu  # must match your IMAGE in the build script
+  tag: v1
+
+replicas:
+  workerMin: 1
+  workerMax: 2
+
+resources:
+  head:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+  worker:
+    requests:
+      cpu: "2"
+      memory: "4Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"

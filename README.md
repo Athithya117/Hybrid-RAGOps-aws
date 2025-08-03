@@ -86,7 +86,7 @@ export OVERWRITE_DOC_DOCX_TO_PDF=true  # (OR) false if dont want to delete origi
 
 export HF_TOKEN=
 
-
+export RAY_DASHBOARD_PORT=8265
 
 ```sh
 export TOP_K_CHUNKS=                # number of batches will be calculated accordingly based on tokens in chunk and max tokens of reranker model
@@ -173,7 +173,7 @@ export TOP_K_CHUNKS=                # number of batches will be calculated accor
 **\[2] gte-reranker-modernbert-base**
 - Reranker model for hybrid/vector search pipelines
 - High-quality ranking, very fast on CPU
-🔗 [https://huggingface.co/Alibaba-NLP/gte-reranker-base](https://huggingface.co/Alibaba-NLP/gte-reranker-base)
+🔗 [https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base)
 
 **\[3] ReFinED**
 - Fast and scalable entity linking system
@@ -189,18 +189,5 @@ export TOP_K_CHUNKS=                # number of batches will be calculated accor
 > — [Qwen3 Blog](https://qwenlm.github.io/blog/qwen3/)
 
 🔗 [https://huggingface.co/Qwen/Qwen3-4B-Instruct](https://huggingface.co/Qwen/Qwen3-4B-Instruct)
-
----
-
-### **Dynamic 4‑bit Quantization – Unsloth**
-
-Unsloth’s official blog explains:
-
-> “Introducing Unsloth Dynamic 4‑bit Quantization… dynamically opting not to quantize certain parameters … Deliver significant accuracy gains while only using < 10% more VRAM than standard bnb‑4bit.”
-
-🔗 [https://unsloth.ai/blog/dynamic-4bit](https://unsloth.ai/blog/dynamic-4bit)
-
-- Dynamic 4-bit selectively preserves key weights in higher precision, maintaining instruction-following and logical coherence—crucial for multi-hop reasoning and factual RAG.
-- Compared to AWQ, it offers noticeably better output fidelity with only \~10% more VRAM usage, making it ideal for high-trust LLM workflows
 
 ---

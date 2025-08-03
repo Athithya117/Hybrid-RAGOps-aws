@@ -1,0 +1,50 @@
+apiVersion: ray.io/v1alpha1
+kind: RayService
+metadata:
+  name: vllm-qwen3-service
+spec:
+  rayClusterConfig:
+    rayVersion: '2.9.0'
+    headGroupSpec:
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: your-dockerhub-user/vllm-qwen3:4b
+              resources:
+                limits:
+                  nvidia.com/gpu: 1
+              env:
+                - name: MODEL_ENV
+                  value: Qwen/Qwen3-4B-AWQ
+                - name: ENABLE_YARN
+                  value: "true"
+                - name: MAX_TOKENS
+                  value: "65536"
+    workerGroupSpecs:
+      - groupName: vllm-workers
+        replicas: 2
+        minReplicas: 1
+        maxReplicas: 4
+        rayStartParams: {}
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: your-dockerhub-user/vllm-qwen3:4b
+                resources:
+                  limits:
+                    nvidia.com/gpu: 1
+                env:
+                  - name: MODEL_ENV
+                    value: Qwen/Qwen3-4B-AWQ
+                  - name: ENABLE_YARN
+                    value: "true"
+                  - name: MAX_TOKENS
+                    value: "65536"
+  serveConfigSpecs:
+    - name: default
+      rayServiceConfig:
+        importPath: vllm.entrypoints.openai.api_server:app
+        runtime_env:
+          working_dir: .

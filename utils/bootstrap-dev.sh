@@ -103,6 +103,10 @@ install_node_vite
 install_sops
 install_k3d
 
+docker pull qdrant/qdrant:v1.15.0
+docker pull valkey:8.1.3
+docker pull arangodb/arangodb:3.12
+
 
 grep -qxF 'export PYTHONPATH=$(pwd)' ~/.bashrc || echo 'export PYTHONPATH=$(pwd)' >> ~/.bashrc
 grep -qxF 'export MODEL_HOME="$(pwd)/models"' ~/.bashrc || echo 'export MODEL_HOME="$(pwd)/models"' >> ~/.bashrc

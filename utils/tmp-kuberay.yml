@@ -1,0 +1,37 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: my-raycluster
+  namespace: ray-system
+spec:
+  rayVersion: "2.19.0"
+  headGroupSpec:
+    serviceType: ClusterIP
+    rayStartParams:
+      dashboard-host: "0.0.0.0"
+    template:
+      spec:
+        containers:
+          - name: ray-head
+            image: rayproject/ray:2.19.0
+            imagePullPolicy: IfNotPresent
+            ports:
+              - containerPort: 6379  # Redis
+              - containerPort: 8265  # Dashboard
+              - containerPort: 10001 # Client (ray.init address)
+              - containerPort: 8080  # Metrics
+            env:
+              - name: RAY_PORT
+                value: "6379"
+              - name: RAY_DASHBOARD_PORT
+                value: "8265"
+  workerGroupSpecs:
+    - groupName: ray-workers
+      replicas: 1
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+            - name: ray-worker
+              image: rayproject/ray:2.19.0
+              imagePullPolicy: IfNotPresent
