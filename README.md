@@ -12,13 +12,45 @@
 
 ```sh
 
+{
+  "chunk_id": "a3f5be12c9d47e09_5",               // Unique chunk ID: <document_hash>_<chunk_index> (1-based)
+  "document_id": "a3f5be12c9d47e09",              // Unique document ID (128-bit hash of file path + size)
+  "chunk_type": "page",                           // Type of content: "paragraph", "heading", "section", "table", "page", etc.
+
+  "text": "Cleaned markdown-formatted content of the chunk.",  // Final parsed content (Markdown)
+  "embedding": null,                              // Optional: vector embedding (array of floats); null if not yet computed
+
+  "source": {
+    "file_type": "application/pdf",                  // MIME type preferred (e.g., "application/pdf", "text/html", "audio/mpeg")
+    "source_path": "s3://bucket/data/raw/file.pdf",  // Full s3 path to original source
+    "page_number": 3,                                // For paged formats like PDF/ePub; null otherwise
+    "time": [null, null],                            // [start_time, end_time] in seconds for audio/video; nulls otherwise
+    "line_range": null,                              // For plain/tabular text: [start_line, end_line]; null otherwise
+    "bbox": null                                     // For visual formats: [x0, y0, x1, y1] in pixel coordinates; null otherwise
+  },
+
+  "graph": {
+    "graph_node_id": "a3f5be12c9d47e09_5",       // Same as chunk_id (recommended)
+    "parent_id": "a3f5be12c9d47e09_page3",       // Parent node ID (e.g., page, section, table)
+    "previous_id": "a3f5be12c9d47e09_4",         // Optional: previous chunk
+    "next_id": "a3f5be12c9d47e09_6"              // Optional: next chunk
+  },
+
+  "metadata": {
+    "timestamp": "2025-08-03T12:00:00Z",         // UTC ISO timestamp of chunk creation/parsing
+    "tags": ["invoice", "header"],               // High-level content tags (semantic or manual)
+    "layout_tags": ["paragraph"],                // Structural tags (e.g., "heading", "table", etc.)
+    "entities": ["Q123", "Q456"]                 // Optional: Linked entity IDs (Wikidata, etc.) or null if not yet computed
+  }
+}
+
 ```
 
 
 
 | **Component**           | **Tool(s)**                                                                                                          | **Exact Chunking Strategy**                                                                                                                                                                                                                                                                                                                                                          | **Why Chosen for Scalability**                                                                                                                                                                                             |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **PDF Parsing + OCR**   | `PyMuPDF`, `pdfplumber`, `pytesseract`, `RapidOCR`, `IndicOCR`, `OpenCV`, `boto3`, `PIL`, `uuid`, `tiktoken`, `json` | - **1 PDF page = 1 chunk** (strict page granularity) <br> - Try native text via **pdfplumber**, fallback to OCR (Tesseract, RapidOCR, IndicOCR) <br> - Per-page OCR is conditional and hybridized with image-based OCR (OpenCV crops) <br> - Tables are extracted and injected as both: **structured JSON** and **inlined text** <br> - Figures/diagrams parsed as `"figures"` array | - Page-based chunking ensures **parallelism**, simplicity, and caching <br> - Multiple OCR backends improve multilingual and noisy scan robustness <br> - Preserving layout fidelity improves table/graph capture accuracy |
+| **PDF Parsing + OCR**   | `PyMuPDF`, `pdfplumber`, `pytesseract`, `RapidOCR`, `IndicOCR`, `OpenCV`, `boto3`, `PIL`, `uuid`, `tiktoken`, `json` | - **1 PDF page = 1 chunk** (strict page granularity) <br> - Try native text via **pdfplumber**, fallback to OCR (Tesseract, RapidOCR) <br> - Per-page OCR is conditional and hybridized with image-based OCR (OpenCV crops) <br> - Tables are extracted and injected as both: **structured JSON** and **inlined text** <br> - Figures/diagrams parsed as `"figures"` array | - Page-based chunking ensures **parallelism**, simplicity, and caching <br> - Multiple OCR backends improves noisy scan robustness <br> - Preserving layout fidelity improves table/graph capture accuracy |
 | **DOC/DOCX Conversion** | `LibreOffice (headless)`, `boto3`, `tempfile`, `subprocess`, `os`, `pathlib`                                         | - Convert `.doc` → `.docx` → `.pdf` using LibreOffice CLI <br> - Parse resulting PDF **per-page** using same pipeline as native PDF <br> - Page-to-page correspondence preserved across conversions                                                                                                                                                                                  | - Avoids fragile `.doc/.docx` parsing with Python libraries <br> - Ensures **visual consistency** across platforms <br> - Seamless reuse of existing PDF+OCR pipeline                                                      |
 | **HTML Parsing**        | extractous, BeautifulSoup                                                        | - Parse HTML DOM tree  <br> - Chunk by headings (`<h1>`–`<h6>`), paragraphs, and sections                                                                                                                            | - Lightweight, preserves semantic structure  <br> - Works on both web pages and embedded HTML                                     |
 | **CSV Chunking**        | ray.data.read\_csv(), `.window()`                                                | - Stream rows  <br> - Chunk based on size heuristics (`max(5120, avg_row_len * ROWS_PER_CHUNK)`)                                                                                                                     | - Efficient streaming for large files  <br> - Memory-safe, scalable via Ray                                                       |
