@@ -47,11 +47,13 @@
 ```
 
 
+## Component-Level Parsing & Chunking Strategy
 
-| **Component**           | **Tool(s)**                                                                                                          | **Exact Chunking Strategy**                                                                                                                                                                                                                                                                                                                                                          | **Why Chosen for Scalability**                                                                                                                                                                                             |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **PDF Parsing + OCR**   | `PyMuPDF`, `pdfplumber`, `pytesseract`, `RapidOCR`, `IndicOCR`, `OpenCV`, `boto3`, `PIL`, `uuid`, `tiktoken`, `json` | - **1 PDF page = 1 chunk** (strict page granularity) <br> - Try native text via **pdfplumber**, fallback to OCR (Tesseract, RapidOCR) <br> - Per-page OCR is conditional and hybridized with image-based OCR (OpenCV crops) <br> - Tables are extracted and injected as both: **structured JSON** and **inlined text** <br> - Figures/diagrams parsed as `"figures"` array | - Page-based chunking ensures **parallelism**, simplicity, and caching <br> - Multiple OCR backends improves noisy scan robustness <br> - Preserving layout fidelity improves table/graph capture accuracy |
-| **DOC/DOCX Conversion** | `LibreOffice (headless)`, `boto3`, `tempfile`, `subprocess`, `os`, `pathlib`                                         | - Convert `.doc` → `.docx` → `.pdf` using LibreOffice CLI <br> - Parse resulting PDF **per-page** using same pipeline as native PDF <br> - Page-to-page correspondence preserved across conversions                                                                                                                                                                                  | - Avoids fragile `.doc/.docx` parsing with Python libraries <br> - Ensures **visual consistency** across platforms <br> - Seamless reuse of existing PDF+OCR pipeline                                                      |
+| Component            | Tool(s) Used                                                                                                  | Chunking Strategy                                                                                                         | Rationale for Scalability & Fidelity                                                                 |
+|----------------------|---------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
+| **PDF Parsing + OCR** | `PyMuPDF`, `pdfplumber`, `pytesseract`, `RapidOCR` | - **1 page = 1 chunk** (primary granularity)<br>- Extract native text via `pdfplumber`, fallback to OCR if needed<br>- Use `OpenCV` for layout-aware OCR (cropping regions, columnar reading)<br>- Tables extracted as both **structured JSON** and **inline Markdown**<br>- Figures/diagrams extracted to a separate `figures` array | - Page-level chunking aligns with layout and enables **parallelism**<br>- Hybrid OCR improves coverage of low-quality scans<br>- Layout fidelity helps preserve **tables, headers, visual order**                             |
+| **DOC/DOCX Conversion** | `LibreOffice` (headless mode), `subprocess`, `tempfile`, `boto3`, `pathlib`, `os`                             | - Convert `.doc` → `.docx` → `.pdf` using `LibreOffice CLI`<br>- Apply **same PDF+OCR pipeline per page** on output PDF<br>- Page alignment maintained between original and converted formats                        | - Avoids unreliable native `.docx` parsing<br>- Ensures **visual and semantic consistency** across systems<br>- Helps in tracing                                                   |
+| **Text/HTML Parsing** | `BeautifulSoup`, `html2text`, custom chunkers                                                                 | - Segment by structural tags: `h1–h6`, `p`, `li`, `div`, `table`<br>- Normalize output into **Markdown chunks**<br>- Chunk IDs and parent-child relations inferred from tag hierarchy                         | - Converts semi-structured content into **RAG-ready Markdown**<br>- Retains **hierarchy and inline metadata** for graph linkage<br>- Works well with multi-format source ingestion                      |                                            |
 | **HTML Parsing**        | extractous, BeautifulSoup                                                        | - Parse HTML DOM tree  <br> - Chunk by headings (`<h1>`–`<h6>`), paragraphs, and sections                                                                                                                            | - Lightweight, preserves semantic structure  <br> - Works on both web pages and embedded HTML                                     |
 | **CSV Chunking**        | ray.data.read\_csv(), `.window()`                                                | - Stream rows  <br> - Chunk based on size heuristics (`max(5120, avg_row_len * ROWS_PER_CHUNK)`)                                                                                                                     | - Efficient streaming for large files  <br> - Memory-safe, scalable via Ray                                                       |
 | **JSON/JSONL**          | ray.data.read\_json(), `.window()`                                               | - JSONL: each line = record  <br> - For nested JSON: flatten → explode arrays → chunk by size/depth                                                                                                                  | - Handles deeply nested or irregular structures  <br> - Flexible chunk size based on token count                                  |
@@ -70,10 +72,7 @@
 
 ```sh
 
-export S3_BLOCK_PUBLIC_ACCESS=false
 export S3_BUCKET=e2e-rag-system      # Give a complex name
-
-
 export S3_RAW_PREFIX=data/raw/         
 export S3_CHUNKED_PREFIX=data/chunked/   
 export CHUNK_FORMAT=json               # (OR) 'jsonl' for faster read and storage efficiency for headless use(but not readable)
@@ -142,7 +141,66 @@ export TOP_K_CHUNKS=                # number of batches will be calculated accor
                                                   |
                                                   v
                             +-------------------------------+
-                            | LLM Generator (e.g., GPT-4)   |
+                            | LLM Generator (Qwen3)         |
                             | Answer synthesis or summarizer|
                             +-------------------------------+
 ```
+
+---
+
+### **Model Overview Table**
+
+| Model                             | Language         | Params | Max Tokens                       | Efficiency           |
+| --------------------------------- | ---------------- | ------ | -------------------------------- | -------------------- |
+| gte-modernbert-base               | English          | 149M   | 8,192                            | High (CPU/ONNX)      |
+| gte-reranker-modernbert-base      | English (rerank) | 149M   | 8,192                            | Very high (CPU/ONNX) |
+| ReFinED (entity linker)           | English          | \~125M | \~3,000+                         | Very high (CPU/ONNX) |
+| unsloth/Qwen3-0.6B-bnb-4bit       | Multilingual     | 600M   | 32,768                           | High (Dynamic 4‑bit) |
+| unsloth/Qwen3-1.7B-bnb-4bit       | Multilingual     | 1.7B   | 32,768                           | High (Dynamic 4‑bit) |
+| unsloth/Qwen3-4B-unsloth-bnb-4bit | Multilingual     | 4B     | 32,768 (native)                  | High (Dynamic 4‑bit) |
+| unsloth/Qwen3-8B-bnb-4bit         | Multilingual     | 8B     | 32,768 native / 131,072 via YaRN | High (Dynamic 4‑bit) |
+| unsloth/Qwen3-14B-bnb-4bit        | Multilingual     | 14B    | 32,768 native / 131,072 via YaRN | High (Dynamic 4‑bit) |
+
+---
+
+### 🔗 **References & Specialties**
+
+**\[1] gte-modernbert-base**
+- Embedding-only model optimized for dense retrieval
+- CPU-efficient, ONNX-compatible
+🔗 [https://huggingface.co/Alibaba-NLP/gte-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-modernbert-base)
+
+**\[2] gte-reranker-modernbert-base**
+- Reranker model for hybrid/vector search pipelines
+- High-quality ranking, very fast on CPU
+🔗 [https://huggingface.co/Alibaba-NLP/gte-reranker-base](https://huggingface.co/Alibaba-NLP/gte-reranker-base)
+
+**\[3] ReFinED**
+- Fast and scalable entity linking system
+- Claims \~60× speed improvement over traditional EL
+🔗 [https://www.amazon.science/code-and-datasets/refined](https://www.amazon.science/code-and-datasets/refined)
+
+**\[4] Qwen3‑4B‑Instruct**
+- Versatile multitask instruction-following model
+- Supports **32k context length** (vLLM-compatible)
+- Compact yet highly performant
+
+> “Even a tiny model like Qwen3-4B can rival the performance of Qwen2.5-72B-Instruct.”
+> — [Qwen3 Blog](https://qwenlm.github.io/blog/qwen3/)
+
+🔗 [https://huggingface.co/Qwen/Qwen3-4B-Instruct](https://huggingface.co/Qwen/Qwen3-4B-Instruct)
+
+---
+
+### **Dynamic 4‑bit Quantization – Unsloth**
+
+Unsloth’s official blog explains:
+
+> “Introducing Unsloth Dynamic 4‑bit Quantization… dynamically opting not to quantize certain parameters … Deliver significant accuracy gains while only using < 10% more VRAM than standard bnb‑4bit.”
+
+🔗 [https://unsloth.ai/blog/dynamic-4bit](https://unsloth.ai/blog/dynamic-4bit)
+
+- Dynamic 4-bit selectively preserves key weights in higher precision, maintaining instruction-following and logical coherence—crucial for multi-hop reasoning and factual RAG.
+- Compared to AWQ, it offers noticeably better output fidelity with only \~10% more VRAM usage, making it ideal for high-trust LLM workflows
+
+---
