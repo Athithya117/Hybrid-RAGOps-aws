@@ -1,44 +1,35 @@
-data/chunked
-.venv
-tmp
-lid.176.bin
-backups
-models
-02-secrets.yml
-tmp.md
-*.zip
-.zip
-.venv2
-commands.md
-cli.md
-data/chunked
-.venv
-tmp
-lid.176.bin
-backups
-models
-02-secrets.yml
-tmp.md
-*.zip
-.zip
-.venv2
-data_sample
-myenv
-images
-data
-data/
-chunked
+# Python environments
+.venv/
+.venv2/
+venv/
+myenv/
 
+# Python cache
 __pycache__/
 *.pyc
-*.md
-.git
+
+# Secrets
+02-secrets.yml
+tmp.md
+
+# Data & Models
+data/
+data_sample/
+chunked/
+models/
+lid.176.bin
+backups/
+
+# Archives
+*.zip
+
+# Misc
+tmp/
+images/
 infra/
 notebooks/
-venv/
+commands.md
+cli.md
 
-__pycache__
-__pycache__
-*.__pycache__
-*.pyc
-
+# Git-related
+.git/

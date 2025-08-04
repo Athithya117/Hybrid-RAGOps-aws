@@ -1,6 +1,0 @@
-apiVersion: v2
-name: ctransformers-chart
-description: Helm chart to deploy ctransformers-based Ray Serve app
-type: application
-version: 0.1.0
-appVersion: "v1"

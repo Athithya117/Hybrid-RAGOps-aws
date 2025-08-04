@@ -146,48 +146,85 @@ export TOP_K_CHUNKS=                # number of batches will be calculated accor
                             +-------------------------------+
 ```
 
+
+
+
+# Models overview
+---
+| Model                        | Language     | Params | Max Tokens              | Efficiency           | Triplet μ-F1 | size (FP32)  | size (INT8 / W4A16) | RAM needed (INT8) | VRAM needed (W4A16) |
+| ---------------------------- | ------------ | ------ | ----------------------- | -------------------- | ------------ | ------------ | ------------------- | ----------------- | ------------------- |
+| gte-modernbert-base          | English      | 149M   | 8,192                   | High (CPU/ONNX)      | —            | 596 MiB      | 149 MiB (INT8)      | 1.0 GiB           | —                   |
+| gte-reranker-modernbert-base | English      | 149M   | 8,192                   | Very high (CPU/ONNX) | —            | 598 MiB      | 149 MiB (INT8)      | 1.0 GiB           | —                   |
+| relik-cie-tiny               | English      | 174M   | \~3,000                 | Very high (CPU/ONNX) | 73.8%        | 663.8 MiB    | 165.9 MiB (INT8)    | 0.94 GiB          | —                   |
+| relik-cie-small              | English      | 216M   | \~3,000                 | Very high (CPU/ONNX) | 74.3%        | 824.0 MiB    | 206.0 MiB (INT8)    | 1.40 GiB          | —                   |
+| relik-cie-large              | English      | 467M   | \~3,000                 | High (CPU/ONNX)      | 75.6%        | 1,781.5 MiB  | 445.4 MiB (INT8)    | 2.43 GiB          | —                   |
+| Qwen3-0.6B-quantized.w4a16   | Multilingual | 600M   | 32,768                  | High (W4A16 AWQ)     | —            | \~2.4 GiB\*  | 860 MiB (W4A16)     | —                 | \~1.1 GiB           |
+| Qwen3-1.7B-quantized.w4a16   | Multilingual | 1.7B   | 32,768                  | High (W4A16 AWQ)     | —            | \~6.8 GiB\*  | 2.0 GiB (W4A16)     | —                 | \~2.7 GiB           |
+| Qwen3-4B-quantized.w4a16     | Multilingual | 4B     | 32,768 (native)         | High (W4A16 AWQ)     | —            | \~16.0 GiB\* | 3.43 GiB (W4A16)    | —                 | \~5.6 GiB           |
+| Qwen3-8B-quantized.w4a16     | Multilingual | 8.2B   | 32,768 / 131,072 (YaRN) | High (W4A16 AWQ)     | —            | \~32.8 GiB\* | \~6.5 GiB (W4A16)†  | —                 | \~11 GiB            |
+| Qwen3-14B-quantized.w4a16    | Multilingual | 14.8B  | 32,768 / 131,072 (YaRN) | High (W4A16 AWQ)     | —            | \~59.2 GiB\* | \~10.9 GiB (W4A16)† | —                 | \~18 GiB            |
+
 ---
 
-### **Model Overview Table**
 
-| Model                             | Language         | Params | Max Tokens                       | Efficiency           |
-| --------------------------------- | ---------------- | ------ | -------------------------------- | -------------------- |
-| gte-modernbert-base               | English          | 149M   | 8,192                            | High (CPU/ONNX)      |
-| gte-reranker-modernbert-base      | English (rerank) | 149M   | 8,192                            | Very high (CPU/ONNX) |
-| ReFinED (entity linker)           | English          | \~125M | \~3,000+                         | Very high (CPU/ONNX) |
-| unsloth/Qwen3-0.6B-bnb-4bit       | Multilingual     | 600M   | 32,768                           | High (Dynamic 4‑bit) |
-| unsloth/Qwen3-1.7B-bnb-4bit       | Multilingual     | 1.7B   | 32,768                           | High (Dynamic 4‑bit) |
-| unsloth/Qwen3-4B-unsloth-bnb-4bit | Multilingual     | 4B     | 32,768 (native)                  | High (Dynamic 4‑bit) |
-| unsloth/Qwen3-8B-bnb-4bit         | Multilingual     | 8B     | 32,768 native / 131,072 via YaRN | High (Dynamic 4‑bit) |
-| unsloth/Qwen3-14B-bnb-4bit        | Multilingual     | 14B    | 32,768 native / 131,072 via YaRN | High (Dynamic 4‑bit) |
+## 🔗 **References & specialties of the default models in RAG8s**
 
 ---
 
-### 🔗 **References & Specialties**
+### 🔹 **\[1] gte-modernbert-base**
 
-**\[1] gte-modernbert-base**
-- Embedding-only model optimized for dense retrieval
-- CPU-efficient, ONNX-compatible
-🔗 [https://huggingface.co/Alibaba-NLP/gte-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-modernbert-base)
+* Embedding-only model for dense retrieval in RAG pipelines
+* Long-context support: up to **8192 tokens**
+* Based on **ModernBERT** (FlashAttention 2, RoPE, no position embeddings)
+* Optimized for ONNX export and CPU‑inference
+* Embedding dimension: **768**
+* Parameter size: **149M**
+  🔗 [https://huggingface.co/Alibaba-NLP/gte-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-modernbert-base)
 
-**\[2] gte-reranker-modernbert-base**
-- Reranker model for hybrid/vector search pipelines
-- High-quality ranking, very fast on CPU
-🔗 [https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base)
+> **Use case**: Recommended for fast, CPU-efficient **semantic retrieval** in low-latency RAG pipelines with long context document embeddings.
 
-**\[3] ReFinED**
-- Fast and scalable entity linking system
-- Claims \~60× speed improvement over traditional EL
-🔗 [https://www.amazon.science/code-and-datasets/refined](https://www.amazon.science/code-and-datasets/refined)
+---
 
-**\[4] Qwen3‑4B‑Instruct**
-- Versatile multitask instruction-following model
-- Supports **32k context length** (vLLM-compatible)
-- Compact yet highly performant
+### 🔹 **\[2] gte-reranker-modernbert-base**
+
+* **Cross-encoder reranker** for re-ranking retrieved docs
+* High BEIR benchmark score (**nDCG\@10 ≈ 90.7%**)
+* Same architecture & size as embedding model (149M), supports **8192 tokens**
+* Extremely fast CPU inference with ONNX (FlashAttention 2)
+  🔗 [https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base)
+
+> **Use case**: Ideal for **re-ranking top-k retrieved passages** after dense retrieval to improve precision in RAG answer selection.
+
+---
+
+### 🔹 **\[3] ReLiK-CIE-Tiny**
+
+A compact and efficient **entity + relation extraction** model designed for **Graph-RAG pipelines**. Unlike fast entity-only models (e.g., SpEL, ReFinED), `relik-cie-tiny` can extract both **named entities** and **semantic triplets** (`(head, relation, tail)`), enabling direct construction of **knowledge subgraphs** from raw text.
+
+* Extracts **entities and triplets** in a single pass
+* Suitable for **CPU inference** via ONNX
+* Balanced for **accuracy and runtime performance**
+  🔗 [Model card on HuggingFace](https://huggingface.co/tau/relik-cie-tiny)
+
+> **Use case**: Ideal for production Graph-RAG inference pipelines where lightweight models must still generate structured knowledge without relying on large LLM backends.
+
+---
+
+### 🔹 **\[4] RedHatAI/Qwen3-4B-W4A16**
+
+A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (4-bit weights + FP16 activations). Built on **Qwen3-4B**, this variant supports **32,768-token context** natively and achieves performance comparable to models 10× its size (e.g., Qwen2.5-72B). Optimized for **vLLM inference**, it balances **speed, memory efficiency, and accuracy**, running seamlessly on GPUs like A10G, L4, and L40S.
+
+* Architecture: **Transformer** (Qwen3 series, multilingual)
+* Context Length: **32k tokens** (vLLM-native)
+* Quantization: **W4A16 (AWQ)** — 4-bit weights, FP16 activations
+* VRAM Usage: **\~4.8–5.2 GiB** (fits on 24 GiB GPUs with headroom)
+
+🔗 [RedHatAI Qwen3-4B-W4A16](https://huggingface.co/RedHatAI/Qwen3-4B-quantized.w4a16)
 
 > “Even a tiny model like Qwen3-4B can rival the performance of Qwen2.5-72B-Instruct.”
 > — [Qwen3 Blog](https://qwenlm.github.io/blog/qwen3/)
+> — [Thinking-mode](https://qwenlm.github.io/blog/qwen3/#key-features)
 
-🔗 [https://huggingface.co/Qwen/Qwen3-4B-Instruct](https://huggingface.co/Qwen/Qwen3-4B-Instruct)
+> **Use case**: Ideal for production-grade **chat, reasoning, and instruction-following** tasks where **low latency** and **high throughput** are required on **commodity GPUs**.
 
 ---

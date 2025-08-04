@@ -17,6 +17,8 @@ tree:
 	tree -a -I '.git|.venv|aws|docs|models|tmp|aws-kustomization.yaml|raw|chunked'
 
 backup:
+	du -ah . | sort -rh | head -n 10
+	sleep 3
 	zip "$$(basename $$PWD)_$$(date +%Y%m%d_%H%M%S).zip" $$(find . -type f -size -100M \
 		! -path "*/.git/*" \
 		! -path "*/.venv/*" \
@@ -61,7 +63,7 @@ local-llm-helm-chart:
 		--set image.tag=$(TAG) \
 		--set replicas.workerMax=$(LOCAL_QWEN3_MAX_WORKERS)
 
-local-llm: create-local-llm-secret local-llm-helm-chart
+deploy-local-llm: create-local-llm-secret local-llm-helm-chart
 
 check-local-llm:
 	@echo "[*] Checking LLM deployment readiness..."
@@ -83,8 +85,7 @@ check-local-llm:
 	kill $$PORT_PID
 
 delete-local-llm:
-	@echo "Cleaning up LLM deployment..."
-
+	@echo "Cleaning up local LLM deployment..."
 	kubectl delete rayservice ctr-cpu-service --ignore-not-found
 	kubectl delete raycluster ctr-cpu-service-raycluster --ignore-not-found
 	kubectl delete pod -l ray.io/node-type=worker --ignore-not-found

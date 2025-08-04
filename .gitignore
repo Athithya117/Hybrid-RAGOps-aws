@@ -1,24 +1,42 @@
-data/chunked
-.venv
-tmp
-lid.176.bin
-backups
-models
-02-secrets.yml
-tmp.md
-*.zip
-.zip
-.venv2
-data_sample
-myenv
-images
-data
-data/
-chunked
+# Ignore everything not needed in Docker context
+# Speeds up builds and protects secrets
 
-__pycache__
-__pycache__
-*.__pycache__
+# Python envs
+.venv/
+.venv2/
+venv/
+myenv/
+.venv1
+.venv1/
+.venv_refined/
+
+# Python cache
+__pycache__/
 *.pyc
 
+# Large or sensitive data
+data/
+data_sample/
+chunked/
+models/
+lid.176.bin
+backups/
+images/
+tmp/
 
+# Secrets and config
+02-secrets.yml
+tmp.md
+commands.md
+cli.md
+
+# Git and versioning
+.git/
+.gitignore
+.dockerignore
+
+# Development files not needed in Docker image
+notebooks/
+infra/
+*.md
+*.zip
