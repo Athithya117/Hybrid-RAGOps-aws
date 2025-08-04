@@ -11,7 +11,6 @@ MODELS=(
   "Alibaba-NLP/gte-reranker-modernbert-base"
 
 )
-
 # ensure you have the right tools installed
 
 for MODEL_ID in "${MODELS[@]}"; do
