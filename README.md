@@ -174,7 +174,7 @@ export TOP_K_CHUNKS=                # number of batches will be calculated accor
 ### 🔹 **\[1] gte-modernbert-base**
 
 * Embedding-only model for dense retrieval in RAG pipelines
-* Long-context support: up to **8192 tokens**
+* Long-context support: up to **8192 tokens**(Sufficient for page wise chunking)
 * Based on **ModernBERT** (FlashAttention 2, RoPE, no position embeddings)
 * Optimized for ONNX export and CPU‑inference
 * Embedding dimension: **768**
