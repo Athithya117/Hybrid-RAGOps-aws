@@ -11,7 +11,6 @@
   <summary> View chunk stratergies and chunk schema (Click the triangle)</summary>
 
 ```sh
-
 {
   "chunk_id": "a3f5be12c9d47e09_5",               // Unique chunk ID: <document_hash>_<chunk_index> (1-based)
   "document_id": "a3f5be12c9d47e09",              // Unique document ID (128-bit hash of file path + size)
@@ -39,10 +38,30 @@
   "metadata": {
     "timestamp": "2025-08-03T12:00:00Z",         // UTC ISO timestamp of chunk creation/parsing
     "tags": ["invoice", "header"],               // High-level content tags (semantic or manual)
-    "layout_tags": ["paragraph"],                // Structural tags (e.g., "heading", "table", etc.)
-    "entities": ["Q123", "Q456"]                 // Optional: Linked entity IDs (Wikidata, etc.) or null if not yet computed
-  }
+    "layout_tags": ["paragraph"]                 // Structural tags (e.g., "heading", "table", etc.)
+  },
+
+  "entities": ["Q123", "Q456"],                  // Optional: Linked entity IDs (Wikidata, etc.) or null if not yet computed
+
+  "triplets": [                                  // Extracted subject-predicate-object relations
+    {
+      "subject": "Invoice",
+      "predicate": "hasDate",
+      "object": "2025-08-01"
+    },
+    {
+      "subject": "Invoice",
+      "predicate": "issuedBy",
+      "object": "ACME Corp"
+    },
+    {
+      "subject": "ACME Corp",
+      "predicate": "locatedIn",
+      "object": "New York"
+    }
+  ]
 }
+
 
 ```
 
@@ -155,9 +174,9 @@ export TOP_K_CHUNKS=                # number of batches will be calculated accor
 | ---------------------------- | ------------ | ------ | ----------------------- | -------------------- | ------------ | ------------ | ------------------- | ----------------- | ------------------- |
 | gte-modernbert-base          | English      | 149M   | 8,192                   | High (CPU/ONNX)      | —            | 596 MiB      | 149 MiB (INT8)      | 1.0 GiB           | —                   |
 | gte-reranker-modernbert-base | English      | 149M   | 8,192                   | Very high (CPU/ONNX) | —            | 598 MiB      | 149 MiB (INT8)      | 1.0 GiB           | —                   |
-| relik-cie-tiny               | English      | 174M   | \~3,000                 | Very high (CPU/ONNX) | 73.8%        | 663.8 MiB    | 165.9 MiB (INT8)    | 0.94 GiB          | —                   |
-| relik-cie-small              | English      | 216M   | \~3,000                 | Very high (CPU/ONNX) | 74.3%        | 824.0 MiB    | 206.0 MiB (INT8)    | 1.40 GiB          | —                   |
-| relik-cie-large              | English      | 467M   | \~3,000                 | High (CPU/ONNX)      | 75.6%        | 1,781.5 MiB  | 445.4 MiB (INT8)    | 2.43 GiB          | —                   |
+| relik-cie-tiny               | English      | 174M   | \~3,000                 | High (CPU) | 73.8%        | 663.8 MiB    | 165.9 MiB (INT8)    | 0.94 GiB          | —                   |
+| relik-cie-small              | English      | 216M   | \~3,000                 | high (CPU) | 74.3%        | 824.0 MiB    | 206.0 MiB (INT8)    | 1.40 GiB          | —                   |
+| relik-cie-large              | English      | 467M   | \~3,000                 | Moderate (CPU)      | 75.6%        | 1,781.5 MiB  | 445.4 MiB (INT8)    | 2.43 GiB          | —                   |
 | Qwen3-0.6B-quantized.w4a16   | Multilingual | 600M   | 32,768                  | High (W4A16 AWQ)     | —            | \~2.4 GiB\*  | 860 MiB (W4A16)     | —                 | \~1.1 GiB           |
 | Qwen3-1.7B-quantized.w4a16   | Multilingual | 1.7B   | 32,768                  | High (W4A16 AWQ)     | —            | \~6.8 GiB\*  | 2.0 GiB (W4A16)     | —                 | \~2.7 GiB           |
 | Qwen3-4B-quantized.w4a16     | Multilingual | 4B     | 32,768 (native)         | High (W4A16 AWQ)     | —            | \~16.0 GiB\* | 3.43 GiB (W4A16)    | —                 | \~5.6 GiB           |
@@ -204,7 +223,7 @@ A compact and efficient **entity + relation extraction** model designed for **Gr
 * Extracts **entities and triplets** in a single pass
 * Suitable for **CPU inference** via ONNX
 * Balanced for **accuracy and runtime performance**
-  🔗 [Model card on HuggingFace](https://huggingface.co/tau/relik-cie-tiny)
+  🔗 [relik-ie/relik-cie-tiny](https://huggingface.co/relik-ie/relik-cie-tiny)
 
 > **Use case**: Ideal for production Graph-RAG inference pipelines where lightweight models must still generate structured knowledge without relying on large LLM backends.
 
