@@ -14,7 +14,7 @@ s3:
 	aws s3 ls "s3://$S3_BUCKET/" --recursive | head -n 100
 
 tree:
-	tree -a -I '.git|.venv|aws|docs|models|tmp|aws-kustomization.yaml|raw|chunked'
+	tree -a -I '.git|.venv|.venv2|aws|docs|models|tmp|aws-kustomization.yaml|raw|chunked'
 
 backup:
 	du -ah . | sort -rh | head -n 10
