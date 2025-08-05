@@ -167,24 +167,24 @@ export TOP_K_CHUNKS=                # number of batches will be calculated accor
 
 
 
-
 # Models overview
+
 ---
+
 | Model                        | Language     | Params | Max Tokens              | Efficiency           | Triplet μ-F1 | size (FP32)  | size (INT8 / W4A16) | RAM needed (INT8) | VRAM needed (W4A16) |
 | ---------------------------- | ------------ | ------ | ----------------------- | -------------------- | ------------ | ------------ | ------------------- | ----------------- | ------------------- |
-| gte-modernbert-base          | English      | 149M   | 8,192                   | High (CPU/ONNX)      | —            | 596 MiB      | 149 MiB (INT8)      | 1.0 GiB           | —                   |
-| gte-reranker-modernbert-base | English      | 149M   | 8,192                   | Very high (CPU/ONNX) | —            | 598 MiB      | 149 MiB (INT8)      | 1.0 GiB           | —                   |
-| relik-cie-tiny               | English      | 174M   | \~3,000                 | High (CPU) | 73.8%        | 663.8 MiB    | 165.9 MiB (INT8)    | 0.94 GiB          | —                   |
-| relik-cie-small              | English      | 216M   | \~3,000                 | high (CPU) | 74.3%        | 824.0 MiB    | 206.0 MiB (INT8)    | 1.40 GiB          | —                   |
-| relik-cie-large              | English      | 467M   | \~3,000                 | Moderate (CPU)      | 75.6%        | 1,781.5 MiB  | 445.4 MiB (INT8)    | 2.43 GiB          | —                   |
-| Qwen3-0.6B-quantized.w4a16   | Multilingual | 600M   | 32,768                  | High (W4A16 AWQ)     | —            | \~2.4 GiB\*  | 860 MiB (W4A16)     | —                 | \~1.1 GiB           |
-| Qwen3-1.7B-quantized.w4a16   | Multilingual | 1.7B   | 32,768                  | High (W4A16 AWQ)     | —            | \~6.8 GiB\*  | 2.0 GiB (W4A16)     | —                 | \~2.7 GiB           |
-| Qwen3-4B-quantized.w4a16     | Multilingual | 4B     | 32,768 (native)         | High (W4A16 AWQ)     | —            | \~16.0 GiB\* | 3.43 GiB (W4A16)    | —                 | \~5.6 GiB           |
-| Qwen3-8B-quantized.w4a16     | Multilingual | 8.2B   | 32,768 / 131,072 (YaRN) | High (W4A16 AWQ)     | —            | \~32.8 GiB\* | \~6.5 GiB (W4A16)†  | —                 | \~11 GiB            |
-| Qwen3-14B-quantized.w4a16    | Multilingual | 14.8B  | 32,768 / 131,072 (YaRN) | High (W4A16 AWQ)     | —            | \~59.2 GiB\* | \~10.9 GiB (W4A16)† | —                 | \~18 GiB            |
+| gte-modernbert-base          | English      | 149M   | 8,192                   | High (CPU/ONNX)      | —            | 596 MiB      | 149 MiB (INT8)      | 1.0 GiB           | —                   |
+| gte-reranker-modernbert-base | English      | 149M   | 8,192                   | Very high (CPU/ONNX) | —            | 598 MiB      | 149 MiB (INT8)      | 1.0 GiB           | —                   |
+| relik-cie-tiny               | English      | 174M   | \~3,000                 | High (CPU)           | 73.8%        | 663.8 MiB    | 165.9 MiB (INT8)    | 0.94 GiB          | —                   |
+| relik-cie-small              | English      | 216M   | \~3,000                 | high (CPU)           | 74.3%        | 824.0 MiB    | 206.0 MiB (INT8)    | 1.40 GiB          | —                   |
+| relik-cie-large              | English      | 467M   | \~3,000                 | Moderate (CPU)       | 75.6%        | 1,781.5 MiB  | 445.4 MiB (INT8)    | 2.43 GiB          | —                   |
+| Qwen3-0.6B-quantized.w4a16   | Multilingual | 600M   | 32,768                  | High (W4A16 AWQ)     | —            | \~2.4 GiB\*  | 860 MiB (W4A16)     | —                 | \~1.1 GiB           |
+| Qwen3-1.7B-quantized.w4a16   | Multilingual | 1.7B   | 32,768                  | High (W4A16 AWQ)     | —            | \~6.8 GiB\*  | 2.0 GiB (W4A16)     | —                 | \~2.7 GiB           |
+| Qwen3-4B-quantized.w4a16     | Multilingual | 4B     | 32,768 (native)         | High (W4A16 AWQ)     | —            | \~16.0 GiB\* | 3.43 GiB (W4A16)    | —                 | \~5.6 GiB           |
+| Qwen3-8B-quantized.w4a16     | Multilingual | 8.2B   | 32,768 / 131,072 (YaRN) | High (W4A16 AWQ)     | —            | \~32.8 GiB\* | \~6.5 GiB (W4A16)†  | —                 | \~11 GiB            |
+| Qwen3-14B-quantized.w4a16    | Multilingual | 14.8B  | 32,768 / 131,072 (YaRN) | High (W4A16 AWQ)     | —            | \~59.2 GiB\* | \~10.9 GiB (W4A16)† | —                 | \~18 GiB            |
 
 ---
-
 
 ## 🔗 **References & specialties of the default models in RAG8s**
 
@@ -193,9 +193,9 @@ export TOP_K_CHUNKS=                # number of batches will be calculated accor
 ### 🔹 **\[1] gte-modernbert-base**
 
 * Embedding-only model for dense retrieval in RAG pipelines
-* Long-context support: up to **8192 tokens**(Sufficient for page wise chunking)
+* Long-context support: up to **8192 tokens** (Sufficient for page wise chunking)
 * Based on **ModernBERT** (FlashAttention 2, RoPE, no position embeddings)
-* Optimized for ONNX export and CPU‑inference
+* Optimized for ONNX export and CPU-inference
 * Embedding dimension: **768**
 * Parameter size: **149M**
   🔗 [https://huggingface.co/Alibaba-NLP/gte-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-modernbert-base)
@@ -231,10 +231,10 @@ A compact and efficient **entity + relation extraction** model designed for **Gr
 
 ### 🔹 **\[4] RedHatAI/Qwen3-4B-W4A16**
 
-A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (4-bit weights + FP16 activations). Built on **Qwen3-4B**, this variant supports **32,768-token context** natively and achieves performance comparable to models 10× its size (e.g., Qwen2.5-72B). Optimized for **vLLM inference**, it balances **speed, memory efficiency, and accuracy**, running seamlessly on GPUs like A10G, L4, and L40S.
+A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (4-bit weights + FP16 activations). Built on **Qwen3-4B**, this variant supports **32,768-token context** natively and achieves performance comparable to models 10× its size (e.g., Qwen2.5-72B). Optimized for **SGLang inference**, it balances **speed, memory efficiency, and accuracy**, running seamlessly on GPUs like A10G, L4, and L40S.
 
 * Architecture: **Transformer** (Qwen3 series, multilingual)
-* Context Length: **32k tokens** (vLLM-native)
+* Context Length: **32k tokens** (SGLang-native)
 * Quantization: **W4A16 (AWQ)** — 4-bit weights, FP16 activations
 * VRAM Usage: **\~4.8–5.2 GiB** (fits on 24 GiB GPUs with headroom)
 
@@ -244,6 +244,73 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
 > — [Qwen3 Blog](https://qwenlm.github.io/blog/qwen3/)
 > — [Thinking-mode](https://qwenlm.github.io/blog/qwen3/#key-features)
 
-> **Use case**: Ideal for production-grade **chat, reasoning, and instruction-following** tasks where **low latency** and **high throughput** are required on **commodity GPUs**.
+> **Use case**: Smaller models (e.g., Qwen3-4B-W4A16 or 8B) fit on a single VM, making them better suited for data-parallel engines like **SGLang**, rather than tensor-parallel systems like **vLLM**.
+
+
+
+## EC2 instances for spot with fallback pre warmed on-demand scaling with karpenter-gpu
+
+#### **G6f (Fractional L4 GPU) Sizes**
+
+| Instance        | vCPUs | Memory  | GPU Fraction | GPU Memory |
+| --------------- | ----- | ------- | ------------ | ---------- |
+| **g6f.large**   | 2     | 8 GiB   | 0.125 × L4   | \~3 GiB    |
+| **g6f.xlarge**  | 4     | 16 GiB  | 0.25 × L4    | \~6 GiB    |
+| **g6f.2xlarge** | 8     | 32 GiB  | 0.5 × L4     | \~12 GiB   |
+| **g6f.4xlarge** | 16    | 64 GiB  | 1 × L4       | 24 GiB     |
+| **g6f.8xlarge** | 32    | 128 GiB | 2 × L4       | 48 GiB     |
 
 ---
+
+#### **G6e (Full L40S GPU) Sizes**
+
+| Instance         | vCPUs | Memory   | GPUs | GPU Memory                               |
+| ---------------- | ----- | -------- | ---- | ---------------------------------------- |
+| **g6e.xlarge**   | 4     | 32 GiB   | 1    | 44 GiB (1×44)   ([AWS Documentation][1]) |
+| **g6e.2xlarge**  | 8     | 64 GiB   | 1    | 44 GiB (1×44)   ([AWS Documentation][1]) |
+| **g6e.4xlarge**  | 16    | 128 GiB  | 1    | 44 GiB (1×44)   ([AWS Documentation][1]) |
+| **g6e.8xlarge**  | 32    | 256 GiB  | 1    | 44 GiB (1×44)   ([AWS Documentation][1]) |
+| **g6e.12xlarge** | 48    | 384 GiB  | 4    | 178 GiB (4×44)  ([AWS Documentation][1]) |
+| **g6e.16xlarge** | 64    | 512 GiB  | 1    | 44 GiB (1×44)   ([AWS Documentation][1]) |
+| **g6e.24xlarge** | 96    | 768 GiB  | 4    | 178 GiB (4×44)  ([AWS Documentation][1]) |
+| **g6e.48xlarge** | 192   | 1536 GiB | 8    | 357 GiB (8×44)  ([AWS Documentation][1]) |
+
+---
+
+
+
+| Instance     | vCPU / RAM       | **C8g On-Demand** (USD/hr) | **C8g On-Demand** (₹/hr) | **C8g Spot** (USD/hr)   | **C8g Spot** (₹/hr) | **C8gd On-Demand** (USD/hr) | **C8gd On-Demand** (₹/hr) | **C8gd Spot** (USD/hr)  | **C8gd Spot** (₹/hr) |
+| ------------ | ---------------- | -------------------------- | ------------------------ | ----------------------- | ------------------- | --------------------------- | ------------------------- | ----------------------- | -------------------- |
+| **medium**   | 1 vCPU/2 GiB     | \$0.044 ([Vantage][1])     | ₹3.7                     | \$0.013 ([Vantage][1])  | ₹1.1                | \$0.054 ([Vantage][2])      | ₹4.5                      | \$0.012 ([Vantage][2])  | ₹1.0                 |
+| **xlarge**   | 4 vCPU/8 GiB     | \$0.702 ([Vantage][3])     | ₹58.2                    | \$0.238 ([Vantage][3])  | ₹19.8               | \$0.196 ([Vantage][4])      | ₹16.3                     | \$0.080 ([Vantage][4])  | ₹6.6                 |
+| **2xlarge**  | 8 vCPU/16 GiB    | \$0.319 ([Vantage][5])     | ₹26.5                    | \$0.128 ([Vantage][5])  | ₹10.6               | —                           | —                         | —                       | —                    |
+| **4xlarge**  | 16 vCPU/32 GiB   | \$0.702 ([Vantage][3])     | ₹58.2                    | \$0.238 ([Vantage][3])  | ₹19.8               | \$0.784 ([Vantage][6])      | ₹65.1                     | \$0.298 ([Vantage][6])  | ₹24.7                |
+| **8xlarge**  | 32 vCPU/64 GiB   | \$1.276 ([Vantage][7])     | ₹105.9                   | \$0.522 ([Vantage][7])  | ₹43.3               | \$1.720 ([Vantage][8])      | ₹142.8                    | \$— (spot NA)           | —                    |
+| **16xlarge** | 64 vCPU/128 GiB  | \$2.808 ([Vantage][9])     | ₹233.1                   | \$0.731 ([Vantage][9])  | ₹60.7               | \$3.135 ([Vantage][10])     | ₹259.9                    | \$0.796 ([Vantage][10]) | ₹66.1                |
+| **24xlarge** | 96 vCPU/192 GiB  | \$4.211 ([Vantage][8])     | ₹349.3                   | \$1.065 ([Vantage][8])  | ₹88.4               | \$5.173 ([Vantage][8])      | ₹429.4                    | \$1.476 ([Vantage][8])  | ₹122.5               |
+| **48xlarge** | 192 vCPU/384 GiB | \$7.657 ([Vantage][11])    | ₹635.6                   | \$1.979 ([Vantage][11]) | ₹164.3              | \$9.406 ([Vantage][12])     | ₹780.8                    | \$3.323 ([Vantage][12]) | ₹275.6               |
+
+---
+
+### Notes
+
+* “—” indicates data not available or not listed for that size.
+* Spot prices fluctuate; these are **minimums** observed at time of lookup.
+* INR values are approximate (USD × 83).
+* NVMe-equipped C8gd variants include large local SSD at no extra configuration cost; C8g has no NVMe.
+* Source pricing from Instances.Vantage.sh snapshots as of early August 2025.
+
+This detailed comparison should guide your selection based on **compute**, **memory**, **storage**, and **cost** trade-offs.
+
+[1]: https://instances.vantage.sh/aws/ec2/c8g.medium "c8g.medium pricing and specs - Amazon EC2 Instance Comparison"
+[2]: https://instances.vantage.sh/aws/ec2/c8gd.medium? "c8gd.medium pricing and specs - Vantage"
+[3]: https://instances.vantage.sh/aws/ec2/c8g.4xlarge "c8g.4xlarge pricing and specs - Amazon EC2 Instance Comparison"
+[4]: https://instances.vantage.sh/aws/ec2/c8gd.xlarge?cost_duration=monthly&os=linux&region=us-east-1&reserved_term=Standard.noUpfront&utm_source=chatgpt.com "c8gd.xlarge pricing and specs - Vantage"
+[5]: https://instances.vantage.sh/aws/ec2/c8g.2xlarge?utm_source=chatgpt.com "c8g.2xlarge pricing and specs - Amazon EC2 Instance Comparison"
+[6]: https://instances.vantage.sh/aws/ec2/c8gd.4xlarge?utm_source=chatgpt.com "c8gd.4xlarge pricing and specs - Amazon EC2 Instance Comparison"
+[7]: https://instances.vantage.sh/aws/ec2/c8g.8xlarge?utm_source=chatgpt.com "c8g.8xlarge pricing and specs - Amazon EC2 Instance Comparison"
+[8]: https://instances.vantage.sh/aws/ec2/c8gd.24xlarge?utm_source=chatgpt.com "c8gd.24xlarge pricing and specs - Amazon EC2 Instance Comparison"
+[9]: https://instances.vantage.sh/aws/ec2/c8g.16xlarge?utm_source=chatgpt.com "c8g.16xlarge pricing and specs - Amazon EC2 Instance Comparison"
+[10]: https://instances.vantage.sh/aws/ec2/c8gd.16xlarge?utm_source=chatgpt.com "c8gd.16xlarge pricing and specs - Amazon EC2 Instance Comparison"
+[11]: https://instances.vantage.sh/aws/ec2/c8g.48xlarge?utm_source=chatgpt.com "c8g.48xlarge pricing and specs - Amazon EC2 Instance Comparison"
+[12]: https://instances.vantage.sh/aws/ec2/c8gd.48xlarge?utm_source=chatgpt.com "c8gd.48xlarge pricing and specs - Amazon EC2 Instance Comparison"

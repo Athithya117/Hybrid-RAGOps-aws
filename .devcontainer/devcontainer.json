@@ -2,7 +2,10 @@
   "name": "RAG8s",
   "build": {
     "dockerfile": "Dockerfile",
-    "context": "."
+    "context": ".",
+    "args": {
+      "DOCKER_GID": "999"
+    }
   },
   "runArgs": [
     "--gpus", "all",
@@ -10,8 +13,8 @@
     "--security-opt=seccomp=unconfined",
     "-v", "/var/run/docker.sock:/var/run/docker.sock"
   ],
-  "remoteUser": "root",
-  "postCreateCommand": "bash utils/bootstrap-dev.sh",
+  "remoteUser": "vscode",
+  "postCreateCommand": "bash .devcontainer/scripts/fix-docker-group.sh",
   "workspaceFolder": "/workspace",
   "mounts": [
     "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
