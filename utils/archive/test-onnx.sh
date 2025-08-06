@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export HF_HOME=/opt/models/hf/hub
+export TRANSFORMERS_CACHE=/opt/models/hf/hub
+export HUGGINGFACE_HUB_CACHE=/opt/models/hf/hub
+
 # Map local directory names to HF repo suffixes
 declare -A MODELS=(
   ["gte-modernbert-base-onnx-int8"]="gte-modernbert-base-onnx-int8"
@@ -17,18 +21,10 @@ git lfs install
 
 # Install Python dependencies
 pip install --no-cache-dir \
-    torch==2.8.0+cpu --index-url https://download.pytorch.org/whl/cpu \
-    huggingface_hub==0.34.3 \
-    optimum[onnxruntime]==1.27.0 \
-    hf-transfer==0.1.9 \
-    numpy==2.2.6 \
-    onnx==1.18.0 \
-    accelerate==1.9.0 \
-    onnxruntime==1.22.1 \
-    onnxoptimizer==0.3.13 \
-    onnxruntime-tools==1.7.0 \
     transformers==4.53.3 \
-    sentencepiece==0.2.0
+    onnxruntime==1.22.1 \
+    huggingface_hub==0.34.3 \
+    numpy==2.2.6
 
 # Clone or update each ONNX-int8 repo
 for DIR_NAME in "${!MODELS[@]}"; do
