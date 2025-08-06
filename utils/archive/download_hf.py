@@ -15,12 +15,12 @@ RERANKER_ONNX_PATH = os.getenv(
 
 MODELS = [
     {
-        "repo_id": "RAG8s/gte-modernbert-base-onnx",
+        "repo_id": "RAG8s/gte-modernbert-base-onnx-int8",
         "filename": "model.onnx",
         "target_path": EMBEDDER_ONNX_PATH,
     },
     {
-        "repo_id": "RAG8s/gte-reranker-modernbert-base-onnx",
+        "repo_id": "RAG8s/gte-reranker-modernbert-base-onnx-int8",
         "filename": "model.onnx",
         "target_path": RERANKER_ONNX_PATH,
     },
