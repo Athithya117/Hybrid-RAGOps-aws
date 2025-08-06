@@ -103,10 +103,19 @@ install_node_vite
 install_sops
 install_k3d
 
-pip install optimum[exporters] onnxruntime
 
+grep -qxF 'export PYTHONPATH=$(pwd)' ~/.bashrc || echo 'export PYTHONPATH=$(pwd)' >> ~/.bashrc
 
+# Ensure /opt/models exists and is writable
+sudo mkdir -p /opt/models/hf/hub /opt/models/hf/assets
+sudo chmod -R 777 /opt/models
 
+# Add environment variables to ~/.bashrc if not already present
+grep -qxF 'export MODEL_HOME="/opt/models"' ~/.bashrc || echo 'export MODEL_HOME="/opt/models"' >> ~/.bashrc
+grep -qxF 'export HF_HOME="$MODEL_HOME/hf"' ~/.bashrc || echo 'export HF_HOME="$MODEL_HOME/hf"' >> ~/.bashrc
+grep -qxF 'export HF_HUB_CACHE="$HF_HOME/hub"' ~/.bashrc || echo 'export HF_HUB_CACHE="$HF_HOME/hub"' >> ~/.bashrc
+grep -qxF 'export HF_ASSETS_CACHE="$HF_HOME/assets"' ~/.bashrc || echo 'export HF_ASSETS_CACHE="$HF_HOME/assets"' >> ~/.bashrc
+grep -qxF 'export RAPIDOCR_MODEL_DIR="$MODEL_HOME/rapidocr"' ~/.bashrc || echo 'export RAPIDOCR_MODEL_DIR="$MODEL_HOME/rapidocr"' >> ~/.bashrc
 
 
 mkdir -p /workspace/backups/dbs/qdrant /workspace/backups/dbs/arrangodb /workspace/data/

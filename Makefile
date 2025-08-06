@@ -1,3 +1,11 @@
+
+
+
+
+
+
+
+
 pull:
 	git add .
 	git commit -m "new"
@@ -16,14 +24,19 @@ s3:
 tree:
 	tree -a -I '.git|.venv|.venv2|aws|docs|models|tmp|aws-kustomization.yaml|raw|chunked'
 
+.PHONY: backup
+
 backup:
-	du -ah . | sort -rh | head -n 10
-	sleep 3
-	zip "$$(basename $$PWD)_$$(date +%Y%m%d_%H%M%S).zip" $$(find . -type f -size -100M \
-		! -path "*/.git/*" \
-		! -path "*/.venv/*" \
-		! -path "*/tmp/*" \
-		! -path "models/*")
+	@timestamp=$$(date +%Y%m%d_%H%M%S); \
+	find . -type f -size -100M \
+	  ! -path "*/.git/*" \
+	  ! -path "*/.venv/*" \
+	  ! -path "*/.venv2/*" \
+	  ! -path "*/backups/*" \
+	  ! -path "*/tmp/*" \
+	  ! -path "models/*" \
+	| zip "$$(basename $$PWD)_$$timestamp.zip" -@
+
 
 .PHONY: local-llm create-local-llm-secret local-llm-helm-chart check-local-llm delete-local-llm
 
