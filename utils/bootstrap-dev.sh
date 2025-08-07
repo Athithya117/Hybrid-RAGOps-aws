@@ -118,39 +118,8 @@ grep -qxF 'export HF_ASSETS_CACHE="$HF_HOME/assets"' ~/.bashrc || echo 'export H
 grep -qxF 'export RAPIDOCR_MODEL_DIR="$MODEL_HOME/rapidocr"' ~/.bashrc || echo 'export RAPIDOCR_MODEL_DIR="$MODEL_HOME/rapidocr"' >> ~/.bashrc
 
 
-export MODEL_HOME="/opt/models" && export HF_HOME="$MODEL_HOME/hf" && export HF_HUB_CACHE="$HF_HOME/hub" && export HF_ASSETS_CACHE="$HF_HOME/assets" && pip install --no-cache-dir --upgrade optimum onnxruntime && mkdir -p "$HF_HOME/onnx/gte-modernbert-base" "$HF_HOME/onnx/gte-reranker-modernbert-base" && optimum-cli export onnx --model Alibaba-NLP/gte-modernbert-base "$HF_HOME/onnx/gte-modernbert-base" --task feature-extraction && optimum-cli export onnx --model Alibaba-NLP/gte-reranker-modernbert-base "$HF_HOME/onnx/gte-reranker-modernbert-base" --task sentence-similarity
 
 mkdir -p /workspace/backups/dbs/qdrant /workspace/backups/dbs/arrangodb /workspace/data/
-
-# 1. Set persistent env paths
-grep -qxF 'export MODEL_HOME="/opt/models"' ~/.bashrc || echo 'export MODEL_HOME="/opt/models"' >> ~/.bashrc
-grep -qxF 'export HF_HOME="$MODEL_HOME/hf"' ~/.bashrc || echo 'export HF_HOME="$MODEL_HOME/hf"' >> ~/.bashrc
-grep -qxF 'export HF_HUB_CACHE="$HF_HOME/hub"' ~/.bashrc || echo 'export HF_HUB_CACHE="$HF_HOME/hub"' >> ~/.bashrc
-grep -qxF 'export HF_ASSETS_CACHE="$HF_HOME/assets"' ~/.bashrc || echo 'export HF_ASSETS_CACHE="$HF_HOME/assets"' >> ~/.bashrc
-source ~/.bashrc
-
-# 2. Create directories
-sudo mkdir -p /opt/models/hf/onnx/gte-modernbert-base /opt/models/hf/onnx/gte-reranker-modernbert-base
-sudo chown -R $USER:$USER /opt/models
-
-# 3. Install necessary packages
-pip install --no-cache-dir --upgrade huggingface_hub optimum[onnxruntime]
-
-# 4. Download ONNX model for embedder (gte-modernbert-base)
-python3 - << 'EOF'
-from huggingface_hub import hf_hub_download
-hf_hub_download(
-  repo_id="Alibaba-NLP/gte-modernbert-base",
-  filename="onnx/model.onnx",
-  local_dir="/opt/models/hf/onnx/gte-modernbert-base"
-)
-EOF
-
-# 5. Export reranker (gte-reranker-modernbert-base) to ONNX manually
-optimum-cli export onnx \
-  --model Alibaba-NLP/gte-reranker-modernbert-base \
-  /opt/models/hf/onnx/gte-reranker-modernbert-base \
-  --task sentence-similarity --trust-remote-code
 
 
 echo "Installing latest Tesseract 5.x from alex-p PPA..."
