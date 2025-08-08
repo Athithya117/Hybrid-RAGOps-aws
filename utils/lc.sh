@@ -67,3 +67,8 @@ main() {
 }
 
 main
+
+kubectl cluster-info --context kind-rag8s-dev
+kubectl get nodes
+kubectl get pods -n ray-system
+
