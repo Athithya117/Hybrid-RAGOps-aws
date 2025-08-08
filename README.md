@@ -11,6 +11,7 @@
   <summary> View chunk stratergies and chunk schema (Click the triangle)</summary>
 
 ```sh
+
 {
   "chunk_id": "a3f5be12c9d47e09_5",               // Unique chunk ID: <document_hash>_<chunk_index> (1-based)
   "document_id": "a3f5be12c9d47e09",              // Unique document ID (128-bit hash of file path + size)
@@ -166,6 +167,24 @@ export TOP_K_CHUNKS=                # number of batches will be calculated accor
 ```
 
 
+# 1. vector search
+vec_hits = vec_index.query(q_embedding, top_k=20)
+
+# 2. alias fast-match
+aliases = alias_index.lookup(query_text)
+if aliases.confidence < threshold:
+    # 3. lightweight EL
+    el_entities = relik_inference(query_text)
+else:
+    el_entities = aliases
+
+# 4. subgraph expansion
+subgraph = arangodb.traverse(start_nodes=vec_hits ∪ el_entities, hops=2, filters=...)
+
+# 5. assemble context + LLM prompt (include provenance)
+
+
+```
 
 # Models overview
 
