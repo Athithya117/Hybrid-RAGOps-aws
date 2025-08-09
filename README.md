@@ -175,19 +175,6 @@ export TOP_K_CHUNKS=                # number of batches will be calculated accor
 
 ```sh
 RAG8s/
-├── .devcontainer
-│   ├── Dockerfile                         # Devcontainer image build for local development environment
-│   ├── devcontainer.json                  # VS Code devcontainer configuration (mounts, settings)
-│   └── scripts
-│       └── fix-docker-group.sh            # Script to fix Docker group permissions inside container
-├── .dockerignore                          # Files/dirs excluded from Docker build context
-├── .gitignore                             # Git ignore rules
-├── Makefile                               # Convenience targets for build/test/deploy tasks
-├── README.md                              # Project overview, setup and usage instructions
-├── backups                                # S3 backups
-│   └── dbs
-│       ├── arrangodb                      # Export / dump for ArangoDB (graph DB backup)
-│       └── qdrant                         # Export / dump for Qdrant (vector DB backup)
 ├── data                                  # local directory that syncs with s3://<bucket_name>/data/raw 
 |    ├── raw                              # raw files 
 |    └── chunked                          # chunks in json/jsonl format
@@ -238,7 +225,6 @@ RAG8s/
 │   │   └── rag8s-aws
 │   │       ├── Chart.yaml                  # Helm chart metadata for rag8s-aws deployment
 │   │       ├── templates
-│   │       │   ├── _helpers.tpl            # Helm helper templates (partials)
 │   │       │   ├── argocd-application.yaml # Argocd Application manifest for GitOps sync
 │   │       │   ├── configmap.yaml          # ConfigMap template for runtime configuration
 │   │       │   ├── embedder-reranker-rayservice.yaml # RayService manifest for ONNX services
@@ -286,7 +272,22 @@ RAG8s/
 │   ├── helm-deploy.sh                       # Wrapper to deploy Helm charts via CI or locally
 │   ├── pulumi-set-configs.sh                # Sets Pulumi configuration and secrets
 │   └── pulumi-set-secret.sh                 # Stores secrets into Pulumi secret store
+├── .devcontainer
+│   ├── Dockerfile                         # Devcontainer image build for local development environment
+│   ├── devcontainer.json                  # VS Code devcontainer configuration (mounts, settings)
+│   └── scripts
+│       └── fix-docker-group.sh            # Script to fix Docker group permissions inside container
+├── .dockerignore                          # Files/dirs excluded from Docker build context
+├── .gitignore                             # Git ignore rules
+├── Makefile                               # Convenience targets for build/test/deploy tasks
+├── README.md                              # Project overview, setup and usage instructions
+├── backups                                # S3 backups
+│   └── dbs
+│       ├── arrangodb                      # Export / dump for ArangoDB (graph DB backup)
+│       └── qdrant                         # Export / dump for Qdrant (vector DB backup)
+|
 └── tmp.md                                   # Temporary notes / scratch markdown file
+
 
 ```
  
