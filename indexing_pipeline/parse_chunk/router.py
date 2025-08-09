@@ -4,7 +4,7 @@ import time
 import json
 import uuid
 import boto3
-import xxhash
+import hashlib
 import importlib
 import mimetypes
 from datetime import datetime
@@ -36,7 +36,8 @@ def retry(func, retries=3, delay=2, backoff=2):
         try:
             return func()
         except ClientError as e:
-            if e.response["Error"]["Code"] == "404":
+            # propagate 404 so callers can interpret "not found"
+            if e.response.get("Error", {}).get("Code") == "404":
                 raise
             if attempt == retries - 1:
                 raise
@@ -61,34 +62,60 @@ def list_raw_files():
 
 def file_sha256(s3_key):
     """
-    Compute a 128-bit xxhash of the S3 object for fast, low-collision IDs.
-    Keeps the function name for backward compatibility.
+    Compute a 128-bit BLAKE2b digest (16 bytes -> 32 hex chars) of the S3 object.
+    Kept name for backward compatibility; previously used xxh128.
     """
-    hasher = xxhash.xxh128()
+    hasher = hashlib.blake2b(digest_size=16)
     obj = retry(lambda: s3.get_object(Bucket=S3_BUCKET, Key=s3_key))
     stream = obj["Body"]
     for chunk in iter(lambda: stream.read(8192), b""):
         hasher.update(chunk)
     return hasher.hexdigest()
 
-def manifest_path(s3_key, file_hash):
-    base = os.path.splitext(s3_key)[0]
-    return f"{base}.manifest.json"
+def manifest_path(s3_key, file_hash=None):
+    """
+    Canonical manifest path: append '.manifest.json' to the original raw key.
+    Example: data/raw/foo.pdf -> data/raw/foo.pdf.manifest.json
+    """
+    return f"{s3_key}.manifest.json"
 
 def is_already_processed(file_hash):
+    """
+    Robust existence check:
+     - If FORCE_PROCESS set, always reprocess.
+     - Otherwise, list objects with prefix "<S3_CHUNKED_PREFIX><file_hash>_" and return True if any found.
+     - As a compatibility fallback also check for page 1 keys in both json/jsonl formats.
+    """
     if FORCE_PROCESS:
         return False
-    test_key = f"{S3_CHUNKED_PREFIX}{file_hash}_0.{CHUNK_FORMAT}"
+
+    base_prefix = S3_CHUNKED_PREFIX.rstrip("/") + "/"
+    search_prefix = f"{base_prefix}{file_hash}_"
+
     try:
-        s3.head_object(Bucket=S3_BUCKET, Key=test_key)
-        return True
+        paginator = s3.get_paginator("list_objects_v2")
+        pages = paginator.paginate(Bucket=S3_BUCKET, Prefix=search_prefix, PaginationConfig={"MaxItems": 1})
+        for page in pages:
+            if page.get("Contents"):
+                return True
     except ClientError as e:
-        if e.response["Error"]["Code"] == "404":
-            return False
-        raise
+        log(f"S3 list_objects_v2 error while checking {search_prefix}: {e}", level="WARN")
+
+    for ext in ("json", "jsonl"):
+        test_key = f"{base_prefix}{file_hash}_1.{ext}"
+        try:
+            s3.head_object(Bucket=S3_BUCKET, Key=test_key)
+            return True
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code")
+            if code == "404":
+                continue
+            raise
+
+    return False
 
 def save_manifest(s3_key, manifest):
-    key = manifest_path(s3_key, manifest["file_hash"])
+    key = manifest_path(s3_key, manifest.get("file_hash"))
     try:
         retry(lambda: s3.put_object(
             Bucket=S3_BUCKET,
@@ -183,4 +210,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -92,12 +92,12 @@
 
 ```sh
 
-export S3_BUCKET=e2e-rag-system      # Give a complex name
+export S3_BUCKET=e2e-rag-system        # Give a complex name
 export S3_RAW_PREFIX=data/raw/         
 export S3_CHUNKED_PREFIX=data/chunked/   
 export CHUNK_FORMAT=json               # (OR) 'jsonl' for faster read and storage efficiency for headless use(but not readable)
 export DISABLE_OCR=false               # (OR) true = disable ocr and the text in images of docs will not be extracted(but very fast)
-export OCR_ENGINE=tesseract            # (OR) `rapidocr` for complex english 
+export OCR_ENGINE=tesseract            # (OR) `rapidocr` for complex english but slower
 export FORCE_OCR=false                 # (OR) true = always OCR; false = skip if text exists(false recommended)
 export OCR_RENDER_DPI=300              # higher dpi = high quality image extraction = higher cost and higher chance of extracting tiny texts
 export MIN_IMG_SIZE_BYTES=3072         # Filter out tiny images under 3 KB (often unneccessary black empty images)
@@ -185,7 +185,7 @@ subgraph = arangodb.traverse(start_nodes=vec_hits ∪ el_entities, hops=2, filte
 
 
 ```
-
+ 
 # Models overview
 
 ---

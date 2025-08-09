@@ -1,0 +1,57 @@
+# Values for rag8s-aws chart (Embedder + Reranker)
+EmbedderReranker:
+  enabled: true                 # Set false to skip deploying this RayService
+  namespace: inference          # Namespace to deploy into (defaults to release namespace if unset)
+
+  # Volume mode: if usePVC=true, templates will mount the named PVC; otherwise emptyDir is used.
+  usePVC: false
+  modelPVC: "rag8s-models-pvc"  # only used when usePVC: true
+  modelMountPath: "/opt/models"
+
+  # Optional image pulling / security hooks for prod
+  serviceAccountName: ""        # set to non-empty to use a service account
+  imagePullSecrets: []          # e.g. ["regcred"]
+  nodeSelector: {}              # set per environment
+  tolerations: []               # list of tolerations
+  affinity: {}                  # affinity spec map
+
+  ray:
+    version: "2.48.0"
+    image:
+      repository: "registry.example.com/rag8s-onnx"
+      tag: "latest"
+
+    head:
+      cpu:
+        request: "500m"
+        limit: "1"
+      memory:
+        request: "1Gi"
+        limit: "2Gi"
+
+    workers:
+      minReplicas: 1
+      maxReplicas: 4
+      cpu:
+        request: "500m"
+        limit: "1"
+      memory:
+        request: "1Gi"
+        limit: "2Gi"
+
+  importPath: "rayserve-embedder-reranker:RayService"
+  runtimeWorkingDir: "/app"
+
+  embedder:
+    numCPUs: 1
+    autoscale:
+      minReplicas: 1
+      maxReplicas: 4
+      targetRequestsPerReplica: 10
+
+  reranker:
+    numCPUs: 1
+    autoscale:
+      minReplicas: 1
+      maxReplicas: 2
+      targetRequestsPerReplica: 5

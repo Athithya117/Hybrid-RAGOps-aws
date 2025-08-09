@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package grpc;
+
+service EmbedService {
+  rpc Embed (EmbedRequest) returns (EmbedResponse);
+}
+
+message EmbedRequest {
+  repeated string texts = 1;
+}
+
+message EmbedResponse {
+  repeated float embeddings = 1; // flatten or encode as needed
+}
+
+service RerankService {
+  rpc Rerank (RerankRequest) returns (RerankResponse);
+}
+
+message RerankRequest {
+  repeated Pair pairs = 1;
+}
+
+message Pair {
+  string query = 1;
+  string doc = 2;
+}
+
+message RerankResponse {
+  repeated float scores = 1;
+}
+

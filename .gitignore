@@ -37,6 +37,5 @@ cli.md
 
 # Development files not needed in Docker image
 notebooks/
-infra/
 *.md
 *.zip
