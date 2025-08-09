@@ -339,22 +339,35 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
 
 # EXAMPLES
 
-### Qdrant Payload Object (Vector Database Point)
-
-* **Embedding:**
-  Dense numeric vector representing the chunk’s semantic meaning for similarity search.
-
-* **Metadata:**
-  Includes `chunk_id`, `document_id`, `chunk_type`, `text` snippet, source info, timestamp, tags (e.g., `"occupation"`, `"tailor"`), and linked entity IDs (e.g., Wikidata QIDs).
+### Qdrant Payload Object (Point in Vector Database)
 
 * **Purpose:**
-  Enables combined vector similarity search with metadata filtering for precise and flexible retrieval.
+  The payload object stores both the **vector embedding** of the text chunk and its **associated metadata** within Qdrant, enabling efficient similarity search combined with rich filtering.
 
-* **Use Case:**
-  Helps find occupation data like “tailor” despite synonyms or multilingual terms, improving over simple keyword search.
+* **Embedding:**
+  The numeric array (e.g., `[0.0234, -0.1457, 0.3782, ...]`) is a fixed-length dense vector representing semantic meaning extracted by a transformer model. This vector enables approximate nearest neighbor (ANN) search for relevance ranking.
+
+* **Metadata (Payload):**
+  Key-value pairs store important structured information alongside the vector. This includes:
+
+  * `chunk_id`, `document_id` to uniquely identify the source chunk.
+  * `chunk_type` describing the nature of the content (e.g., "page").
+  * `text` snippet or summary (optional or truncated) for quick reference.
+  * Source details like `file_type`, `source_path`, `page_number` to trace origin.
+  * Timestamp and tags (`occupation`, `NCO`, `tailor`) for filtering results by content type or category.
+  * Linked entity IDs (`Q7531`, `Q1251134`) to connect with knowledge graph nodes or perform hybrid vector-graph queries.
+
+* **Filtering & Search:**
+  Payload fields allow **metadata filtering** combined with vector similarity. For example, retrieving points with tag `"occupation"` and embedding closest to the query vector representing "tailor".
+
+* **Use Case in NCO:**
+  Storing the NCO chunk as a Qdrant point means you can search for occupations semantically (e.g., "dressmaker" or regional terms for "tailor") even if keyword search fails due to synonyms or multilingual variations, while still filtering precisely by category or document source.
 
 * **Integration:**
-  Bridges unstructured semantic data and structured metadata for hybrid search in NCO datasets.
+  This payload object serves as a **bridge between dense vector search and structured metadata filtering**, enabling hybrid retrieval systems that leverage both unstructured semantic similarity and structured knowledge.
+
+---
+
 
 
 ```sh

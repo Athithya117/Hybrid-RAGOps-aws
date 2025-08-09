@@ -15,8 +15,6 @@ __pycache__/
 *.pyc
 
 # Large or sensitive data
-data/
-data_sample/
 chunked/
 models/
 lid.176.bin
