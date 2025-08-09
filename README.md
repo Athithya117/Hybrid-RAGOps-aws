@@ -300,7 +300,7 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
 | **g6e.48xlarge** | 192   | 1536 GiB | 8    | 357 GiB (8×44)  ([AWS Documentation][1]) |
 
 ---
-
+# Local NVMe based EC2s for hosting vector dbs like qdrant, arrangodb as statefulsets 
 | Instance     | vCPU / RAM       | **C8g On-Demand** (USD/hr) | **C8g On-Demand** (₹/hr) | **C8g Spot** (USD/hr)   | **C8g Spot** (₹/hr) | **C8gd On-Demand** (USD/hr) | **C8gd On-Demand** (₹/hr) | **C8gd Spot** (USD/hr)  | **C8gd Spot** (₹/hr) |
 | ------------ | ---------------- | -------------------------- | ------------------------ | ----------------------- | ------------------- | --------------------------- | ------------------------- | ----------------------- | -------------------- |
 | **medium**   | 1 vCPU/2 GiB     | \$0.044 ([Vantage][1])     | ₹3.7                     | \$0.013 ([Vantage][1])  | ₹1.1                | \$0.054 ([Vantage][2])      | ₹4.5                      | \$0.012 ([Vantage][2])  | ₹1.0                 |
@@ -336,3 +336,126 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
 [12]: https://instances.vantage.sh/aws/ec2/c8gd.48xlarge
 
 </details>
+
+
+
+```sh
+
+{
+  "chunk_id": "e4f72d3a9c5b4f17_5",                           // Unique chunk ID: <document_hash>_<chunk_index> (1-based)
+  "document_id": "e4f72d3a9c5b4f17",                         // Unique document ID (128-bit hash of file path + size)
+  "chunk_type": "page",                                       // Type of content: "paragraph", "heading", "section", "table", "page", etc.
+
+  "text": "### National Classification of Occupations (NCO) – Tailors\n\nThe NCO code for Tailor (General) is **7531.0100**. This occupation falls under the broader category **Tailors, Dressmakers, Furriers, and Hatters**. Tailors are responsible for measuring, cutting, and sewing garments to fit clients' specifications. \n\nOther related occupations include:\n- Tailor, Tent (Machine) — NCO code 7534.0100\n- Dressmaker — closely associated within the same category\n\nThe classification covers various regional and linguistic variants of the term \"tailor,\" including seamstress, garment maker, and costume maker, reflecting the multilingual occupational landscape in India. This ensures comprehensive indexing despite naming variations across states and languages.\n\nSkills and tools commonly associated with tailoring include manual sewing, machine operation, pattern drafting, and fabric selection.",  // Final parsed content (Markdown)
+  "embedding": null,                                          // Optional: vector embedding (array of floats); null if not yet computed
+
+  "source": {
+    "file_type": "application/pdf",                           // MIME type preferred (e.g., "application/pdf", "text/html", "audio/mpeg")
+    "source_path": "s3://mospi-data/data/raw/nco_2025_occupations.pdf",  // Full s3 path to original source
+    "page_number": 5,                                         // For paged formats like PDF/ePub; null otherwise
+    "time": [null, null],                                     // [start_time, end_time] in seconds for audio/video; nulls otherwise
+    "line_range": null,                                       // For plain/tabular text: [start_line, end_line]; null otherwise
+    "bbox": null                                              // For visual formats: [x0, y0, x1, y1] in pixel coordinates; null otherwise
+  },
+
+  "graph": {
+    "graph_node_id": "e4f72d3a9c5b4f17_5",                   // Same as chunk_id (recommended)
+    "parent_id": "e4f72d3a9c5b4f17_page5",                   // Parent node ID (e.g., page, section, table)
+    "previous_id": "e4f72d3a9c5b4f17_4",                     // Optional: previous chunk
+    "next_id": "e4f72d3a9c5b4f17_6"                          // Optional: next chunk
+  },
+
+  "metadata": {
+    "timestamp": "2025-08-03T12:15:27Z",                     // UTC ISO timestamp of chunk creation/parsing
+    "tags": ["occupation", "tailor", "NCO", "classification"],  // (if HTML) High-level content tags (semantic or manual)
+    "layout_tags": ["heading", "paragraph", "list"]           // (if HTML) Structural tags (e.g., "heading", "table", etc.)
+  },
+
+  "entities": [
+    "Q7531",                                                  // Example Wikidata ID for Tailor occupation (hypothetical)
+    "Q1251134"                                                // Wikidata ID for National Classification of Occupations (example)
+  ],                                                         // Optional: Linked entity IDs (Wikidata, etc.) or null if not yet computed
+
+  "triplets": [                                              // Extracted subject-predicate-object relations
+    {
+      "subject": "Tailor (General)",
+      "predicate": "hasNCOCode",
+      "object": "7531.0100"
+    },
+    {
+      "subject": "Tailor (General)",
+      "predicate": "belongsToCategory",
+      "object": "Tailors, Dressmakers, Furriers, and Hatters"
+    },
+    {
+      "subject": "Tailor, Tent (Machine)",
+      "predicate": "hasNCOCode",
+      "object": "7534.0100"
+    },
+     ...
+  ]
+}
+
+```
+
+
+```sh
+{
+  "chunk_id": "e4f72d3a9c5b4f17_5",                           // Unique chunk ID: <document_hash>_<chunk_index> (1-based)
+  "document_id": "e4f72d3a9c5b4f17",                         // Unique document ID (128-bit hash of file path + size)
+  "chunk_type": "page",                                       // Type of content: "paragraph", "heading", "section", "table", "page", etc.
+
+  "text": "### National Classification of Occupations (NCO) – Tailors\n\nThe NCO code for Tailor (General) is **7531.0100**. This occupation falls under the broader category **Tailors, Dressmakers, Furriers, and Hatters**. Tailors are responsible for measuring, cutting, and sewing garments to fit clients' specifications. \n\nOther related occupations include:\n- Tailor, Tent (Machine) — NCO code 7534.0100\n- Dressmaker — closely associated within the same category\n\nThe classification covers various regional and linguistic variants of the term \"tailor,\" including seamstress, garment maker, and costume maker, reflecting the multilingual occupational landscape in India. This ensures comprehensive indexing despite naming variations across states and languages.\n\nSkills and tools commonly associated with tailoring include manual sewing, machine operation, pattern drafting, and fabric selection.",  // Final parsed content (Markdown)
+  "embedding": null,                                          // Optional: vector embedding (array of floats); null if not yet computed
+
+  "source": {
+    "file_type": "application/pdf",                           // MIME type preferred (e.g., "application/pdf", "text/html", "audio/mpeg")
+    "source_path": "s3://mospi-data/data/raw/nco_2025_occupations.pdf",  // Full s3 path to original source
+    "page_number": 5,                                         // For paged formats like PDF/ePub; null otherwise
+    "time": [null, null],                                     // [start_time, end_time] in seconds for audio/video; nulls otherwise
+    "line_range": null,                                       // For plain/tabular text: [start_line, end_line]; null otherwise
+    "bbox": null                                              // For visual formats: [x0, y0, x1, y1] in pixel coordinates; null otherwise
+  },
+
+  "graph": {
+    "graph_node_id": "e4f72d3a9c5b4f17_5",                   // Same as chunk_id (recommended)
+    "parent_id": "e4f72d3a9c5b4f17_page5",                   // Parent node ID (e.g., page, section, table)
+    "previous_id": "e4f72d3a9c5b4f17_4",                     // Optional: previous chunk
+    "next_id": "e4f72d3a9c5b4f17_6"                          // Optional: next chunk
+  },
+
+  "metadata": {
+    "timestamp": "2025-08-03T12:15:27Z",                     // UTC ISO timestamp of chunk creation/parsing
+    "tags": ["occupation", "tailor", "NCO", "classification"],  // High-level content tags (semantic or manual)
+    "layout_tags": ["heading", "paragraph", "list"]           // Structural tags (e.g., "heading", "table", etc.)
+  },
+
+  "entities": [
+    "Q7531",                                                  // Example Wikidata ID for Tailor occupation (hypothetical)
+    "Q1251134"                                                // Wikidata ID for National Classification of Occupations (example)
+  ],                                                         // Optional: Linked entity IDs (Wikidata, etc.) or null if not yet computed
+
+  "triplets": [                                              // Extracted subject-predicate-object relations
+    {
+      "subject": "Tailor (General)",
+      "predicate": "hasNCOCode",
+      "object": "7531.0100"
+    },
+    {
+      "subject": "Tailor (General)",
+      "predicate": "belongsToCategory",
+      "object": "Tailors, Dressmakers, Furriers, and Hatters"
+    },
+    {
+      "subject": "Tailor, Tent (Machine)",
+      "predicate": "hasNCOCode",
+      "object": "7534.0100"
+    },
+    {
+      "subject": "Tailor (General)",
+      "predicate": "hasSynonyms",
+      "object": "Seamstress, Dressmaker, Garment Maker, Costume Maker"
+    }
+  ]
+}
+```
