@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_111",
+  "chunk_type": "page",
+  "text": "## Page 111\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nOther\n\nFamily 3142 Agricultural Technicians\n\n3142.0101 Micro Irrigation Technician\n\n3142.0201 Bare Foot Technician (BFT)\n\n3142.9900 Agricultural Technicians, Others `\n\nFamily 3143 Forestry Technicians\n\nGroup 315 Ship and Aircraft Controllers, and Technicians\n\nFamily 3151 Ship’s Engineers\n\n3151.0100 Chief Engineer, Ship 3141.10\n\n3151.0200 Second Engineer, Ship 3141.20\n\n3151.0300 Third Engineer, Ship 3141.30\n\n3151.0400 Fourth Engineer, Ship 3141.40\n\n3151.0500 Fifth Engineer, Ship/Junior Engineer 3141.50\n\n3151.9900 Ship and Aircraft Controllers and Technicians, 3141.90\n\nFamily 3152 Ship’s Deck Officers and Pilots\n\n3152.0100 Captain, Ship/Master 3142.10\n\n3152.0200 Chief Officer, Ship 3142.20\n\n3152.0300 Second Officer, Ship 3142.30\n\n3152.0400 Third Officer, Ship 3142.40\n\n3152.0500 Harbour Master 3142.50\n\n3152.0600 Pilot Ship/Bay Pilot/Harbour Pilot/Channel Pilot 3142.60\n\nVOLUME I 99",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 111,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_111",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page111",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_110",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_112"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:22.431495Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 133,
+    "custom": {}
+  }
+}

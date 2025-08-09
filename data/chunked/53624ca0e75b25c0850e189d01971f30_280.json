@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_280",
+  "chunk_type": "page",
+  "text": "## Page 280\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\n(Footwear) Worker\n\nCutter, Paper 8171.1600 8143.30 Dairy Processing 8160.0500 8272.30\n\nEquipment\n\nCutter, Paper Pulp 8171.0500 8142.30\n\nOperator\n\nCutting Machine 8160.1700 8274.30\n\nDairy Products 7513.9900 7413.90\n\nMakers, Others\n\n(Confectionery)\n\nDairy Scientist 2132.0700 2213.70\n\nCutting Machine 8160.8700 8279.40\n\nOperator, Tobacco Dairy Technologist 2141.1900 2149.57\n\nCutting, Crimping 8212.0401 Dairy Worker, 7513.0100 7413.10\n\nand Connector General\n\nAssembly\n\nDamping Machine 8154.1700 8264.77\n\nAttendant\n\nCutting, Lasting 8156.9900 8266.90\n\nDance Director 2654.0300 2455.30\n\nand Sewing\n\nMachine\n\nDancer 2653.0300 2454.30\n\nOperators, Other\n\nDarner 7533.0600 7436.35\n\nCycle Tube 8141.2300 8231.87\n\nReverser\n\nDAS Set-Top Box 7422.1203\n\nInstaller and\n\nCylinder Borer 7223.1800 8211.42\n\nService Technician\n\nCynideman 8112.0400 8112.30\n\nData 2523.0100 2131.20\n\nCommunication\n\nCytologist 2131.0300 2211.20\n\nAnalyst/Network\n\nDaftry 4419.0600 5132.10 Administrator\n\nDairy and 6121.9900 6121.90 Data Entry Clerks, 4132.9900 4114.90\n\nLivestock Other\n\nProducers, Other\n\nData Entry 4132.0401 4113.35\n\nDairy Farm 6121.0601 6121.35 Machine Operator\n\nWorker,\n\nData Recovery 3512.0100 3121.35\n\nGeneral/Dairy\n\nVOLUME I 268",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 280,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_280",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page280",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_279",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_281"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:22.223021Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 184,
+    "custom": {}
+  }
+}

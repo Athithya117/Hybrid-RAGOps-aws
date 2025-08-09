@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_157",
+  "chunk_type": "page",
+  "text": "## Page 157\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n7113.0500 Stone Polisher, Hand 7113.50\n\n7113.9900 Stone Splitters, Cutters and Carvers, Other 7113.90\n\nFamily 7114 Concrete Placers, Concrete Finishers and\n\nRelated Workers\n\n7114.0100 Concrete Moulder 7123.10\n\n7114.0200 Cement Finisher 7123.20\n\n7114.9900 Concrete Placers, Concrete Finishers and 7123.90\n\nRelated Workers, Other\n\nFamily 7115 Carpenters and Joiners\n\n7115.0100 Carpenter, General 7124.10\n\n7115.0200 Carpenter, Construction 7124.20\n\n7115.0201 Assistant Shuttering Carpenter\n\n7115.0300 Carpenter, Structural 7124.25\n\n7115.0400 Carpenter, Village 7124.30\n\n7115.0500 Joiner, Wood 7124.35\n\n7115.0600 Loftsman, Ship Building 7124.40\n\n7115.0700 Shipwright 7124.45\n\n7115.0800 Lascar Stager, Ship Building 7124.50\n\n7115.1100 Carpenter Worker, Boat Building 7124.65\n\n7115.1200 Carpenter, Boat Building 7124.70\n\n7115.1300 Caulker, Boat Building 7124.75\n\n7115.9900 Carpenters and Joiners Operatives, Other 7124.90\n\nFamily 7119 Building Frame and Related Traders\n\nVOLUME I 145",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 157,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_157",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page157",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_156",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_158"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:38.279419Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 129,
+    "custom": {}
+  }
+}

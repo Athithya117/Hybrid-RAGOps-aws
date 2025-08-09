@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_169",
+  "chunk_type": "page",
+  "text": "## Page 169\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n7231.0107 Auto Service Technician – Mechanic\n\n7231.0108 Auto Service Technician – Helper\n\n7231.0200 Engine Tester 7231.20\n\n7231.0201 Test Technician\n\n7231.0300 Tractor Mechanic 7231.30\n\n7231.0400 Fitter Automobile 7231.40\n\n7231.0401 Mechanic Fitter\n\n7231.0500 Mechanic, Motor Cycle 7231.50\n\n7231.0501 Auto Service Technician (Two and Three\n\nWheelers)\n\n7231.0900 Cleaner Motor Vehicle 7231.60\n\n7231.9900 Motor Vehicle Mechanics, Other 7231.90\n\nFamily 7232 Aircraft Engine Mechanics and Repairers\n\n7232.0100 Airframe Erector 7232.10\n\n7232.0200 Mechanic Aircraft, Propeller 7232.20\n\n7232.0300 Engine Tester, Aircraft 7232.30\n\n7232.0400 Engine Tester, Helper, Aircraft 7232.40\n\n7232.0500 Mechanic Aircraft Engine, Field 7232.50; 7232.70\n\nService/Filed Mechanic Aircraft\n\n7232.0600 Mechanic Aircraft, Engine Overhauling 7232.60\n\n7232.9900 Aircraft Mechanics, Other 7232.90\n\nFamily 7233 Agricultural and Industrial Machinery\n\nMechanics and Repairers\n\nVOLUME I 157",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 169,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_169",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page169",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_168",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_170"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:41.877644Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 123,
+    "custom": {}
+  }
+}

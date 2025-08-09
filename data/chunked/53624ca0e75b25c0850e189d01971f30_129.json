@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_129",
+  "chunk_type": "page",
+  "text": "## Page 129\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nDivision 4 Clerks/Clerical Support Workers\n\nSub- 41 General and Keyboard Clerks\n\nDivision\n\nGroup 411 General Office Clerks\n\nFamily 4110 General Office Clerks\n\n4110.0100 Clerk, General 4190.10\n\n4110.0200 Clerk, Enquiry 4190.20\n\n4110.0300 Copyright Clerk 4190.30\n\n4110.0400 Copy Holder 4190.35\n\n4110.0500 Timekeeper 4190.60\n\n4110.0600 Timekeeper, Motor Transport 4190.70\n\nGroup 412 Secretaries (General)\n\nFamily 4120 Secretaries (General)\n\n4120.0100 Private Secretary 4115.10\n\n4120.0200 Personal Secretary 4115.20\n\n4120.0300 Panchayat Secretary 4115.30\n\n4120.9900 Secretaries, Other 4115.90\n\nGroup 413 Keyboard Operators\n\nFamily 4131 Typists and Word Processing Operators\n\n4131.0100 Secretary/Back Office Support 4111.10\n\n4131.0200 Reporter 4111.20\n\n4131.0400 Braille Typist 4111.40\n\nVOLUME I 117",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 129,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_129",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page129",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_128",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_130"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:28.005555Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 134,
+    "custom": {}
+  }
+}

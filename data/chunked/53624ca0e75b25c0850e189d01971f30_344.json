@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_344",
+  "chunk_type": "page",
+  "text": "## Page 344\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nOther\n\nPuppeteer 2659.1200 3474.75\n\nPublicity Assistant 4419.0100 4190.25\n\nPurchase 3323.0401\n\nExecutive\n\nPublicity Officer 2432.0100 2419.10\n\nPurchase 3323.0501\n\nPUC Attendant 9623.0401\n\nExecutive – Solar\n\nPug Mill Operator 8181.2500 8139.40\n\nPurchasing Agent 3323.0200 3416.20\n\n(Ceramics)\n\nPurohit 2636.0200 2462.10\n\nPulp and 8171.9900 8143.90\n\nPapermaking Plant\n\nPurse Maker 7536.2400 7442.81\n\nOperators, Other\n\nPurser, Ship 1211.0300 1231.10\n\nPulp Houseman 8160.6000 8277.25\n\n(Coffee)\n\nPV System 7421.1403\n\nInstallation\n\nPulses Cultivator 6111.0401\n\nEngineer\n\nPulveriser 8112.0200 8112.15\n\nQC Executive – 7543.0201\n\nOperator\n\nSewing Line\n\nPulveriser 8131.0300 8151.30\n\nQuality Assessor 7543.0202\n\nOperator,\n\nChemical\n\nQuality Assurance 2519.0300 2139.10\n\nAnalyst\n\nPump Man 3134.0300 8155.30\n\n(Computers)\n\n(Petroleum\n\nRefining)\n\nQuality Assurance 2113.0901\n\nChemist\n\nPump Station 3134.0700 8155.70\n\nQuality Assurance 2519.0301\n\nEngineer – IT\n\nPump Station 3132.0600 8163.60\n\nServices\n\nWaterworks\n\nQuality Assurance 2519.0401\n\nEngineer –\n\nPumpman 3132.1000 8169.40\n\nSoftware Products\n\nPuncher, Metal 7126.0500 7136.50\n\nQuality Assurance 1213.0101\n\nVOLUME I 332",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 344,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_344",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page344",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_343",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_345"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:45.778378Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 168,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_53",
+  "chunk_type": "page",
+  "text": "## Page 53\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n1321.0800 General Manager, Gas 1302.50\n\n1321.0900 General Manager, Water Supply 1302.60\n\n1321.1000 General Manager, Manufacturing 1302.70\n\n1321.9900 Manufacturing Managers, Other 1302.90\n\nFamily 1322 Mining Managers\n\n1322.0100 Manager, Mine 1222.10\n\n1322.0200 Manager, Quarry 1222.20\n\n1322.0300 Manager, Well Drilling 1222.30\n\n1322.0400 General Manager, Mine 1302.10\n\n1322.0500 General Manager, Quarry 1302.20\n\n1322.0600 General Manager, Well Drilling 1302.30\n\n1322.9900 Mining Managers, Other 1222.90\n\nFamily 1323 Construction Managers\n\n1323.0100 Manager, Construction/Manager Construction 1223.10\n\nProjects\n\n1323.0200 Manager, Land Survey 1223.20\n\n1323.0300 General Manager, Construction/General 1303.10\n\nManager Construction Projects\n\n1323.9900 Construction Managers, Other 1303.90\n\nFamily 1324 Supply, Distribution and Related Managers\n\n1324.0100 Manager, Material Control/Manager Materials 1235.10\n\n1324.0101 Manager Supplier Quality\n\n1324.0102 Material Co-Ordination Manager\n\nVOLUME I 41",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 53,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_53",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page53",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_52",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_54"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:01.605127Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 133,
+    "custom": {}
+  }
+}

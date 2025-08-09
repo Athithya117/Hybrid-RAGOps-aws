@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_309",
+  "chunk_type": "page",
+  "text": "## Page 309\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nIn-Process and 3113.0801\n\nFinal Quality\n\nInstallation 7422.0100 7244.10\n\nEngineer\n\nMechanic\n\nInquiry Clerks, 4225.9900 4221.90\n\nIn-Store Promoter 5242.0401\n\nOther\n\nInstrument 2141.0200 2149.15\n\nInsolvency 2619.0600 2429.45\n\nEngineer/Instrume\n\nRegistrar\n\nntation Engineer\n\nInspector, 7419.0400 7249.40\n\nInstrument Maker, 7311.1400 7311.85\n\nAssembly\n\n(Telephone\n\nEquipment\n\nInstrumental 2652.0500 2453.50\n\nManufacturing)\n\nMusician,\n\nPercussion\n\nInspector, 3351.0100 3441.10\n\nInstrument\n\nCustoms\n\nInstrumental 2652.0400 2453.40\n\nInspector, Excise 3352.0100 3442.10\n\nMusician, String\n\nInspector, Police 3355.0100 3450.10\n\nInstrumental 2652.0600 2453.60\n\nInspectors and 3341.0900 3431.20\n\nMusician, Wind\n\nSupervisors, Other\n\n(Clerical)\n\nInsulation 7124.9900 7134.90\n\nInstallation 7422.2002\n\nWorkers, Other\n\n(Computing and\n\nPeripherals)\n\nInsulator, Boilers 7124.0300 7134.30\n\nand Pipes\n\nInstallation and 7422.1001\n\nService Engineer\n\nInsulator, 7124.0400 7134.40\n\nRefrigeration and\n\nInstallation 3114.0901\n\nAir-Conditioning\n\nEngineer – L2 & L3\n\nInstallation 3114.0902\n\nInsurance 3321.0200 3412.20\n\nAdjuster,\n\nInstallation\n\nExaminer,\n\nEngineer – SDH &\n\nVOLUME I 297",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 309,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_309",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page309",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_308",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_310"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:32.344627Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 153,
+    "custom": {}
+  }
+}

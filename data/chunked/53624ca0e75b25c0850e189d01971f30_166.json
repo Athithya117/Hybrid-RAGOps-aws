@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_166",
+  "chunk_type": "page",
+  "text": "## Page 166\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n7223.0501 Machine Shop Master Technician/Setter\n\n7223.0502 Machine Shop Supervisor\n\n7223.0601 Turner/Conventional Turning 8211.15\n\n7223.0700 Turret and Capstan Lathe Operator 8211.20\n\n7223.0701 Lathe Machinist\n\n7223.0800 Shaper 8211.22\n\n7223.0900 Planer 8211.24\n\n7223.1000 Planer, Edge 8211.26\n\n7223.1100 Slotter 8211.28\n\n7223.1201 Miller/Operator – Conventional Milling 8211.30\n\n7223.1300 Gear Cutter 8211.32\n\n7223.1400 Heavy Duty End Mill Operator 8211.34\n\n7223.1500 Driller Metal, General 8211.36\n\n7223.1600 Radial Driller 8211.38\n\n7223.1701 Borer/Operator Boring Machine Operator 8211.40\n\n7223.1800 Cylinder Borer 8211.42\n\n7223.1900 Rifling Machine Operator 8211.44\n\n7223.2000 Bending Machine Operator 8211.46\n\n7223.2100 Glazer 8211.50\n\n7223.2200 Grinder, Tool and Cutter 8211.55\n\n7223.2300 Power Press Operator, Metal 8211.60\n\n7223.2400 Sheet Metal Machine Operator 8211.61\n\nVOLUME I 154",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 166,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_166",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page166",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_165",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_167"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:40.858148Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 138,
+    "custom": {}
+  }
+}

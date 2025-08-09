@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_365",
+  "chunk_type": "page",
+  "text": "## Page 365\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nFitting\n\nSupervisor and 3122.3900 8279.20\n\nForeman, Tobacco\n\nSupervisor and 3122.6200 7318.10\n\nProduct Making\n\nForeman,\n\nPrecision\n\nSupervisor and 3122.5000 7228.20\n\nInstrument\n\nForeman, Tool\n\nMaking (Except\n\nMaking/Die\n\nElectrical)\n\nMaking\n\nSupervisor and 3122.6700 7348.20\n\nSupervisor and 3122.4200 7218.10\n\nForeman, Printing\n\nForeman, Welding\n\nand Related Work\n\nand Flame Cutting\n\nSupervisor and 3122.2000 8238.10\n\nSupervisor and 3121.0200 8118.15\n\nForeman, Rubber\n\nForeman, Well\n\nGoods Making\n\nDrilling\n\nSupervisor and 3122.4300 7218.20\n\nSupervisor and 3122.1000 8148.10\n\nForeman, Sheet\n\nForeman, Wood\n\nand Structural\n\nPreparation and\n\nMetal Working\n\nPapermaking\n\nSupervisor and 3122.3100 8268.40\n\nSupervisor and 3122.2400 8248.10\n\nShoemaking\n\nWorking\n\n(Machine)\n\nSupervisor and 3122.1800 8218.10\n\nForeman, Stone\n\nSupervisor 3122.6511\n\nCutting and\n\nFaceting and\n\nCarving\n\nPolishing\n\nSupervisor and 3122.3000 8268.30\n\nSupervisor, 9332.0500 9332.50\n\nForeman, Tanning\n\nAnimal-Drawn and\n\nand Pelt Dressing\n\nManually\n\nOperated\n\nSupervisor and 3122.3800 8279.10\n\nTransport\n\nEquipment\n\nPreparation, Cigar\n\nand Cigarette\n\nSupervisor, 3521.0600 3132.10\n\nVOLUME I 353",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 365,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_365",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page365",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_364",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_366"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:52.827137Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 139,
+    "custom": {}
+  }
+}

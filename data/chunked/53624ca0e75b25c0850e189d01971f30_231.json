@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_231",
+  "chunk_type": "page",
+  "text": "## Page 231\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n8181.3200 Clay Modeller 8139.82\n\n8181.3300 Fiberglass – Machine Operator 8139.85\n\n8181.3400 Furnace Helper\n\n8181.9900 Glass and Ceramics Plant Operators, Other 8139.90\n\nFamily 8182 Steam Engine and Boiler Operators\n\n8182.0100 Boiler, Tindal 8162.10\n\n8182.0200 Boiler, Attendant 8162.20\n\n8182.0300 Boiler, Fireman 8162.30\n\n8182.0400 Boiler House Operatives 8162.40\n\n8182.0500 Serang, Engine Room/Engine Bosun 8162.50\n\n8182.0600 Tindal, Engine Room 8162.60\n\n8182.0800 Fireman, Locomotive 8162.75\n\n8182.9900 Ships’ Engine Room Ratings, Other 8162.90\n\nFamily 8183 Packing, Bottling and Labelling Machine\n\nOperators\n\n8183.0100 Building Insulator, Machine 8290.30\n\nFamily 8189 Gem and Jewellery Machine Operators\n\n8189.0100 Gem Grinder, Machine 8290.50\n\n8189.0200 Gem Polisher, Machine 8290.60\n\n8189.0301 CAM Machine Operator\n\n8189.0401 Laser Sawing Machine Operator\n\n8189.0405 Blade Sawyer\n\nVOLUME I 219",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 231,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_231",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page231",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_230",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_232"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:01.752909Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 128,
+    "custom": {}
+  }
+}

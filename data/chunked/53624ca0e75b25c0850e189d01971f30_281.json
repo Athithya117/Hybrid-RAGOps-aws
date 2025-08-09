@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_281",
+  "chunk_type": "page",
+  "text": "## Page 281\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nPlanner/System Preservation)\n\nAdministrator\n\nDelimer 7535.0600 7441.24\n\nDatabase 2522.0100 2139.30\n\nDelivery 8321.0201\n\nAssociate/Two\n\nDatabase Design 2521.0100 2139.20 Wheeler Delivery\n\nAnalyst Associate\n\nDebt Collectors 4214.9900 4215.90 Demographer 2632.0400 2442.30\n\nand Related\n\nDent 7213.0301 7213.30\n\nWorkers, Other\n\nRemover/Auto\n\nDebt Recovery 4214.0201 Body Repair\n\nAgents Technician/\n\nDenter\n\nDecorator 3432.0200 3471.10\n\nDental Assistant 3251.0101 3225.10\n\nDecorator 7316.0800 7324.30\n\n(Ceramics) Dental Assistants 3251.9900 3225.90\n\nand Therapists,\n\nDecorators and 3432.9900 3471.90\n\nOther\n\nCommercial\n\nDesigners, Other Dental Specialists, 2261.9900 2225.90\n\nDeep Cell 7542.0800 7119.70\n\nAttendant Dentist 2261.0100 2225.10\n\nDeep Sea Fishery 6223.9900 6153.90 Deodorizer 8131.6700 8159.58\n\nDeployment 2511.0101\n\nDe-Gummer, Silk 8154.0600 8264.62 Engineer\n\nDehairer, Hand 7535.0400 7441.20 Depot Starter, 1324.1800 1226.65\n\nDehairer, 8155.0100 8265.10\n\nMachine/Dehairer Dermatologist 2212.0200 2221.40\n\nMachine Operator\n\nDerrick Crane 8343.0800 8333.24\n\nDehydrator 8160.3200 8275.72 Operator\n\nTender (Canning &\n\nVOLUME I 269",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 281,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_281",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page281",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_280",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_282"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:22.711487Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 168,
+    "custom": {}
+  }
+}

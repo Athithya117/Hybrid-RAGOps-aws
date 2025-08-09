@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_189",
+  "chunk_type": "page",
+  "text": "## Page 189\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n7422.1801 Site Surveyor/R F Site Surveyor\n\n7422.1901 Assembly Line Operator\n\n7422.2001 Field Technician: (Computing and\n\nPeripherals)\n\n7422.2002 Installation (Computing and Peripherals)\n\n7422.2101 Field Technician: (Networking and Storage)\n\n7422.2201 Test and Repair Technician\n\n7422.2301 Smartphones Repair Technician\n\n7422.3001 Tower Technician\n\n7422.9900 Information and Communications\n\nTechnology Installers and Servicers, Other\n\nSub- 75 Food Processing, Woodworking, Garment\n\nDivision and Other Craft and Related Trades\n\nWorkers\n\nGroup 751 Food Processing and Related Trade\n\nFamily 7511 Butchers, Fishmongers and Related Food\n\nPreparers\n\n7511.0100 Butcher 7411.10\n\n7511.0200 Slaughterer 7411.20\n\n7511.0300 Sausage Maker 7411.30\n\n7511.0400 Briner 7411.40\n\n7511.0500 Pickler (Meat Product) 7411.45\n\n7511.0600 Shactor 7411.50\n\n7511.9900 Butchers, Fishmongers and Related Food 7411.90\n\nVOLUME I 177",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 189,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_189",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page189",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_188",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_190"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:48.080115Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 124,
+    "custom": {}
+  }
+}

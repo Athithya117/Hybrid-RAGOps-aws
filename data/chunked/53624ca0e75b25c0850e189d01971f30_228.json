@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_228",
+  "chunk_type": "page",
+  "text": "## Page 228\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n8171.0200 Grinder, Paper Pulp 8142.15\n\n8171.0400 Sorter, Paper Pulp 8142.25\n\n8171.0500 Cutter, Paper Pulp 8142.30\n\n8171.0600 Liquor Maker, Paper Pulp 8142.35\n\n8171.0800 Causticman, Paper Pulp/Causticizing 8142.45\n\nOperator\n\n8171.0900 Bleacher, Paper Pulp 8142.50\n\n8171.1100 Agitator, Paper Pulp 8142.60\n\n8171.1200 Machine Operator, Paper 8143.10\n\n8171.1400 Wire Boy, Paper 8143.20\n\n8171.1600 Cutter, Paper 8143.30\n\n8171.1700 Finisher, Paper 8143.35\n\n8171.1800 Vat Man, Handmade Paper 8143.40\n\n8171.1900 Transferor, Handmade Paper 8143.45\n\n8171.2000 Tub-Sizer, Handmade Paper 8143.50\n\n8171.2100 Drier, Handmade Paper 8143.55\n\n8171.2200 Presser, Handmade Paper 8143.60\n\n8171.2400 Calenderman, Handmade Paper 8143.70\n\n8171.2500 Coating Machine Operator, Hardboard 8143.80\n\n(Paper Goods)\n\n8171.9900 Pulp and Papermaking Plant Operators, 8143.90\n\nOther\n\nFamily 8172 Wood Processing Plant Operators\n\nVOLUME I 216",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 228,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_228",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page228",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_227",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_229"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:00.809139Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 127,
+    "custom": {}
+  }
+}

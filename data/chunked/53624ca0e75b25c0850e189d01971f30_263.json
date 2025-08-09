@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_263",
+  "chunk_type": "page",
+  "text": "## Page 263\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\n(Chemical)\n\nBlower, Glass 7315.0100 7322.10\n\nBook Binder 7323.0100 7345.10\n\nBlower, 7315.0200 7322.12\n\nLaboratory\n\nBook Binders and 7323.9900 7345.90\n\nApparatus\n\nRelated Workers,\n\nOther\n\nBlowing Machine 8181.0100 8131.10\n\nOperator (Glass)\n\nBook Binding 7323.0400 7345.40\n\nWorker\n\nBlue Printer 3118.0900 3118.85\n\nBook Mender 7323.0300 7345.30\n\nBoatman 8350.0600 8340.40\n\nBooking Clerk, 4212.0100 4211.60\n\nBody Builder, 7522.0600 7422.25\n\nRecreation\n\nAutomobile\n\nBooking Clerk, 4221.0400 4211.50\n\nBody Builder, 7522.0800 7422.30\n\nTransport/Concier\n\nOther Vehicles\n\nBody Shop In- 3115.0104\n\nBookkeeper 4311.0101 4121.10\n\nCharge\n\nGeneral/Accounts\n\nExecutive\n\nBoiler Fitter 7214.0300 7214.30\n\n(Recording and\n\nReporting)\n\nBoiler House 8182.0400 8162.40\n\nOperatives\n\nBookkeeping 4132.1300 4114.30\n\nMachine Operator\n\nBoiler Maker 7214.0500 7214.50\n\nBookmaker 4212.0200 4213.10\n\nBoiler Supervisor 3122.1600 8168.10\n\nBookmakers, 4212.9900 4213.90\n\nBoiler, Attendant 8182.0200 8162.20\n\nCroupiers and\n\nBoiler, Fireman 8182.0300 8162.30\n\nRelated Gaming\n\nWorkers, Other\n\nBoiler, Tindal 8182.0100 8162.10\n\nBoom Driver 8342.1000 8332.28\n\nBoiling In-Charge 7313.2501\n\nBoot Polisher 9510.0100 9120.10\n\nBoiling Tub 3133.0300 8152.65\n\nOperator\n\nBorer/Operator 7223.1701 8211.40\n\nVOLUME I 251",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 263,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_263",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page263",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_262",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_264"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:14.313100Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 196,
+    "custom": {}
+  }
+}

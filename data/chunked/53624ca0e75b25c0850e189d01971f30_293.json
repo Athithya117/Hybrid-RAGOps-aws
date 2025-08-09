@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_293",
+  "chunk_type": "page",
+  "text": "## Page 293\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nPoultry/Broiler\n\nField Crop and 6111.9900 6111.90\n\nFarm Supervisor\n\nVegetable\n\nGrowers, Other\n\nFarrier 7221.0600 7221.60\n\nField Engineer – 7421.1001\n\nFashion and 5241.9900 5210.90\n\nModels, Other\n\nField Engineer TV 7421.1302\n\nFashion Designer 2163.0500 3471.40\n\nField Maintenance 3114.0701\n\nFault Controller, 7422.0600 7244.60\n\nEngineer\n\nTelephones\n\nField Officer, 2433.0700 3415.50\n\nFault Management 7422.0201\n\nInsurance\n\nField Sales 5243.0501\n\nFeed Extruder 8141.0301\n\nExecutive (FSE)\n\nOperator\n\nField Service 2424.0502\n\nFermentation Man 8160.7100 8278.16\n\nTrainer\n\nFerry Officer 3152.0900 3142.85\n\nField Technician: 7422.2001\n\n(Computing and\n\nFetler (Woollen 8151.2200 8261.89\n\nPeripherals)\n\nTextile)\n\nField Technician: 7422.2101\n\nFettler (Brick & 8114.0700 8212.70\n\n(Networking and\n\nTile)\n\nStorage)\n\nFiberglass – 8181.3300 8139.85\n\nField Technician: 7421.0401\n\nMachine Operator\n\nAir-Conditioner\n\nFibre Preparer, 7318.2300 7431.42\n\nField Technician: 7421.0901\n\nDigital Camera\n\nFibre Preparing, 8151.9900 8261.90\n\nField Technician: 7421.0701\n\nSpinning and\n\nOther Home\n\nWinding Machine\n\nAppliances\n\nOperators, Other\n\nField Technician: 7421.0501\n\nFibre Technologist 2141.1300 2149.30\n\nVOLUME I 281",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 293,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_293",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page293",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_292",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_294"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:26.619155Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 165,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_2",
+  "chunk_type": "page",
+  "text": "",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 2,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_2",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page2",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_1",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_3"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:33.464095Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 464,
+    "custom": {}
+  }
+}

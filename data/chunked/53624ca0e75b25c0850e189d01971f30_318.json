@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_318",
+  "chunk_type": "page",
+  "text": "## Page 318\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nMail Carrier 9621.0700 9151.65 Maintenance 3113.0102\n\nTechnician\n\nMail Carriers and 4412.9900 4142.90\n\nElectrical\n\nSorting Clerks,\n\nOther\n\nMaize Cultivator 6111.0301\n\nMail Guard 4412.0100 4142.40\n\nMaker (Pottery 7314.0500 7321.30\n\nMain Header 8111.1100 7111.40\n\nColliery\n\nPorcelain)/Jigger\n\nand Jolly Operator\n\nMaintenance 7412.0801\n\nAssistant/Helper\n\nMaker-Up, Photo 7322.0600 7341.55\n\nType Setting\n\nMaintenance 3113.0501\n\nExecutive\n\nMake-Up Man 5142.0400 5141.50\n\nMaintenance 7233.0101\n\nMalariologist, 2212.1800 2212.45\n\nFitter –\n\nMedical\n\nMechanical\n\nMalt Maker 8160.6900 8278.12\n\nMaintenance 7422.0200 7244.20\n\nMechanic\n\nMalt Vinegar 8160.7300 8278.20\n\nMaker\n\nMaintenance 3113.0601\n\nMan Duck 6224.1300 6159.55\n\nMaintenance 3115.0102\n\nManagement 2431.0504\n\nTechnician –\n\nTrainee – Product\n\nMarketing\n\nMaintenance 7231.0101\n\nManagement 2431.0502\n\nTrainee – Sales &\n\nService Workshop\n\nMarketing/Busines\n\ns Development\n\nMaintenance 3115.0103\n\nManager – 1213.0102\n\nAssistant –\n\nCustomer Quality\n\nManager – 2144.0106\n\nVOLUME I 306",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 318,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_318",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page318",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_317",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_319"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:35.536555Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 153,
+    "custom": {}
+  }
+}

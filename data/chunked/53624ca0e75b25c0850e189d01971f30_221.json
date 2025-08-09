@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_221",
+  "chunk_type": "page",
+  "text": "## Page 221\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n8155.0801 Leather Buffer, Machine/Buffing Operator 8265.45\n\n8155.0900 Leather Glazer, Machine/Glazing Machine 8265.50\n\nOperator\n\n8155.1000 Rolling Machine Operator (Leather) 8265.60\n\n8155.1101 Tanner, Rotary Drum, Continuous Process 8265.70\n\n(Leather Manufacturing)/Drum Operator\n\n8155.1102 Post Tanning Machine Operator\n\n8155.1200 Leather Measuring Machine 8265.80\n\nMan/Measuring Machine Operator\n\n8155.1201 Helper – Wet Operations (Multi-Skilled)\n\n8155.1202 Helper – Dry Operations (Finished Leather)\n\n8155.1203 Helper – Finishing Operation(Finished\n\nLeather)\n\n8155.9900 Fur And Leather Preparing Machine 8265.90\n\nOperators, Other\n\nFamily 8156 Shoe Making and Related Machine\n\nOperators\n\n8156.0100 Pounding Machine Operator (Footwear) 8266.10\n\n8156.0200 Heel Breaster, Machine 8266.12\n\n(Footwear)/Machine Operator – Heel\n\nBreasting\n\n8156.0400 Heel Builder, Machine (Footwear)/Machine 8266.16\n\nOperator – Heel Building\n\n8156.0500 Sole Rounding Machine Operator 8266.18\n\n8156.0600 Nailer, Machine/Machine Operator, Nailing 8266.20\n\n8156.0701 Cutter, Machine/Cutter (Footwear) 8266.22\n\nVOLUME I 209",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 221,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_221",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page221",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_220",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_222"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:58.179201Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 133,
+    "custom": {}
+  }
+}

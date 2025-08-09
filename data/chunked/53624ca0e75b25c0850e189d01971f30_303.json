@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_303",
+  "chunk_type": "page",
+  "text": "## Page 303\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nGrave Digger 5163.0300 5143.30 Gur Maker 8160.5500 8276.85\n\nGreenhouse Fitter 6113.0501 Gynaecologist 2212.1200 2221.78\n\nGrinder – Hand- 7224.0401 Hair Stylist 5141.0200 5141.15\n\nHeld and Power\n\nHairdresser 5141.0100 5141.10\n\nTools\n\n(Ladies)\n\nGrinder (Stone 7315.2300 7329.15\n\nHairdressers, 5141.9900\n\nand Clay)\n\nOther\n\nGrinder, 7224.0200 7224.20\n\nHammer Man 7221.0400 7221.40\n\nCrankshaft\n\nHand Cart Man 9331.0300 9331.30\n\nGrinder, General 7224.0100 7224.10\n\nHand Dyer 7318.0600 7332.60\n\nGrinder, Hand 7514.0300 7414.30\n\n(Food Grain)\n\nHand 7533.0201 7436.15\n\nEmbroiderer,\n\nGrinder, Paper 8171.0200 8142.15\n\nGeneral\n\nHand 7533.0300 7436.20\n\nGrinder, Tool and 7223.2200 8211.55\n\nCutter\n\nZari/Hand\n\nGroove Cutter, 8111.2000 7111.70 Embroider,\n\nMining Traditional Crafts\n\nGroundsman 6113.0400 6113.40 Hand Packers, 9321.9900 9322.90\n\nOthers\n\nGroundwater 2142.1001\n\nEngineer Hand Painter 7316.0700 7324.20\n\n(Ceramics)\n\nGuard, Goods 5112.0200 5112.20\n\nTrain Hand Pedal 9331.9900 9331.90\n\nVehicle Drivers,\n\nGuard, Passenger 5112.0100 5112.10\n\nTrain\n\nHand Printer, 7318.0500 7332.50\n\nGuides, Other 5113.9900 5113.90\n\nTextile/Hand Block\n\nVOLUME I 291",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 303,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_303",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page303",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_302",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_304"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:30.088083Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 172,
+    "custom": {}
+  }
+}

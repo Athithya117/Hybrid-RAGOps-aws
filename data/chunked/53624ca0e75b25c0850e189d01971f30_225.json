@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_225",
+  "chunk_type": "page",
+  "text": "## Page 225\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nPreserving)\n\n8160.2800 Panman (Food Canning and Preserving) 8275.55\n\n8160.2900 Exhaust Box Operator (Food Canning and 8275.60\n\n8160.3000 Foodstuff Freezer 8275.65\n\n8160.3100 Peanut Blancher 8275.70\n\n8160.3200 Dehydrator Tender (Canning & 8275.72\n\nPreservation)\n\n8160.3300 Refining – Machine Operator (Oil & Grease) 8275.74\n\n8160.3400 Crusher Operator, Sugarcane 8276.10\n\n8160.3500 Filter Pressman 8276.20\n\n8160.3600 Dorr Clarifier Operator 8276.30\n\n8160.3700 Evaporator Operator, Sugar 8276.40\n\n8160.3800 Panman, Sugar 8276.50\n\n8160.3900 Crystalizerman 8276.60\n\n8160.4000 Centrifugal Man 8276.65\n\n8160.4100 Magmaman 8276.70\n\n8160.4200 Cutter Driver 8276.71\n\n8160.4300 Cane Carrier Driver, Mill House 8276.72\n\n8160.4400 Raw Juice Tank Pump Attendant 8276.73\n\n8160.4500 Juice Measuring Man 8276.74\n\n8160.4600 Lime Juice Tank Attendant 8276.75\n\n8160.4700 Juice Heater Man 8276.76\n\nVOLUME I 213",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 225,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_225",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page225",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_224",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_226"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:59.870709Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 128,
+    "custom": {}
+  }
+}

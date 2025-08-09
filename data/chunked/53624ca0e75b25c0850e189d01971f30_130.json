@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_130",
+  "chunk_type": "page",
+  "text": "## Page 130\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n4131.0500 Teleprinter Operator 4112.10\n\n4131.0600 Computer Operator 4112.20\n\n4131.9900 Typists and Word Processing Operators, 4112.90\n\nOther\n\nFamily 4132 Data Entry Clerks\n\n4132.0401 Data Entry Machine Operator 4113.35\n\n4132.0402 Domestic Data Entry Operator\n\n4132.0600 Coding Machine Operator 4113.50\n\n4132.0800 Duplicating Machine Operator/Photocopier 4113.65\n\n4132.0900 Embossing Machine Operator 4113.70\n\n4132.1000 Addressing Machine Operator 4113.80\n\n4132.1300 Bookkeeping Machine Operator 4114.30\n\n4132.1400 Bill Processing Clerk 4114.40\n\n4132.9900 Data Entry Clerks, Other 4114.90\n\nSub- 42 Customer Services Clerks\n\nDivision\n\nGroup 421 Tellers, Money Collectors and Related\n\nClerks\n\nFamily 4211 Bank Tellers and Related Clerks\n\n4211.0100 Cashier, General 4211.10\n\n4211.0200 Cashier, Bank 4211.20\n\n4211.0301 Cashier, Cash Counter 4211.30\n\n4211.0302 Cashier, Gem & Jewellery\n\nVOLUME I 118",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 130,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_130",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page130",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_129",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_131"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:28.390145Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 125,
+    "custom": {}
+  }
+}

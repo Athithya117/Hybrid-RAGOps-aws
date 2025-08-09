@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_179",
+  "chunk_type": "page",
+  "text": "## Page 179\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n7317.0800 Mat Weaver, Bamboo 7424.35\n\n7317.0900 Mat Weaver, Grass and Leave 7424.40\n\n7317.1000 Broom Maker 7424.45\n\n7317.1100 Chick Maker 7424.50\n\n7317.1200 Khas Thatti Maker 7424.55\n\n7317.1300 Brush Material Preparer 7424.60\n\n7317.1400 Brush Maker, Hand 7424.65\n\n7317.9900 Basketry Weavers, Brush Makers and 7424.90\n\nRelated Workers, Other\n\nFamily 7318 Handicraft Workers in Textiles, Leather\n\nand Related Materials\n\n7318.0100 Candle Maker 7332.10\n\n7318.0200 Candle Moulder 7332.20\n\n7318.0300 Carpet Weaver (Carpet & Rug) 7332.30\n\n7318.0400 Knitting Machine Operator, Automatic 7332.40\n\n7318.0500 Hand Printer, Textile/Hand Block Printer 7332.50\n\n7318.0600 Hand Dyer 7332.60\n\n7318.0800 Repairer, Fabrics/Fabric Mender 7332.80\n\n7318.0900 Bale Breaker Tenter, Cotton/Blow Room 7431.10\n\nOperator\n\n7318.1000 Batching Worker, Wool 7431.12\n\n7318.1100 Wool Sorter 7431.14\n\n7318.1200 Selector, Jute 7431.16\n\nVOLUME I 167",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 179,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_179",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page179",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_178",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_180"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:44.915302Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 130,
+    "custom": {}
+  }
+}

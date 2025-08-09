@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_350",
+  "chunk_type": "page",
+  "text": "## Page 350\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nSafety Lamp 7542.0200 7119.10 Sales Co-Ordinator 1221.0601\n\nChecker (Media Org)\n\nSafety Testing 7543.0804 Sales 5242.9900 5220.90\n\nTechnician Demonstrators,\n\nOther\n\nSafety Testing 7543.1004\n\nTechnician – Sales Director 1120.3402\n\nRACW (Media Org)\n\nSafety Testing 7543.1003 Sales Executive – 2433.0401\n\nTechnician – TV Consumer\n\nElectronics\n\nSail and Awning 7533.1000 7436.60\n\nMaker Sales Executive – 5211.0301\n\nDealership\n\nSales and 1221.9900 1233.90\n\nMarketing Sales Executive – 2433.0301\n\nManagers, Other Medical\n\nSales and Pre- 2434.0101\n\nSales Analyst Sales Executive – 2433.0501\n\nSolar Electronics\n\nSales Associate 5242.0102\n\nSales Executive 5243.0502\n\nSales Consultant 3322.1304\n\n(Broadband)\n\nSales Consultant 3321.0102\n\nSales Executive 2431.0651\n\n(Auto Finance)\n\n(Media Org)\n\nSales Consultant 3322.1302\n\nSales Lead (Pre- 3322.1202\n\n(Institutional\n\nOwned Vehicles)\n\nSales)\n\nSales Manager 3322.1301\n\nSales Consultant 3322.1203\n\nSales Manager 1221.0602\n\n(Pre-Owned\n\nVehicles)\n\nSales Manager 1221.0200 1233.20\n\nSales Consultant 3322.1303\n\n(Retail Trade)\n\n(Retail)\n\nVOLUME I 338",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 350,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_350",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page350",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_349",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_351"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:48.044163Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 162,
+    "custom": {}
+  }
+}

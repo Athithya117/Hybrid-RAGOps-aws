@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_160",
+  "chunk_type": "page",
+  "text": "## Page 160\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nSteel)\n\n7126.0500 Puncher, Metal 7136.50\n\n7126.0600 Pneumatic Chipper 7136.60\n\n7126.9900 Plumbers and Pipe Fitters, Other 7136.90\n\nFamily 7127 Air-Conditioning and Refrigeration\n\nMechanics\n\n7127.0100 Mechanic, Refrigeration and Air- 7233.50\n\nConditioning\n\nGroup 713 Painters, Builders, Structure Cleaners and\n\nRelated Trades Workers\n\nFamily 7131 Painters and Related Workers\n\n7131.0100 Painter, Building 7141.10\n\n7131.0101 Assistant Painter and Decorator\n\n7131.0200 Painter, Steel Structure 7141.20\n\n7131.0300 Painter, Industrial 7141.25\n\n7131.0500 Paper Hanger/Wallpaper Fixer/Decorator 7141.40\n\n7131.9900 Painters and Related Workers, Other 7141.90\n\nFamily 7132 Spray Painters and Varnishers\n\n7132.0100 Painter, General 7142.10\n\n7132.0201 Painter, Spray/Painting Technician (Spray 7142.20\n\nPainting)\n\n7132.0202 Auto Spray Painter/Painter\n\n7132.0203 Auto Body Painting Technician – Surface\n\nTreatment\n\nVOLUME I 148",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 160,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_160",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page160",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_159",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_161"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:39.126424Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 126,
+    "custom": {}
+  }
+}

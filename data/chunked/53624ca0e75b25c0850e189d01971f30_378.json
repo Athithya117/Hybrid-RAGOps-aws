@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_378",
+  "chunk_type": "page",
+  "text": "## Page 378\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nWorker Management\n\nEngineer,\n\nWarp 8152.1100 8262.55\n\nRadioactive\n\nKnitter/Knitting\n\nMaterial\n\nMachine Operator\n\n– Warp Knitter Wastewater 2142.1002\n\nSystems Design\n\nWarp Tying 8152.1600 8262.80\n\nMachineman Wastewater 3132.0400 8163.40\n\nTreatment Plant\n\nWarping Boy 8151.1500 8261.82\n\nOperator\n\n(Textile)/Wrapper\n\nWatch Repairer 7311.0200 7311.20\n\nWarranty In- 3315.0501\n\nCharge Watchman 5414.0400 9152.20\n\nWarranty 4321.0701 Water Carrier 9621.1300 9162.40\n\nProcessor\n\nWaterproofer, 8151.2000 8261.87\n\nWasher 9122.0201 Textile\n\nWashing Machine 7514.0600 7414.38 Wave Soldering 8212.1808\n\nAttendant, Cleaner Machine Operator\n\n(Food Grain)\n\nWax Model 3122.6501\n\nWashing Machine 8157.0100 8264.10 Making Supervisor\n\nWax Piece Maker 7313.2402\n\nWashing 8154.0500 8264.60\n\nMachineman\n\nWax Setter 7313.0803\n\nWashing Plant 8112.0600 8112.45\n\nWax Tree Maker 7313.0804\n\nWaxing Man 7316.0500 7323.50\n\nWaste Machine 7318.1500 7431.22\n\n(Glass)/Helper\n\nMan (Cotton\n\nCalibrator/Decorat\n\nTextile)/Waste\n\nor, Glass\n\nCollection\n\nWeather Observer 3119.0600 3119.40\n\nWaste 2143.0400 2149.87\n\nVOLUME I 366",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 378,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_378",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page378",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_377",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_379"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:58.404265Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 153,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_138",
+  "chunk_type": "page",
+  "text": "## Page 138\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n5112.1000 Bus Conductor 5112.70\n\n5112.9900 Transport Conductors, Other 5112.90\n\nFamily 5113 Travel Guides\n\n5113.0100 Travel Agent 5113.10\n\n5113.0200 Tourist Guide 5113.20\n\n5113.9900 Guides, Other 5113.90\n\nGroup 512 Cooks\n\nFamily 5120 Cooks\n\n5120.0200 Cook, Institutional 5122.20\n\n5120.0300 Cook, Domestic 5122.30\n\n5120.0400 Cook, Ship 5122.40\n\n5120.0500 Kitchen Porter/Steward 5122.50\n\n5120.0600 Pantry Man 5122.60\n\n5120.9900 Cooks, Other 5122.90\n\nGroup 513 Waiters and Bartenders\n\nFamily 5131 Waiters\n\n5131.0100 Butler 5123.10\n\n5131.0200 Steward, Hotel 5123.20\n\n5131.0300 Bearer, Domestic/Household Workers 5123.30\n\n5131.0401 Waiter, Institutional/Food & Beverage 5123.40\n\nService –Steward\n\n5131.0500 Wine Waiter 5123.50\n\nVOLUME I 126",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 138,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_138",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page138",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_137",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_139"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:30.831726Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 121,
+    "custom": {}
+  }
+}

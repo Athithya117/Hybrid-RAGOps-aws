@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_22",
+  "chunk_type": "page",
+  "text": "## Page 22\n\n| Skill Level | ISCO – 88 Educational Requirements | NCO – 2004 Educational Requirements |\n\n| I | Primary Education | Up to 10 years of formal education and/or informal |\n\nNational Classification of Occupations – 2015 Introduction\n\norganizations like RGI, CSO, NSSO, etc. also provided very useful inputs that served valuable for\n\ndeciding on new occupations.\n\n1.4.5 Co-Ordination and Liaising\n\nSince a large number of officers belonging to various agencies were involved in the whole\n\nexercise, co-ordination and liaising between various agencies was achieved firstly through\n\ndistribution of the detailed Manual of Procedure on Revision of NCO to each and every officer\n\ninvolved in the process. Secondly, constant touch through correspondence, telephone, fax, and e-\n\nmail, etc. was maintained by the DGE&T study team with all those involved in the exercise. The\n\nfield analysts were encouraged to get even the slightest doubts cleared.\n\n1.4.6 Processing of the Job Analysis Schedules\n\nA large volume of data thus collected became available at DGE&T Headquarters, which was\n\nclassified according to NIC codes. The job descriptions of the same occupation received from\n\ndifferent sources were edited and consolidated to have an average picture of the job duties of\n\nthe occupation. These average pictures were then compared with the job descriptions of the\n\nexisting occupations to identify new occupations. Duplication was taken care out to ensure\n\ninclusion of only new occupations.\n\n1.4.7 Skill Level\n\nBefore codifying all the occupations on the pattern of ISCO – 88, the skill levels as defined in the\n\nISCED were modified to suit the Indian conditions taking particular cognizance of informal skill. In\n\nthe Indian context, the skills necessary to perform the tasks and duties of a given job can be\n\nacquired not only through formal education but also through informal training and experience.\n\nThe four skill levels thus defined for NCO – 04 vis-à-vis the skill levels defined in ISCO – 88 are as\n\ngiven below:\n\nSkill Level ISCO – 88 Educational NCO – 2004 Educational Requirements\n\nRequirements\n\nI Primary Education Up to 10 years of formal education and/or informal\n\nVOLUME I 10",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 22,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_22",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page22",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_21",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_23"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:50.387144Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 1,
+    "parse_chunk_duration": 83,
+    "custom": {}
+  }
+}

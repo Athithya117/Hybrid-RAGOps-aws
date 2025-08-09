@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_58",
+  "chunk_type": "page",
+  "text": "## Page 58\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n2111.0900 Astronomer 2111.60\n\n2111.1000 Metrologist 2119.10\n\n2111.1100 Material Scientist 2119.20\n\n2111.9900 Physicists and Astronomers, Other 2111.90\n\nFamily 2112 Meteorologists\n\n2112.0100 Meteorologist 2112.10\n\n2112.9900 Meteorologists, Other 2112.90\n\nFamily 2113 Chemists\n\n2113.0100 Chemist, General 2113.10\n\n2113.0200 Chemist, Organic 2113.20\n\n2113.0300 Chemist, Inorganic 2113.30\n\n2113.0400 Chemist, Physical 2113.40\n\n2113.0500 Chemist, Analytical 2113.50\n\n2113.0600 Chemist, Industrial 2113.60\n\n2113.0601 Quality Control Chemist\n\n2113.0621 Lab Chemist – Finished Product Testing\n\n2113.0622 Lab Chemist – Incoming Raw Material Testing\n\n2113.0623 Lab Chemist – Compound Testing – Batch\n\nRelease\n\n2113.0624 Lab Chemist – Cured Compound Testing\n\n2113.0800 Chemist, Forensic Science 2113.80\n\n2113.0901 Quality Assurance Chemist\n\nVOLUME I 46",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 58,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_58",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page58",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_57",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_59"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:03.268433Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 134,
+    "custom": {}
+  }
+}

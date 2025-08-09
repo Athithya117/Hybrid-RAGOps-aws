@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_149",
+  "chunk_type": "page",
+  "text": "## Page 149\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n6111.1401 Bulb Crop Cultivator\n\n6111.1501 Solanaceous Crop Cultivator\n\n6111.1601 Tuber Crop Cultivator\n\n6111.1801 Chillies Cultivator\n\n6111.1901 Coriander Cultivator\n\n6111.2000 Fieldman, Agriculture 6111.50\n\n6111.9900 Field Crop and Vegetable Growers, Other 6111.90\n\nFamily 6112 Tree and Shrub Crop Growers\n\n6112.0100 Pruner, Tea Gardens 6112.30\n\n6112.0200 Tapper, Palm Juice 6112.40\n\n6112.0201 Neera Technician\n\n6112.0300 Tapper, Rubber 6112.50\n\n6112.0400 Budder 6112.65\n\n6112.0501 Tea Plantation Worker\n\n6112.0601 Coffee Plantation Worker\n\n6112.0701 Bamboo Grower\n\n6112.0801 Rubber Nursery Worker – Budder\n\n6112.0802 Rubber Nursery Worker – General\n\n6112.9900 Tree and Shrub Crop Growers, Other 6112.90\n\nFamily 6113 Gardeners, Horticultural and Nursery\n\nGrowers\n\n6113.0100 Planter 6113.10\n\nVOLUME I 137",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 149,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_149",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page149",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_148",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_150"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:35.665540Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 140,
+    "custom": {}
+  }
+}

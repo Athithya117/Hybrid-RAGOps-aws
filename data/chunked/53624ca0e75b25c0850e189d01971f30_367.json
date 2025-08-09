@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_367",
+  "chunk_type": "page",
+  "text": "## Page 367\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nAdministration\n\nSurveyor, Mine 2165.0500 2148.40\n\nAssistant/Junior\n\nSystem\n\nSurveyor, 2165.0400 2148.30\n\nAdministrator\n\nPhotogrammetric\n\nSystem Analyst 2151.0601\n\nSurveyor, Tidal 3112.0600 3112.60\n\n(PCB Design)\n\nSurveyor, 2165.0200 2148.20\n\nSystem Analysts 2511.0100 2131.10\n\nTopographical\n\nSystem Analysts, 2511.9900 2131.90\n\nSweeper, Dry 9613.0300 9162.10\n\nOther\n\nSweeper, Sewer 9613.0500 9162.30\n\nSystem 2519.0100 2132.50\n\nProgrammer\n\nSweeper, Wet 9613.0400 9162.20\n\nSystems Designer 2151.0602\n\nSweepers and 9613.9900 9162.90\n\nRelated Labourers,\n\nTabla Maker 7312.1300 7312.45\n\n(Musical\n\nSweet Meat 7512.0400 7412.25\n\nInstrument)\n\nMaker\n\nTable Cutter 7313.1304\n\nSymmetry 8189.0601\n\nAnalyser Machine\n\nTablet Coater 8131.7100 8159.64\n\nOperator\n\nTablet Machine 8131.7000 8159.62\n\nSynthetic Fibre 8131.6400 8159.45\n\nTablet Machine 8142.0100 8232.10\n\nSyrup Maker 8160.7700 8278.40\n\nSyrup Mixing Plant 8160.7800 8278.45\n\nTagger and 9321.0205\n\nLabeller\n\nSyrup Plant 8160.7600 8278.35\n\nTailor, Fur 7531.1200 7434.10\n\nTailor, General 7531.0100 7433.10\n\nSyruper 8160.7900 8278.47\n\nTailor, Tent 7533.1100 7436.70\n\nSystem 3513.0100 3121.10\n\nVOLUME I 355",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 367,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_367",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page367",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_366",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_368"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:54.276506Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 180,
+    "custom": {}
+  }
+}

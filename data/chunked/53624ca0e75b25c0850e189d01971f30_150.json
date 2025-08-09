@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_150",
+  "chunk_type": "page",
+  "text": "## Page 150\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n6113.0200 Nurseryman 6113.20\n\n6113.0301 Gardener, General 6113.30\n\n6113.0400 Groundsman 6113.40\n\n6113.0501 Greenhouse Fitter\n\n6113.0601 Floriculturist – (Open Cultivation)\n\n6113.0602 Floriculturist – (Protected Cultivation)\n\n6113.9900 Nursery Workers and Gardeners, Other 6113.90\n\nFamily 6114 Mixed Crop Growers\n\n6114.9900 Mixed Crop Growers, Other 6114.90\n\nFamily 6115 Medicinal and Aromatic Plant Cultivators\n\nFamily 6116 Agriculture Information Management\n\n6116.0101 Agriculture Extension Executive\n\n6116.0102 Agriculture Extension Service Provider\n\n6116.0112 Community Service Provider\n\nGroup 612 Animal Producers\n\nFamily 6121 Livestock and Dairy Producers\n\n6121.0100 Farmer, Livestock 6121.10\n\n6121.0201 Farmer, Dairy/Dairy Farmer/Entrepreneur 6121.15\n\n6121.0300 Livestock Worker, General 6121.20\n\n6121.0400 Herdsman 6121.25\n\n6121.0500 Livestock Workers/Other Livestock Workers 6121.30\n\n6121.0601 Dairy Farm Worker, General/Dairy Worker 6121.35\n\nVOLUME I 138",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 150,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_150",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page150",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_149",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_151"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:35.950025Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 143,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_47",
+  "chunk_type": "page",
+  "text": "## Page 47\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nFamily 1114 Senior Officials of Special Interest Organizations\n\n1114.0100 Political Worker 1141.10\n\n1114.0200 Senior Officials of Employers, Workers and Other 1142.00\n\nEconomic Interest Organizations\n\n1114.0300 Director, Disaster Management Services 1143.10\n\n1114.9900 Senior Officials of Special Interest Organizations, 1143.90\n\nOther\n\nGroup 112 Managing Directors and Chief Executives\n\nFamily 1120 Managing Directors and Chief Executives\n\n1120.0100 Working Proprietor, Electricity 1211.10\n\n1120.0200 Working Proprietor, Gas 1211.20\n\n1120.0300 Working Proprietor, Water Supply 1211.30\n\n1120.0400 Director, Electricity 1211.40\n\n1120.0500 Director, Gas 1211.50\n\n1120.0600 Director, Water Supply 1211.60\n\n1120.0700 Director, Bank 1212.10\n\n1120.0800 Director, Insurance 1212.20\n\n1120.0900 Working Proprietor, Mines/Proprietor, Mines 1213.10\n\n1120.1000 Working Proprietor, Quarry/Proprietor, Quarry 1213.20\n\n1120.1100 Working Proprietor, Well Drilling/Proprietor, 1213.30\n\nWell Drilling\n\n1120.1200 Working Proprietor, Construction/Proprietor, 1213.40\n\nConstruction\n\nVOLUME I 35",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 47,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_47",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page47",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_46",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_48"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:56.961769Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 119,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_331",
+  "chunk_type": "page",
+  "text": "## Page 331\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nMachines\n\nOptical Worker 7315.1100 7322.29\n\nOperator, Hot 3135.1900 8122.28\n\nOptician, Contact 3254.0200 3224.20\n\nRolling Mill (Non-\n\nFerrous\n\nMetal)/Mill\n\nOptician, General 3254.0100 3224.10\n\nOperator\n\nOptometrists and 2267.9900 3224.90\n\nOperator, 7419.0600 7249.60\n\nOpticians, Other\n\nImpregnation\n\nPlant (Telephone\n\nOral and 2261.0200 2225.20\n\nEquipment\n\nMaxillofacial\n\nManufacturing)\n\nSurgeon\n\nOperator, Rack 8212.1200 8283.60\n\nOrchestra 2652.0200 2453.20\n\nWiring (Telephone\n\nConductor\n\n& Telegraph\n\nOrdained Religious 2636.9900 2462.90\n\nand Non-Ordained\n\nReligious Workers\n\nOperator, Strip 3135.2300 8122.42\n\nOrder Processor 5223.0101\n\nMill (Non-Ferrous\n\nMetal)\n\nOrder 5243.0200 9113.20\n\nSupplier/Supplier\n\nOphthalmologist 2212.0800 2221.65\n\nOrgan Tuner 7312.1000 7312.35\n\nOptical and 3119.9900 3139.90\n\nElectronic\n\nOrientation & 2269.0600 3229.50\n\nMobility Instructor\n\nControllers, Other\n\nOrthodontist 2261.0300 2225.30\n\nOptical Examiner, 8131.7600 8159.74\n\nAmpoules\n\nOrthopaedic 7311.1200 7311.75\n\nAppliances and\n\nOptical Fibre 7422.0802\n\nLimb Technician\n\nSplicer\n\nOrthopaedist 2212.1400 2221.85\n\nOptical Fibre 7422.0801\n\nTechnician\n\nOrthotist and 2269.0500 3229.40\n\nProsthetist\n\nVOLUME I 319",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 331,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_331",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page331",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_330",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_332"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:39.589840Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 156,
+    "custom": {}
+  }
+}

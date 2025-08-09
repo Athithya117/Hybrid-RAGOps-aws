@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_277",
+  "chunk_type": "page",
+  "text": "## Page 277\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nController\n\nCooks, Other 5120.9900 5122.90\n\nControl Tower 3521.1600 3132.76\n\nCooling Man 7315.1900 7322.50\n\nOperator,\n\n(Glass)\n\nAerodrome\n\nCooper 7522.1100 7422.40\n\nController, Tram 4323.0400 4133.30\n\nCopy Holder 4110.0400 4190.35\n\nConverter 8131.3800 8154.60\n\nOperator (Grain\n\nCopyright Clerk 4110.0300 4190.30\n\nFeed Mills)\n\nCoral Breaker 7541.0300 6152.50\n\nConvertor 3135.0600 8121.35\n\nBlower/Convertor\n\nCord Dipping 8141.0200 8231.15\n\nBlower Technician\n\nOperator\n\nConvertor 3135.0700 8121.40\n\nCore Analyst, 3116.0400 3116.40\n\nMan/Convertor\n\nPetrol and Natural\n\nConveyor 7233.0402\n\nCore Engineer 2153.0601\n\nOperation and\n\nCore Layer, 8172.1200 8141.75\n\nMaintenance\n\nPlywood\n\nConveyor 8342.1500 8332.45\n\nCore Laying 8172.1100 8141.70\n\nMachine Operator\n\nCook, Domestic 5120.0300 5122.30\n\nCore Maker, 8121.4600 8122.80\n\nCook, General 7514.0700 7414.40\n\nMachine\n\n(Food Canning and\n\nCore Maker, 7211.0500 7211.50\n\nPreserving)\n\nMoulding (Hand)\n\nCook, Institutional 5120.0200 5122.20\n\nCore Maker, 7211.0600 7211.60\n\nCook, Ship 5120.0400 5122.40\n\nVertical Pipe\n\nCooker (Silkworm) 7318.1900 7431.30\n\nCoriander 6111.1901\n\nCultivator\n\nCooker Operator 8160.1600 8274.20\n\nCoroner 2619.1000 2429.65\n\nVOLUME I 265",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 277,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_277",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page277",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_276",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_278"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:21.126811Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 219,
+    "custom": {}
+  }
+}

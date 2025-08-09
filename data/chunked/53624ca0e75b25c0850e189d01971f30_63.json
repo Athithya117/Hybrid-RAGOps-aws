@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_63",
+  "chunk_type": "page",
+  "text": "## Page 63\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n2141.2500 Safety Engineer 2149.85\n\n2141.2600 Occupational Health and Safety Specialist 2149.86\n\nFamily 2142 Civil Engineers\n\n2142.0100 Civil Engineer, General 2142.10\n\n2142.0200 Civil Engineer, Building 2142.20\n\n2142.0300 Civil Engineer, Structural 2142.30\n\n2142.0301 Plumbing Site Engineer\n\n2142.0400 Civil Engineer, Irrigation 2142.40\n\n2142.0500 Hydraulic Engineer 2142.45\n\n2142.0501 Fire Protection Systems Design Engineer\n\n2142.0600 Civil Engineer, Highways and Roads 2142.50\n\n2142.0700 Civil Engineer, Railways 2142.60\n\n2142.0800 Airport Engineer 2142.65\n\n2142.0900 Civil Engineer, Public Health 2142.70\n\n2142.0901 Public Health System Design Engineer\n\n2142.1000 Engineer, Waterworks 2142.72\n\n2142.1001 Groundwater Engineer\n\n2142.1002 Wastewater Systems Design\n\n2142.9900 Civil Engineers, Other 2142.90\n\nFamily 2143 Environmental Engineers\n\n2143.0100 Solar Energy System Designer 2149.05\n\n2143.0200 Bio-Medical Engineer 2149.17\n\nVOLUME I 51",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 63,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_63",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page63",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_62",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_64"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:04.825222Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 150,
+    "custom": {}
+  }
+}

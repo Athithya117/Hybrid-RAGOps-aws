@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_175",
+  "chunk_type": "page",
+  "text": "## Page 175\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n7313.1305 Manual Blocker\n\n7313.1306 Auto Bruter\n\n7313.1400 Gem Polisher, Hand 7313.60\n\n7313.1501 Diamond Assorter\n\n7313.1502 Polished Diamond Grader & Assorter (Basic)\n\n7313.1503 Polished Diamond Grader & Assorter\n\n(Advance)\n\n7313.1504 Bottom Polisher\n\n7313.1505 Gemstone Girdle Polisher\n\n7313.1506 Gemstone Polisher\n\n7313.1601 Gemstone Pre-Shaper\n\n7313.1602 Gemstone Final Shaper and Calibrator\n\n7313.1701 Gem Driller 7313.68\n\n7313.1702 Window Opener\n\n7313.1800 Jewellery Engraver 7313.70\n\n7313.1900 Engraver 7313.71\n\n7313.2200 Embosser, Sheet 7313.75\n\n7313.2300 Inlayer, Metal 7313.78\n\n7313.2401 Rubber Mould Maker\n\n7313.2402 Wax Piece Maker\n\n7313.2501 Boiling In-Charge\n\n7313.2601 Final Quality Inspector\n\nVOLUME I 163",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 175,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_175",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page175",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_174",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_176"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:43.852376Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 128,
+    "custom": {}
+  }
+}

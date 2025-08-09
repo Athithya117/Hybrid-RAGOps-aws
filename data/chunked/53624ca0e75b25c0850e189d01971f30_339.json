@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_339",
+  "chunk_type": "page",
+  "text": "## Page 339\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nSales Officer\n\nPolisher (Glass 8181.1000 8131.37\n\nManufacturing)\n\nPlumbing Site 2142.0301\n\nEngineer\n\nPolisher and 7313.0701\n\nCleaner\n\nPlumbing 3123.0302\n\nSupervisor\n\nPolishing Machine 8114.0100 8212.10\n\nOperator (Mosaic)\n\nPneumatic 7126.0600 7136.60\n\nChipper\n\nPolishing 3122.6508\n\nPoet 2641.0500 2451.65\n\nPolitical Scientist 2633.0600 2443.60\n\nPoints Man, 8312.0300 8312.30\n\nRailway\n\nPolitical Worker 1114.0100 1141.10\n\nPointsmen, 8312.9900 8312.90\n\nPollution Control 2143.0500 2149.88\n\nSignalmen and\n\nShunters,\n\nRailways, Other\n\nPorter, Baggage 9621.0500 9151.50\n\n(Hotel &\n\nPolice Constable 5412.0100 5162.10\n\nRestaurant)\n\nPolice Inspectors 3355.9900 3450.90\n\nPost Master 1330.0300 1226.80\n\nand Detectives,\n\nOther\n\nPost Tanning 8155.1102\n\nMachine Operator\n\nPolice Officers, 5412.9900 5162.90\n\nPostman 4412.0200 4142.45\n\nPolice Prosecutor 2611.0700 2421.65\n\nPotter (Pottery 7314.0900 7321.60\n\nPolished Diamond 7313.1503\n\nPorcelain)/Potter's\n\nGrader & Assorter\n\nWheel Operator\n\n(Advance)\n\nPotting and Curing 7412.0901\n\nPolished Diamond 7313.1502\n\nOperator\n\n(Basic)\n\nPoultry Farm 6122.0301 6122.30\n\nWorker,\n\nPolisher 7224.0801 7224.55\n\nGeneral/Broiler\n\nVOLUME I 327",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 339,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_339",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page339",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_338",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_340"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:42.073328Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 168,
+    "custom": {}
+  }
+}

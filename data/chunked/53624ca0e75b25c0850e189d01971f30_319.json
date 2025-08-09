@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_319",
+  "chunk_type": "page",
+  "text": "## Page 319\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nProduct Lifecycle Service\n\nManagement\n\nManager, 1213.0200 1239.20\n\nManager Heat 2146.0501 Automotive\n\nTreatment/Metall Service Station\n\nurgist\n\nManager, Bank 1346.0100 1227.10\n\nManager 3115.0501\n\nManager, 1330.0100 1226.40\n\nMaintenance\n\nCommunication\n\nMechanical &\n\nElectrical\n\nManager, 1323.0100 1223.10\n\nConstruction/Man\n\nager Construction\n\nManager Material 1223.0102\n\nProjects\n\nTesting\n\nManager, Dairy 1311.1400 1221.50\n\nManager Stores 4321.0401\n\nOperation\n\nManager, 1321.0100 1222.40\n\nManager Supplier 1324.0101\n\nElectricity\n\nQuality\n\nManager, Export 1420.0300 1224.30\n\nManager Testing 1223.0101\n\nFacility\n\nManager, 1222.0200 1234.20\n\nFashion/Fashion\n\nManager Vendor 1324.0103\n\nManager\n\nDevelopment\n\nManager, Fast 1412.0100 1225.20\n\nManager, 1222.0100 1234.10\n\nFood Service\n\nAdvertising and\n\nPromotion\n\nManager, Flight 1324.0800 1226.30\n\nManager, Aerial 1311.1000 1221.24\n\nPlanting and\n\nManager, Food 1321.0500 1222.65\n\nCultivation\n\nProcessing Plant\n\nManager, 1311.0700 1221.10\n\nManager, Gas 1321.0300 1222.50\n\nAgricultural Farm\n\nManager, Health 1219.0200 1228.10\n\nManager, 1213.0100 1239.10\n\nClub/Manager,\n\nAutomotive\n\nVOLUME I 307",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 319,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_319",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page319",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_318",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_320"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:35.773481Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 158,
+    "custom": {}
+  }
+}

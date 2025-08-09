@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_247",
+  "chunk_type": "page",
+  "text": "## Page 247\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n9332.0400 Pack Animal Driver 9332.40\n\n9332.0500 Supervisor, Animal-Drawn and Manually 9332.50\n\nOperated Transport Equipment\n\n9332.9900 Animal and Animal Drawn Vehicle Drivers, 9332.90\n\nOther\n\nFamily 9333 Freight Handlers\n\n9333.0100 Loader and Unloader 9333.10\n\n9333.0101 Loader/Loading and Unloading Operator\n\n9333.0201 Warehouse Worker\n\n9333.0202 Loader, Transport\n\nAssociate/Loader/Unloader\n\n9333.9900 Freight Handlers, Other 9333.90\n\nFamily 9334 Shelf Fillers\n\nSub- 94 Food Preparation Assistants\n\nDivision\n\nGroup 941 Food Preparation Assistants\n\nFamily 9411 Fast Food Preparers\n\nFamily 9412 Kitchen Helpers\n\n9412.0100 Kitchen Helper 9132.20\n\nSub- 95 Street and Related Sales and Services\n\nDivision Workers\n\nGroup 951 Street and Related Service Workers\n\nFamily 9510 Street and Related Service Workers\n\n9510.0100 Boot Polisher 9120.10\n\nVOLUME I 235",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 247,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_247",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page247",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_246",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_248"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:06.517207Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 124,
+    "custom": {}
+  }
+}

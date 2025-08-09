@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_102",
+  "chunk_type": "page",
+  "text": "## Page 102\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n3122.1300 Supervisor and Foreman, Chemical Processing and 8158.10\n\nRelated Activities\n\n3122.1400 Supervisor and Foreman, Petroleum Refining and 8158.20\n\nRelated Activities/Operator/Engineering Assistant\n\n(Mechanical/Electrical/Civil/Chemical) Related\n\nActivities\n\n3122.1600 Boiler Supervisor 8168.10\n\n3122.1700 Supervisors and Foremen, Stationary Engine and 8168.20\n\nRelated Equipment\n\n3122.1800 Supervisor and Foreman, Stone Cutting and 8218.10\n\nCarving\n\n3122.1900 Supervisor and Foreman, Machine Tool 8218.20\n\nOperations\n\n3122.2000 Supervisor and Foreman, Rubber Goods Making 8238.10\n\n3122.2100 Supervisor and Foreman, Plastic Products Making 8238.20\n\n3122.2200 Plastic Moulding Shop Supervisor\n\n3122.2300 Plastic Moulding Shift In-Charge\n\n3122.2400 Supervisor and Foreman, Wood Working 8248.10\n\n(Machine)\n\n3122.2500 Supervisor and Foreman, Carpentry, Cabinet 8248.20\n\nMaking and Related Wood Working Processes\n\n3122.2600 Supervisor and Foreman, Paper and Paper Board 8258.10\n\nProduct Making\n\n3122.2800 Jobber (Textile) 8268.10\n\n3122.2900 Supervisor and Foreman, Hosiery 8268.20\n\n3122.3000 Supervisor and Foreman, Tanning and Pelt 8268.30\n\nDressing\n\nVOLUME I 90",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 102,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_102",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page102",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_101",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_103"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:18.945014Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 297,
+    "custom": {}
+  }
+}

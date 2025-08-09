@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_89",
+  "chunk_type": "page",
+  "text": "## Page 89\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n2632.0800 Anthropologist, Physical 2442.70\n\n2632.0900 Anthropologist, Cultural 2442.75\n\n2632.1000 Genealogist 2442.77\n\n2632.1100 Archaeologist 2442.80\n\n2632.1200 Geographer 2442.85\n\n2632.9900 Sociologists, Anthropologists and Related 2442.90\n\nProfessionals, Other\n\nFamily 2633 Philosophers, Historians and Political Scientists\n\n2633.0100 Historian 2443.10\n\n2633.0200 Biographer 2443.20\n\n2633.0300 Epigraphist 2443.30\n\n2633.0400 Numismatist 2443.40\n\n2633.0500 Philatelist 2443.50\n\n2633.0600 Political Scientist 2443.60\n\n2633.9900 Philosophers, Historians and Political Scientists, 2443.90\n\nOther\n\nFamily 2634 Psychologists\n\n2634.0100 Psychologist 2445.10\n\n2634.0200 Psychometrist 2445.20\n\n2634.0300 Psychologist, Engineering 2445.30\n\n2634.0400 Psychologist, Educational 2445.40\n\n2634.0500 Psychologist, Social 2445.50\n\n2634.0600 Clinical Psychologist 2445.60\n\nVOLUME I 77",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 89,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_89",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page89",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_88",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_90"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:14.258083Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 142,
+    "custom": {}
+  }
+}

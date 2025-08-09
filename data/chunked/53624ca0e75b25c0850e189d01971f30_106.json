@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_106",
+  "chunk_type": "page",
+  "text": "## Page 106\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n3123.0100 Work Supervisor, Construction 7138.10\n\n3123.0200 Supervisor and Foreman, Insulation 7138.20\n\n3123.0300 Supervisor and Foreman, Plumbing and Pipe 7138.30\n\nFitting\n\n3123.0301 Plumbing Foreman\n\n3123.0302 Plumbing Supervisor\n\n3123.0400 Electrical Supervisor, Wiring, 7138.40\n\n3123.0500 Supervisor and Foreman, Painting 7148.10\n\n3123.0600 Painting and Surface Treatment Line In-Charge\n\n3123.0700 Painting Supervisor\n\n3123.9900 Supervisors and Foremen and Related Trades 7148.90\n\nWorkers in Painting, Building Structure Cleaning,\n\nOther\n\nGroup 313 Process Control Technicians\n\nFamily 3131 Power Production Plant Operators\n\n3131.0100 Stationary Engine Driver, Steam 8161.10\n\n3131.0200 Stationary Engine Driver, Internal Combustion 8161.20\n\n3131.0300 Turbine Operator, Steam 8161.30\n\n3131.0400 Turbine Operator, Hydel 8161.40\n\n3131.0500 Power Plant Operator 8161.45\n\n3131.0600 Electrical Switch Board Operator 8161.50\n\n3131.0700 Oiler and Greaser, Stationary Engine and 8161.60\n\nMachinery\n\nVOLUME I 94",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 106,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_106",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page106",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_105",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_107"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:20.332004Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 124,
+    "custom": {}
+  }
+}

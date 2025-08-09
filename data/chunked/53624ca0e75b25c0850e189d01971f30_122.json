@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_122",
+  "chunk_type": "page",
+  "text": "## Page 122\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nFamily 3342 Legal Secretaries\n\nFamily 3343 Administrative and Executive Secretaries\n\nFamily 3344 Medical Secretaries\n\nGroup 335 Government Regulatory Associate Professionals\n\nFamily 3351 Customs and Border Inspectors\n\n3351.0100 Inspector, Customs 3441.10\n\n3351.0200 Supervisor, Customs 3441.20\n\n3351.0300 Searcher 3441.30\n\n3351.9900 Customs and Border Inspectors, Other 3441.90\n\nFamily 3352 Government Tax and Excise Officials\n\n3352.0100 Inspector, Excise 3442.10\n\n3352.9900 Government Tax and Excise Officials, Other 3442.90\n\nFamily 3353 Government Social Benefits Officials\n\n3353.0100 Village Level Worker 3443.10\n\n3353.0200 Patroller, Women 3443.20\n\n3353.9900 Government Social Benefits Officials, Other 3443.90\n\nFamily 3354 Government Licensing Officials\n\nFamily 3355 Police Inspectors and Detectives\n\n3355.0100 Inspector, Police 3450.10\n\n3355.0200 Sub-Inspector, Police 3450.20\n\n3355.0300 Detective 3450.30\n\n3355.9900 Police Inspectors and Detectives, Other 3450.90\n\nVOLUME I 110",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 122,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_122",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page122",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_121",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_123"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:25.843743Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 139,
+    "custom": {}
+  }
+}

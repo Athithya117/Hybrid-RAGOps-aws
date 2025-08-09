@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_359",
+  "chunk_type": "page",
+  "text": "## Page 359\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nEquipment Frame Tenter\n\nOperator/Sound\n\nSpinner, Jute 7318.4500 7432.26\n\nAssistant\n\nSpinning Master 2141.1400 2149.35\n\nSoybean Cultivator 6111.0501\n\nSplicer (Rope and 7215.0300 7215.30\n\nSpare Parts 4321.0101\n\nCables)\n\nOperations\n\nExecutive\n\nSplicing – Machine 8159.0200 8269.20\n\nOperator,\n\nSpare Parts 4321.0402\n\nAutomatic\n\nOperations In-\n\n(Textile)\n\nCharge\n\nSplint Drying 8122.8000 8223.80\n\nSpecial Needs 2352\n\nChamberman\n\nTeachers\n\n(Match)\n\nSpecialist Medical 2212.9900 2212.90\n\nSplint Feeder 8122.7900 8223.79\n\nPractitioners,\n\nOther\n\nSplitter, 8156.1700 8266.38\n\nSpecialized Sewing 8153.0103\n\nMachine/Splitting\n\nMachine Operator\n\nSpeech Language 2266.0401\n\nSplitting and 8155.0501\n\nPathologist and\n\nSammying\n\nAudiologist\n\nOperator (Leather)\n\nSpeech Pathologist 2266.0200 3229.20\n\nSports Coach 3422.0201 3475.45\n\nSpeech Therapist 2266.0100 3229.10\n\nSports Coaches, 3422.9900 3475.90\n\nand Audiologist\n\nInstructors and\n\nSpeeder Machine 8122.7000 8223.70 Officials, Other\n\nOperator\n\nSports Goods 7522.1800 7422.58\n\n(Abrasive Wheel)\n\nMaker, Wood\n\nSpinner, Coir 7318.4600 7432.28\n\nSports Masseur 2264.0401\n\nSpinner, Frame 8151.0600 8261.35\n\nSports, Recreation 1431.9900 1309.90\n\n(Textile)/Ring\n\nVOLUME I 347",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 359,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_359",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page359",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_358",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_360"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:51.059342Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 159,
+    "custom": {}
+  }
+}

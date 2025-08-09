@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_340",
+  "chunk_type": "page",
+  "text": "## Page 340\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nFarm Worker Instrument\n\nMakers and\n\nPoultry Farm 6122.9900 6122.90\n\nRepairers, Other\n\nWorkers, Other\n\nPrecision Printing 7322.1500 7346.50\n\nPoultry Scientist 2132.0800 2213.80\n\nWorker\n\nPounder, Hand 7514.0400 7414.35\n\nPre-Delivery 3322.4001\n\n(Food Grain)\n\nInspection In-\n\nCharge\n\nPounding Machine 8156.0100 8266.10\n\nOperator\n\nPre-Delivery 3322.4002\n\n(Footwear)\n\nInspection\n\nSupervisor\n\nPower Hammer 7221.0300 7221.30\n\nPre-Press 7321.9900 7343.90\n\nTechnicians,\n\nPower Plant 3131.0500 8161.45\n\nOthers\n\nPre-Primary 2342.9900 3320.90\n\nPower Press 7223.2300 8211.60\n\nEducation\n\nOperator, Metal\n\nTeaching Associate\n\nProfessionals,\n\nPower Production 3131.9900\n\nOther\n\nPlant Operators,\n\nPreservation 4411.0300 4141.30\n\nAssistant, Archives\n\nPower Shovel 8342.0501 8332.18\n\nOperator/Excavat\n\nPreservative Filler, 7514.1100 7414.56\n\nor Operator\n\nMachine (Can &\n\nPreservation)\n\nPre- and Post- 8141.0101\n\nCalendering\n\nPresident, 2612.1200 2422.85\n\nConsumer\n\nRedressal Forum\n\nPre-Assembly 8156.2501\n\nPresident, 2612.1000 2422.75\n\nIndustrial Tribunal\n\nPrecipitator 8112.0500 8112.40\n\nPress Operator 8159.0400 8269.40\n\nPrecision 7311.9900 7311.90\n\nVOLUME I 328",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 340,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_340",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page340",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_339",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_341"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:42.433825Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 153,
+    "custom": {}
+  }
+}

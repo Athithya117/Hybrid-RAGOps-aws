@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_370",
+  "chunk_type": "page",
+  "text": "## Page 370\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\n(Broadband)\n\nTelephone 4223.0100 4222.10\n\nOperator, Trunk\n\nTerritory Sales 1221.0501\n\nManager (Prepaid)\n\nTelephone 4223.9900 4222.90\n\nSwitchboard\n\nTerritory Sales 3322.1002\n\nOperators, Other\n\nManager (Used\n\nVehicles)\n\nTeleprinter 4131.0500 4112.10\n\nOperator\n\nTerritory Service 1213.0202\n\nManager\n\nTelevision 3521.0700 3132.20\n\nBroadcasting\n\nTest and Repair 7422.2201\n\nStation Operator\n\nTechnician\n\nTelevision Chassis 3114.0200 3152.60\n\nTest Driver 8331.0501\n\nInspector/Televisi\n\non Technician\n\nTest Engineer – IT 2519.0302\n\nServices\n\nTelevision 7422.1100 7243.40\n\nInstallation Man\n\nTest Engineer – 2512.0202\n\nSoftware\n\nTelevision Repair 7422.1302\n\nTest Engineer – 2519.0402\n\nSoftware Products\n\nTelevision Service 7422.1300 7243.50\n\nand Repairman\n\nTest Engineer 3115.0202\n\nProduct/Vehicle\n\nTeller, Bank 4211.0400 4212.10\n\nTest Technician 7231.0201\n\nTemperer, Metal 8121.4900 8123.30\n\nTester 9329.0500 9322.72\n\nTennoning 7523.1100 7423.55\n\nMachine Operator\n\nTester/Test 2523.0301\n\nEngineer –\n\nTerminal Manager 1321.0200 1222.45\n\nHardware\n\nTerritory Sales 3322.1001\n\nTesting and 2152.0902\n\nValidation\n\nEngineer\n\nTerritory Sales 1221.0401\n\nVOLUME I 358",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 370,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_370",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page370",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_369",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_371"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:55.431559Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 172,
+    "custom": {}
+  }
+}

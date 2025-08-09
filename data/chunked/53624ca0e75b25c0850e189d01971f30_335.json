@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_335",
+  "chunk_type": "page",
+  "text": "## Page 335\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nProfessionals,\n\nPharmacy 3213.0101\n\nOther\n\nAssistant\n\nPersonal Secretary 4120.0200 4115.20\n\nPhilatelist 2633.0500 2443.50\n\nPersonal Security 5414.0171\n\nPhilologists, 2643.9900 2444.90\n\nOfficer\n\nTranslators and\n\nInterpreters,\n\nPersonnel and 1212.9900 1232.90\n\nIndustrial\n\nRelations\n\nPhilosophers, 2633.9900 2443.90\n\nManagers, Other\n\nHistorians and\n\nPolitical Scientists,\n\nPersonnel 1212.0100 1232.10\n\nManager\n\nPhlebotomy 3212.0601\n\nPetition Writer 3411.0300 3432.30\n\nTechnician\n\nPetrol Pump 5245.0101 5220.45\n\nPhoto Type Setting 7322.0700 7341.60\n\nSalesman/Fuel\n\nMachine Operator\n\nServiceman/Fuel\n\nDispensing\n\nPhotographer 3431.0200 3131.30\n\nAttendant\n\nPetroleum and 3117.0200 3117.20\n\nPhotographer, 3431.0300 3131.35\n\nNatural Gas\n\nAerial\n\nExtraction\n\nPhotographer, 3431.0100 3131.25\n\nGeneral\n\nPetroleum 3134.9900 8155.90\n\nRefining Workers,\n\nPhotographers, 3431.9900 3131.90\n\nPetrologists 2114.0200 2114.20\n\nPhotographic Dark 8132.0600 7344.50\n\nRoom Operatives\n\nPharmaceutical 3213.9900 3228.90\n\nAssistants, Other\n\nPhotographic Film 8132.0900 8224.30\n\nand Papermaker\n\nPharmacist 3213.0100 3228.10\n\nPhotographic 8132.9900 8224.90\n\nPharmacologist 2212.1500 2212.30\n\nProducts Machine\n\nVOLUME I 323",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 335,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_335",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page335",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_334",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_336"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:40.720198Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 157,
+    "custom": {}
+  }
+}

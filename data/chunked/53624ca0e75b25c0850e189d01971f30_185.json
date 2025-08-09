@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_185",
+  "chunk_type": "page",
+  "text": "## Page 185\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n7412.0100 Mechanic, Precision Instrument, Electrical 7241.10\n\n7412.0101 Automation Specialist\n\n7412.0102 In-Circuit Testing Machine Operator\n\n7412.0103 Automated Optical Inspection Operator\n\n7412.0104 Bare Board Testing Operator\n\n7412.0200 Electrical Fitter 7241.20\n\n7412.0201 Fitter – Electrical and Electronic Assembly\n\n7412.0202 Mechanical Fitter\n\n7412.0203 Fitter Electrical Assembly\n\n7412.0300 Adjuster, Relays 7241.30\n\n7412.0400 Armature Winder 7241.40\n\n7412.0500 Coil Winder, Machine 7241.50\n\n7412.0600 Electrician, Aircraft 7241.60\n\n7412.0701 Electrician, Automobile 7241.70\n\n7412.0801 Maintenance Assistant/Helper\n\n7412.0901 Potting and Curing Operator\n\n7412.1001 Mechanical Fitter – Control Panel\n\n7412.1002 Site Engineer – Control Panel\n\n7412.9900 Electrical Mechanics and Fitters, Other 7241.90\n\nFamily 7413 Electrical Line Installers and Repairers\n\n7413.0100 Lineman, Light and Power 7245.10\n\n7413.9900 Electrical Line Installers, Repairers and 7245.90\n\nVOLUME I 173",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 185,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_185",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page185",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_184",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_186"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:46.878813Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 141,
+    "custom": {}
+  }
+}

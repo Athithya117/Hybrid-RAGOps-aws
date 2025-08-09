@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_200",
+  "chunk_type": "page",
+  "text": "## Page 200\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n7541.9900 Underwater Divers, Other 7216.90\n\nFamily 7542 Shotfirers and Blasters\n\n7542.0100 Shotfirer 7112.10\n\n7542.0101 Person Handling Explosives\n\n7542.0200 Safety Lamp Checker 7119.10\n\n7542.0300 Cobber, Mica 7119.20\n\n7542.0400 Sickle Dresser, Mica 7119.30\n\n7542.0500 Screener, Mica 7119.40\n\n7542.0600 Knife Dresser, Mica 7119.50\n\n7542.0700 Film Splitter, Mica 7119.60\n\n7542.0800 Deep Cell Attendant 7119.70\n\n7542.9900 Shotfirers and Blasters, Other 7112.90\n\nFamily 7543 Product Graders and Testers (Excluding\n\nFood and Beverages)\n\n7543.0101 Cloth Examiner/Fabric Checker 3152.10\n\n7543.0201 QC Executive – Sewing Line\n\n7543.0202 Quality Assessor\n\n7543.0300 Examiner, (Footwear)/Quality Controller 3152.30\n\n7543.0301 Measurement Checker\n\n7543.0302 Inline Checker\n\n7543.0400 Examiner, Dry Cleaning/Fabric Inspection 3152.40\n\nOperator\n\n7543.0500 Examiner, Wood Working 3152.50\n\nVOLUME I 188",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 200,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_200",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page200",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_199",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_201"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:51.203294Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 133,
+    "custom": {}
+  }
+}

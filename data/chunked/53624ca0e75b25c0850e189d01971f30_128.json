@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_128",
+  "chunk_type": "page",
+  "text": "## Page 128\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n3522.0100 Telecommunication, Technician 3114.20\n\n3522.0200 Line Inspector, Telephone 3114.30\n\n3522.0300 Telephone Inspector 3114.40\n\n3522.0400 Wireless Inspector Electronics 3114.50\n\n3522.9900 Telecommunication Engineering Technicians,\n\nOther\n\nVOLUME I 116",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 128,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_128",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page128",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_127",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_129"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:27.719323Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 38,
+    "custom": {}
+  }
+}

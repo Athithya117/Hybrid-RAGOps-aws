@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_254",
+  "chunk_type": "page",
+  "text": "## Page 254\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nAgricultural 2141.0900 2149.18 Air Traffic 3154.0100 3144.10\n\nEngineer Controller\n\nSpecialist\n\nAir Traffic 3154.9900 3144.90\n\nAgricultural 3142.9900 `\n\nControllers, Other\n\nTechnicians,\n\nOthers\n\nAircraft Cargo 5111.0500 5111.50\n\nHandling\n\nAgriculture 7233.2800 7233.80\n\nSupervisor\n\nEngineering\n\nTechnician\n\nAircraft 7232.9900 7232.90\n\nMechanics, Other\n\nAgriculture 6116.0101\n\nExtension\n\nAircraft Pilot, 3153.0400 3143.40\n\nExecutive\n\nSpecialized\n\nAgriculture 6116.0102\n\nAircraft Pilots and 3153.9900 3143.90\n\nExtension Service\n\nRelated Associate\n\nProvider\n\nProfessionals,\n\nOther\n\nAgriculture Field 2412.0501\n\nOfficer\n\nAirframe Erector 7232.0100 7232.10\n\nAgronomist 2132.0100 2213.10\n\nAirport Engineer 2142.0800 2142.65\n\nAgronomists and 2132.9900 2213.90\n\nAlgologist 2131.0800 2211.55\n\nRelated\n\nAllergy Specialist 2212.0300 2221.42\n\nAmmonia 3132.0800 8169.20\n\nAir Compressor 3132.0700 8169.10\n\nCompressor\n\nOperator\n\nAttendant\n\nAir Conditioning 3132.0900 8169.30\n\nAmmonia 8131.2100 8152.70\n\nand Refrigeration\n\nOperator/Ammoni\n\nPlant Attendant\n\na Plant Operator\n\nAir Crew Member 5111.0600 5111.60\n\nAmpoule 8131.7200 8159.66\n\nMachine/Plant\n\nAir Hostess 5111.0300 5111.30\n\nVOLUME I 242",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 254,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_254",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page254",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_253",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_255"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:11.127124Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 156,
+    "custom": {}
+  }
+}

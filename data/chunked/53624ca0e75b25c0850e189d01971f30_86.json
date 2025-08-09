@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_86",
+  "chunk_type": "page",
+  "text": "## Page 86\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n2611.0800 Attorney at Law 2421.70\n\n2611.0900 Advocate 2421.80\n\n2611.1001 Intellectual Property Executive\n\n2611.1002 Legal Associate\n\n2611.9900 Lawyers, Other 2421.90\n\nFamily 2612 Judges\n\n2612.0100 Judge, Supreme Court 2422.10\n\n2612.0200 Judge, High Court 2422.20\n\n2612.0300 District and Session Judge 2422.30\n\n2612.0400 Munsif 2422.40\n\n2612.0500 Judge, Subordinate Court 2422.50\n\n2612.0600 Magistrate 2422.60\n\n2612.0700 Magistrate, Juvenile Court 2422.65\n\n2612.0800 Chairman, Administrative Tribunal 2422.70\n\n2612.0900 Member, Administrative Tribunal 2422.72\n\n2612.1000 President, Industrial Tribunal 2422.75\n\n2612.1100 Member, Industrial Tribunal 2422.80\n\n2612.1200 President, Consumer Redressal Forum 2422.85\n\n2612.1300 Member, Consumer Redressal Forum 2422.87\n\n2612.9900 Judges and Magistrates, Other 2422.90\n\nFamily 2619 Legal Professionals, Not Elsewhere Classified\n\n2619.0100 Prothonotary and Senior Master 2429.10\n\nVOLUME I 74",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 86,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_86",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page86",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_85",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_87"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:13.332865Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 146,
+    "custom": {}
+  }
+}

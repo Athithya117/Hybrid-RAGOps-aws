@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_275",
+  "chunk_type": "page",
+  "text": "## Page 275\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nCommercial Sales 3322.9900 3415.90 Composing Room 7321.0400 7341.30\n\nRepresentatives, Operatives\n\nOther\n\nCompositor 2166.0208\n\nCommercial 3322.0200 3415.30\n\nCompositor, Hand 7321.0100 7341.15\n\nTraveller, General\n\nCompounding 8131.0500 8151.45\n\nCommercial 8331.0301\n\nMan (Match)\n\nVehicle Driver\n\nCompression 8142.0600 8232.30\n\nCommercial 8331.0302\n\nMoulding Machine\n\nVehicle Driver –\n\nOperator (Plastic)\n\nAssistant\n\nComputer 3513.9900\n\nCommercial 5165.0101\n\nNetwork and\n\nSystems\n\nTrainer\n\nTechnician, Other\n\nCommission Agent 2412.0600 3411.40\n\nComputer 2523.9900 2139.90\n\nCommunication 1330.0101 Network\n\nAnalyst Professionals,\n\nCommunity Health 3253.9900\n\nWorkers, Other Computer 4131.0600 4112.20\n\nOperator\n\nCommunity 6116.0112\n\nService Provider Computer 2512.0100 2132.10\n\nProgrammer/Soft\n\nComplaint 4225.0100 4221.30\n\nware Engineer\n\nAttending\n\nClerk/Customer Computer 2514.9900 2132.90\n\nService Programmers,\n\nDesk/Customer Other\n\nService Executive\n\nComputer Security 3513.0200 3121.30\n\nComponent 8212.1606 Specialist\n\nPreparation\n\nComputer System 2523.0200 2139.40\n\nHardware\n\nAnalyst/Hardware\n\nVOLUME I 263",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 275,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_275",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page275",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_274",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_276"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:19.992971Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 181,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_123",
+  "chunk_type": "page",
+  "text": "## Page 123\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nFamily 3359 Government Regulatory Associate Professionals\n\nNot Elsewhere Classified\n\nSub- 34 Legal, Social, Cultural and Related Associate\n\nDivision Professionals\n\nGroup 341 Legal, Social and Religious Associate\n\nProfessionals\n\nFamily 3411 Legal and Related Associate Professionals\n\n3411.0100 Legal Assistant 3432.10\n\n3411.0200 Shirestedar 3432.20\n\n3411.0300 Petition Writer 3432.30\n\n3411.9900 Legal and Related Associate Professionals, Other 3432.90\n\nFamily 3412 Social Work Associate Professionals\n\n3412.0100 Blood Donor Unit Assistant 3460.10\n\n3412.0200 Equal Opportunity Officer 3460.20\n\n3412.9900 Social Work Associate Professionals 3460.90\n\nFamily 3413 Religious Associate Professionals\n\nGroup 342 Sports and Fitness Workers\n\nFamily 3421 Athletes and Sports Players\n\n3421.0100 Professional Sportsman/Professional, Athlete 3475.20\n\n3421.0200 Jockey 3475.30\n\nFamily 3422 Sports Coaches, Instructors and Officials\n\n3422.0100 Athletic Coach 3475.40\n\n3422.0201 Sports Coach 3475.45\n\nVOLUME I 111",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 123,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_123",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page123",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_122",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_124"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:26.112944Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 127,
+    "custom": {}
+  }
+}

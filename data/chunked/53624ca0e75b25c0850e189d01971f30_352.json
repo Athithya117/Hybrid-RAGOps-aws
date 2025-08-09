@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_352",
+  "chunk_type": "page",
+  "text": "## Page 352\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nMachine Operator\n\nSchool Inspector 2351.0100 2332.10\n\nSculptor 2651.0100 2452.10\n\nScoop Truck 8342.1300 8332.34\n\nOperator\n\nScutcherman, 8154.0800 8264.66\n\nBleaching\n\nScouring Man, 7318.1800 7431.28\n\nWool/Wool\n\nSeaconny/OS 8350.0300 8340.20\n\nWashing and\n\n(Ordinary Seaman)\n\nScouring Operator\n\nSealing and Valve 8141.0900 8231.50\n\nScouring 3122.3450 7431.26\n\nFitting Operator\n\nSupervisor, Wool\n\nSeaming Machine 8160.2500 8275.40\n\nScouringman, 8154.0300 8264.55\n\nOperator (Food\n\nWoollen Yarn\n\nCanning and\n\nPreserving)\n\nScraper Driver, 8111.2600 7111.78\n\nMines\n\nSeamless Pipe and 8121.5500 8124.40\n\nTube Drawers\n\nScrapper Loader 8342.0301 8332.14\n\nOperator/Loader\n\nSeamless Pipe and 3135.2500 8122.46\n\nTube Roller\n\nScrapper Operator 8342.0200 8332.12\n\nSearcher 3351.0300 3441.30\n\nScreener, Mica 7542.0500 7119.40\n\nSeasoner, Leather 7535.1600 7441.44\n\nScribes and 4414.9900 4144.90\n\nSeat Laster, 8156.1600 8266.36\n\nRelated Clerks,\n\nMachine/Lasting\n\nOther\n\nScript Editor 2641.0302\n\nSeaweed Gatherer 7541.0500 6152.70\n\nScript Researcher 2641.0602\n\nSecond Engineer, 3151.0200 3141.20\n\nScript Writer 2641.0601 2451.70\n\nSecond Officer, 3152.0300 3142.30\n\nScudder, Hand 7535.0700 7441.26\n\nScudder, 8155.0300 8265.25\n\nSecretaries, Other 4120.9900 4115.90\n\nMachine/Scudding\n\nVOLUME I 340",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 352,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_352",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page352",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_351",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_353"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:48.818807Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 184,
+    "custom": {}
+  }
+}

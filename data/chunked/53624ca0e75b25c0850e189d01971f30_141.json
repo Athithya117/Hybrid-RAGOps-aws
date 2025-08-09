@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_141",
+  "chunk_type": "page",
+  "text": "## Page 141\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n5153.0200 Caretaker, Monument 9141.20\n\n5153.0300 Caretaker, Burial Places and Cremation 9141.30\n\nGrounds\n\n5153.9900 Building Caretakers, Other 9141.90\n\nGroup 516 Other Personal Services Workers\n\nFamily 5161 Astrologers, Fortune Tellers and Related\n\nWorkers\n\n5161.0100 Astrologer 5151.10\n\n5161.0200 Palmist 5152.10\n\n5161.9900 Astrologers, Fortune Tellers and Related 5152.90\n\nWorkers, Other\n\nFamily 5162 Companions and Valets\n\nFamily 5163 Undertakers and Embalmers\n\n5163.0100 Undertaker 5143.10\n\n5163.0200 Embalmer 5143.20\n\n5163.0300 Grave Digger 5143.30\n\n5163.9900 Undertakers and Embalmers, Other 5143.90\n\nFamily 5164 Pet Groomers and Animal Care Workers\n\nFamily 5165 Driving Instructors\n\n5165.0101 Commercial Vehicle Driver Trainer\n\nFamily 5169 Personal Service Workers Not Elsewhere\n\nClassified\n\nSub- 52 Sales Workers\n\nDivision\n\nVOLUME I 129",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 141,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_141",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page141",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_140",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_142"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:31.806495Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 121,
+    "custom": {}
+  }
+}

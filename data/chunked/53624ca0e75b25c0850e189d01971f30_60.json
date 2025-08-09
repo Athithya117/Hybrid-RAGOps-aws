@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_60",
+  "chunk_type": "page",
+  "text": "## Page 60\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nOther\n\nGroup 213 Life Sciences Professionals\n\nFamily 2131 Biologists, Botanists, Zoologists and Related\n\nProfessionals\n\n2131.0100 Biologist, General 2211.10\n\n2131.0200 Marine Biologist 2211.15\n\n2131.0300 Cytologist 2211.20\n\n2131.0400 Botanist, General 2211.35\n\n2131.0500 Economic Botanist 2211.37\n\n2131.0600 Plant Breeder 2211.40\n\n2131.0700 Mycologist 2211.50\n\n2131.0800 Algologist 2211.55\n\n2131.0900 Zoologist, General 2211.60\n\n2131.1000 Entomologist 2211.65\n\n2131.1100 Parasitologist 2211.70\n\n2131.1200 Bacteriologist 2211.85\n\n2131.1300 Chemist, Biological 2212.10\n\n2131.1400 Chemist, Food 2212.20\n\n2131.1500 Plant Pathologist 2212.70\n\n2131.1800 Plant Physiologist 2212.80\n\n2131.9900 Biologists, Botanists, Zoologists and Related 2211.90\n\nProfessionals, Other\n\nFamily 2132 Farming, Forestry and Fisheries Advisors\n\nVOLUME I 48",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 60,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_60",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page60",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_59",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_61"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:03.887176Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 133,
+    "custom": {}
+  }
+}

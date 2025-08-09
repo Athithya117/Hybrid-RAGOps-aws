@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_260",
+  "chunk_type": "page",
+  "text": "## Page 260\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nAyah, Institutional 5311.0100 5131.10 Banana Farmer 6111.0901\n\nBack Sizer 8152.2100 8262.86 Band Builder (Tyre 8141.1900 8231.83\n\nBuilding)\n\nBacteriologist 2131.1200 2211.85\n\nBand Saw 8172.0300 8141.25\n\nBagpipe Maker 7312.1600 7312.58\n\nOperator\n\nBailiff 4419.0400 4190.55\n\nBandroll and 8131.4600 8222.70\n\nLabelling Machine\n\nBaker (Baking 7512.0100 7412.10\n\nProducts)\n\nBank Clerk 4311.0200 4121.30\n\nBakers, Pastry 7512.9900 7412.90\n\nCooks and\n\nBank Tellers and 4211.9900 4212.90\n\nConfectionery\n\nRelated Clerks,\n\nMakers, Other\n\nOther\n\nBale Breaker 7318.0900 7431.10\n\nBanksman 8111.2400 7111.76\n\nTenter,\n\nCotton/Blow Barber 5141.0300 5141.20\n\nRoom Operator\n\nBare Board Testing 7412.0104\n\nBale Cutter 8131.5900 8159.34 Operator\n\nOperator, Rubber\n\nBare Foot 3142.0201\n\nBall Filling 7223.2500 8211.62 Technician (BFT)\n\nMachine Operator\n\nBark Pitman 7535.1100 7441.34\n\nBall Lapping 7223.2600 8211.64 (Tanning)\n\nBarman 5132.0100 5123.60\n\nBall Mill Operator 8181.2400 8139.30\n\nBarman, Lino 7321.1700 7343.60\n\n(Cement &\n\nMachine\n\nCeramics)\n\nBarrel-Lathe 8172.0900 8141.62\n\nBalling – Machine 8159.0300 8269.30\n\nOperator, Outside\n\nOperator (Textile)\n\n(Wood Container)\n\nBamboo Grower 6112.0701\n\nBartenders, Other 5132.9900\n\nVOLUME I 248",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 260,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_260",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page260",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_259",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_261"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:13.380306Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 190,
+    "custom": {}
+  }
+}

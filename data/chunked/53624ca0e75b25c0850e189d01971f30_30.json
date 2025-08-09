@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_30",
+  "chunk_type": "page",
+  "text": "## Page 30\n\n| Skill Level | ISCO – 08 Educational Requirements | NCO – 2015 Educational Requirements |\n\n| I | Primary Education | Up to 10 years of formal education and/or informal skills |\n\n| II | Secondary Education | 11-13 years of formal education |\n\n| III | First University Degree | 14-15 years of formal education |\n\n| IV | Post-Graduate University Degree | More than 15 years of formal education |\n\nNational Classification of Occupations – 2015 Introduction\n\nThe five steps approach is:\n\n1. Aligning existing NCO – 2004 to ISCO – 2008 to create NCO – 2015\n\n2. Mapping the QPs to the job roles in NCO – 2015\n\n3. Coding the NCO – 2015 job roles\n\n4. Mapping the job roles to the sectors/industry\n\n5. Mapping the job roles to NIC – 2008\n\n6. Classifying the job roles as relevant, relevant with modification, and obsolete\n\n2.4 Aligning NCO – 2015 to ISCO – 2008\n\nWhile aligning NCO – 2004 to ISCO – 2008, it was noticed that a number of completely new Sub-\n\nMajor Groups, Minor Groups, and Unit Groups have been introduced to ISCO – 2008. This led to a\n\ntotal revamp of Groups and Families in NCO – 2015. Many existing Families were either split or\n\nmerged into different Families.\n\nThe changes thus made showed that NCO – 2004 was out of date in some areas as a result of the\n\nimpact of development in technology as many jobs now depended on the use of computers and\n\ntelecommunications. Thus, the merger or spilt of Families reflected occupational and\n\ntechnological change in the current labour market.\n\nDuring the mapping exercise, the nature of work performed has been given more emphasis than\n\nthe formal education in determining the skill level of the occupation.\n\nSkill Level ISCO – 08 Educational Requirements NCO – 2015 Educational Requirements\n\nI Primary Education Up to 10 years of formal education and/or\n\ninformal skills\n\nII Secondary Education 11-13 years of formal education\n\nIII First University Degree 14-15 years of formal education\n\nIV Post-Graduate University Degree More than 15 years of formal education\n\nVOLUME I 18",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 30,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_30",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page30",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_29",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_31"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:52.535821Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 1,
+    "parse_chunk_duration": 105,
+    "custom": {}
+  }
+}

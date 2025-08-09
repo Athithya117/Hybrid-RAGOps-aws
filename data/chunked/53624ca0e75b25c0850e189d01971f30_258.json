@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_258",
+  "chunk_type": "page",
+  "text": "## Page 258\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\n(Non-Voice)\n\nAssistant 7115.0201\n\nShuttering\n\nAssociate— 3512.0202\n\nCarpenter\n\nDesktop\n\nPublishing (DTP)\n\nAssociate – 2120.0501\n\nAnalytics\n\nAssociate Network 5242.0501 5220.20\n\nAssociate – Clinical 3512.0601\n\nEngineer\n\nData Management\n\nAssociate 5242.0502\n\nAssociate – CRM 5244.0102\n\nOperations\n\nAssociate – 2641.0701\n\nEditorial\n\nAstrologer 5161.0100 5151.10\n\nAssociate – 2411.0201\n\nAstrologers, 5161.9900 5152.90\n\nFinance &\n\nFortune Tellers\n\nAccounting\n\nand Related\n\nComplex\n\nWorkers, Other\n\nAssociate – 2641.0801\n\nAstronomer 2111.0900 2111.60\n\nLearning\n\nAthletic Coach 3422.0100 3475.40\n\nAssociate – 3512.0702\n\nMedical\n\nAttorney at Law 2611.0800 2421.70\n\nTranscription\n\nAttorney General 2611.0100 2421.10\n\nAssociate – 2423.0101\n\nof India\n\nRecruitment\n\nAuctioneer 3339.0300 3417.10\n\nAssociate – Supply 3323.0601\n\nChain\n\nAudit, Clerk 4311.0500 4121.50\n\nManagement\n\nAuditor 2411.0200 2411.20\n\nAssociate – 2411.0101\n\nTransactional\n\nAuthor 2641.0100 2451.10\n\nAuthors, 2641.9900 2451.90\n\nJournalists and\n\nAssociate 5244.0202\n\nOther Writers\n\nCustomer Care\n\nVOLUME I 246",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 258,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_258",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page258",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_257",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_259"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:12.751621Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 175,
+    "custom": {}
+  }
+}

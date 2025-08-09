@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_368",
+  "chunk_type": "page",
+  "text": "## Page 368\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\n(Machine) Worker\n\nTailors, 7531.9900 7434.90 Tea Taster 7515.0100 7415.10\n\nDressmakers,\n\nTeacher for 2352.0100 3330.10\n\nFurriers and\n\nVisually Impaired\n\nHatters, Other\n\nTeacher for 2352.0200 3330.20\n\nTanner, Rotary 8155.1101 8265.70\n\nHearing-Impaired\n\nDrum, Continuous\n\nProcess (Leather\n\nTeacher for 2352.0400 3330.40\n\nManufacturing)/Dr\n\nDifferently-Abled\n\num Operator\n\n(Physical)\n\nTape 2622.0300 2432.25\n\nTeacher, Infant 2342.0100 3320.10\n\nLibrarian/Librarian\n\nSchool/Teacher\n\nDigital/Librarian\n\nPre-Primary\n\nMedia\n\nTeacher for 2352.0300 3330.30\n\nTapper, Palm Juice 6112.0200 6112.40\n\n(Mental)\n\nTapper, Rubber 6112.0300 6112.50\n\nTeacher for 2352.9900 3330.90\n\nTappers 9215.0200 9203.90\n\nDifferently-Abled,\n\nTar Supervisor 7112.0500 7122.50 Other\n\nTaster (Food) 7515.0300 7415.30 Teaser (Feeder 7318.2200 7431.40\n\nand Receiver) Jute\n\nTattoo Artist 3435.0100 3471.30\n\nTechnical 5242.0101 5220.25\n\nTaxidermist 3141.0300 3211.30\n\nDemonstrator\n\n(Sale)/Area\n\nTaxing Master 2619.0500 2429.40\n\nTechnical Lead\n\nTaxonomist 2133.0300 2211.30\n\nTechnical Support 4222.0101\n\nExecutive – Non-\n\nTea Blender 8160.6300 8277.40\n\nVoice\n\nTea Maker 8160.5700 8277.10\n\nTechnical Support 4222.0102\n\nExecutive – Voice\n\nTea Plantation 6112.0501\n\nVOLUME I 356",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 368,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_368",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page368",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_367",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_369"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:54.674642Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 176,
+    "custom": {}
+  }
+}

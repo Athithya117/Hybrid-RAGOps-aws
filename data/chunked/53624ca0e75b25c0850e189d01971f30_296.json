@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_296",
+  "chunk_type": "page",
+  "text": "## Page 296\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nSystem\n\nFitter Automobile 7231.0400 7231.40\n\nFitter-Mechanical 8211.1202\n\nFitter Electrical 7412.0203\n\nAssembly\n\nFlake Miller, 8160.1900 8274.50\n\nFitter Electronic 7421.0101\n\nWheat and Oats\n\n(Grain-Feed Mills)\n\nFitter 7311.0401\n\nFlat Knitter, 8152.0600 8262.30\n\nInstrumentation\n\nMachine/Knitting\n\nMachine Operator\n\nFitter Levelling, 7233.0121\n\n– Flat Knitting\n\nAlignment &\n\nBalancing\n\nFlattening 8121.2400 8122.38\n\nMachine and\n\nFitter, Bench 7233.0200 7233.20\n\nFlying Shear\n\nOperator (Non-\n\nFitter, Bicycle 7233.2600 7233.66\n\nFerrous Metal)\n\nFitter, 7214.0800 7214.70\n\nFlayer 7535.0200 7441.15\n\nConstruction\n\nFlesher, Hand 7535.0500 7441.22\n\nFitter, General 7233.0100 7233.10\n\nFlesher, 8155.0201 8265.20\n\nFitter, Loco 7233.2400 7233.64\n\nMachine/Fleshing\n\nFitter, Marine 7233.2200 7233.62\n\nOperator\n\nFitter, Railway 7233.2300 7233.63\n\nFlight Attendants 4221.0200\n\nCarriage and\n\nand Travel\n\nWagon\n\nStewards\n\nFitter, Signal 7233.2700 7233.70\n\nFlight Engineer 3153.1100 3143.84\n\nFitter, Stationery 7233.2100 7233.60\n\nFlight Operation 1324.1000 1226.37\n\nSteam Engine\n\nOfficer, Air Service\n\nFitter, Structural 7214.0700 7214.65\n\nFlight Steward 5111.0400 5111.40\n\nFitter: Hydraulic 7233.2901\n\nFloor Layers and 7122.9900 7132.90\n\nand Pneumatic\n\nTile Setters, Other\n\nFloor Manager 3322.1305\n\nVOLUME I 284",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 296,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_296",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page296",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_295",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_297"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:27.639659Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 176,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_312",
+  "chunk_type": "page",
+  "text": "## Page 312\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nKneader Operator 8141.0716 Laboratory 3111.0300 3111.30\n\nAssistant,\n\nKnife Dresser, 7542.0600 7119.50\n\nChemical\n\nLaboratory 3116.0300 3116.30\n\nKnitter, Hand 7318.6600 7432.74\n\nKnitter, 8152.0900 8262.45\n\nEngineering\n\nMachine/Knitting\n\nGeneral\n\nMachine Operator\n\nLaboratory 2240.0100 3221.10\n\nKnitting Jobber 8152.0300 8262.10\n\nAssistant, Clinical\n\nKnitting Machine 7318.0400 7332.40\n\nLaboratory 3119.0100 3119.10\n\nOperator,\n\nAutomatic\n\nKnotter, Silk 7318.4900 7432.40\n\nLaboratory 3116.0200 3116.20\n\nAssistant, Food &\n\nLab Chemist – 2113.0623\n\nBeverages/\n\nCompound Testing\n\nChemist/\n\n– Batch Release\n\nAnalytical\n\nSupervisor/Lab\n\nLab Chemist – 2113.0624\n\nChemist\n\nCured Compound\n\nTesting\n\nLaboratory 3111.0500 3111.40\n\nLab Chemist – 2113.0621\n\nGeological\n\nFinished Product\n\nLaboratory 3116.0100 3116.10\n\nAssistant, Glass\n\nLab Chemist – 2113.0622\n\nand Ceramics\n\nIncoming Raw\n\nMaterial Testing\n\nLaboratory 3117.0300 3117.30\n\nLabeller 9321.0201 9322.20\n\nMetallurgical\n\nLaboratory 3141.0200 3211.20\n\nBotanical\n\nVOLUME I 300",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 312,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_312",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page312",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_311",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_313"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:33.880497Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 734,
+    "custom": {}
+  }
+}

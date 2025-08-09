@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_205",
+  "chunk_type": "page",
+  "text": "## Page 205\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n8112.0500 Precipitator 8112.40\n\n8112.0600 Washing Plant Operator 8112.45\n\n8112.0700 Stone Sawyer, Machine 8112.50\n\n8112.0800 Stone Cutter, Machine 8112.55\n\n8112.0900 Stone Polisher, Machine 8112.60\n\n8112.1000 Pipe Machineman, Stoneware 8112.62\n\n8112.1100 Thread Cutting Machine Operator, 8112.65\n\nStoneware\n\n8112.1200 Cone Operator (Mine & Quarry) 8112.70\n\n8112.9900 Mineral and Stone Processing Plant 8112.90\n\nOperators, Other\n\nFamily 8113 Well Drillers and Borers and Related\n\nWorkers\n\n8113.0100 Well Drillers, Petroleum and Gas 8113.10\n\n8113.0200 Derrickman 8113.15\n\n8113.0300 Mudman 8113.20\n\n8113.0400 Cementer 8113.25\n\n8113.0500 Well Puller 8113.30\n\n8113.0600 Scaperman 8113.35\n\n8113.0700 Gauger 8113.40\n\n8113.0800 Well Driller, Machine (Other than 8113.45\n\nPetroleum and Gas)\n\n8113.9900 Well Drillers and Borers and Related 8113.90\n\nWorkers, Other\n\nVOLUME I 193",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 205,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_205",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page205",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_204",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_206"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:52.880071Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 120,
+    "custom": {}
+  }
+}

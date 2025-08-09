@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_93",
+  "chunk_type": "page",
+  "text": "## Page 93\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n2652.0500 Instrumental Musician, Percussion Instrument 2453.50\n\n2652.0600 Instrumental Musician, Wind Instrument 2453.60\n\n2652.9900 Musicians, Singers and Composers, Other 2453.90\n\nFamily 2653 Dancers and Choreographers\n\n2653.0100 Choreographer 2454.10\n\n2653.0200 Nattuvan 2454.20\n\n2653.0300 Dancer 2454.30\n\n2653.9900 Choreographers and Dancers, Other 2454.90\n\nFamily 2654 Film, Stage and Related Directors and Producers\n\n2654.0100 Director, Theatrical 2455.10\n\n2654.0200 Director, Music 2455.20\n\n2654.0300 Dance Director 2455.30\n\n2654.0351 Live Action Director\n\n2654.0400 Director, Research (Motion Picture, Radio & TV) 2455.40\n\n2654.0500 Manager, Recreation and Entertainment 1229.10\n\n2654.0600 Producer, Stage 1229.30\n\n2654.0700 Producer, Film 1229.40\n\n2654.0800 Production Manager (Motion Picture) 1229.50\n\n2654.0901 Lighting Artist\n\n2654.9900 Stage and Film Directors, Other 2455.90\n\nFamily 2655 Actors\n\n2655.0100 Actor and Actress 2455.50\n\nVOLUME I 81",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 93,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_93",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page93",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_92",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_94"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:15.624488Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 147,
+    "custom": {}
+  }
+}

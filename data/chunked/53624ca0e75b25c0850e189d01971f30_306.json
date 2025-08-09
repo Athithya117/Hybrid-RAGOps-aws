@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_306",
+  "chunk_type": "page",
+  "text": "## Page 306\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nSkilled) Machine Operator\n\nHelper Bar Bender 9313.0201 Historian 2633.0100 2443.10\n\nand Fixer\n\nHistotechnician 3212.0501\n\nHelper Carpenter 9313.0401\n\nHoist Operator 8343.1200 8333.35\n\n– Shuttering &\n\nScaffolding\n\nHome Delivery 1221.0301\n\nManager\n\nHelper Electrician 9313.0501\n\nHome 5243.0300 9113.30\n\nHelper Laboratory 9313.0601\n\nDeliveryman\n\nand Field\n\nTechnician\n\nHome Economist 2631.0300 2441.30\n\nHelper Mason 9313.0301\n\nHome Guard 5414.0200 5169.20\n\nHelper Painter and 9313.0701\n\nHome Health Aide 5322.0101\n\nDecorator\n\nHome-Based 5322.9900 5133.90\n\nHelpers and 9112.9900 9132.90\n\nPersonal Care\n\nCleaners in\n\nWorkers, Other\n\nOffices, Hotels and\n\nOther\n\nHoner/Honing 7224.0600 7224.40\n\nEstablishments,\n\nMachine Operator\n\nHopper 3131.1000 8161.72\n\nHerdsman 6121.0400 6121.25\n\nAttendant/Hopper\n\nHide and Skin 8155.0400 8265.30\n\nSetter,\n\nHorn Comb Maker 7536.2700 7442.85\n\nMachine/Setting\n\n(Hand)\n\nHorse Carriage 9332.0100 9332.10\n\nHide Shaver, 8155.0601 8265.35\n\nDriver\n\nMachine/Shaving\n\nOperator\n\nHorticulturist 2132.0200 2213.20\n\nHide Splitter, 8155.0500 8265.32\n\nHose Maker 8141.1400 8231.72\n\nMachine/Splitting\n\nVOLUME I 294",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 306,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_306",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page306",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_305",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_307"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:31.295464Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 161,
+    "custom": {}
+  }
+}

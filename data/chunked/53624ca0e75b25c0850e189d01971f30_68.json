@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_68",
+  "chunk_type": "page",
+  "text": "## Page 68\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n2152.0502 Design-For-Test Engineer\n\n2152.0601 Quality Engineer\n\n2152.0801 Electronic Hardware Design Engineer\n\n2152.0901 Verification Engineer\n\n2152.0902 Testing and Validation Engineer\n\n2152.9900 Electronics Engineers, Other 2144.90\n\nFamily 2153 Telecommunication Engineers\n\n2153.0100 Telecommunication Engineer, General 2144.10\n\n2153.0101 Telecom Terminal Equipment Application\n\nDeveloper (Android)\n\n2153.0102 Telecom Terminal Equipment Application (Native\n\nApplications)\n\n2153.0200 Radio Engineer, Telecommunication 2144.20\n\n2153.0300 Microwave Engineer, Telecommunication 2144.30\n\n2153.0400 Line Communication Engineer, Tele- 2144.40\n\nCommunication/Telecommunication\n\nEngineer/Technician\n\n2153.0500 Sound Engineer 2144.50\n\n2153.0501 Sound Engineer, Media\n\n2153.0511 Sound Designer\n\n2153.0601 Core Engineer\n\n2153.9900 Telecommunication Engineers, Other\n\nGroup 216 Architects, Planners, Surveyors and Designers\n\nVOLUME I 56",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 68,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_68",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page68",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_67",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_69"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:06.552255Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 129,
+    "custom": {}
+  }
+}

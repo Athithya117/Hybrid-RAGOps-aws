@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_6",
+  "chunk_type": "page",
+  "text": "5. The Ministry is implementing the National Career Service (NCS) Project as a Mission\n\nMode Project for modernising and transforming the network of employment exchanges and\n\nModel Career Centres are being set up in collaboration with States. The NCS Portal is\n\noperational at www.ncs.gov.in and aims to link job seekers with employment opportunities\n\nalong with rich career content. The NCO Codes are integrally enmeshed in the NCS initiative\n\nand facilitates efficient job matching. The NCO Codes may be used by varied stakeholders in\n\nmaking information in the employment market more transparent and objective. Soft copies\n\nof the publication is available on the NCS portal.\n\n6. The NC0-2015 series has been evolved along with career content to contribute to the\n\nknowledge repository of career options. More details on the classification, as well as the\n\nprinciples, scope and structure of the classification are available on the National Career\n\nService (www.ncs.gov.in) platform. This knowledge repository provides career related\n\ninformation for use by career counsellors and job aspirants across the country and aims at\n\nsupporting policy makers, students, job seekers, persons returning to the labour force,\n\ninvestors and employers in making better labour market decisions.\n\n7. I am confident that the publication will prove useful in classifying occupations for\n\nofficial work, survey and research work, international comparisons on the demand and supply\n\nof workforce and many more such areas. I place on record my appreciation for all the\n\nstakeholders who have contributed their valuable inputs in the publication. I also take this\n\nopportunity to extend my thanks to the members of the Expert Group on the career content\n\nwho have examined and vetted the contents of this publication/documents. I also extend my\n\nthanks to the officers of the Directorate lead by Mr. Pravin Srivastava, Deputy Director\n\nGeneral (Employment) for timely coordination with all the stakeholders involved in this\n\ninitiative.\n\nPrincipal Labour Employment Advisor\n\nand Director General Employment",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 6,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_6",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page6",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_5",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_7"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:37.949596Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 426,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_289",
+  "chunk_type": "page",
+  "text": "## Page 289\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nand Studio\n\nElephant Keeper 6121.1100 6121.60\n\nElectronic 2152.0200 2144.60\n\nEliminator 8160.5200 8276.81\n\nEngineer\n\nAttendant, Sugar\n\nElectronic Fitters, 7421.9900 7243.90\n\nEmbalmer 5163.0200 5143.20\n\nMechanics and\n\nServicers, Other\n\nEmbedded 2512.0501\n\nSoftware Engineer\n\nElectronic 2152.0801\n\nHardware Design\n\nEmbosser, Leather 7535.1500 7441.42\n\nEmbosser, Sheet 7313.2200 7313.75\n\nElectronic 7421.0300 7243.10\n\nMechanic\n\nEmbossing 4132.0900 4113.70\n\nMachine Operator\n\nElectronic Sub- 8212.2601\n\nAssembly\n\nEmbossing 8142.1000 8232.50\n\nTechnician\n\n(Plastic)\n\nElectronics and 3114.9900 3114.90\n\nTelecommunicatio\n\nEmbossing 8142.0900 8232.45\n\nns Engineering\n\nMachine Setter\n\nTechnicians, Other\n\nElectronics 2152.9900 2144.90\n\nEmbroider, 8153.0500 8263.45\n\nEngineers, Other\n\nMachine\n\nElectronics Fitter, 7421.0100 7242.10\n\nEmbroidery 8153.0600 8263.50\n\nGeneral\n\n(Semi-Automatic)\n\nElectronics 3114.0100 3114.10\n\nEmbroidery 8153.0601\n\nElectro-Optical 2152.0400 2144.70\n\n(Zig Zag Machine)\n\nEmergency 2240.0502\n\nElectroplater 8122.0100 8223.10\n\nMedical\n\nTechnician –\n\nElectrotyper 7321.0700 7342.30\n\nAdvanced\n\nVOLUME I 277",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 289,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_289",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page289",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_288",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_290"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:25.456169Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 157,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_349",
+  "chunk_type": "page",
+  "text": "## Page 349\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nRoller, Second 8121.2700 8122.44 Routing Operator 8212.2503\n\nHand, Strip Mill\n\nRubber and 8141.9900 8231.90\n\n(Non-Ferrous\n\nRubberised\n\nMetal)\n\nProduct Makers,\n\nRoller, Sheet 3135.1800 8122.20 Other\n\nMill/Mill Operator\n\nRubber Fabric 8141.0400 8231.25\n\nRollerman (Glass) 8181.0600 8131.25 Cutting Machine\n\nOperator\n\nRollerman, (Food 8160.0900 8273.30\n\nGrains) Rubber Mould 7313.2401\n\nMaker\n\nRolling Machine 8155.1000 8265.60\n\nOperator (Leather) Rubber Nursery 1311.0901\n\nManager\n\nRoof Bolter, 8111.1300 7111.47\n\nMining Rubber Nursery 4311.0801\n\nOffice Assistant\n\nRoofers, Other 7121.9900 7131.90\n\nRubber Nursery 3122.8001\n\nRoom Attendant 5151.0202\n\nSupervisor\n\nRoom Bearer/Bell 5151.0800 5121.70\n\nRubber Nursery 6112.0801\n\nBoys/Bell\n\nWorker – Budder\n\nHop/Hotel Porters\n\nRubber Nursery 6112.0802\n\nRoot Cutter, Jute 7318.2100 7431.34\n\nWorker – General\n\nRope Dancer 2659.0100 3474.10\n\nRubber Stamp 8141.2400 8231.88\n\nRoto Artist 2166.0212\n\nRudderman 8350.0700 8340.50\n\nRoto Curing 8141.0712\n\nRug Cleaner 9121.0500 9133.50\n\nRough Assorter 7313.0902\n\nRunner, Mail 9621.0800 9151.70\n\nRough Marker 7313.0903\n\nSaddler 7536.1900 7442.75\n\nRouter, Wood 7523.0500 7423.30\n\nSafety Engineer 2141.2500 2149.85\n\nVOLUME I 337",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 349,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_349",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page349",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_348",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_350"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:47.774376Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 174,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_18",
+  "chunk_type": "page",
+  "text": "## Page 18\n\n| Skill Level | Skill Definition | Educational Requirements |\n\n| I | Typically involves the performance of simple and routine physical or manual tasks | Primary Education |\n\n| II | Typically involves the performance of tasks such as operating a machinery and electronic equipment, driving vehicles, maintenance and repair of electrical and mechanical equipment, and manipulation, ordering, and storage information | Secondary Education |\n\n| III | Typically involves performance of complex technical and practical tasks that require an extensive body of factual, technical, and procedural knowledge in a specialized field | First University Degree |\n\n| IV | Typically involves the performance of tasks that require complex problem-solving, decision-making, and creativity based on an extensive body of theoretical and factual knowledge in a specialized field | Post-Graduate University Degree |\n\nNational Classification of Occupations – 2015 Introduction\n\nSkill Skill Definition Educational\n\nLevel Requirements\n\nI Typically involves the performance of simple and routine Primary\n\nphysical or manual tasks Education\n\nII Typically involves the performance of tasks such as operating a Secondary\n\nmachinery and electronic equipment, driving vehicles, Education\n\nmaintenance and repair of electrical and mechanical\n\nequipment, and manipulation, ordering, and storage\n\ninformation\n\nIII Typically involves performance of complex technical and First University\n\npractical tasks that require an extensive body of factual, Degree\n\ntechnical, and procedural knowledge in a specialized field\n\nIV Typically involves the performance of tasks that require Post-Graduate\n\ncomplex problem-solving, decision-making, and creativity University\n\nbased on an extensive body of theoretical and factual Degree\n\nknowledge in a specialized field\n\nThe ISCO – 88 had the following hierarchical structure:\n\n1. Major Groups: 10\n\n2. Sub-Major Groups: 28\n\n3. Minor Groups: 116\n\n4. Unit Groups: 390\n\nThe ten Major Groups in ISCO – 88 are:\n\n1. Legislators, Senior Officials, and Managers\n\n2. Professionals\n\n3. Technicians & Associate Professionals\n\n4. Clerks\n\n5. Service Workers and Shop and Market Sales Workers\n\n6. Skilled Agricultural and Fishery Workers\n\n7. Craft and Related Trades Workers\n\n8. Plant and Machinery Operators and Assemblers\n\nVOLUME I 6",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 18,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_18",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page18",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_17",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_19"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:49.399871Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 1,
+    "parse_chunk_duration": 84,
+    "custom": {}
+  }
+}

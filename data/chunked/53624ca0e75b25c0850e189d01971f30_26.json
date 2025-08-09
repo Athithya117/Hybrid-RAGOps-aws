@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_26",
+  "chunk_type": "page",
+  "text": "## Page 26\n\nNational Classification of Occupations – 2015 Introduction\n\nwere kept to denote the close proximity of the nature of work of the two Occupations whereas\n\nlarger intervals would denote dissimilarity of the nature of work of the two Occupations. A period\n\n(.) separates the final two digits from the code number of the Family.\n\nThe revision of NCO – 2004 was carried out in line with the approach adopted by ILO in its ISCO –\n\n88. As such, all the Unit Groups in ISCO – 88 were adopted as Families at 4 digit level, even\n\nthough in some cases no Occupations at the specified skill level were identified so far. This was\n\ndone to accommodate Occupations, which may become available in the near future.\n\nOwing to introduction of the concept of skill level and new aggregation at six digit level in the\n\nNCO – 2004 classification, the code structure was radically changed. This resulted into breaking\n\nup and/or merger of some Divisions, Groups, and Families of the 1968 version. Due to this, exact\n\nequivalents of all the codes in the 68 version may not be available.\n\nAs in the earlier editions, separate codes were not provided for apprentices, foremen, and\n\ninstructors (in-plant). These maybe classified by prefixing ‘A’, ‘B’ or ‘C’ respectively before the\n\ncode number of the occupation which is being learned, supervised or instructed.\n\nVOLUME I 14",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 26,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_26",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page26",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_25",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_27"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:51.534556Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 54,
+    "custom": {}
+  }
+}

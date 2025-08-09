@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_244",
+  "chunk_type": "page",
+  "text": "## Page 244\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nFamily 9214 Garden and Horticultural Labourers\n\nFamily 9215 Forestry Labourers\n\n9215.0100 Labourer, Plantation 9202.10\n\n9215.0200 Tappers 9203.90\n\n9215.9900 Forestry Labourers and Related Workers, 9202.90\n\nOther\n\nFamily 9216 Fishery and Aquaculture Labourers\n\nSub- 93 Labourers in Mining, Construction,\n\nDivision Manufacturing and Transport\n\nGroup 931 Mining and Construction Labourers\n\nFamily 9311 Mining and Quarrying Labourers\n\n9311.0100 Mines, Quarrymen, Related Workers 9311.10\n\n9311.0101 Mazdoor/Helper\n\n9311.0200 Digger (Mine & Quarry) 9311.20\n\n9311.9900 Mining and Quarrying Labourers, Other 9311.90\n\nFamily 9312 Civil Engineering Labourers\n\n9312.0100 Labourer, Other 9312.10\n\n9312.0200 Track Repairer (Rail Transport) 9312.20\n\n9312.9900 Construction and Maintenance Labourers, 9312.90\n\nFamily 9313 Building Construction Labourers\n\n9313.0100 Well Digger Helper 9313.10\n\n9313.0201 Helper Bar Bender and Fixer\n\nVOLUME I 232",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 244,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_244",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page244",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_243",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_245"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:05.725384Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 126,
+    "custom": {}
+  }
+}

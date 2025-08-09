@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_33",
+  "chunk_type": "page",
+  "text": "## Page 33\n\nNational Classification of Occupations – 2015 Introduction\n\n3.1 International Standard Classification of Occupations (ISCO)\n\nInternational Labour Organization (ILO) has developed ISCO for the classification of occupations\n\nfrom an international perspective. The latest published version is ISCO 2008. This classification\n\nsystem contains the following categories:\n\n10 Major Groups\n\n43 Sub-Major Groups\n\n130 Minor Groups\n\n436 Unit Groups\n\nISCO 2008 has a four digit coding structure with a single digit representation for Major Groups,\n\nSub-Major Groups, Minor Groups, and Unit Groups.\n\nSample Code Sample Code Title\n\n8153 Sewing Machine Operators\n\n3.2 United States of America – Standard Occupation Classification\n\nIn United States of America, the latest version of Occupational Classification available is the\n\nStandard Occupation Classification 2010 (SOC 2010). This classification system contains\n\nfollowing categories:\n\n23 Major Groups\n\n97 Sub-Major Groups\n\n461 Broad Occupations\n\n840 Detailed Occupations\n\nVOLUME I 21",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 33,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_33",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page33",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_32",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_34"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:53.355060Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 73,
+    "custom": {}
+  }
+}

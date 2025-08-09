@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_320",
+  "chunk_type": "page",
+  "text": "## Page 320\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nFitness\n\nManager, Process 2144.0105\n\nClub/Centre/Gym\n\nEngineering\n\nManager, 1311.1200 1221.30\n\nManager, Quarry 1322.0200 1222.20\n\nHorticulture Farm\n\nManager, 2654.0500 1229.10\n\nManager, Import 1219.0100 1227.30\n\nRecreation and\n\nand Export\n\nEntertainment\n\nManager, 1346.0200 1227.20\n\nManager, Retail 1420.0200 1224.20\n\nInsurance\n\nTrade\n\nManager, Land 1323.0200 1223.20\n\nManager, Storage 1324.1200 1226.50\n\nSurvey\n\nand Warehousing\n\nManager, 1311.1300 1221.40\n\nManager, Traffic 1324.0500 1226.20\n\nLivestock Farm\n\nManager, 1324.0200 1226.10\n\nManager, Lodging 1411.0100 1225.10\n\nTransport\n\nand Catering\n\nServices/Resident\n\nManager, Water 1321.0400 1222.60\n\nManager\n\nSupply\n\nManager, 1321.0600 1222.70\n\nManager, Well 1322.0300 1222.30\n\nManufacturing\n\nDrilling\n\nManager, Material 1324.0100 1235.10\n\nManager, 1420.0100 1224.10\n\nControl/Manager\n\nWholesale Trade\n\nMaterials\n\nManagers, Other 1213.9900 1239.90\n\nManager, Mine 1322.0100 1222.10\n\nServices\n\nManager, Nursery 1311.0900 1221.22\n\nManaging 1120.9900 1211.90\n\nDirectors and\n\nManager, Orchard 1311.1100 1221.26\n\nChief Executives,\n\nOthers\n\nManager, 1311.0800 1221.20\n\nPlantation\n\nMango Grower 6111.1001\n\nManager, Poultry 1311.1500 1221.60\n\nManicurist 5142.0200 5141.40\n\nVOLUME I 308",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 320,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_320",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page320",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_319",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_321"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:36.119210Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 164,
+    "custom": {}
+  }
+}

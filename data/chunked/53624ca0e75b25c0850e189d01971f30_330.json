@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_330",
+  "chunk_type": "page",
+  "text": "## Page 330\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nNuclear Plant 3131.0800 8161.65 Office Assistant 3341.1000 3431.30\n\nControl Operator\n\nOffice Boy/Peon 4419.0500 4190.80\n\nNumismatist 2633.0400 2443.40\n\nOffice Supervisors, 3341.9900 3439.90\n\nNurse, General 3221.0100 3231.10 Other\n\nNurse, Industrial 3221.0200 3231.20 Official Assignee 2619.0700 2429.50\n\n(High Court)\n\nNurse, Specialist 2221.0100 2230.10\n\nOil Crusher 7514.0200 7414.20\n\nNursery Workers 6113.9900 6113.90\n\nOperator, Animal-\n\nand Gardeners,\n\nDriven\n\nOther\n\nOil Crusher 8160.1200 8273.60\n\nNurseryman 6113.0200 6113.20\n\nOperator, Power\n\nNursing Associate 3221.9900 3231.90\n\nOil Expeller Man 7514.0100 7414.10\n\nProfessionals,\n\nOther Oil Technologist 2145.1000 2146.62\n\nNursing Attendant 3221.0300 3231.30 Oiler and Greaser, 3131.0700 8161.60\n\nStationary Engine\n\nNutritionist, 2265.0100 3223.10\n\nand Machinery\n\nGeneral\n\nOperation 2120.0500 2122.30\n\nOarsman 8350.0800 8340.60\n\nResearch Analyst\n\nObstetrician 2212.1100 2221.75\n\nOperation Theatre 3212.0101 3211.40\n\nTechnician\n\nOccupational 2423.0500 2412.75\n\nAnalyst\n\nOperator – 7224.0402\n\nConventional\n\nOccupational 2141.2600 2149.86\n\nSurface Grinding\n\nHealth and Safety\n\nMachines\n\nSpecialist\n\nOperator, Call 5244.0100 5220.22\n\nOccupational 2264.0200 3226.20\n\nCentre\n\nTherapist\n\nOperator, Farm 8341.0200 8331.20\n\nOceanographer 2114.0800 2114.80\n\nVOLUME I 318",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 330,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_330",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page330",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_329",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_331"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:39.243721Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 188,
+    "custom": {}
+  }
+}

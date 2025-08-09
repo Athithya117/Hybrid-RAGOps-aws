@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_206",
+  "chunk_type": "page",
+  "text": "## Page 206\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nFamily 8114 Cement, Stone and Other Mineral Products\n\nMachine Operators\n\n8114.0100 Polishing Machine Operator (Mosaic) 8212.10\n\n8114.0200 Batching and Mixing Plant Operator 8212.20\n\n(Construction)\n\n8114.0300 Concrete Mixer Operator 8212.30\n\n8114.0500 Cast Stone Maker 8212.50\n\n8114.0600 Lead Brush Maker (Abrasive Wheel) 8212.60\n\n8114.0700 Fettler (Brick & Tile) 8212.70\n\n8114.9900 Cement and Other Mineral Products 8212.90\n\nMachine Operators, Other\n\nGroup 812 Metal Processing and Finishing Plant\n\nOperators\n\nFamily 8121 Metal Processing Plant Operators\n\n8121.0300 Larry Car Driver, Furnace 8121.20\n\n8121.2300 Shearing and Upcoiler Operator (Non- 8122.36\n\nFerrous Metal)/Coil Operator\n\n8121.2400 Flattening Machine and Flying Shear 8122.38\n\nOperator (Non-Ferrous Metal)\n\n8121.2500 Slitting Machine Operator (Non-Ferrous 8122.40\n\nMetal)\n\n8121.2700 Roller, Second Hand, Strip Mill (Non-Ferrous 8122.44\n\n8121.3000 Charger, Reveraberatory, Pulverised Coal 8122.50\n\nFired/Reverberatory Furnace Operator\n\n8121.3100 Melter Reveraberatory – Furnace, 8122.52\n\nPulverised Coal Fired/Reverberatory\n\nVOLUME I 194",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 206,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_206",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page206",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_205",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_207"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:53.301151Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 124,
+    "custom": {}
+  }
+}

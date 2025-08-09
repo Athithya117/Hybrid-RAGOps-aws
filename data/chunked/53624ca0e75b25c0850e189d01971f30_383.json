@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_383",
+  "chunk_type": "page",
+  "text": "## Page 383\n\nNational Classification of Occupations — 2015 Alphabetical Index\n\nOccupational NCO NCO\n\nTitle 2015 2004\n\nZoologist, General | 2131.0900 | 2211.60\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nZoologist, General 2131.0900 2211.60\n\nVOLUME I 371",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 383,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_383",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page383",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_382",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_384"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:31:00.556754Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": true,
+    "is_multilingual": false,
+    "num_images": 1,
+    "num_tables": 0,
+    "parse_chunk_duration": 702,
+    "custom": {}
+  }
+}

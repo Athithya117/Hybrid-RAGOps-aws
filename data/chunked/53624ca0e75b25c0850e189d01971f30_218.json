@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_218",
+  "chunk_type": "page",
+  "text": "## Page 218\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n8152.1200 Weaver, Lace (Machine) 8262.60\n\n8152.1300 Braid Maker, Machine/Braiding Machine 8262.65\n\nOperator\n\n8152.1400 Lace Maker (Machine) 8262.70\n\n8152.1600 Warp Tying Machineman 8262.80\n\n8152.1700 Wrapper 8262.81\n\n8152.2000 Front Sizer (Cotton Textile) 8262.85\n\n8152.2100 Back Sizer 8262.86\n\n8152.9900 Weaving and Knitting Machine Operators, 8262.90\n\nOther\n\nFamily 8153 Sewing Machine Operators\n\n8153.0101 Sewing Machine Operator, General 8263.10\n\n8153.0102 Stitcher (Leather Goods and Garments)\n\n8153.0103 Specialized Sewing Machine Operator\n\n8153.0200 Button Hole Maker, Machine 8263.20\n\n8153.0300 Eyelet Holing Machine Operator 8263.30\n\n8153.0400 Button Stitching Machine Operator 8263.40\n\n8153.0500 Embroider, Machine 8263.45\n\n8153.0600 Embroidery Machine Operator (Semi- 8263.50\n\nAutomatic)\n\n8153.0601 Embroidery Machine Operator (Zig Zag\n\nMachine)\n\n8153.0701 Framer – Computerised Embroidery\n\nMachine\n\nVOLUME I 206",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 218,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_218",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page218",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_217",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_219"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:57.360628Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 164,
+    "custom": {}
+  }
+}

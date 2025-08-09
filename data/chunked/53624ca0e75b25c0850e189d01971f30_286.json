@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_286",
+  "chunk_type": "page",
+  "text": "## Page 286\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nEngine (Electrical)\n\nDrier, Handmade 8171.2100 8143.55\n\nPaper\n\nDriver, Railway 8311.0200 8311.20\n\nEngine (Steam)\n\nDriller Metal, 7223.1500 8211.36\n\nGeneral\n\nDriver, Shunting 8311.0500 8311.50\n\n(Loco)\n\nDriller Wood 7523.1300 7423.65\n\nDriver, Steam 8343.0100 8333.10\n\nDriller, Hand 8111.2200 7111.74\n\nCrane\n\nDriller, Machine 8111.0200 8111.20\n\nDriver, Taxi 8322.0201 8322.20\n\nDrilling Operator 8212.2502\n\nDriving Assistant 9122.0301\n\nDriver Auto 8321.0101 8321.10\n\nDrum Maker, 7312.1400 7312.50\n\nRickshaw\n\nMusical\n\nDriver Road Test 8331.0500 8323.50\n\nDrum Man 7535.1200 7441.36\n\n(Tanning)\n\nDriver Truck 8332.0100 8324.10\n\nDry Cleaner, Hand 9121.0300 9133.30\n\nDriver, Ambulance 8322.0301 8322.30\n\nDry Cleaner, 8157.0300 8264.30\n\nDriver, Bus 8331.0300 8323.30\n\nMachine\n\nDriver, Car 8322.0100 8322.10\n\nDry Cleaner, Spot 9121.0700 9133.70\n\nDriver, Cycle 9331.0100 9331.10\n\nDrying Chamber 8131.1400 8152.30\n\nAttendant\n\n(Drugs)/Chamber\n\nDriver, Fire 8331.0400 8323.40\n\nOperators\n\nBrigade Vehicles\n\nDrying Chamber 8131.1500 8152.35\n\nDriver, 8350.0500 8340.30\n\nAttendant (Match\n\nLaunch/Tug\n\nBoxes)/Chamber\n\nMaster\n\nDriver, Railway 8311.0300 8311.30\n\nDrying Machine 8157.0200 8264.20\n\nEngine (Diesel)\n\nOperator\n\nDriver, Railway 8311.0400 8311.40\n\nVOLUME I 274",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 286,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_286",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page286",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_285",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_287"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:24.487770Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 190,
+    "custom": {}
+  }
+}

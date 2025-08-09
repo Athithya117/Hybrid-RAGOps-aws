@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_41",
+  "chunk_type": "page",
+  "text": "## Page 41\n\nNational Classification of Occupations – 2015 Introduction\n\nessential. The task involved analysis of all job codes in terms of relevance and completeness, and\n\ncategorizing them in three groups namely:\n\nRelevant (R)\n\nRelevant with Modification (RM)\n\nRedundant/Obsolete (O)\n\nIt is observed that with time, some job codes have become irrelevant. The reason is that either\n\nthe job profiles do not exist due to changing requirements of the industry or they may require\n\ncertain modifications. A thorough study of all job codes was undertaken and each job code was\n\ncategorised as relevant, relevant with modification, and redundant/obsolete. The break-up of\n\neach category is explained below:\n\nR – All the previous codes that are relevant according to the current work practices and\n\nenvironment to be marked as R (Relevant)\n\nRM – All the previous codes that are relevant according to the current work practices and\n\nenvironment, but with certain modification (like modification in job description,\n\nmodification/changes in the title, changes/modifications in skill level) to be marked as RM\n\n(Relevant with Modification)\n\nO – All the previous codes that are no longer relevant to the current work practices and\n\nenvironment to be marked as O (Redundant/Obsolete).\n\nIndustry experts were consulted to review the NCO 2015 job roles and validate the\n\ncategorization of NCO codes as R, RM, and O. The industry experts also validated the cases\n\nwherein new codes have been proposed.\n\n5. National Career Service Project (NCSP)\n\n5.1 The National Career Service Project (NCSP)\n\nVOLUME I 29",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 41,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_41",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page41",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_40",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_42"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:54.917767Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 58,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_345",
+  "chunk_type": "page",
+  "text": "## Page 345\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nStandards In-\n\nQuarryman, Other 8111.1000 7111.35\n\nCharge\n\nQuarryman, 8111.0900 7111.30\n\nQuality Control 2113.0601\n\nStone/Quarryman,\n\nChemist\n\nNon-Metal\n\nQuality Control 3139.5001\n\nQuick Care Point 9623.0601\n\nInspector\n\nAttendant\n\nQuality Control 7543.3001\n\nRAC Assembly 8212.1301\n\nInspector –\n\nOperator\n\nCalendering\n\nRace Horse Trainer 2659.1400 3474.65\n\nQuality Control 7543.3002\n\nRadar Mechanic 7422.0900 7243.20\n\nDimension Check\n\nRadar Operator 3521.1700 3132.80\n\nQuality Control 7543.3003\n\nRadial Driller 7223.1600 8211.38\n\nExtrusion\n\nRadiation 2143.0300 2149.22\n\nQuality Control 7543.3004\n\nProtection\n\nEngineer\n\nStatistical Process\n\nRadio 2642.0500 2451.55\n\nControl\n\nCommentator\n\nQuality Control 7543.3005\n\nRadio Craftsman, 7422.1600 7243.75\n\nInspector – Visual\n\nInstallation\n\nInspection\n\nRadio Craftsman, 7422.1700 7243.80\n\nQuality Controller 3139.5002\n\nMaintenance\n\nQuality Engineer 2152.0601\n\nRadio Engineer, 2153.0200 2144.20\n\nQuality Engineer 2519.0501\n\nTelecommunicatio\n\nQuality Inspector – 7543.2001\n\nForged, Casted or\n\nRadio Mechanic 7422.1500 7243.70\n\nMachined\n\nRadio Operator, 3521.1500 3132.75\n\nComponents\n\nAircraft\n\nVOLUME I 333",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 345,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_345",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page345",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_344",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_346"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:46.282708Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 183,
+    "custom": {}
+  }
+}

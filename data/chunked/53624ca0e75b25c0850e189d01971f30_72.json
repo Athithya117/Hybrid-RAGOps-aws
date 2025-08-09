@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_72",
+  "chunk_type": "page",
+  "text": "## Page 72\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n2212.1300 Paediatrician 2221.80\n\n2212.1400 Orthopaedist 2221.85\n\n2212.1500 Pharmacologist 2212.30\n\n2212.1600 Toxicologist (Pharmaceutical) 2212.35\n\n2212.1700 Pathologist, Medical 2212.40\n\n2212.1800 Malariologist, Medical 2212.45\n\n2212.1900 Physiologist, Medical 2212.50\n\n2212.9900 Specialist Medical Practitioners, Other 2212.90\n\nGroup 222 Nursing and Midwifery Professionals\n\nFamily 2221 Nursing Professionals\n\n2221.0100 Nurse, Specialist 2230.10\n\n2221.9900 Professional Nurses, Other 2230.90\n\nFamily 2222 Midwifery Professionals\n\nGroup 223 Traditional and Complementary Medicine\n\nProfessionals\n\nFamily 2230 Traditional and Complementary Medicine\n\n2230.0100 Physician, Ayurvedic 2222.10\n\n2230.0200 Physician, Homeopathic 2223.10\n\n2230.0300 Physician, Bio-Chemic/Bio Chemist 2223.20\n\n2230.0400 Physician, Unani 2224.10\n\n2230.9900 Traditional Medicine Practitioners, Other 3241.90\n\nGroup 224 Paramedical Practitioners\n\nVOLUME I 60",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 72,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_72",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page72",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_71",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_73"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:07.824654Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 147,
+    "custom": {}
+  }
+}

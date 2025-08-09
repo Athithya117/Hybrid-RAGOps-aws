@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_301",
+  "chunk_type": "page",
+  "text": "## Page 301\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nWholesale Trade\n\nGeneral Manager, 1321.1000 1302.70\n\nManufacturing\n\nGeneralist Medical 2211.9900 2221.90\n\nPractitioners,\n\nGeneral Manager, 1322.0400 1302.10\n\nAllopathic, Other\n\nGeographer 2632.1200 2442.85\n\nGeneral Manager, 1311.0100 1301.20\n\nPlantation\n\nGeologist 2114.0100 2114.10\n\nGeneral Manager, 1311.0600 1301.60\n\nGeologist, 2114.1500 2114.15\n\nPoultry\n\nPetroleum\n\nGeneral Manager, 1322.0500 1302.20\n\nGeologists and 2114.9900 2114.90\n\nQuarry\n\nGeophysicists,\n\nOther\n\nGeneral Manager, 1431.0100 1309.10\n\nRecreation and\n\nGeophysicist 2114.0400 2114.40\n\nEntertainment\n\nGill Box Man 7318.3500 7431.68\n\nGeneral Manager, 1420.0500 1304.20\n\nRetail Trade,\n\nGlass and 8181.9900 8139.90\n\nSenior Manager,\n\nCeramics Plant\n\nRetail Trade\n\nOperators, Other\n\nGeneral Manager, 1324.2200 1306.30\n\nGlass Cutter, 7315.2000 7322.55\n\nStorage and\n\nWarehousing\n\nGlass Enameller 7316.0600 7324.10\n\nGeneral Manager, 1324.2100 1306.10\n\nTransport\n\nGlass Etcher 7316.0200 7323.20\n\nGeneral Manager, 1321.0900 1302.60\n\nGlass Makers, 7315.9900 7322.90\n\nWater Supply\n\nCutters, Grinders\n\nand Finishers,\n\nGeneral Manager, 1322.0600 1302.30\n\nWell Drilling\n\nGlass Technologist 2141.2200 2149.70\n\nGeneral Manager, 1420.0400 1304.10\n\nWholesale\n\nGlaze Maker 8181.2800 8139.65\n\nTrade/Senior\n\nManager,\n\nVOLUME I 289",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 301,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_301",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page301",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_300",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_302"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:29.426555Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 169,
+    "custom": {}
+  }
+}

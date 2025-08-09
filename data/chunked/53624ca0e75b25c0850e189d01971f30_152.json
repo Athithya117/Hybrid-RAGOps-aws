@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_152",
+  "chunk_type": "page",
+  "text": "## Page 152\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n6129.9900 Animal Producers and Related Workers, 6129.90\n\nOther\n\nGroup 613 Mixed Crop and Animal Workers\n\nFamily 6130 Mixed Crop and Animal Workers\n\n6130.0100 Artificial Breeding Technician 6130.10\n\n6130.0201 Seed Grower/Quality Seed Grower 6112.60\n\n6130.0202 Seed Processing Worker\n\n6130.9900 Mixed Crop and Animal Workers, Other 6130.90\n\nSub- 62 Market-Oriented Skilled Forestry, Fishery\n\nDivision and Hunting Workers\n\nGroup 621 Forestry and Related Workers\n\nFamily 6210 Forestry and Related Workers\n\n6210.0100 Forester 6141.10\n\n6210.0200 Forest Guard 6141.15\n\n6210.0300 Forest Fire Watcher 6141.20\n\n6210.0400 Foresters and Related Workers 6141.25\n\n6210.0500 Gatherer Lac 6141.30\n\n6210.0600 Gatherer, Medicinal Herbs 6141.35\n\n6210.0700 Gatherer, Firewood 6141.40\n\n6210.0800 Cane Cutter 6141.45\n\n6210.0900 Thatch Cutter 6141.50\n\n6210.1000 Log Feller 6141.55\n\n6210.1100 Wood Cutter 6141.60\n\nVOLUME I 140",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 152,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_152",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page152",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_151",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_153"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:36.923724Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 447,
+    "custom": {}
+  }
+}

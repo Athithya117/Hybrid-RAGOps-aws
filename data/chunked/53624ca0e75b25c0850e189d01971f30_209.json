@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_209",
+  "chunk_type": "page",
+  "text": "## Page 209\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n8122.8100 Levelling Machine Attendant (Match) 8223.81\n\n8122.9900 Metal Finishing, Plating and Coating 8223.90\n\nMachine Operators, Other\n\nGroup 813 Chemical and Photographic Products Plant\n\nand Machine Operators\n\nFamily 8131 Chemical Products Plant and Machine\n\nOperators\n\n8131.0100 Crusher Operator, Chemical 8151.10\n\n8131.0200 Miller/Mill Operator (Chemical) 8151.20\n\n8131.0300 Pulveriser Operator, Chemical 8151.30\n\n8131.0400 Mixing Machineman Attendant (Chemical) 8151.40\n\n8131.0500 Compounding Man (Match) 8151.45\n\n8131.0800 Sieving Machine Attendant, Chemical 8151.60\n\n8131.0900 Grading Machine Attendant (Abrasive) 8151.65\n\n8131.1400 Drying Chamber Attendant 8152.30\n\n(Drugs)/Chamber Operators\n\n8131.1500 Drying Chamber Attendant (Match 8152.35\n\nBoxes)/Chamber Operators\n\n8131.1700 Size Maker (Abrasive) 8152.45\n\n8131.1800 Paste Maker 8152.50\n\n8131.2100 Ammonia Operator/Ammonia Plant 8152.70\n\nOperator\n\n8131.2200 Heat Treater 8152.75\n\n8131.2300 Filter Press Operator 8153.10\n\n8131.2400 Filter Press Operator (Ceramics) 8153.15\n\nVOLUME I 197",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 209,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_209",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page209",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_208",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_210"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:54.332206Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 136,
+    "custom": {}
+  }
+}

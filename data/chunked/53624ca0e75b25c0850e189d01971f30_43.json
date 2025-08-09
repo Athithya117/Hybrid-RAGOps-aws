@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_43",
+  "chunk_type": "page",
+  "text": "## Page 43\n\nNational Classification of Occupations – 2015 Introduction\n\n5.1.2 Developing a Network of Professional Career Counsellors\n\nNCSP plans to establish a network of career counsellors. This will be done by transforming the\n\nexisting Employment Exchange Offices into Career Counselling Centres and also identifying other\n\ninstitutions/agencies that can volunteer in the career counselling activities. The training of the\n\ncareer counsellors will be undertaken by the Training wing of DGE&T.\n\n5.1.3 National Career Service Portal Implementation\n\nThe National Career Service Portal will act as a platform to bridge the gap between the\n\ngovernment and private job providing ecosystem, jobseeker, and skill development ecosystem.\n\n5.1.4 Maintenance of Knowledge Repository of Career Counselling Content\n\nFor Employment Exchange Officers to work effectively as Career Counsellors, they need to have\n\naccess to an updated knowledge repository of various career options and employment\n\nopportunities. This content should be renewed on quarterly basis based on the feedback\n\nprovided by various stakeholders.\n\nVOLUME I 31",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 43,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_43",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page43",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_42",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_44"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:55.277612Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 37,
+    "custom": {}
+  }
+}

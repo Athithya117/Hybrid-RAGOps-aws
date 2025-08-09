@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_362",
+  "chunk_type": "page",
+  "text": "## Page 362\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nChat Thelawala\n\nStone Polisher, 7113.0500 7113.50\n\nStreet Vendors, 9520.9900 9112.90\n\nNon-Food\n\nStone Polisher, 8112.0900 8112.60\n\nProducts, Other\n\nMachine\n\nStress 2152.0301 2144.65\n\nStone Sawyer, 8112.0700 8112.50\n\nAnalyst/Computer\n\n-Aided Test\n\nExecutive\n\nStone Splitters, 7113.9900 7113.90\n\nCutters and\n\nStructural Metal 7214.9900 7214.90\n\nCarvers, Other\n\nPrepares and\n\nErectors, Other\n\nStorage Assistant 4321.0104\n\nStuntman 3435.0200 3474.25\n\nStore Distributor 4321.0200 4131.20\n\nSub-Editor 2641.0400 2451.25\n\nStore Keeper 4321.0100 4131.10\n\nSub-Inspector, 3355.0200 3450.20\n\nStore Manager 3322.1306\n\nPolice\n\nStore Ops 4321.0501\n\nSub-Inspector, 3122.5800 7248.30\n\nAssistant\n\nTelephone\n\nStoryboard Artist 2166.0209\n\nSub-Post Master 3341.1200 3439.10\n\nStowing Worker 8111.1700 7111.60\n\nSubsistence Crop 6310.9900 6200.90\n\nFarmers, Others\n\nStraightening 7126.0400 7136.40\n\nMachine Operator\n\nSugar Technologist 2141.1800 2149.55\n\n(Iron & Steel)\n\nSugarcane 6111.0701\n\nStrainer, Liquid 8131.2500 8153.20\n\nCultivator\n\nStraining Operator 8131.6100 8159.38\n\nSuitcase Maker 7536.2300 7442.80\n\n(Rubber Reclaim)\n\nSulphitation Man, 8160.5100 8276.80\n\nStreet Food 5212.9900 9111.90\n\nSugar\n\nVendors,\n\nOther/Khomchaw\n\nSulphur Burner 8131.7800 8159.78\n\nala, Dhabawala,\n\nVOLUME I 350",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 362,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_362",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page362",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_361",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_363"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:51.919697Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 176,
+    "custom": {}
+  }
+}

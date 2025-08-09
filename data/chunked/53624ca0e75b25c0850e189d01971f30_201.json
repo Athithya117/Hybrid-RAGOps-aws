@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_201",
+  "chunk_type": "page",
+  "text": "## Page 201\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n7543.0701 Incoming QC Technician\n\n7543.0702 Final Product QC Technician\n\n7543.0801 Functional Tester\n\n7543.0802 Performance Tester\n\n7543.0803 Reliability Tester\n\n7543.0804 Safety Testing Technician\n\n7543.0901 Functional Tester – Medical Devices\n\n7543.1001 Functional Tester – RAC\n\n7543.1002 Functional Tester – TV\n\n7543.1003 Safety Testing Technician – TV\n\n7543.1004 Safety Testing Technician – RACW\n\n7543.1005 Performance Tester – RACW\n\n7543.1006 Performance Tester – TV\n\n7543.1101 Testing Technician\n\n7543.2001 Quality Inspector – Forged, Casted or\n\nMachined Components\n\n7543.3001 Quality Control Inspector – Calendering\n\n7543.3002 Quality Control Inspector – Dimension\n\nCheck\n\n7543.3003 Quality Control Inspector – Extrusion\n\n7543.3004 Quality Control Inspector – Statistical\n\nProcess Control\n\n7543.3005 Quality Control Inspector – Visual\n\nInspection\n\nVOLUME I 189",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 201,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_201",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page201",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_200",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_202"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:51.767106Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 133,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_101",
+  "chunk_type": "page",
+  "text": "## Page 101\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n3121.0300 Supervisor and Foreman, Mineral Treating 8118.20\n\n3121.0400 Overman, Colliery 8118.25\n\n3121.0500 Sirdar, Colliery 8118.30\n\n3121.0600 Mud Supervisor 8118.35\n\n3121.0700 Well Pulling Supervisor 8118.40\n\n3121.0800 Gas Supervisor 8118.50\n\n3121.9900 Supervisors and Foremen in Mining and Mineral 8118.90\n\nProcessing Plant Operation Activities, Other\n\nFamily 3122 Manufacturing Supervisors\n\n3122.0100 Supervisors and Foremen, Metal Making, 8128.10\n\nConverting and Refining\n\n3122.0200 Foreman, Blast Furnace 8128.20\n\n3122.0300 Stock House Foreman 8128.30\n\n3122.0400 Supervisor and Foreman, Metal Treating 8128.40\n\n3122.0500 Supervisor and Foreman, Metal Drawing and 8128.50\n\nExtruding\n\n3122.0601 Assembly Line Supervisor\n\n3122.0800 Supervisor and Foreman, Glass Forming and 8138.10\n\nRelated Activities\n\n3122.0900 Supervisor and Foreman, Ceramics and Related 8138.20\n\nActivities\n\n3122.1000 Supervisor and Foreman, Wood Preparation and 8148.10\n\nPapermaking\n\n3122.1100 Supervisor and Foreman, Paper Pulp and 8148.20\n\nVOLUME I 89",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 101,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_101",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page101",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_100",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_102"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:18.115479Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 127,
+    "custom": {}
+  }
+}

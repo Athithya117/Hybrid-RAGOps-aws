@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_252",
+  "chunk_type": "page",
+  "text": "## Page 252\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nExecutive (Payroll)\n\nAbrasive Coated 8122.7200 8223.72\n\nCloth and\n\nAccounts 4311.0401\n\nPapermaker\n\nExecutive\n\n(Accounts Payable\n\nAbrasive Mixer 8181.2200 8139.15\n\n& Receivable)\n\nAbrasive Wheel 7314.9900 7321.90\n\nAccounts 4313.0201\n\nFormers, Potters\n\nand Related\n\n(Statutory\n\nWorkers, Other\n\nCompliance)\n\nAbrasive Wheel 7314.0800 7321.50\n\nAcid Concentrator 8131.8000 8159.80\n\nMoulder\n\nAcid Plant 8131.7700 8159.76\n\nAC Specialist 7231.0102\n\nOperator\n\nAccess Controls 7411.0101\n\nAcid Worker, 8131.8100 8159.82\n\nInstallation\n\nOther\n\nTechnician\n\nAcoustical 7124.0200 7134.20\n\nAccessory Fitter 9329.0701\n\nInsulator\n\nAccident Officer, 1324.2000 1226.69\n\nAcrobat 2659.0200 3474.15\n\nActor and Actress 2655.0100 2455.50\n\nAccount Director ( 1120.3401\n\nAdvertising\n\nActuary 2120.0200 2121.20\n\nAgency)\n\nAddressing 4132.1000 4113.80\n\nAccount Executive 2431.0202\n\nMachine Operator\n\n(Advertising\n\nAccountant 2411.0100 2411.10\n\nAdjuster, Relays 7412.0300 7241.30\n\nAccounting and 4311.9900 4121.90\n\nBookkeeping\n\nClerks, Others\n\nAccounts 4313.0101 4121.20\n\nClerk/Accounts\n\nVOLUME I 240",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 252,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_252",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page252",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_251",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_253"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:10.421482Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 161,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_75",
+  "chunk_type": "page",
+  "text": "## Page 75\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n2265.0300 Animal Nutritionist 3223.30\n\n2265.9900 Dieticians and Nutritionists, Other 3223.90\n\nFamily 2266 Audiologists and Speech Therapists\n\n2266.0100 Speech Therapist and Audiologist 3229.10\n\n2266.0200 Speech Pathologist 3229.20\n\n2266.0300 Voice Pathologist 3229.30\n\n2266.0401 Speech Language Pathologist and Audiologist\n\nFamily 2267 Optometrists and Ophthalmic Opticians\n\n2267.9900 Optometrists and Opticians, Other 3224.90\n\nFamily 2269 Health Professionals Not Elsewhere Classified\n\n2269.0100 Naturopath 2229.20\n\n2269.0200 Physician, Osteopathic 2229.30\n\n2269.0300 Physician, Sidha 2229.40\n\n2269.0400 Physicians and Surgeons, Other 2229.90\n\n2269.0500 Orthotist and Prosthetist 3229.40\n\n2269.0600 Orientation & Mobility Instructor 3229.50\n\n2269.0700 Medical and Health Technicians, Other 3229.90\n\nSub- 23 Teaching Professionals\n\nDivision\n\nGroup 231 University and Higher Education Teachers\n\nFamily 2310 University and Higher Education Teachers\n\n2310.0100 University and College Teacher, Arts 2310.10\n\nSubjects/Professors/Assistant Professors, Arts\n\nVOLUME I 63",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 75,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_75",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page75",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_74",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_76"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:09.057869Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 276,
+    "custom": {}
+  }
+}

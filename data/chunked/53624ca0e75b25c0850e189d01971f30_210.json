@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_210",
+  "chunk_type": "page",
+  "text": "## Page 210\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n8131.2500 Strainer, Liquid 8153.20\n\n8131.2600 Box Filtration Operator 8153.30\n\n8131.2700 Hydro Extractor Operator 8153.40\n\n8131.2800 Crude Oil Treater (Oil Field) 8153.50\n\n8131.2900 Gauger (Cement) 8153.60\n\n8131.3000 Disc Operator (Abrasive) 8153.65\n\n8131.3100 Crude Oil Treater (Petrol & Gas) 8153.70\n\n8131.3200 Brine Maker (Chemical) 8153.80\n\n8131.3501 Autoclave Operator 8154.30\n\n8131.3600 Evaporator Operator 8154.40\n\n8131.3700 Reactor Convertor Operator 8154.50\n\n8131.3800 Converter Operator (Grain Feed Mills) 8154.60\n\n8131.3900 Distiller (Chemical) 8154.65\n\n8131.4000 Continuous Machine Operator (Match Box 8222.10\n\nManufacturing)\n\n8131.4100 Receiver (Match) 8222.20\n\n8131.4200 Box Making Machine Operator (Match) 8222.30\n\n8131.4300 Box Filling Machine Operator (Match) 8222.40\n\n8131.4400 Friction Machine Operator (Match) 8222.50\n\n8131.4500 Box Closing Machine Operator (Match) 8222.60\n\n8131.4600 Bandroll and Labelling Machine Operator 8222.70\n\n8131.4900 Coke Oven Operator, Controller 8159.12\n\nVOLUME I 198",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 210,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_210",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page210",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_209",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_211"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:54.538452Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 133,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_360",
+  "chunk_type": "page",
+  "text": "## Page 360\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nand Cultural\n\nStamper, Hand 9321.0400 9322.40\n\nCentre Manager,\n\nOther\n\nStamper/Forging 7221.0500 7221.50\n\nOperator\n\nSpot Remover 9121.0400 9133.40\n\nStation Director, 1120.3400 1218.30\n\nSpray Painter, 7316.0900 7324.40\n\nRadio/TV\n\n(Ceramics)\n\nStation Master, 1324.1500 1226.60\n\nSpreader Feeder, 7318.3600 7431.70\n\nRailway\n\nStation Master, 1324.0300 1226.15\n\nSpreader Operator 8342.1600 8332.50\n\nRoadways\n\nSpreader, 7318.3700 7431.71\n\nStation Officer, 3521.1100 3132.55\n\nReceiver, Jute\n\nOverseas\n\nCommunication\n\nSprinkler and 8111.2601\n\nOther Vehicle\n\nStation Technical 3521.1200 3132.60\n\nDriver\n\nAssistant,\n\nSpun Pipe 8121.4500 8122.78\n\nMachine Operator\n\nStationary Engine 3131.0200 8161.20\n\nStableman 6121.1000 6121.55\n\nDriver, Internal\n\nCombustion\n\nStage and Film 2654.9900 2455.90\n\nDirectors, Other\n\nStationary Engine 3131.0100 8161.10\n\nDriver, Steam\n\nStaker, Hand 7535.1000 7441.32\n\nStatistical 3314.0200 3433.20\n\nStaker, 8155.0700 8265.40\n\nAssistant\n\nMachine/Staking\n\nStatistical Clerks 4312.0100 4122.10\n\nStall and Market 5211.9900 5230.90\n\nStatistical Finance 4312.9900 4122.90\n\nSalespersons,\n\nand Insurance\n\nClerks, Others\n\nStamp Mill 8112.0300 8112.20\n\nStatistical, 3314.9900 3433.90\n\nMathematical and\n\nVOLUME I 348",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 360,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_360",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page360",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_359",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_361"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:51.343362Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 163,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_269",
+  "chunk_type": "page",
+  "text": "## Page 269\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nCashier, Gem & 4211.0302 CCTV Installation 7411.0102\n\nJewellery Technician\n\nCashier, General 4211.0100 4211.10 CCTV Supervisor 5414.0121\n\nCast Stone Maker 8114.0500 8212.50 Cell Room 8131.8200 8159.84\n\nAttendant,\n\nCaster, Pottery 7314.0200 7321.15\n\nChemical\n\nand Porcelain\n\nCellophane Bag 8143.0300 8253.30\n\nCasting – Operator 8121.4400 8122.77\n\nMaker, Machine\n\nHelper (Non-\n\nFerrous Metal) Cement and Other 8114.9900 8212.90\n\nMineral Products\n\nCasting Line In- 3122.4401\n\nMachine\n\nCharge\n\nOperators, Other\n\nCasting Line 3122.4402\n\nCement Finisher 7114.0200 7123.20\n\nSupervisor\n\nCementer 8113.0400 8113.25\n\nCasting Machine 8189.0501\n\nOperator Cementer (Plastic) 8142.1500 8232.75\n\nCasting Machine 8121.4300 8122.76 Centrifugal Casting 3135.3100 8122.72\n\nOperator (Non- Machine Operator\n\nFerrous Metal)\n\nCentrifugal Man 8160.4000 8276.65\n\nCasting or Foundry 8121.3301\n\nCeramic 2141.2300 2149.72\n\nAssistant/Helper\n\nTechnologist\n\nCasting Technician 7211.0201\n\nCertified Training 2320.0101\n\n– Sand Moulding\n\nAssessor\n\nCaulker, Boat 7115.1300 7124.75\n\nChairman, 2612.0800 2422.70\n\nBuilding\n\nAdministrative\n\nCausticman, Paper 8171.0800 8142.45 Tribunal\n\nPulp/Causticizing\n\nChar Dust Cleaner 9111.0200 9131.20\n\nOperator\n\nand Salvager\n\nVOLUME I 257",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 269,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_269",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page269",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_268",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_270"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:17.170597Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 180,
+    "custom": {}
+  }
+}

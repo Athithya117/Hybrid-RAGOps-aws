@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_347",
+  "chunk_type": "page",
+  "text": "## Page 347\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nRefractionist 3256.0101 Remote Helpdesk 5244.0302\n\nTechnician\n\nRegional Dealer 3322.1601\n\nDevelopment Rendering Artist 2166.0210\n\nManager/Network\n\nRenovator, 2651.0500 2452.50\n\nExpansion\n\nPaintings\n\nManager\n\nRepair Assistant: 7421.1101\n\nRegional Manager 3322.1102\n\nSwitches\n\n– Customer Care\n\nRepair Welder 7212.0111\n\nRegional Parts 3322.0701\n\nRepairer, 7318.0800 7332.80\n\nFabrics/Fabric\n\nRegional Retail 3322.2101\n\nMender\n\nFinance and\n\nInsurance\n\nReporter 4131.0200 4111.20\n\nResearch 1223.0201\n\nRegional Sales 3322.1201\n\nAssociate\n\nManager (Pre-\n\nOwned Vehicles)\n\nReservation Clerk, 4221.0300 4211.40\n\nTransport/Reserva\n\nRegional Sales 3322.1501\n\ntion Assistant\n\nManager (RSM)\n\nReservoir 3132.0200 8163.20\n\nRegional Service 2431.0101\n\nCaretaker\n\nMarketing\n\nRestaurant 1412.9900 1305.90\n\nManagers, Other\n\nRegional Service 2431.0102\n\nProcess Manager\n\nRestorer, Ceramics 2621.0500 2431.50\n\nRegistrar 2619.0300 2429.25\n\nRestorer, 2621.0700 2431.60\n\nFurniture\n\nRegistrar 2619.0200 2429.20\n\n(Appellate Side,\n\nRestorer, Lace and 2621.0400 2431.40\n\nHigh Court)\n\nTextile\n\nReliability Tester 7543.0803\n\nRestorer, Painting 2621.0300 2431.30\n\nVOLUME I 335",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 347,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_347",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page347",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_346",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_348"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:46.920112Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 160,
+    "custom": {}
+  }
+}

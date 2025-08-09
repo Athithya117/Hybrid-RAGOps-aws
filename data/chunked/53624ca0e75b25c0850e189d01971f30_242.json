@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_242",
+  "chunk_type": "page",
+  "text": "## Page 242\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nDivision 9 Elementary Occupations\n\nSub- 91 Cleaners and Helpers\n\nDivision\n\nGroup 911 Domestic, Hotel and Office Cleaners and\n\nHelpers\n\nFamily 9111 Domestic Cleaners and Helpers\n\n9111.0100 Domestic Servant 9131.10\n\n9111.0200 Char Dust Cleaner and Salvager 9131.20\n\n9111.0300 Cleaner, Home Restoration Service 9131.30\n\n9111.9900 Domestic and Related Helpers, Cleaners and 9131.90\n\nLaunderers, Other\n\nFamily 9112 Cleaners and Helpers in Offices, Hotels and\n\nOther Establishments\n\n9112.0100 Dusting Man, Office; Farash, 9132.10\n\nOffice/Housekeeping Attendant\n\n9112.0200 Cleaner Hospital 9132.30\n\n9112.9900 Helpers and Cleaners in Offices, Hotels and 9132.90\n\nOther Establishments, Other\n\nGroup 912 Vehicle, Window, Laundry and Other Hand\n\nCleaners\n\nFamily 9121 Hand Launderers and Pressers\n\n9121.0100 Dhobi 9133.10\n\n9121.0200 Laundry Workers (Marker, Sorter) 9133.20\n\n9121.0300 Dry Cleaner, Hand 9133.30\n\n9121.0400 Spot Remover 9133.40\n\nVOLUME I 230",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 242,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_242",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page242",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_241",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_243"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:05.054414Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 117,
+    "custom": {}
+  }
+}

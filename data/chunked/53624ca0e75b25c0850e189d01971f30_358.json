@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_358",
+  "chunk_type": "page",
+  "text": "## Page 358\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nSoftware 2512.0301 Sole Stitcher, Hand 7536.1500 7442.60\n\nDeveloper –\n\nSole Stitcher, 8156.1500 8266.35\n\nProduct\n\nMachine\n\nDevelopment and\n\nDelivery\n\nSolicitor General 2611.0200 2421.20\n\nof India\n\nSoftware Engineer 2512.0201 2132.20\n\nSolution and 8131.6300 8159.42\n\nSoil 2132.0400 2213.40\n\nDough Making,\n\nConservationist\n\nOperator, Rubber\n\nSoil Scientist 2132.0300 2213.30\n\nSorter 9329.0600 9322.74\n\nSolanaceous Crop 6111.1501\n\nSorter, Brick and 7314.1300 7329.40\n\nCultivator\n\nSolar Energy 2143.0100 2149.05\n\nSorter, Glass 7315.2400 7329.30\n\nSystem Designer\n\nProducts\n\nSolar Panel 7421.1401\n\nSorter, Hides and 7535.0100 7441.10\n\nInstallation\n\nTechnician\n\nSorter, Mail 9621.0900 9151.75\n\nSolar Photo Voltaic 7421.1402\n\nSystem Installation\n\nSorter, Paper Pulp 8171.0400 8142.25\n\nSorter, Timber 6210.1500 6141.80\n\nSolder Masking & 8212.2504\n\nLegend Printing\n\nSorting Operator 8212.1903\n\nOperator\n\nSound Designer 2153.0511\n\nSoldering and 7212.0501\n\nBrazing Operator\n\nSound Editor 3521.0511\n\nSole Leveller, 8156.2000 8266.45\n\nSound Engineer 2153.0500 2144.50\n\nSound Engineer, 2153.0501\n\nSole Rounding 8156.0500 8266.18\n\nMedia\n\nMachine Operator\n\nSound Recording 3521.0401 3131.40\n\nVOLUME I 346",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 358,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_358",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page358",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_357",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_359"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:50.741680Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 223,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_81",
+  "chunk_type": "page",
+  "text": "## Page 81\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n2431.0100 Market Research Analyst 2419.40\n\n2431.0101 Regional Service Marketing Manager\n\n2431.0102 Regional Service Process Manager\n\n2431.0201 Product Brand Manager (Automotive)\n\n2431.0202 Account Executive (Advertising Agency)\n\n2431.0300 Caption Writer 2451.47\n\n2431.0400 Advertisement Writer 2451.50\n\n2431.0501 Market Research Associate – Sales &\n\nMarketing/Business Development\n\n2431.0502 Management Trainee – Sales &\n\n2431.0503 Market Research Associate – Product Marketing\n\n2431.0504 Management Trainee – Product Marketing\n\n2431.0601 Product Executive\n\n2431.0651 Sales Executive (Media Org)\n\n2431.0671 Traffic Co-Ordinator\n\n2431.0700 Creative Writer 2451.52\n\n2431.0800 Propagandist 3411.30\n\n2431.9900 Advertising and Marketing Professionals, Other\n\nFamily 2432 Public Relations Professionals\n\n2432.0100 Publicity Officer 2419.10\n\n2432.0200 Public Relations Officer 2419.20\n\n2432.0201 Digital Marketing/Social Media Manager\n\nVOLUME I 69",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 81,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_81",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page81",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_80",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_82"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:11.584749Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 146,
+    "custom": {}
+  }
+}

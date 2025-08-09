@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_371",
+  "chunk_type": "page",
+  "text": "## Page 371\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nTesting Technician 7421.1202 Tile Setter 7122.0100 7132.10\n\nTesting Technician 7543.1101 Timberman, Mines 8111.1500 7111.50\n\nTextile Designer 2163.0600 3471.45 Timekeeper 4110.0500 4190.60\n\nTextile 2141.1000 2149.20 Timekeeper, 4110.0600 4190.70\n\nTechnologist Motor Transport\n\nTexturing Artist 2166.0204 Tin Coater 7213.0500 7213.50\n\nThatch Cutter 6210.0900 6141.50 Tindal, Engine 8182.0600 8162.60\n\nThatcher 7111.0200 7121.20\n\nTinsmith/Whitesm 7213.0400 7213.40\n\nThird Engineer, 3151.0300 3141.30\n\nTobacco Curer 7516.0100 7416.10\n\nThird Officer, Ship 3152.0400 3142.40\n\nTobacco Grader 7516.0200 7416.15\n\nThread Cutting 8112.1100 8112.65\n\nMachine Tobacco Preparers 7516.9900 7416.90\n\nOperator, and Tobacco\n\nStoneware Products Makers,\n\nOther\n\nThread Grinder 7224.0500 7224.35\n\nTool Designer 3115.1301\n\nThrough Hole 8212.1602\n\nAssembly Tool Engineer 2144.0300 2145.20\n\nOperator\n\nTool Maker 7222.0200 7222.20\n\nTicket Collector, 5112.0500 5112.42\n\nTool Makers and 7222.9900 7222.90\n\nRailway\n\nRelated Workers,\n\nTicket Examiner, 5112.0700 5112.46 Other\n\nMotor Transport\n\nTool Room 3115.1302\n\nTile Layer, Roof 7121.0100 7131.10 Supervisor\n\nTile Presser 7122.0300 7132.30 Tool Setter, 7223.0100 7223.10\n\n(Mosaic) General\n\nVOLUME I 359",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 371,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_371",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page371",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_370",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_372"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:55.895215Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 177,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_297",
+  "chunk_type": "page",
+  "text": "## Page 297\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nTechnician\n\nFloral Designer 3435.0500 3471.60\n\nForest Fire 6210.0300 6141.20\n\nFloriculturist – 6113.0601\n\nWatcher\n\n(Open Cultivation)\n\nForest Guard 6210.0200 6141.15\n\nFloriculturist – 6113.0602\n\n(Protected\n\nForester 6210.0100 6141.10\n\nCultivation)\n\nForesters and 6210.0400 6141.25\n\nFlour Mill 8160.1000 8273.40\n\nRelated Workers\n\nOperator\n\nForestry and 6210.9900 6141.90\n\nFlower Maker, 8143.0400 8253.40\n\nRelated Workers,\n\nPaper\n\nOther\n\nFluffer, Hand 7535.0900 7441.30\n\nForestry Labourers 9215.9900 9202.90\n\nand Related\n\nFluid Management 3135.2001\n\nWorkers, Other\n\nOperator Rolling\n\nMills\n\nForging Operator 7221.0301\n\nFolder, 8159.0100 8269.10\n\nForging Shop Shift 3122.4501\n\nMachine/Folding\n\nIn-Charge\n\nMachine Operator\n\nForging Shop 3122.4502\n\nFood and 7515.9900 7415.90\n\nSupervisor\n\nBeverage Tasters\n\nand Graders,\n\nFork Lift Truck 8344.0201 8334.20\n\nOperator/Fork Lift\n\nOperator/Driver\n\nFood and Related 8160.9900\n\nProducts Machine\n\nForm Layer, Cable 8212.1000 8283.40\n\nOperators\n\n(Telephone\n\nEquipment\n\nFoodstuff Freezer 8160.3000 8275.65\n\nManufacturing)\n\nForeman, Blast 3122.0200 8128.20\n\nFour Cutter 7523.0700 7423.40\n\nFurnace\n\nFourth Engineer, 3151.0400 3141.40\n\nForensic Science 3119.0200 3119.20\n\nVOLUME I 285",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 297,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_297",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page297",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_296",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_298"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:27.949655Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 199,
+    "custom": {}
+  }
+}

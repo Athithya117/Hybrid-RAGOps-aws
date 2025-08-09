@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_92",
+  "chunk_type": "page",
+  "text": "## Page 92\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n2642.0600 Commentator (Motion Picture) 2451.60\n\nFamily 2643 Translators, Interpreters and Other Linguists\n\n2643.0100 Language Specialist 2444.10\n\n2643.0200 Translator 2444.20\n\n2643.0300 Interpreter 2444.30\n\n2643.0401 Language Translator – Software Products\n\n2643.0402 Language Translator – IT Services\n\n2643.9900 Philologists, Translators and Interpreters, Other 2444.90\n\nGroup 265 Creative and Performing Artists\n\nFamily 2651 Visual Artists\n\n2651.0100 Sculptor 2452.10\n\n2651.0200 Modeller (Except Stone) 2452.20\n\n2651.0300 Stone Modeller 2452.30\n\n2651.0400 Painter, Fine Art 2452.40\n\n2651.0500 Renovator, Paintings 2452.50\n\n2651.0600 Cartoonist 2452.55\n\n2651.9900 Visual Artists, Other 2452.90\n\nFamily 2652 Musicians, Singers and Composers\n\n2652.0100 Music Composer 2453.10\n\n2652.0200 Orchestra Conductor 2453.20\n\n2652.0300 Singer 2453.30\n\n2652.0400 Instrumental Musician, String Instrument 2453.40\n\nVOLUME I 80",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 92,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_92",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page92",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_91",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_93"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:15.246173Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 146,
+    "custom": {}
+  }
+}

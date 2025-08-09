@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_333",
+  "chunk_type": "page",
+  "text": "## Page 333\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nFixer/Decorator\n\nPainting and 3123.0600\n\nSurface Treatment\n\nPaper Product 8143.9900 8253.90\n\nLine In-Charge\n\nMakers, Other\n\nPainting 3123.0700\n\nPapier Mache 8143.0500 8253.50\n\nSupervisor\n\nMoulder\n\nPalaeontologist 2114.0300 2114.30\n\nParaffin Plant 3134.0600 8155.60\n\nOperator (Petrol\n\nPaleobotanist 2133.0400 2211.45\n\nRefining)\n\nPalmist 5161.0200 5152.10\n\nParamedical 2240.9900\n\nPractitioners,\n\nPanchayat 4120.0300 4115.30\n\nOther\n\nSecretary\n\nParasitologist 2131.1100 2211.70\n\nPanman 7512.0600 7412.35\n\n(Confectionery)\n\nParcher (Food 7514.0500 7414.36\n\nGrain)\n\nPanman (Food 8160.2800 8275.55\n\nCanning and\n\nParquetry Floor 7122.0600 7132.60\n\nPreserving)\n\nLayer\n\nPanman, Sugar 8160.3800 8276.50\n\nParts Picker 9329.0801\n\nPantograph 8189.0701 7313.72\n\nPassenger Guide, 5112.0800 5112.50\n\nMachine Operator\n\nRailway\n\nPantry Man 5120.0600 5122.60\n\nPaste Maker 8131.1800 8152.50\n\nPaper Board 7522.2100 7422.65\n\nPasteuriser, 8160.7500 8278.30\n\nMaker\n\nBrewery\n\nPaper Board, 8219.9900 8286.90\n\nPasteurising Plant 8160.0300 8272.10\n\nTextile and\n\nOperator (Dairy)\n\nRelated Products\n\nAssemblers, Other\n\nPathologist, 2212.1700 2212.40\n\nMedical\n\nPaper 7131.0500 7141.40\n\nHanger/Wallpaper\n\nPatrol, Irrigation 4419.0300 4190.50\n\nVOLUME I 321",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 333,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_333",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page333",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_332",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_334"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:40.164844Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 166,
+    "custom": {}
+  }
+}

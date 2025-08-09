@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_222",
+  "chunk_type": "page",
+  "text": "## Page 222\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n8156.0800 Leather Cutter, Machine 8266.23\n\n8156.0900 Welt Sewer, Machine/Machine Operator, 8266.25\n\nWelt Sewing\n\n8156.0901 Stitching Operator (Footwear)\n\n8156.1001 Skiver, Machine/Skiving Operator 8266.26\n\n8156.1401 Laster, Machine/Lasting Operator 8266.32\n\n8156.1500 Sole Stitcher, Machine 8266.35\n\n8156.1600 Seat Laster, Machine/Lasting Machine 8266.36\n\nOperator\n\n8156.1700 Splitter, Machine/Splitting Machine 8266.38\n\n8156.1800 Heeler, Machine/Heel Attacher 8266.40\n\n8156.1900 Heel Compressor, Machine (Footwear) 8266.42\n\n8156.2000 Sole Leveller, Machine 8266.45\n\n8156.2100 Trimmer, Machine 8266.50\n\n8156.2200 Edge Setter, Machine 8266.55\n\n8156.2300 Edge Burnisher 8266.60\n\n8156.2400 Heel Padding Machine Operator 8266.65\n\n8156.2500 Eyeleting Machine Operator 8266.68\n\n8156.2501 Pre-Assembly Operator\n\n8156.2600 Riveting Machine Operator 8266.70\n\n8156.2601 Helper – Bottom Making (Footwear)\n\n8156.2602 Helper – Upper Making (Footwear)\n\nVOLUME I 210",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 222,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_222",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page222",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_221",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_223"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:58.485675Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 128,
+    "custom": {}
+  }
+}

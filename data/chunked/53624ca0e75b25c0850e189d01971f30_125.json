@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_125",
+  "chunk_type": "page",
+  "text": "## Page 125\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nFamily 3433 Gallery, Museum and Library Technicians\n\nFamily 3434 Chefs\n\n3434.0100 Head Cook/Head Chef 5122.10\n\nFamily 3435 Other Artistic and Cultural Associate\n\nProfessionals\n\n3435.0100 Tattoo Artist 3471.30\n\n3435.0200 Stuntman 3474.25\n\n3435.0300 Prompter 3474.47\n\n3435.0400 Merry-Go-Round Operator 3474.80\n\n3435.0500 Floral Designer 3471.60\n\n3435.9900 Other Artistic and Cultural Associate 3474.90\n\nProfessionals, Other\n\nSub- 35 Information and Communications Technicians\n\nDivision\n\nGroup 351 Information and Communication Technology\n\nOperations and User Support Technicians\n\nFamily 3511 Information and Communication Technology\n\nOperations Technicians\n\n3511.0101 Domestic Biometric Data Operator\n\nFamily 3512 Information and Communication Technology\n\nUser Support Technicians\n\n3512.0100 Data Recovery Planner/System Administrator 3121.35\n\n3512.0101 Domestic IT Helpdesk Attendant\n\n3512.0200 Desktop Publishing Operator 3121.50\n\nVOLUME I 113",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 125,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_125",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page125",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_124",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_126"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:26.959797Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 124,
+    "custom": {}
+  }
+}

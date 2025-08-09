@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_215",
+  "chunk_type": "page",
+  "text": "## Page 215\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n8142.0100 Tablet Machine Operator 8232.10\n\n8142.0200 Laminating Press Operator (Plastic) 8232.15\n\n8142.0300 Extruding Machine Setter (Plastic) 8232.18\n\n8142.0400 Extruding Machine Operator (Plastic) 8232.20\n\n8142.0501 Injection Moulding Machine Operator 8232.25\n\n(Plastic)\n\n8142.0502 Moulding Operator\n\n8142.0503 Encapsulation Operator\n\n8142.0600 Compression Moulding Machine Operator 8232.30\n\n8142.0700 Bottle Blowing Machine Operator (Plastic) 8232.35\n\n8142.0800 Vacuum Plastic Forming Machine Operator 8232.40\n\n8142.0900 Embossing Machine Setter (Plastic) 8232.45\n\n8142.1000 Embossing Machine Operator (Plastic) 8232.50\n\n8142.1100 Printing Machine Operator (Plastic) 8232.60\n\n8142.1200 Button Maker 8232.62\n\n8142.1300 Mould Setter (Plastic) 8232.65\n\n8142.1301 Plastic Moulding Technician or Operator\n\n8142.1400 Moulder, Hand (Plastic) 8232.70\n\n8142.1500 Cementer (Plastic) 8232.75\n\n8142.1600 Plastic Fabricator 8232.80\n\n8142.9900 Plastic Products Making Operatives, Other 8232.90\n\nFamily 8143 Paper Products Machine Operators\n\nVOLUME I 203",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 215,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_215",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page215",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_214",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_216"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:56.301787Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 140,
+    "custom": {}
+  }
+}

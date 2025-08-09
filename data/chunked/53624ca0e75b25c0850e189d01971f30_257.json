@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_257",
+  "chunk_type": "page",
+  "text": "## Page 257\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nAssembler, Tractor 8211.0700 8281.40 Assembly 8212.1801\n\nOperator\n\nAssembler, 8211.0800 8281.45\n\nCapacitor\n\nTurbine and Steam\n\nEngine\n\nAssembler, 8211.0100 8281.10\n\nWorkshop\n\nAssembly 3139.2001\n\nMachine and\n\nSupervisor\n\nEquipment\n\nAssembly Line 7223.0401\n\nAssignment 5414.0102\n\nMachine Setter\n\nManager\n\nAssembly Line 7422.1901\n\nAssistant Bar 7214.1101\n\nBender and Fixer\n\nAssembly Line 3122.0601\n\nAssistant 5142.0101\n\nBeautician\n\nAssembly 8212.2201\n\nAssistant Casting 8121.3801\n\nOperator – PMD\n\nTechnician\n\nand X-Ray\n\nAssistant Hair 5141.0201\n\nAssembly 8212.1401\n\nStylist\n\nOperator – TV\n\nAssistant 3112.0701\n\nAssembly 8212.0900 8283.30\n\nLaboratory and\n\nOperator (Radio\n\nField Technician\n\nManufacturing)\n\nAssistant Mason 7112.0601\n\nAssembly 8212.0800 8283.20\n\nAssistant Painter 7131.0101\n\nand Decorator\n\n(Telephone\n\nAssistant 3255.0101\n\nPhysiotherapist\n\nAssistant 7119.0301\n\nScaffolder\n\nVOLUME I 245",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 257,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_257",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page257",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_256",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_258"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:12.321327Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 136,
+    "custom": {}
+  }
+}

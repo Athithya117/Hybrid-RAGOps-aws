@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_108",
+  "chunk_type": "page",
+  "text": "## Page 108\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nFamily 3133 Chemical Processing Plant Controllers\n\n3133.0100 Process Man, Chemical 8152.10\n\n3133.0200 Furnace Operator (Chemical) 8152.60\n\n3133.0300 Boiling Tub Operator (Chemical) 8152.65\n\n3133.0400 Batch Still Operator, Chemical 8154.10\n\n3133.0500 Continuous Still Operator, Chemical 8154.20\n\n3133.0600 Bleaching Operator, Chemical 8159.30\n\n3133.0700 Chemical Process Operator (Radioactive 8159.50\n\nMaterials)\n\n3133.0800 Hot Cell Technician 8159.52\n\n3133.9900 Chemical Processing Plant Controllers, Other\n\nFamily 3134 Petroleum and Natural Gas Refining Plant\n\nOperators\n\n3134.0100 Continuous Still Operator, Petroleum 8155.10\n\n3134.0200 Still Man Gas Plant/Gas Plant Operator (Petrol 8155.20\n\nRefining)\n\n3134.0300 Pump Man (Petroleum Refining) 8155.30\n\n3134.0400 Control Man (Petroleum Refining) 8155.40\n\n3134.0500 Blender (Petroleum Refining) 8155.50\n\n3134.0600 Paraffin Plant Operator (Petrol Refining) 8155.60\n\n3134.0700 Pump Station Operator 8155.70\n\n3134.0800 Treating Plant Operator 8155.75\n\n3134.9900 Petroleum Refining Workers, Other 8155.90\n\nVOLUME I 96",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 108,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_108",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page108",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_107",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_109"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:21.150095Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 128,
+    "custom": {}
+  }
+}

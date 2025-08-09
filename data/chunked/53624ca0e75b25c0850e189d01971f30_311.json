@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_311",
+  "chunk_type": "page",
+  "text": "## Page 311\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nJudge, High Court 2612.0200 2422.20 Key Account 5249.0101\n\nService Manager\n\nJudge, 2612.0500 2422.50\n\nSubordinate Court Key Accounts Sales 3322.0601\n\nManager\n\nJudge, Supreme 2612.0100 2422.10\n\nCourt Khas Thatti Maker 7317.1200 7424.55\n\nJudges and 2612.9900 2422.90 Khatedar, Salt 9329.0100 9322.50\n\nMagistrates, Other Production\n\nJuggler 2659.1000 3474.55 Kierman 8154.0200 8264.50\n\n(Textile)/Package\n\nJuice Clarification 3122.7000 7418.20\n\nDyeing Machine\n\nSupervisor\n\nOperator\n\nJuice Heater 8160.4800 8276.77\n\nKiln Loader, Brick 8181.1800 8131.77\n\nHelper\n\nand Tile\n\nJuice Heater Man 8160.4700 8276.76\n\nKiln Loader, 8181.1600 8131.72\n\nPottery and\n\nJuice Measuring 8160.4500 8276.74\n\nPorcelain\n\nKiln Man, Brick 8181.1700 8131.75\n\nJunior Data 2521.0202\n\nAssociate\n\nKiln Man, Pottery 8181.1500 8131.70\n\nJunior Functioner 7419.0200 7249.20\n\nand Porcelain\n\n(Telephone\n\nEquipment\n\nKiln Operator, 7521.0100 7421.10\n\nManufacturing)\n\nJunior Rubber 4322.0201\n\nKitchen Helper 9412.0100 9132.20\n\nTechnician/Techni\n\ncal Assistant Kitchen 5120.0500 5122.50\n\nPorter/Steward\n\nJunior Software 2512.0205\n\nDeveloper Kitting and 4321.0604\n\nLabelling Executive\n\nJute Technologist 2141.1200 2149.25\n\nVOLUME I 299",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 311,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_311",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page311",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_310",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_312"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:33.020356Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 170,
+    "custom": {}
+  }
+}

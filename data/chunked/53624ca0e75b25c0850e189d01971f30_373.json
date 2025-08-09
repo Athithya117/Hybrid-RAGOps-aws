@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_373",
+  "chunk_type": "page",
+  "text": "## Page 373\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nTram Car Driver 8332.0200 8324.20 Travel Consultants 4221.0100\n\n(Mines) & Organizers\n\nTrammer, Mines 8111.2800 7111.85 Travel Consultants 4221.9900 4211.90\n\nand Clerks, Others\n\nTransfer Moulding 8141.0714\n\nOperator Travelling Ticket 5112.0600 5112.44\n\nExaminer, Railway\n\nTransferor, 8171.1900 8143.45\n\nHandmade Paper Treating Plant 3134.0800 8155.75\n\nOperator\n\nTransferor, 7321.1500 7343.45\n\nPhotomechanical Tree and Shrub 6112.9900 6112.90\n\nCrop Growers,\n\nTranslator 2643.0200 2444.20\n\nOther\n\nTransmission 3114.1201\n\nTree Trimmer and 6310.0100 6200.10\n\nEngineer\n\nPruner\n\nTransport Clerks, 4323.9900 4133.90\n\nTrench Digging 8342.0700 8332.22\n\nMachine Operator\n\nTransport 5112.9900 5112.90\n\nTrimmer (Tyre 8141.2000 8231.84\n\nConductors, Other\n\nBuilding)\n\nTransport 9331.0600 9331.60\n\nTrimmer, Hand 7536.1700 7442.70\n\nEquipment\n\nOperators and Trimmer, Machine 8156.2100 8266.50\n\nDrivers, Other\n\nTripler Machine 8342.1400 8332.36\n\nTransport Service 9331.0700 9331.70 Operator\n\nTrolley Driver 8331.0200 8323.20\n\nTrapper 6224.0300 6154.30\n\nTrouser Maker 7531.0400 7433.25\n\nTravel Agent 5113.0100 5113.10\n\nTube and Rod 8181.0800 8131.30\n\nTravel Attendants 5111.9900 5111.90 Drawer (Glass)\n\nand Travel\n\nTube Extruder 8141.0302\n\nStewards, Other\n\nVOLUME I 361",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 373,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_373",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page373",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_372",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_374"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:56.736110Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 172,
+    "custom": {}
+  }
+}

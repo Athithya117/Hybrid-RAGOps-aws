@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_78",
+  "chunk_type": "page",
+  "text": "## Page 78\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n2342.9900 Pre-Primary Education Teaching Associate 3320.90\n\nProfessionals, Other\n\nGroup 235 Other Teaching Professionals\n\nFamily 2351 Education Method Specialists\n\n2351.0100 School Inspector 2332.10\n\n2351.9900 Education Methods Specialists, Other 2331.90\n\n2352 Special Needs Teachers\n\n2352.0100 Teacher for Visually Impaired 3330.10\n\n2352.0200 Teacher for Hearing-Impaired 3330.20\n\n2352.0300 Teacher for Differently-Abled (Mental) 3330.30\n\n2352.0400 Teacher for Differently-Abled (Physical) 3330.40\n\n2352.9900 Teacher for Differently-Abled, Other 3330.90\n\nFamily 2353 Other Language Professionals\n\nFamily 2354 Other Music Teachers\n\nFamily 2355 Other Arts Teachers\n\n2355.0100 Art Teacher 2339.10\n\n2355.9900 Arts Teacher, Other 2339.90\n\nFamily 2356 Information Technology Trainers\n\n2356.0100 Manual Training Teacher/Craft Instructor 3340.10\n\n2356.0301 Master Trainer for Junior Software Developer\n\n2356.9900 Information Technology Trainers, Other 3340.90\n\nFamily 2359 Teaching Professionals Not Elsewhere Classified\n\nVOLUME I 66",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 78,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_78",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page78",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_77",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_79"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:10.540908Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 152,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_71",
+  "chunk_type": "page",
+  "text": "## Page 71\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nGroup 221 Medical Doctors\n\nFamily 2211 Generalist Medical Practitioners\n\n2211.0100 Physician, General 2221.10\n\n2211.0200 Surgeon, General 2221.15\n\n2211.0300 Anatomist, Medical 2221.20\n\n2211.0400 Anaesthetist 2221.25\n\n2211.0500 Psychiatrist 2221.30\n\n2211.9900 Generalist Medical Practitioners, Allopathic, 2221.90\n\nOther\n\nFamily 2212 Specialist Medical Practitioners\n\n2212.0100 Neurologist 2221.35\n\n2212.0200 Dermatologist 2221.40\n\n2212.0300 Allergy Specialist 2221.42\n\n2212.0400 Ear, Nose and Throat Specialist 2221.45\n\n2212.0500 Cardiologist 2221.50\n\n2212.0600 Radiologist 2221.55\n\n2212.0700 Tuberculosis Specialist 2221.60\n\n2212.0800 Ophthalmologist 2221.65\n\n2212.0900 Urologist 2221.68\n\n2212.1000 Venereologist 2221.70\n\n2212.1100 Obstetrician 2221.75\n\n2212.1200 Gynaecologist 2221.78\n\nVOLUME I 59",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 71,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_71",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page71",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_70",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_72"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:07.573535Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 134,
+    "custom": {}
+  }
+}

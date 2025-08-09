@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_155",
+  "chunk_type": "page",
+  "text": "## Page 155\n\n| Family | 6320 | Subsistence Livestock Farmers |  |\n\n| Group | 633 | Subsistence Mixed Crop and Livestock Farmers |  |\n\n| Family | 6330 | Subsistence Mixed Crop and Livestock Farmers |  |\n\n| Group | 634 | Subsistence Fishers, Hunters, Trappers and Gatherers |  |\n\n| Family | 6340 | Subsistence Fishers, Hunters, Trappers and Gatherers |  |\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nFamily 6320 Subsistence Livestock Farmers\n\nGroup 633 Subsistence Mixed Crop and Livestock\n\nFarmers\n\nFamily 6330 Subsistence Mixed Crop and Livestock\n\nGroup 634 Subsistence Fishers, Hunters, Trappers and\n\nGatherers\n\nFamily 6340 Subsistence Fishers, Hunters, Trappers and\n\nVOLUME I 143",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 155,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_155",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page155",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_154",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_156"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:37.725590Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 1,
+    "parse_chunk_duration": 43,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_298",
+  "chunk_type": "page",
+  "text": "## Page 298\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nPreservers, Others\n\nFPGA Design 2512.0401\n\nEngineer\n\nFunctional Tester 7543.0801\n\nFrame Maker, Cap 7532.0500 7435.25\n\nFunctional Tester 7543.0901\n\n– Medical Devices\n\nFramer – 8153.0701\n\nComputerised\n\nFunctional Tester 7543.1001\n\nEmbroidery\n\n– RAC\n\nMachine\n\nFunctional Tester 7543.1002\n\nFreelance 2642.0300 2451.40\n\nJournalist\n\nFur And Leather 8155.9900 8265.90\n\nFreight Handlers, 9333.9900 9333.90\n\nPreparing Machine\n\nOther\n\nOperators, Other\n\nFret Saw Machine 7523.1700 8241.20\n\nFurnace Helper 8181.3400\n\nOperator\n\nFurnace Man, Bidi 7516.0800 7416.45\n\nFriction Machine 8131.4400 8222.50\n\nOperator (Match)\n\nFurnace Man, 8181.1200 8131.50\n\nGlass/Furnace\n\nFriends of Coconut 6111.0852\n\nFurnace Man, 3135.2600 8122.48\n\nFront Sizer (Cotton 8152.2000 8262.85\n\nReverberatory,\n\nTextile)\n\nPulverised Coal\n\nFired\n\nFrontline Health 3253.0201\n\nWorker\n\nFurnace Operator 3133.0200 8152.60\n\n(Chemical)\n\nFrontman 7322.1600 7346.60\n\nFurnace Operator 3135.0900 8121.47\n\nFruit Press 8160.2400 8275.30\n\n(Non-Ferrous\n\nOperator (Food\n\nMetal)\n\nCanning and\n\nPreserving)\n\nFurnace Operator 3135.1300 8121.70\n\n(Smelting &\n\nFruits, Vegetables 7514.9900 7414.90\n\nRefining)\n\nand Related\n\nVOLUME I 286",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 298,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_298",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page298",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_297",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_299"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:28.282043Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 160,
+    "custom": {}
+  }
+}

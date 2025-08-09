@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_103",
+  "chunk_type": "page",
+  "text": "## Page 103\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n3122.3100 Supervisor and Foreman, Shoemaking 8268.40\n\n3122.3200 Supervisor and Foreman, Harness and Saddle 8268.50\n\nMaking\n\n3122.3300 Supervisor and Foreman, Leather Goods Making 8268.60\n\n3122.3400 Supervisors and Foremen, Textile-Related 7435.05\n\nProducts\n\n3122.3450 Scouring Supervisor, Wool 7431.26\n\n3122.3500 Supervisors and Foremen, Tailoring and Dress 7433.05\n\n3122.3551 Production Supervisor – Sewing\n\n3122.3600 Supervisor and Foreman, Brush Making 7424.05\n\n3122.3800 Supervisor and Foreman, Tobacco Preparation, 8279.10\n\nCigar and Cigarette Making\n\n3122.3900 Supervisor and Foreman, Tobacco Product Making 8279.20\n\n3122.4000 Supervisor and Foreman, Material and Freight 8290.10\n\nHandling\n\n3122.4100 Supervisor and Foreman, Checking, Sorting, 8290.20\n\nPacking and Related Activities\n\n3122.4200 Supervisor and Foreman, Welding and Flame 7218.10\n\nCutting\n\n3122.4300 Supervisor and Foreman, Sheet and Structural 7218.20\n\nMetal Working\n\n3122.4401 Casting Line In-Charge\n\n3122.4402 Casting Line Supervisor\n\n3122.4501 Forging Shop Shift In-Charge\n\nVOLUME I 91",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 103,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_103",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page103",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_102",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_104"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:19.381460Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 126,
+    "custom": {}
+  }
+}

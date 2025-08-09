@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_145",
+  "chunk_type": "page",
+  "text": "## Page 145\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nFamily 5249 Sales Workers Not Elsewhere Classified\n\n5249.0101 Key Account Service Manager\n\n5249.0200 Salesman, Wholesale Trade 5220.30\n\n5249.0201 Commercial Manager (Zonal/Regional)\n\n5249.0202 Commercial Executive/Officer\n\n5249.0301 Salesman, Retail Trade 5220.35\n\n5249.0400 Wholesale Dealer 5220.50\n\n5249.0500 Retail Dealer 5220.55\n\n5249.0600 Selling Agent 5220.60\n\n5249.0700 Stockist 5220.65\n\nSub- 53 Personal Care Workers\n\nDivision\n\nGroup 531 Child Care Workers and Teachers' Aides\n\nFamily 5311 Child Care Workers\n\n5311.0100 Ayah, Institutional 5131.10\n\n5311.0200 Child Care Worker 5131.30\n\n5311.0300 Governess 5121.40\n\n5311.0400 Ayah, Domestic 5131.20\n\n5311.9900 Child Care Workers, Other 5131.90\n\nFamily 5312 Teachers' Aides\n\nGroup 532 Personal Care Workers in Health Services\n\nFamily 5321 Healthcare Assistants\n\nVOLUME I 133",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 145,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_145",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page145",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_144",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_146"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:32.901897Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 129,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_38",
+  "chunk_type": "page",
+  "text": "## Page 38\n\nNational Classification of Occupations – 2015 Introduction\n\nThe last two digits after the decimal QP NOS\n\nThe first digit of NCO 2015 will represent the Division (Major Group in ISCO)\n\nThe first two digits of NCO 2015 will represent the Sub-Division (Sub-Major Group in ISCO)\n\nThe first three digits of NCO 2015 will represent the Group (Minor Group in ISCO)\n\nThe first four digits of NCO 2015 will represent the Family (Unit Group in ISCO)\n\nA decimal is introduced after the first four digits in order to create a distinction between the\n\nFamilies and individual Occupations.\n\nThe first two digits after the decimal of NCO 2015 will represent the different occupations\n\nthat can be combined under the given Family\n\nThe last two digits after the decimal in NCO 2015 shall represent the availability of a QP\n\nNOS for the job role.\n\nThe value of the last two digits would depend on two scenarios:\n\ni. If QP NOS is available, then the value of the last 2 digits after the decimal will be\n\nbetween1-99 (arranged sequentially)\n\nii. If QP NOS is unavailable, then the value of the last two digits after the decimal will remain\n\n4.1 NCO 2015 – Illustration of the Code\n\nAn illustrative example of the proposed NCO 2015 code is shown below for the code –\n\n8153.0111 (Sewing Machine Operator, General):\n\nCode: 8153.0111\n\nJob Title: Sewing Machine Operator, General\n\n8 Division In this example, ‘8’ stands for the Division which is\n\nPlant and Machine Operators and Assemblers\n\n81 Sub-Division 81 stands for the Sub-Division of the Occupation,\n\nwhich is Stationary Plant and Machine Operators\n\n815 Group 815 represents the Group under which the occupation\n\nVOLUME I 26",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 38,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_38",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page38",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_37",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_39"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:54.329251Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 86,
+    "custom": {}
+  }
+}

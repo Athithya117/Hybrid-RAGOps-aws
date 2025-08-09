@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_348",
+  "chunk_type": "page",
+  "text": "## Page 348\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nRestorer, Paper 2621.0600 2431.55 Riveter (Railroad 7214.1000 7214.82\n\nand Prints Equipment)\n\nRetail and 1420.9900 1304.90 Riveting Machine 8156.2600 8266.70\n\nWholesale Trade Operator\n\nManagers, Other\n\nRoad Roller Driver 8342.1700 8332.55\n\nRetail Dealer 5249.0500 5220.55\n\nRoaster, Cocoa 8160.6600 8277.60\n\nRetort Operator 8160.2600 8275.45 Bean\n\n(Food Canning and\n\nRobotic Machine 3139.1400 8172.10\n\nPreserving)\n\nOperator\n\nRetoucher, 7321.0900 7343.15\n\nRock Pilot 6224.1200 6159.50\n\nLithographic\n\nRock Slicer 3117.0100 3117.10\n\nRetoucher, 8132.0500 7344.40\n\nPhotographic\n\nRoll Grinder 7224.0300 7224.25\n\nRiding Instructor 3422.0300 3475.50\n\nRoll Winding 8122.7500 8223.75\n\nMachine Operator\n\nRifling Machine 7223.1900 8211.44\n\n(Abrasive)\n\nRoller Attendant 8160.5900 8277.20\n\nRig Mouted Drill 8111.0401\n\nRoller Coverer 8151.1700 8261.84\n\nRigger 7215.0100 7215.10\n\nRoller Maker, 7322.0900 7341.70\n\nPaper Printing\n\nRigger: Rigging of 7215.0101\n\nHeavy Material\n\nRoller, Gold and 7313.0100 7313.10\n\nSilver\n\nRiggers and Cable 7215.9900 7215.90\n\nSplicers, Other\n\nRoller, Hot Rolling 3135.2000 8122.32\n\nMill (Non-Ferrous\n\nRigging Artist 2166.0203\n\nMetal)/Mill\n\nRisk Management 2412.0400 2411.70 Operator\n\nAnalyst\n\nRoller, Merchant 3135.1700 8122.16\n\nRiveter 7214.0900 7214.80 Mill/Mill Operator\n\nVOLUME I 336",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 348,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_348",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page348",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_347",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_349"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:47.306125Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 177,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_328",
+  "chunk_type": "page",
+  "text": "## Page 328\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nMaintenance\n\nMotorcycle 8321.9900 8321.90\n\nDrivers, Other\n\nMobile Equipment 8342.2101\n\nOperator\n\nMould Maker, 7314.0100 7321.10\n\nPottery and\n\nModel 5241.0200 5210.20\n\nPorcelain\n\nModel, Fashion 5241.0100 5210.10\n\nMould Setter 8142.1300 8232.65\n\n(Plastic)\n\nModeller 2144.0802\n\nMoulder 8141.1201 8231.67\n\nModeller 2166.0202\n\n(Rubber)/Compres\n\nsion Moulding\n\nModeller (Except 2651.0200 2452.20\n\nStone)\n\nMoulder, General 7211.0100 7211.10\n\nModeller, Pottery 8181.1100 8131.40\n\nand Porcelain\n\nMoulder, Hand 7314.0400 7321.25\n\n(Ceramics)\n\nModule Assembly 8212.2302\n\nTechnician\n\nMoulder, Hand 8142.1400 8232.70\n\nModule Soldering 8212.2301\n\nMoulder, Machine 7211.0200 7211.20\n\nMoneylender 4213.0100 4214.10\n\nMoulder, Rubber 8141.2200 8231.86\n\nMonitor, 3341.0500 4142.25\n\nTelephone\n\nMoulder, Vertical 7211.0300 7211.30\n\nMono Caster 7322.0400 7341.45\n\nMoulder, Wood 7523.0900 7423.45\n\nMono Operator 7322.0300 7341.40\n\nMoulding 8142.0502\n\nMortiser Operator 7523.1000 7423.50\n\nMosaic Layer 7122.0500 7132.50\n\nMouldman (Glass) 7315.0600 7322.20\n\nMotor Vehicle 7231.9900 7231.90\n\nMounter/Mountin 7321.1000 7343.20\n\nMechanics, Other\n\ng Machine\n\nOperator/CNC\n\nVOLUME I 316",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 328,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_328",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page328",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_327",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_329"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:38.566837Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 175,
+    "custom": {}
+  }
+}

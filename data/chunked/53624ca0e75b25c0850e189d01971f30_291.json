@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_291",
+  "chunk_type": "page",
+  "text": "## Page 291\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nScience and Designer\n\nProtection\n\nEquity Dealer 3311.0201\n\nTechnician,\n\nIncluding Health\n\nErector, Machine 8211.1000 8281.55\n\nand Equipment\n\nEnvironment 3257.9900 3214.90\n\nScience and\n\nErector, Structural 7214.0600 7214.60\n\nTechnicians, Other\n\nEstate Agents, 3334.9900 3413.90\n\nOther\n\nEnvironment 2133.0200 2211.27\n\nScientist (Including\n\nEstimator, Timber 6210.1400 6141.75\n\nHealth)\n\nEtcher Photo 7321.1600 7343.50\n\nEnvironmental and 2263.9900 3152.90\n\nEngraving\n\nOccupational\n\nHealth and\n\nEvaporator 8131.3600 8154.40\n\nHygiene\n\nOperator\n\nProfessionals,\n\nEvaporator 8160.3700 8276.40\n\nOperator, Sugar\n\nEnvironmental 3257.0400 3214.20\n\nCompliance\n\nE-Waste Collector 9611.0201\n\nInspector\n\nExaminer, 7543.0300 3152.30\n\nEnvironmental 3257.0500 3214.30\n\n(Footwear)/Qualit\n\nEngineering\n\ny Controller\n\nTechnician\n\nExaminer, Dry 7543.0400 3152.40\n\nEOT Crane 8343.0501\n\nCleaning/Fabric\n\nInspection\n\nEpigraphist 2633.0300 2443.30\n\nExaminer, Wood 7543.0500 3152.50\n\nEqual Opportunity 3412.0200 3460.20\n\nWorking\n\nOfficer\n\nExcavator 8342.2001\n\nEquestrian 2659.0300 3474.20\n\nEquipment 2144.0301\n\nExecutive Chef 1120.3100 1217.30\n\nVOLUME I 279",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 291,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_291",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page291",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_290",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_292"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:26.020636Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 158,
+    "custom": {}
+  }
+}

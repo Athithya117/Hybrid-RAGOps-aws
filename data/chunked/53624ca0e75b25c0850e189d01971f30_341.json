@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_341",
+  "chunk_type": "page",
+  "text": "## Page 341\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nPress Shop 7211.0102 Pressure Die 8121.4201\n\nAssistant/Helper Casting (PDC)\n\nOperator\n\nPress Shop 7211.0101\n\nOperator Priest 2636.0100 2461.10\n\nPress Shop Shift 3122.4601 Primary School 2341.0400 3312.10\n\nIn-Charge Teacher\n\nPress Shop 3122.4602 Primary School 2341.9900 3312.90\n\nSupervisor Teachers, Other\n\nPresser, Hand 9121.0600 9133.60 Principal, College 1120.3900 1219.50\n\nPresser, 8171.2200 8143.60 Printer 8132.0100 7344.10\n\nHandmade Paper Photographic\n\nPresser, 8157.0400 8264.40 Printers, Others 7322.9900 8251.90\n\nMachine/Ironing\n\nPrinting Jobber 7322.1300 7346.30\n\nPrinting Machine 8142.1100 8232.60\n\nPressing Machine 8212.1806\n\nOperator (Plastic)\n\nPrinting Machine 8132.0700 8224.10\n\nPressman 8157.0401\n\nOperator,\n\nPressman 8181.0700 8131.28 Photographic\n\n(Abrasive)\n\nPrinting Master 2141.1700 2149.50\n\nPressman 8181.0400 8131.22 (Textile)\n\n(Ceramics)\n\nPrinting 2141.2400 2149.74\n\nPressman 7322.1700 8251.10 Technologist\n\n(Flatbed, Letter\n\nPrison Guards, 5413.9900 5163.90\n\nPress)\n\nOther\n\nPressman (Glass) 8181.0300 8131.20\n\nPrivate Secretary 4120.0100 4115.10\n\nPressman, Roto 7322.2300 8251.60\n\nProbation Officer 2635.0300 2446.30\n\nGravure\n\nVOLUME I 329",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 341,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_341",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page341",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_340",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_342"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:44.578191Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 166,
+    "custom": {}
+  }
+}

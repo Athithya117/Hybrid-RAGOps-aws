@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_361",
+  "chunk_type": "page",
+  "text": "## Page 361\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nRelated Associate Goods and\n\nProfessionals, Garments)\n\nOther\n\nStitcher, Hand 7536.2100 7442.78\n\nStatistician 2120.0300 2122.10\n\nStitching Operator 8156.0901\n\nStatistician, 2120.0400 2122.20 (Footwear)\n\nApplied\n\nStock Clerks, Other 4321.9900 4131.90\n\nStencil Cutter, Silk 7322.1100 7346.10\n\nStock House 3122.0300 8128.30\n\nScreen Printing\n\nForeman\n\nStencil Printing 8212.1605\n\nStock Verifier 4321.0301 4131.30\n\nOperator\n\nStockist 5249.0700 5220.65\n\nStenciler 9321.0300 9322.30\n\nStockman 3240.0200 3227.20\n\nStentering 8154.2100 8264.81\n\nMachineman/Sten\n\nStoking Car 8342.2201\n\ntering Operator\n\nOperator Ferro\n\nAlloys\n\nStereo Matrix 7321.0500 7342.10\n\nMoulder\n\nStone Carver 7113.0400 7113.40\n\nStereotype Caster 7321.0600 7342.20\n\nStone Cutter, 7113.0200 7113.20\n\nSteward, Hotel 5131.0200 5123.20\n\nStone Cutter, 8112.0800 8112.55\n\nSteward, 5111.0200 5111.20\n\nMachine\n\nShip/Mess Man\n\nStone Cutter, 8111.1200 7111.45\n\nStill Man Gas 3134.0200 8155.20\n\nMines\n\nPlant/Gas Plant\n\nOperator (Petrol\n\nStone Dresser, 7113.0300 7113.30\n\nRefining)\n\nStingy Cigarette 8160.8900 8279.60\n\nStone Mason 7112.0100 7122.10\n\nSlitting Machine\n\nStone Modeller 2651.0300 2452.30\n\nStitcher (Leather 8153.0102\n\nVOLUME I 349",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 361,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_361",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page361",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_360",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_362"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:51.634061Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 173,
+    "custom": {}
+  }
+}

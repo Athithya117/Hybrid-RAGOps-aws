@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_192",
+  "chunk_type": "page",
+  "text": "## Page 192\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nMakers\n\n7516.0100 Tobacco Curer 7416.10\n\n7516.0200 Tobacco Grader 7416.15\n\n7516.0300 Blender, Tobacco 7416.20\n\n7516.0400 Conditioner, Tobacco 7416.25\n\n7516.0500 Cigar or Cheroot Roller 7416.30\n\n7516.0600 Cigar or Cheroot Roller Helper 7416.35\n\n7516.0700 Bidi Maker 7416.40\n\n7516.0800 Furnace Man, Bidi 7416.45\n\n7516.0900 Bidi Checker 7416.50\n\n7516.1000 Snuff Maker 7416.55\n\n7516.1100 Chewing Tobacco Maker 7416.60\n\n7516.9900 Tobacco Preparers and Tobacco Products 7416.90\n\nMakers, Other\n\nGroup 752 Wood Treaters, Cabinet Makers and\n\nRelated Trades Workers\n\nFamily 7521 Wood Treaters\n\n7521.0100 Kiln Operator, Wood 7421.10\n\n7521.0200 Impregnator, Wood 7421.20\n\n7521.0300 Wood Bender 7421.30\n\n7521.0400 Wood Treater 7421.40\n\n7521.0500 Grader (Wood Working) 7421.50\n\n7521.9900 Wood Treaters, Other 7421.90\n\nVOLUME I 180",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 192,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_192",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page192",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_191",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_193"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:48.927278Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 124,
+    "custom": {}
+  }
+}

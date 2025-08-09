@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_316",
+  "chunk_type": "page",
+  "text": "## Page 316\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nLight Motor 8322.0501 Liquor Taster 7515.0200 7415.20\n\nVehicle Driver\n\nLithographic Artist 7321.0800 7343.10\n\nLighting Artist 2654.0901\n\nLithographic 3118.0700 3118.70\n\nLime Juice Tank 8160.4600 8276.75 Designer\n\nAttendant\n\nLive Action 2654.0351\n\nLime Pitman, 7535.0300 7441.18 Director\n\nLeather\n\nLivestock Worker, 6121.0300 6121.20\n\nLine 2153.0400 2144.40 General\n\nCommunication\n\nLivestock 6121.0500 6121.30\n\nEngineer, Tele-\n\nWorkers/Other\n\nCommunication/T\n\nLivestock Workers\n\nelecommunication\n\nEngineer/Technici\n\nLoad Dispatcher 3131.1100 8161.80\n\nLoader and 9333.0100 9333.10\n\nLine Inspector, 3522.0200 3114.30\n\nUnloader\n\nTelephone\n\nLoader, Transport 9333.0202\n\nLine Supervisor, 3122.6000 7248.50\n\nAssociate/Loader/\n\nElectrical\n\nLineman, Light and 7413.0100 7245.10\n\nLoader/Loading 9333.0101\n\nPower\n\nand Unloading\n\nOperator\n\nLineman, 7422.0400 7244.40\n\nTelephone and\n\nLoan Approval 3312.0101\n\nTelegraph\n\nOfficer\n\nLinen Keeper 5151.0500 5121.50\n\nLocksmith 7222.0700 7222.70\n\nLino Operator 7322.0200 7341.35\n\nLoco Cleaner 7233.2500 7233.65\n\nLinoleum Maker 8132.1000 8224.40\n\nLoco Driver, Mines 8311.0100 8311.10\n\nLiquor Maker, 8171.0600 8142.35\n\nLoco Foreman 3115.1400 3115.60\n\nPaper Pulp\n\nVOLUME I 304",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 316,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_316",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page316",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_315",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_317"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:34.991331Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 171,
+    "custom": {}
+  }
+}

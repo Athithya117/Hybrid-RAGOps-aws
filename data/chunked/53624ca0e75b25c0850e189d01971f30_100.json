@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_100",
+  "chunk_type": "page",
+  "text": "## Page 100\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n3118.0800 Tracer 3118.80\n\n3118.0900 Blue Printer 3118.85\n\n3118.9900 Draughtpersons, Other 3118.90\n\nFamily 3119 Physical and Engineering Science Technicians Not\n\nElsewhere Classified\n\n3119.0100 Laboratory Assistant, Engineering 3119.10\n\n3119.0200 Forensic Science Technician 3119.20\n\n3119.0300 Fingerprint Expert 3119.30\n\n3119.0400 Handwriting Expert 3119.35\n\n3119.0500 Impression Taker 3119.37\n\n3119.0600 Weather Observer 3119.40\n\n3119.0700 Methods, Time and Motion Study Technician 3119.50\n\n3119.0800 Fire Prevention Officer 3151.10\n\n3119.0900 Fire Officer 3151.20\n\n3119.1000 Fire Inspectors, Other 3151.90\n\n3119.1100 Laser Technician 3139.10\n\n3119.9900 Optical and Electronic Equipment Controllers, 3139.90\n\nOther\n\nGroup 312 Mining, Manufacturing and Construction\n\nSupervisors\n\nFamily 3121 Mining Supervisors\n\n3121.0100 Supervisor and Foreman, Mining and Quarrying 8118.10\n\n3121.0200 Supervisor and Foreman, Well Drilling 8118.15\n\nVOLUME I 88",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 100,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_100",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page100",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_99",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_101"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:17.636664Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 121,
+    "custom": {}
+  }
+}

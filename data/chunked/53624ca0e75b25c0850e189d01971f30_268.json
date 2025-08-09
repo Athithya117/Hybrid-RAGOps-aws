@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_268",
+  "chunk_type": "page",
+  "text": "## Page 268\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nStructural\n\nCarbonizer, Textile 8154.0700 8264.64\n\nCarpenter, Village 7115.0400 7124.30\n\nCard Cutter 8152.0400 8262.20\n\nCarpenters and 7115.9900 7124.90\n\nCardboard Box 8143.0100 8253.10\n\nJoiners\n\nMaker\n\nOperatives, Other\n\nCardiac Care 3211.0801\n\nCarpet Clipper, 7318.6000 7432.60\n\nTechnician\n\nCardiologist 2212.0500 2221.50\n\nCarpet Embosser 7318.6100 7432.61\n\nCardtenter, 7318.2700 7431.50\n\nCarpet Repairer 7318.6200 7432.62\n\nCotton/Carding\n\nTenter\n\nCarpet Weaver 7318.0300 7332.30\n\n(Carpet & Rug)\n\nCaretaker, 5153.0100 9141.10\n\nBuilding\n\nCarpet Weaver, 7318.5900 7432.59\n\nHand Knitting\n\nCaretaker, Burial 5153.0300 9141.30\n\nPlaces and\n\nCarrier Attendant 7422.0700 7244.70\n\nCremation\n\n(Telephone) and\n\nGrounds\n\nTelegraph\n\nCaretaker, 5153.0200 9141.20\n\nCart Driver 9332.0200 9332.20\n\nMonument\n\nCartographer 2165.0100 2148.10\n\nCarpenter Worker, 7115.1100 7124.65\n\nBoat Building\n\nCartographers and 2165.9900 2148.90\n\nSurveyors, Other\n\nCarpenter, Boat 7115.1200 7124.70\n\nCartoonist 2651.0600 2452.55\n\nCarpenter, 7115.0200 7124.20\n\nCase Finisher 7532.0300 7435.18\n\nConstruction\n\n(Leather Product)\n\nCarpenter, 7115.0100 7124.10\n\nCashier, Bank 4211.0200 4211.20\n\nGeneral\n\nCashier, Cash 4211.0301 4211.30\n\nCarpenter, 7115.0300 7124.25\n\nCounter\n\nVOLUME I 256",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 268,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_268",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page268",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_267",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_269"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:16.779606Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 198,
+    "custom": {}
+  }
+}

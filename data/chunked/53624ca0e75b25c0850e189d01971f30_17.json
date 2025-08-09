@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_17",
+  "chunk_type": "page",
+  "text": "## Page 17\n\nNational Classification of Occupations – 2015 Introduction\n\nii. To make it possible for international occupational data to be produced in a form that can\n\nbe useful for research as well as for specific decision-making and action-oriented\n\nactivities. These activities could connect with international migration or job placement.\n\niii. To serve as a model for countries developing or revising their national occupational\n\nclassifications. However, ISCO – 88 was not intended to replace any existing national\n\nclassification of occupations as the occupational classification systems of different\n\ncountries was required to reflect the structure of their individual national labour markets.\n\nThe framework necessary for designing and constructing ISCO – 88 was created in such a way\n\nthat it not only defined the kind of work performed, but also the skill required to perform that\n\nparticular job effectively.\n\nA “job” has been defined as a set of tasks and duties performed by one person and an\n\n“occupation” as a set of jobs whose tasks and duties are of a similar nature.\n\n“Skill” has been defined as the ability to carry out the tasks and duties of a given job, which\n\nencompasses two dimensions namely:\n\ni. Skill Level: A function that describes the range of the tasks and duties involved\n\nii. Skill Specialization: Shows the field of knowledge required, the tools and machinery used,\n\nthe materials worked on, and the kinds of goods and services produced\n\nIn view of the international character of the classification, only four, broad skill levels were used.\n\nThis classification of skill levels was more or less based on the educational categories and levels,\n\nwhich appear in the International Standard Classification of Education (ISCED). It is also worth\n\nkeeping in view that the focus was on the skills required to carry out the tasks and duties of an\n\noccupation and not on whether a worker working in a particular occupation is more or less skilled\n\nthan another worker in the same occupation.\n\nVOLUME I 5",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 17,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_17",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page17",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_16",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_18"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:49.122848Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 89,
+    "custom": {}
+  }
+}

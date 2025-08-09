@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_52",
+  "chunk_type": "page",
+  "text": "## Page 52\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n1311.0700 Manager, Agricultural Farm 1221.10\n\n1311.0800 Manager, Plantation 1221.20\n\n1311.0900 Manager, Nursery 1221.22\n\n1311.0901 Rubber Nursery Manager\n\n1311.1000 Manager, Aerial Planting and Cultivation 1221.24\n\n1311.1100 Manager, Orchard 1221.26\n\n1311.1200 Manager, Horticulture Farm 1221.30\n\n1311.1300 Manager, Livestock Farm 1221.40\n\n1311.1400 Manager, Dairy Farm 1221.50\n\n1311.1500 Manager, Poultry Farm 1221.60\n\n1311.9900 Agricultural and Forestry Production Managers, 1221.90\n\nOthers\n\nFamily 1312 Aquaculture and Fisheries Production Managers\n\nGroup 132 Manufacturing, Mining, Construction and\n\nDistribution Managers\n\nFamily 1321 Manufacturing Managers\n\n1321.0100 Manager, Electricity 1222.40\n\n1321.0200 Terminal Manager 1222.45\n\n1321.0300 Manager, Gas 1222.50\n\n1321.0400 Manager, Water Supply 1222.60\n\n1321.0500 Manager, Food Processing Plant 1222.65\n\n1321.0600 Manager, Manufacturing 1222.70\n\n1321.0700 General Manager, Electricity 1302.40\n\nVOLUME I 40",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 52,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_52",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page52",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_51",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_53"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:01.346307Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 127,
+    "custom": {}
+  }
+}

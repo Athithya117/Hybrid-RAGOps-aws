@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_49",
+  "chunk_type": "page",
+  "text": "## Page 49\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n1120.3200 Working Proprietor, Recreation and 1218.10\n\nEntertainment\n\n1120.3300 Director, Recreation and Entertainment 1218.20\n\n1120.3400 Station Director, Radio/TV 1218.30\n\n1120.3401 Account Director ( Advertising Agency)\n\n1120.3402 Sales Director (Media Org)\n\n1120.3500 Working Proprietor, Other Services 1219.10\n\n1120.3600 Director, Other Services 1219.20\n\n1120.3700 Director, Museum/Zoo 1219.30\n\n1120.3800 Chief Librarian 1219.40\n\n1120.3900 Principal, College 1219.50\n\n1120.9900 Managing Directors and Chief Executives, Others 1211.90\n\nSub- 12 Administrative and Commercial Managers\n\nDivision\n\nGroup 121 Business Services and Administration Managers\n\nFamily 1211 Finance Managers\n\n1211.0100 General Manager, Bank 1307.10\n\n1211.0200 General Manager, Insurance 1307.20\n\n1211.0300 Purser, Ship 1231.10\n\n1211.9900 Finance Managers, Others 1231.9\n\nFamily 1212 Human Resource Managers\n\n1212.0100 Personnel Manager 1232.10\n\n1212.9900 Personnel and Industrial Relations Managers, 1232.90\n\nVOLUME I 37",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 49,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_49",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page49",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_48",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_50"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:57.539973Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 127,
+    "custom": {}
+  }
+}

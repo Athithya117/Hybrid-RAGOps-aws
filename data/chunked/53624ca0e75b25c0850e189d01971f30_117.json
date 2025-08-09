@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_117",
+  "chunk_type": "page",
+  "text": "## Page 117\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n3311.0201 Equity Dealer\n\n3311.0202 Mutual Fund Agent\n\n3311.9900 Securities and Finance Dealers and Brokers, Other 3411.90\n\nFamily 3312 Credit and Loan Officers\n\n3312.0100 Finance Agent 3411.50\n\n3312.0101 Loan Approval Officer\n\n3312.9900 Credit and Loan Officers, Other\n\nFamily 3313 Accounting Associate Professionals\n\nFamily 3314 Statistical, Mathematical and Related Associate\n\nProfessionals\n\n3314.0100 Economic Investigator 3433.10\n\n3314.0200 Statistical Assistant 3433.20\n\n3314.9900 Statistical, Mathematical and Related Associate 3433.90\n\nProfessionals, Other\n\nFamily 3315 Valuers and Loss Assessors\n\n3315.0100 Valuer 3417.40\n\n3315.0200 Claims Inspector, Railways 3417.50\n\n3315.0300 Appraiser, Customs 3417.60\n\n3315.0501 Warranty In-Charge\n\n3315.9900 Valuers and Loss Assessors, Other 3417.90\n\nGroup 332 Sales and Purchasing Agents and Brokers\n\nFamily 3321 Insurance Representatives\n\n3321.0100 Insurance Agent 3412.10\n\nVOLUME I 105",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 117,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_117",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page117",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_116",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_118"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:24.290448Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 135,
+    "custom": {}
+  }
+}

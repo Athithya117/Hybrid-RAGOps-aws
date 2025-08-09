@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_76",
+  "chunk_type": "page",
+  "text": "## Page 76\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nSubjects\n\n2310.0200 University and College Teacher, Commerce 2310.15\n\nSubjects/Professors/Assistant Professors,\n\nCommerce Subjects\n\n2310.0300 University and College Teacher, Management 2310.18\n\nManagement Subjects\n\n2310.0400 University and College Teacher, 2310.20\n\nLaw/Professors/Assistant Professors, Education\n\n2310.0500 University and College Teacher, 2310.30\n\nLaw/Professors/Assistant Professors, Law\n\n2310.0600 University and College Teacher, Science 2310.40\n\nSubjects/Professors/Assistant Professors, Science\n\n2310.0700 University and College Teacher, Engineering/ 2310.45\n\nProfessors/Assistant Professors, Engineering\n\n2310.0800 University and College Teacher, Information 2310.48\n\nTechnology/Professors/Assistant Professors,\n\nInformation Technology\n\n2310.0900 University and College Teacher, Medicine and 2310.50\n\nSurgery/Professors/Assistant Professors,\n\nMedicine and Surgery\n\n2310.1000 University and College Teacher, Veterinary 2310.60\n\nScience/Professors/Assistant Professors,\n\nVeterinary Science\n\n2310.1100 University and College Teacher, Agricultural 2310.70\n\n2310.1200 University and College Teacher, Fine 2310.80\n\nArts/Professors/Assistant Professors, Fine Arts\n\n2310.9900 Professors/Assistant Professors, Other 2310.90\n\nVOLUME I 64",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 76,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_76",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page76",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_75",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_77"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:09.324601Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 140,
+    "custom": {}
+  }
+}

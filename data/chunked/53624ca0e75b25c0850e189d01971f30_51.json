@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_51",
+  "chunk_type": "page",
+  "text": "## Page 51\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n1221.0602 Sales Manager (Media Org)\n\n1221.9900 Sales and Marketing Managers, Other 1233.90\n\nFamily 1222 Advertising and Public Relation Managers\n\n1222.0100 Manager, Advertising and Promotion 1234.10\n\n1222.0102 Advertising Operations Co-Ordinator (Digital)\n\n1222.0200 Manager, Fashion/Fashion Manager 1234.20\n\n1222.9900 Advertising and Public Relations Department 1234.90\n\nManagers, Others\n\nFamily 1223 Research and Development Managers\n\n1223.0101 Manager Testing Facility\n\n1223.0102 Manager Material Testing\n\n1223.0201 Research Associate\n\nSub- 13 Production and Specialized Services Managers\n\nDivision\n\nGroup 131 Production Managers in Agriculture, Forestry\n\nand Fisheries\n\nFamily 1311 Agricultural and Forestry Production Managers\n\n1311.0100 General Manager, Plantation 1301.20\n\n1311.0200 General Manager, Horticulture 1301.30\n\n1311.0300 General Manager, Agricultural Farm 1301.10\n\n1311.0400 General Manager, Livestock Farm 1301.40\n\n1311.0500 General Manager, Dairy Farm 1301.50\n\n1311.0600 General Manager, Poultry 1301.60\n\nVOLUME I 39",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 51,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_51",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page51",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_50",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_52"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:58.103167Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 125,
+    "custom": {}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_305",
+  "chunk_type": "page",
+  "text": "## Page 305\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nMachine\n\nHeat Treater 8131.2200 8152.75\n\n(Footwear)\n\nHeat Treating 8121.3701 8122.64\n\nHeel Padding 8156.2400 8266.65\n\nFurnace Operator\n\nMachine Operator\n\nHeat Treatment 3135.3001\n\nHeeler, 8156.1800 8266.40\n\nShop Supervisor\n\nMachine/Heel\n\nAttacher\n\nHeating Plant 3132.0500 8163.50\n\nSuperintendent\n\nHelper – Bottom 8156.2601\n\nMaking\n\nHeating, 3115.1100 3115.40\n\nVentilation and\n\nRefrigeration\n\nHelper – Dry 8155.1202\n\nEngineering\n\nOperations\n\nTechnician\n\n(Finished Leather)\n\nHeavy Duty End 7223.1400 8211.34\n\nHelper – Finishing 8156.2603\n\nMill Operator\n\nHeavy Truck and 8332.9900 8324.90\n\nHelper – Finishing 8155.1203\n\nLorry Drivers,\n\nOperation(Finishe\n\nOther\n\nd Leather)\n\nHeel Attacher, 7536.1600 7442.65\n\nHelper – Finishing 8153.0703\n\nHand (Footwear)\n\n(Leather Goods\n\nHeel Breaster, 8156.0200 8266.12\n\nand Garments)\n\n(Footwear)/Machi\n\nHelper – Parts 8153.0702\n\nne Operator –\n\nMaking (Leather\n\nHeel Breasting\n\nGoods and\n\nGarments)\n\nHeel Builder, 8156.0400 8266.16\n\nHelper – Upper 8156.2602\n\nHeel Building\n\nHelper – Wet 8155.1201\n\nHeel Compressor, 8156.1900 8266.42\n\nOperations (Multi-\n\nVOLUME I 293",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 305,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_305",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page305",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_304",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_306"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:30.935200Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 144,
+    "custom": {}
+  }
+}

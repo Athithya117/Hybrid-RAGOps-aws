@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_137",
+  "chunk_type": "page",
+  "text": "## Page 137\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nDivision 5 Service and Sales Workers\n\nSub- 51 Personal Service Workers\n\nDivision\n\nGroup 511 Travel Attendants, Conductors and Guides\n\nFamily 5111 Travel Attendants and Travel Stewards\n\n5111.0100 Chief Steward, Ship/Chief Cook 5111.10\n\n5111.0200 Steward, Ship/Mess Man 5111.20\n\n5111.0300 Air Hostess 5111.30\n\n5111.0400 Flight Steward 5111.40\n\n5111.0500 Aircraft Cargo Handling Supervisor 5111.50\n\n5111.0600 Air Crew Member 5111.60\n\n5111.9900 Travel Attendants and Travel Stewards, 5111.90\n\nOther\n\nFamily 5112 Transport Conductors\n\n5112.0100 Guard, Passenger Train 5112.10\n\n5112.0200 Guard, Goods Train 5112.20\n\n5112.0300 Brakesman, Railway 5112.30\n\n5112.0400 Conductor Guard, Railway 5112.40\n\n5112.0500 Ticket Collector, Railway 5112.42\n\n5112.0600 Travelling Ticket Examiner, Railway 5112.44\n\n5112.0700 Ticket Examiner, Motor Transport 5112.46\n\n5112.0800 Passenger Guide, Railway 5112.50\n\n5112.0900 Conductor, Tram 5112.60\n\nVOLUME I 125",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 137,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_137",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page137",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_136",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_138"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:30.529969Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 134,
+    "custom": {}
+  }
+}

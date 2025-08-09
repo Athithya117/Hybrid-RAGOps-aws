@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_278",
+  "chunk_type": "page",
+  "text": "## Page 278\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nOperators, Other\n\nCost Accountant 2411.0300 2411.30\n\nCreative Writer 2431.0700 2451.52\n\nCotton Cultivator 6111.0601\n\nCredit and Loan 3312.9900\n\nCounsellor 2423.0200 2412.50\n\nOfficers, Other\n\nCounsellor, 2635.1100 2446.85\n\nCreeperman, 8111.1600 7111.55\n\nMarriage and\n\nColliery\n\nFamily\n\nCrier, Auction 3339.0400 3417.20\n\nCounter 9321.1200 9322.80\n\nCriminologists 2632.0500 2442.40\n\nCounter Moulder 7536.1200 7442.45\n\nCritic 2641.0200 2451.15\n\nCourt Receiver 2619.0800 2429.55\n\nand Liquidator\n\nCRM Domestic 5244.0201\n\nNon-Voice\n\nCrabbing 8154.2500 8264.85\n\nMachineman\n\nCRM Domestic 5244.0101\n\n(Woollen Textile)\n\nVoice\n\nCrane and Hoist 8343.1600 8333.60\n\nCrochet Worker, 7318.6500 7432.72\n\nCrane Driver, 8343.1000 8333.30\n\nCropper 8154.2200 8264.82\n\nHammer Head\n\nCrude Oil Treater 8131.2800 8153.50\n\nCrane Operator, 8343.0200 8333.12\n\n(Oil Field)\n\nDiesel Electric\n\nCrude Oil Treater 8131.3100 8153.70\n\nCrane Operator, 8343.0600 8333.20\n\n(Petrol & Gas)\n\nGantry\n\nCrusher 7315.2200 7329.10\n\nCrane Operator, 8343.0400 8333.16\n\nAttendant, Stone\n\nHydraulic\n\nCrusher Operator, 8131.0100 8151.10\n\nCrane Operator, 8343.0300 8333.14\n\nChemical\n\nPneumatic\n\nCrusher Operator, 8112.0100 8112.10\n\nCrane, Hoist and 8343.9900 8333.90\n\nMineral\n\nRelated Plant\n\nVOLUME I 266",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 278,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_278",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page278",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_277",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_279"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:21.487383Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 192,
+    "custom": {}
+  }
+}

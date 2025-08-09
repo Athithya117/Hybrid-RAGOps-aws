@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_120",
+  "chunk_type": "page",
+  "text": "## Page 120\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n3322.5001 Plumbing Products Sales Officer\n\n3322.5002 Plumber Aftersales Service\n\n3322.6001 Export Executive\n\n3322.6011 Export Assistant\n\n3322.9900 Commercial Sales Representatives, Other 3415.90\n\nFamily 3323 Buyers\n\n3323.0100 Buyer 3416.10\n\n3323.0101 Merchandiser – Gem & Jewellery\n\n3323.0102 Merchandiser – Apparel\n\n3323.0200 Purchasing Agent 3416.20\n\n3323.0301 Vendor Development Executive\n\n3323.0401 Purchase Executive\n\n3323.0501 Purchase Executive – Solar\n\n3323.0601 Associate – Supply Chain Management\n\n3323.0602 Supply Chain Field Assistant\n\n3323.9900 Buyers, Other 3416.90\n\nFamily 3324 Trade Brokers\n\nGroup 333 Business Service Agents\n\nFamily 3331 Clearing and Forwarding Agents\n\nFamily 3332 Conference and Event Planners\n\nFamily 3333 Employment Agents and Contractors\n\nFamily 3334 Real Estate Agents and Property Managers\n\nVOLUME I 108",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 120,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_120",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page120",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_119",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_121"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:25.092580Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 131,
+    "custom": {}
+  }
+}

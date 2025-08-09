@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_173",
+  "chunk_type": "page",
+  "text": "## Page 173\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n7312.0500 Bellow Man (Harmonium) 7312.22\n\n7312.0600 Reed Fitter (Harmonium) 7312.25\n\n7312.0800 Finisher (Harmonium) 7312.30\n\n7312.1000 Organ Tuner 7312.35\n\n7312.1200 Piano Tuner 7312.43\n\n7312.1300 Tabla Maker (Musical Instrument) 7312.45\n\n7312.1400 Drum Maker, Musical 7312.50\n\n7312.1500 Clarinet Assembler 7312.55\n\n7312.1600 Bagpipe Maker 7312.58\n\n7312.1700 Brass Musical Instruments Assembler 7312.60\n\n7312.1800 Musical Instrument Repairer 7312.65\n\n7312.9900 Musical Instrument Makers and Tuners, 7312.90\n\nOther\n\nFamily 7313 Jewellery and Precision Metal Workers\n\n7313.0100 Roller, Gold and Silver 7313.10\n\n7313.0101 Jewellery Polisher\n\n7313.0102 Plater\n\n7313.0103 Filer and Assembler\n\n7313.0201 Wire Maker, Gold and Silver/Component 7313.15\n\nMaker\n\n7313.0202 Gemstone Thread Maker\n\n7313.0301 Gold Curer, General/Gold Refiner 7313.18\n\n7313.0401 Gold Curer, Mint/Gold Melter and Refiner 7313.20\n\nVOLUME I 161",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 173,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_173",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page173",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_172",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_174"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:43.295759Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 130,
+    "custom": {}
+  }
+}

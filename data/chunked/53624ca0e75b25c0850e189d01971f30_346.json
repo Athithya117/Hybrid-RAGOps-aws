@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_346",
+  "chunk_type": "page",
+  "text": "## Page 346\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nOperator\n\nRadio Operator, 3521.0800 3132.30\n\nBroadcasting\n\nRearer, Silkworm/ 6123.0201 6123.20\n\nStation\n\nSericulturist\n\nRadio Operator, 3521.1400 3132.70\n\nReceiver (Match) 8131.4100 8222.20\n\nReception 4226.0100 4221.20\n\nRadio Technician 7422.1400 7243.60\n\nClerk/Front Desk\n\n(Radio\n\nExecutive/Recepti\n\nManufacturing)\n\nonist\n\nRadio, Television 2656.9900 3472.90\n\nReceptionist 4224.0100 4221.10\n\nand Other\n\n(Hotel)/Front\n\nAnnouncers, Other\n\nOffice Associate\n\nRadiologist 2212.0600 2221.55\n\nReed Fitter 7312.0600 7312.25\n\n(Harmonium)\n\nRadiology 3211.0101\n\nTechnician\n\nReed Man 8151.1100 8261.77\n\nRag Machineman 8151.0300 8261.20\n\nReeler Textile 8151.1000 8261.70\n\n(Woollen Textile)\n\nReeler, Silk 8151.1300 8261.80\n\nRaising 8154.2000 8264.80\n\nMachineman\n\nReeling Machine 8122.3000 8223.30\n\n(Textile)\n\nRammer, Vertical 7211.0400 7211.40\n\nRefining – 8160.3300 8275.74\n\nPipe Moulding\n\nMachine Operator\n\n(Oil & Grease)\n\nRates Inspector, 1324.1700 1226.64\n\nRailway\n\nRefining Machine 8131.6500 8159.54\n\nOperator (Oils and\n\nRaw Juice Tank 8160.4400 8276.73\n\nFats)/Oil and Fat\n\nPump Attendant\n\nPlant Operator\n\nReacher, Hand 7318.5300 7432.52\n\nReflow Oven 8212.1604\n\nSoldering\n\nReactor Convertor 8131.3700 8154.50\n\nVOLUME I 334",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 346,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_346",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page346",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_345",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_347"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:46.646339Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 169,
+    "custom": {}
+  }
+}

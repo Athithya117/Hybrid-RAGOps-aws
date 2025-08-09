@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_31",
+  "chunk_type": "page",
+  "text": "## Page 31\n\n| NCO 2015 Divisions | Title | Skill Level |\n\n| 1 | Legislators, Senior Officials, and Managers | Not Defined* |\n\n| 2 | Professionals | IV |\n\n| 3 | Associate Professionals | III |\n\n| 5 | Service Workers and Shop & Market Sales Workers | II |\n\n| 6 | Skilled Agricultural and Fishery Workers | II |\n\n| 7 | Craft and Related Trades Workers | II |\n\n| 8 | Plant and Machine Operators and Assemblers | II |\n\n| 9 | Elementary Occupations | I |\n\nNational Classification of Occupations – 2015 Introduction\n\nThe skill level of each newly identified Occupation was decided on the basis of information about\n\nacademic and technical qualifications and experience requirement as also the average job\n\ndescription of the occupation to see whether the job requirement was of administrative,\n\nmanagerial, supervisory nature or of a subordinate/repetitive nature in the Indian context.\n\nIn keeping with the skill levels defined above to suit Indian conditions, following Divisions were\n\nclassified in tune with the defined skill levels to accommodate Occupations:\n\nNCO 2015 Title Skill Level\n\nDivisions\n\n1 Legislators, Senior Officials, and Managers Not Defined*\n\n2 Professionals IV\n\n3 Associate Professionals III\n\n4 Clerks II\n\n5 Service Workers and Shop & Market Sales Workers II\n\n6 Skilled Agricultural and Fishery Workers II\n\n7 Craft and Related Trades Workers II\n\n8 Plant and Machine Operators and Assemblers II\n\n9 Elementary Occupations I\n\nThe following changes occurred in NCO 15 after it was aligned/mapped to ISCO 2008:\n\nUpdating job roles linked to the information and technology sector\n\nExpansion of job roles in the health sector\n\nReorganization of job roles for clerks. This was again reorganized to reflect the rapid\n\ngrowth of information and technology\n\nVOLUME I 19",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 31,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_31",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page31",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_30",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_32"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:28:52.788093Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 1,
+    "parse_chunk_duration": 89,
+    "custom": {}
+  }
+}

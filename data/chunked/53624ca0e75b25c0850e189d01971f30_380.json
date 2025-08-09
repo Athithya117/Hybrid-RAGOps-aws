@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_380",
+  "chunk_type": "page",
+  "text": "## Page 380\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nSilver/Component\n\nWheat Cultivator 6111.0201\n\nMaker\n\nWheel Grinder 7315.1600 7322.38\n\nWire Saw 8111.2901\n\n(Glass)\n\nOperator\n\nWhip Maker 7536.2500 7442.82\n\nWireless Inspector 3522.0400 3114.50\n\nElectronics\n\nWhite Washer 7119.0200 7129.20\n\nWireless Operator 3521.1300 3132.65\n\nWholesale Dealer 5249.0400 5220.50\n\nWireman, Light 7411.0301 7137.20\n\nWig Maker 7531.1000 7433.60\n\nand Power\n\nWigman 5142.0600 5141.70\n\nWiring Inspector 7419.0300 7249.30\n\nand Bank Tester\n\nWinchman 8343.1100 8333.32\n\n(Telephone\n\nWinder 8151.1800 8261.85\n\nEquipment\n\nTextile/Winding\n\nManufacturing)\n\nWithering Loft 8160.5800 8277.15\n\nWinding 8343.1400 8333.40\n\nAttendant (Tea)\n\nEngineman\n\nWomen’s Welfare 2635.0200 2446.20\n\nWinding Operator 8212.1802\n\nOfficer\n\nWindow Opener 7313.1702\n\nWomen’s Welfare 2635.0700 2446.50\n\nOrganizer\n\nWine Waiter 5131.0500 5123.50\n\nWood Anatomist 2132.0600 2213.60\n\nWire Bonding 8212.1701\n\nWood Bender 7521.0300 7421.30\n\nWire Boy, Paper 8171.1400 8143.20\n\nWood Carver, 7522.1200 7422.42\n\nWire Drawer/Wire 7221.0700 7221.70\n\nDrawing Machine\n\nWood Carver, 7523.1600 8241.10\n\nMachine\n\nWire Maker, Gold 7313.0201 7313.15\n\nWood Chopping 8172.1000 8141.65\n\nVOLUME I 368",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 380,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_380",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page380",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_379",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_381"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:58.984730Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 167,
+    "custom": {}
+  }
+}

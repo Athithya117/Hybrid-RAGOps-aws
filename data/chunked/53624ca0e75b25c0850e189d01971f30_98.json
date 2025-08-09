@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_98",
+  "chunk_type": "page",
+  "text": "## Page 98\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n3115.0301 Executive, Proto Manufacturing\n\n3115.0401 Method Study Executive\n\n3115.0501 Manager Maintenance Mechanical &\n\nElectrical\n\n3115.0601 Master Auto Service Technician/Auto Service\n\nTechnician\n\n3115.0602 Auto Service Technical Manager/Auto Service\n\n3115.1000 Aeronautical Engineering Technician 3115.30\n\n3115.1100 Heating, Ventilation and Refrigeration Engineering 3115.40\n\n3115.1200 Die Designer 3115.50\n\n3115.1301 Tool Designer\n\n3115.1302 Tool Room Supervisor\n\n3115.1400 Loco Foreman 3115.60\n\n3115.1500 Yard Foreman, Railway 3115.65\n\n3115.1600 Train Examiner 3115.70\n\n3115.9900 Mechanical Engineering Technicians, Other 3115.90\n\nFamily 3116 Chemical Engineering Technicians\n\n3116.0100 Laboratory Assistant, Glass and Ceramics 3116.10\n\n3116.0200 Laboratory Assistant, Food & Beverages/ Chemist/ 3116.20\n\nAnalytical Supervisor/Lab Chemist\n\n3116.0300 Laboratory Assistant, Chemical Engineering 3116.30\n\nGeneral\n\nVOLUME I 86",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 98,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_98",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page98",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_97",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_99"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:17.156906Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 113,
+    "custom": {}
+  }
+}

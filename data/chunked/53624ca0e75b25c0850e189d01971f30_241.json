@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_241",
+  "chunk_type": "page",
+  "text": "## Page 241\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n8344.0201 Fork Lift Truck Operator/Fork Lift 8334.20\n\nOperator/Driver\n\n8344.9900 Lift Truck Operator, Other 8334.90\n\nGroup 835 Ships’ Deck Crews and Related Workers\n\nFamily 8350 Ships’ Deck Crews and Related Workers\n\n8350.0100 Serang, Deck/Bosun 8340.10\n\n8350.0300 Seaconny/OS (Ordinary Seaman) 8340.20\n\n8350.0400 Lascar/OS (Ordinary Seaman) 8340.25\n\n8350.0500 Driver, Launch/Tug Master 8340.30\n\n8350.0600 Boatman 8340.40\n\n8350.0700 Rudderman 8340.50\n\n8350.0800 Oarsman 8340.60\n\n8350.9900 Ships’ Deck Ratings, Barge Crews and 8340.90\n\nBoatmen, Other\n\nVOLUME I 229",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 241,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_241",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page241",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_240",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_242"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:04.722594Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 86,
+    "custom": {}
+  }
+}

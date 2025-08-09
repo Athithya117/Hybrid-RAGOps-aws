@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_374",
+  "chunk_type": "page",
+  "text": "## Page 374\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nOperators, Other\n\nTuber Crop 6111.1601\n\nCultivator\n\nTyre 8141.1701 8231.80\n\nBuilder/Radial\n\nTuberculosis 2212.0700 2221.60\n\nBuilding Operator\n\nSpecialist\n\nTyre Building 8141.1702\n\nTubesmith, Boiler 7214.0400 7214.40\n\nOperator –\n\nCommercial\n\nTub-Sizer, 8171.2000 8143.50\n\nVehicles\n\nHandmade Paper\n\nTyre Building 8141.1703\n\nTungsten Inert Gas 7212.0105\n\nWelder\n\nPassenger Vehicles\n\nTurbine Operator, 3131.0400 8161.40\n\nTyre Inflation 9623.0501\n\nHydel\n\nAttendant\n\nTurbine Operator, 3131.0300 8161.30\n\nTyre Moulder 8141.1800 8231.81\n\nSteam\n\nTyre Moulding 8141.1801\n\nTurner Pottery 7314.0600 7321.35\n\nOperator\n\nand Porcelain\n\nTyre Repairer 8141.2100 8231.85\n\nTurner/Conventio 7223.0601 8211.15\n\nnal Turning\n\nUmbrella 7533.0900 7436.50\n\nExaminer\n\nTurret and 7223.0700 8211.20\n\nCapstan Lathe\n\nUmbrella Maker 7533.0800 7436.45\n\nUmpire 3422.0400 3475.60\n\nTV Repair 7421.1301\n\nTechnician\n\nUndertaker 5163.0100 5143.10\n\nTwister 7318.4700 7432.30\n\nUndertakers and 5163.9900 5143.90\n\nEmbalmers, Other\n\nType Caster 7322.0500 7341.50\n\nUnderwater 7541.9900 7216.90\n\nType Dresser 7322.0800 7341.65\n\nDivers, Other\n\nTypists and Word 4131.9900 4112.90\n\nUniversity and 2310.1100 2310.70\n\nProcessing\n\nVOLUME I 362",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 374,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_374",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page374",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_373",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_375"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:57.021927Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 167,
+    "custom": {}
+  }
+}

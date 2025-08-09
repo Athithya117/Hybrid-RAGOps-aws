@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_369",
+  "chunk_type": "page",
+  "text": "## Page 369\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nTechnical Writer – 2641.0902 Telecom Terminal 2153.0102\n\nApplication Equipment\n\nDevelopment Application\n\n(Native\n\nTechnical Writer – 2641.0901\n\nApplications)\n\nProduct\n\nDocumentation Telecom Terminal 2153.0101\n\nEquipment\n\nTechnical Writer – 2641.0903\n\nApplication\n\nTechnical\n\nDeveloper\n\nDocumentation/\n\n(Android)\n\nWriting\n\nTelecommunicatio 2153.0100 2144.10\n\nTechnician 3113.0111\n\nn Engineer,\n\nFurnace\n\nGeneral\n\nTransformers:\n\nFerro Alloys Telecommunicatio 3522.9900\n\nn Engineering\n\nTechnician 7311.0101\n\nTechnicians, Other\n\nInstrumentation\n\nTelecommunicatio 2153.9900\n\nTechnologist, 2145.1200 2146.70\n\nn Engineers, Other\n\nAlcohol\n\nTelecommunicatio 3522.0100 3114.20\n\nTechnologist, 2145.0800 2146.55\n\nn, Technician\n\nFood/Chemical\n\nEngineer Telemarketing 5211.0300 5230.30\n\nSales\n\nTechnologist, Fuel 2145.0900 2146.60\n\nPerson/Telemarke\n\nting Sales\n\nTechnologist, 2145.1100 2146.68\n\nOperator\n\nPaper\n\nTelephone 3522.0300 3114.40\n\nTechnologist, 2145.1400 2146.85\n\nInspector\n\nPlastics\n\nTelephone 4223.0200 4222.20\n\nTechnologist, 2145.1300 2146.80\n\nOperator, Local\n\nRubber\n\nTelephone 4223.0300 4222.30\n\nTelecaller 5211.0302\n\nOperator, PBX\n\nVOLUME I 357",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 369,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_369",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page369",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_368",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_370"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:55.021694Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 144,
+    "custom": {}
+  }
+}

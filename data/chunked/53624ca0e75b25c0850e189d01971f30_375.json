@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_375",
+  "chunk_type": "page",
+  "text": "## Page 375\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nCollege Teacher, Professors,\n\nAgricultural Information\n\nSubjects Technology\n\nUniversity and 2310.0100 2310.10 University and 2310.0400 2310.20\n\nCollege Teacher, College Teacher,\n\nArts Law/Professors/As\n\nSubjects/Professor sistant Professors,\n\ns/Assistant Education\n\nProfessors, Arts\n\nUniversity and 2310.0500 2310.30\n\nSubjects\n\nCollege Teacher,\n\nUniversity and 2310.0200 2310.15 Law/Professors/As\n\nCollege Teacher, sistant Professors,\n\nCommerce Law\n\nSubjects/Professor\n\nUniversity and 2310.0300 2310.18\n\ns/Assistant\n\nProfessors,\n\nManagement\n\nCommerce\n\nUniversity and 2310.0700 2310.45 Professors,\n\nCollege Teacher, Management\n\nEngineering/ Subjects\n\nProfessors/Assista\n\nUniversity and 2310.0900 2310.50\n\nnt Professors,\n\nEngineering\n\nMedicine and\n\nUniversity and 2310.1200 2310.80 Surgery/Professor\n\nCollege Teacher, s/Assistant\n\nFine Professors,\n\nArts/Professors/As Medicine and\n\nsistant Professors, Surgery\n\nFine Arts\n\nUniversity and 2310.0600 2310.40\n\nUniversity and 2310.0800 2310.48 College Teacher,\n\nCollege Teacher, Science\n\nInformation Subjects/Professor\n\nTechnology/Profes s/Assistant\n\nsors/Assistant Professors,\n\nVOLUME I 363",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 375,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_375",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page375",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_374",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_376"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:57.330027Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 106,
+    "custom": {}
+  }
+}

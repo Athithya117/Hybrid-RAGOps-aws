@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_332",
+  "chunk_type": "page",
+  "text": "## Page 332\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nOperator\n\nOther Artistic and 3435.9900 3474.90\n\nCultural Associate\n\nPaddy Farmer 6111.0101\n\nProfessionals,\n\nOther\n\nPaediatric Dentist 2261.0600 2225.60\n\nOther Sales 3322.1400 3415.80\n\nPaediatrician 2212.1300 2221.80\n\nSupervisor\n\nPainter, Brush 7132.0500 7142.40\n\nOvenman (Bakery 7512.0300 7412.20\n\nProducts)\n\nPainter, Building 7131.0100 7141.10\n\nOverhead Crane 8343.0700 8333.22\n\nPainter, Fine Art 2651.0400 2452.40\n\nPainter, General 7132.0100 7142.10\n\nOverman, Colliery 3121.0400 8118.25\n\nPainter, Glass 7132.0700 7142.60\n\nOverseer, Civil 3112.0100 3112.10\n\nEngineering\n\nPainter, Industrial 7131.0300 7141.25\n\nOverseer, 3341.0200 4142.10\n\nPainter, Mate 7132.0900 7142.80\n\nPostmen\n\nPainter, Sign and 7132.0400 7142.30\n\nPack Animal Driver 9332.0400 9332.40 Letter\n\nPackage 2163.0100 3471.80 Painter, 7132.0201 7142.20\n\nDesigner/Packagin\n\nSpray/Painting\n\ng Designer Technician (Spray\n\nPainting)\n\nPackager and 9321.0102\n\nDespatcher Painter, Steel 7131.0200 7141.20\n\nStructure\n\nPackaging 2141.0400 2149.77\n\nEngineer\n\nPainter, Wood 7132.0600 7142.50\n\nWork and\n\nPacker, Hand 9321.0101 9322.10\n\nFurniture\n\nPacker, Rock 8111.1800 7111.65\n\nPainters and 7131.9900 7141.90\n\nRelated Workers,\n\nPadding 8154.2300 8264.83\n\nMachineman/Pad\n\nding Mangle\n\nVOLUME I 320",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 332,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_332",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page332",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_331",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_333"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:39.889442Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 175,
+    "custom": {}
+  }
+}

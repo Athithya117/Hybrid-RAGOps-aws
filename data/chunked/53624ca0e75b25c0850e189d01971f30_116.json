@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_116",
+  "chunk_type": "page",
+  "text": "## Page 116\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\nFamily 3256 Medical Assistants\n\n3256.0101 Refractionist\n\n3256.0202 Vision Technician\n\n3256.9900 Medical Assistants, Other 3221.90\n\nFamily 3257 Environmental and Occupational Health\n\nInspectors and Associates\n\n3257.0100 Sanitary Inspector 3222.10\n\n3257.0300 Environment Science and Protection Technician, 3214.10\n\nIncluding Health\n\n3257.0400 Environmental Compliance Inspector 3214.20\n\n3257.0500 Environmental Engineering Technician 3214.30\n\n3257.0600 Health, Safety and Environment Officer\n\n3257.9900 Environment Science and Protection Technicians, 3214.90\n\nOther\n\nFamily 3258 Ambulance Workers\n\nFamily 3259 Modern Health Associate Professionals Not\n\nElsewhere Classified\n\nSub- 33 Business and Administration Associate\n\nDivision Professionals\n\nGroup 331 Financial and Mathematical Associate\n\nProfessionals\n\nFamily 3311 Securities and Finance Dealers and Brokers\n\n3311.0100 Broker, Share Market 3411.10\n\n3311.0200 Jobber, Share Market 3411.20\n\nVOLUME I 104",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 116,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_116",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page116",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_115",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_117"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:29:23.991894Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 120,
+    "custom": {}
+  }
+}

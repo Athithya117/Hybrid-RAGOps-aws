@@ -1,0 +1,36 @@
+{
+  "document_id": "53624ca0e75b25c0850e189d01971f30",
+  "chunk_id": "53624ca0e75b25c0850e189d01971f30_308",
+  "chunk_type": "page",
+  "text": "## Page 308\n\nNational Classification of Occupations – 2015 Alphabetical Index\n\nOccupational NCO NCO Occupational NCO NCO\n\nTitle 2015 2004 Title 2015 2004\n\nOperator Technicians, Other\n\nIn-Circuit Testing 7412.0102 Information and 7422.9900\n\nMachine Operator Communications\n\nTechnology\n\nInclusion Plotter 7313.1201\n\nInstallers and\n\nServicers, Other\n\nIncoming 4321.0302\n\nInspection\n\nInformation 2432.0300 2419.30\n\nTechnician\n\nOfficer\n\nIncoming QC 7543.0701\n\nInformation 2356.9900 3340.90\n\nTrainers, Other\n\nIndustrial – 2634.0700 2445.70\n\nOrganizational\n\nInfrastructure 3513.0301\n\nPsychologist\n\nEngineer\n\nIndustrial Engineer 2141.0300 2149.76\n\nInfrastructure 7422.0204\n\nIndustrial Engineer 2144.1302\n\n(Workstation\n\nInjection Moulding 8142.0501 8232.25\n\nMachine Operator\n\nDesign)\n\n(Plastic)\n\nIndustrial Engineer 2141.0301\n\nInjection Moulding 8141.0713\n\nExecutive\n\nOperator\n\nIndustrial Robot 3139.9900 8172.90\n\nInland and Coastal 6222.9900 6152.90\n\nOperators, Other\n\nWater Fishery\n\nWorkers, Other\n\nInformation and 1330.9900\n\nCommunication\n\nInlayer, Metal 7313.2300 7313.78\n\nServices Manager,\n\nInlayer, Wood 7522.1300 7422.45\n\nOther\n\nInline Checker 7543.0302\n\nInformation and 3512.9900 3121.90\n\nInner Layer and 8212.2501\n\nTechnology User\n\nPressing Operator\n\nSupport\n\nVOLUME I 296",
+  "embedding": null,
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://e2e-rag-system/data/raw/NCO_Vol_I_2015.pdf",
+    "page_number": 308,
+    "start_time": null,
+    "end_time": null,
+    "line_range": null,
+    "bbox": null
+  },
+  "graph": {
+    "graph_node_id": "53624ca0e75b25c0850e189d01971f30_308",
+    "parent_id": "53624ca0e75b25c0850e189d01971f30_page308",
+    "previous_id": "53624ca0e75b25c0850e189d01971f30_307",
+    "next_id": "53624ca0e75b25c0850e189d01971f30_309"
+  },
+  "metadata": {
+    "timestamp": "2025-08-09T01:30:31.965376Z",
+    "tags": [],
+    "layout_tags": [
+      "page"
+    ],
+    "entities": [],
+    "used_ocr": false,
+    "is_multilingual": false,
+    "num_images": 0,
+    "num_tables": 0,
+    "parse_chunk_duration": 149,
+    "custom": {}
+  }
+}
