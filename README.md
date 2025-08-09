@@ -437,24 +437,16 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
 
   "triplets": [                                              // Extracted subject-predicate-object relations
     {
-      "subject": "Tailor (General)",
-      "predicate": "hasNCOCode",
-      "object": "7531.0100"
+      "subject": "Tailor (General)", "predicate": "hasNCOCode", "object": "7531.0100"
     },
     {
-      "subject": "Tailor (General)",
-      "predicate": "belongsToCategory",
-      "object": "Tailors, Dressmakers, Furriers, and Hatters"
+      "subject": "Tailor (General)","predicate": "belongsToCategory", "object": "Tailors, Dressmakers, Furriers, and Hatters"
     },
     {
-      "subject": "Tailor, Tent (Machine)",
-      "predicate": "hasNCOCode",
-      "object": "7534.0100"
+      "subject": "Tailor, Tent (Machine)", "predicate": "hasNCOCode", "object": "7534.0100"
     },
     {
-      "subject": "Tailor (General)",
-      "predicate": "hasSynonyms",
-      "object": "Seamstress, Dressmaker, Garment Maker, Costume Maker"
+      "subject": "Tailor (General)", "predicate": "hasSynonyms", "object": "Seamstress, Dressmaker, Garment Maker, Costume Maker"
     }
   ]
 }
