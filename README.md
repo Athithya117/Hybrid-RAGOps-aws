@@ -452,3 +452,104 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
   ]
 }
 ```
+
+
+
+### Corresponding ArangoDB Data Model for NCO Tailor Chunk
+* The **chunk document** holds the main text and metadata with embedding vector stored for similarity search.
+* **Entities** are individual occupational concepts or classifications, stored separately to normalize data.
+* **Edges** explicitly represent relations such as "mentions", "classifiedBy", or attribute predicates.
+* This graph structure enables **multi-hop queries** and semantic traversals beyond keyword matching.
+
+---
+
+#### 1. Chunk Document (`chunks` collection)
+
+```json
+{
+  "_key": "e4f72d3a9c5b4f17_5",
+  "chunk_id": "e4f72d3a9c5b4f17_5",
+  "document_id": "e4f72d3a9c5b4f17",
+  "chunk_type": "page",
+  "text": "### National Classification of Occupations (NCO) – Tailors\n\nThe NCO code for Tailor (General) is **7531.0100**. This occupation falls under the broader category **Tailors, Dressmakers, Furriers, and Hatters**. Tailors are responsible for measuring, cutting, and sewing garments to fit clients' specifications.\n\nOther related occupations include:\n- Tailor, Tent (Machine) — NCO code 7534.0100\n- Dressmaker — closely associated within the same category\n\nThe classification covers various regional and linguistic variants of the term \"tailor,\" including seamstress, garment maker, and costume maker.\n\nSkills and tools commonly associated include manual sewing, machine operation, pattern drafting, and fabric selection.",
+  "embedding": [0.0234, -0.1457, 0.3782, 0.0923, -0.0567, ...],
+  "source": {
+    "file_type": "application/pdf",
+    "source_path": "s3://mospi-data/data/raw/nco_2025_occupations.pdf",
+    "page_number": 5,
+    "time": [null, null],
+    "line_range": null,
+    "bbox": null
+  },
+  "metadata": {
+    "timestamp": "2025-08-03T12:15:27Z",
+    "tags": ["occupation", "tailor", "NCO", "classification"],
+    "layout_tags": ["heading", "paragraph", "list"]
+  }
+}
+```
+
+---
+
+#### 2. Entity Documents (`entities` collection)
+
+```json
+{
+  "_key": "Q7531",
+  "wikidata_id": "Q7531",
+  "label": "Tailor (General)",
+  "aliases": ["Seamstress", "Dressmaker", "Garment Maker", "Costume Maker"]
+}
+```
+
+```json
+{
+  "_key": "Q1251134",
+  "wikidata_id": "Q1251134",
+  "label": "National Classification of Occupations",
+  "description": "Standard classification of occupations in India"
+}
+```
+
+---
+
+#### 3. Edges Linking Chunk to Entities (`chunkEntityEdges` edge collection)
+
+```json
+{
+  "_from": "chunks/e4f72d3a9c5b4f17_5",
+  "_to": "entities/Q7531",
+  "relation": "mentions"
+}
+```
+
+```json
+{
+  "_from": "chunks/e4f72d3a9c5b4f17_5",
+  "_to": "entities/Q1251134",
+  "relation": "sourceClassification"
+}
+```
+
+---
+
+#### 4. Entity Relations (`entityRelationEdges` edge collection)
+
+```json
+{
+  "_from": "entities/Q7531",
+  "_to": "entities/Q1251134",
+  "predicate": "classifiedBy"
+}
+```
+
+```json
+{
+  "_from": "entities/Q7531",
+  "_to": null,
+  "predicate": "hasNCOCode",
+  "object": "7531.0100"
+}
+```
+
+---
