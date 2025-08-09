@@ -34,7 +34,7 @@ cli.md
 .git/
 .gitignore
 .dockerignore
-
+raw
 # Development files not needed in Docker image
 notebooks/
 *.md

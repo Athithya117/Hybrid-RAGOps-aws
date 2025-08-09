@@ -11,6 +11,7 @@ __pycache__/
 # Secrets
 02-secrets.yml
 tmp.md
+raw
 
 # Data & Models
 data/
