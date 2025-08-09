@@ -1,6 +1,9 @@
 
+# RAG8s is a production ready RAG environment to build and ship an E2E RAG system using the SOTA tools, models and strategies as of mid 2025. It is currently under development
 
-# STEP 2/3 - indexing_pipeline
+
+
+## STEP 2/3 - indexing_pipeline
 
 #### **NVIDIA (June 2025)** : Page-level chunking is the baseline best https://developer.nvidia.com/blog/finding-the-best-chunking-strategy-for-accurate-ai-responses/
 

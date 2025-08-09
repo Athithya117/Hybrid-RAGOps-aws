@@ -15,12 +15,13 @@ __pycache__/
 *.pyc
 
 # Large or sensitive data
-chunked/
 models/
 lid.176.bin
 backups/
 images/
 tmp/
+
+raw_data
 
 # Secrets and config
 02-secrets.yml
@@ -32,7 +33,6 @@ cli.md
 .git/
 .gitignore
 .dockerignore
-raw
 # Development files not needed in Docker image
 notebooks/
 *.md
