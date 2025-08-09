@@ -167,7 +167,7 @@ export TOP_K_CHUNKS=                # number of batches will be calculated accor
                             +-------------------------------+
 ```
 
-
+---
 # 1. vector search
 vec_hits = vec_index.query(q_embedding, top_k=20)
 
@@ -184,9 +184,10 @@ subgraph = arangodb.traverse(start_nodes=vec_hits ∪ el_entities, hops=2, filte
 
 # 5. assemble context + LLM prompt (include provenance)
 
+---
 
-```
  
+
 # Models overview
 
 ---
@@ -266,7 +267,10 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
 
 > **Use case**: Smaller models (e.g., Qwen3-4B-W4A16 or 8B) fit on a single VM, making them better suited for data-parallel engines like **SGLang**, rather than tensor-parallel systems like **vLLM**.
 
+---
 
+<details>
+ <summary>EC2 (Click the triangle)</summary>
 
 ## EC2 instances for spot with fallback pre warmed on-demand scaling with karpenter-gpu
 
@@ -297,8 +301,6 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
 
 ---
 
-
-
 | Instance     | vCPU / RAM       | **C8g On-Demand** (USD/hr) | **C8g On-Demand** (₹/hr) | **C8g Spot** (USD/hr)   | **C8g Spot** (₹/hr) | **C8gd On-Demand** (USD/hr) | **C8gd On-Demand** (₹/hr) | **C8gd Spot** (USD/hr)  | **C8gd Spot** (₹/hr) |
 | ------------ | ---------------- | -------------------------- | ------------------------ | ----------------------- | ------------------- | --------------------------- | ------------------------- | ----------------------- | -------------------- |
 | **medium**   | 1 vCPU/2 GiB     | \$0.044 ([Vantage][1])     | ₹3.7                     | \$0.013 ([Vantage][1])  | ₹1.1                | \$0.054 ([Vantage][2])      | ₹4.5                      | \$0.012 ([Vantage][2])  | ₹1.0                 |
@@ -320,17 +322,17 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
 * NVMe-equipped C8gd variants include large local SSD at no extra configuration cost; C8g has no NVMe.
 * Source pricing from Instances.Vantage.sh snapshots as of early August 2025.
 
-This detailed comparison should guide your selection based on **compute**, **memory**, **storage**, and **cost** trade-offs.
+[1]: https://instances.vantage.sh/aws/ec2/c8g.medium
+[2]: https://instances.vantage.sh/aws/ec2/c8gd.medium
+[3]: https://instances.vantage.sh/aws/ec2/c8g.4xlarge
+[4]: https://instances.vantage.sh/aws/ec2/c8gd.xlarge?cost_duration=monthly&os=linux&region=us-east-1&reserved_term=Standard.noUpfront
+[5]: https://instances.vantage.sh/aws/ec2/c8g.2xlarge
+[6]: https://instances.vantage.sh/aws/ec2/c8gd.4xlarge
+[7]: https://instances.vantage.sh/aws/ec2/c8g.8xlarge
+[8]: https://instances.vantage.sh/aws/ec2/c8gd.24xlarge
+[9]: https://instances.vantage.sh/aws/ec2/c8g.16xlarge
+[10]: https://instances.vantage.sh/aws/ec2/c8gd.16xlarge
+[11]: https://instances.vantage.sh/aws/ec2/c8g.48xlarge
+[12]: https://instances.vantage.sh/aws/ec2/c8gd.48xlarge
 
-[1]: https://instances.vantage.sh/aws/ec2/c8g.medium "c8g.medium pricing and specs - Amazon EC2 Instance Comparison"
-[2]: https://instances.vantage.sh/aws/ec2/c8gd.medium? "c8gd.medium pricing and specs - Vantage"
-[3]: https://instances.vantage.sh/aws/ec2/c8g.4xlarge "c8g.4xlarge pricing and specs - Amazon EC2 Instance Comparison"
-[4]: https://instances.vantage.sh/aws/ec2/c8gd.xlarge?cost_duration=monthly&os=linux&region=us-east-1&reserved_term=Standard.noUpfront&utm_source=chatgpt.com "c8gd.xlarge pricing and specs - Vantage"
-[5]: https://instances.vantage.sh/aws/ec2/c8g.2xlarge?utm_source=chatgpt.com "c8g.2xlarge pricing and specs - Amazon EC2 Instance Comparison"
-[6]: https://instances.vantage.sh/aws/ec2/c8gd.4xlarge?utm_source=chatgpt.com "c8gd.4xlarge pricing and specs - Amazon EC2 Instance Comparison"
-[7]: https://instances.vantage.sh/aws/ec2/c8g.8xlarge?utm_source=chatgpt.com "c8g.8xlarge pricing and specs - Amazon EC2 Instance Comparison"
-[8]: https://instances.vantage.sh/aws/ec2/c8gd.24xlarge?utm_source=chatgpt.com "c8gd.24xlarge pricing and specs - Amazon EC2 Instance Comparison"
-[9]: https://instances.vantage.sh/aws/ec2/c8g.16xlarge?utm_source=chatgpt.com "c8g.16xlarge pricing and specs - Amazon EC2 Instance Comparison"
-[10]: https://instances.vantage.sh/aws/ec2/c8gd.16xlarge?utm_source=chatgpt.com "c8gd.16xlarge pricing and specs - Amazon EC2 Instance Comparison"
-[11]: https://instances.vantage.sh/aws/ec2/c8g.48xlarge?utm_source=chatgpt.com "c8g.48xlarge pricing and specs - Amazon EC2 Instance Comparison"
-[12]: https://instances.vantage.sh/aws/ec2/c8gd.48xlarge?utm_source=chatgpt.com "c8gd.48xlarge pricing and specs - Amazon EC2 Instance Comparison"
+</details>
