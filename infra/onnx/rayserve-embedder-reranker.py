@@ -5,7 +5,6 @@ from typing import List, Dict
 
 import ray
 from ray import serve
-from ray.serve.config import gRPCOptions
 import onnxruntime
 from transformers import PreTrainedTokenizerFast
 
@@ -42,9 +41,6 @@ RERANKER_ONNX_PATH       = get_env(
 OMP_NUM_THREADS          = int(get_env("OMP_NUM_THREADS", "1"))
 BATCH_MAX_SIZE           = int(get_env("BATCH_MAX_SIZE", "16"))
 BATCH_WAIT_TIMEOUT_S     = float(get_env("BATCH_WAIT_TIMEOUT_S", "0.05"))
-GRPC_PORT                = int(get_env("GRPC_PORT", "9000"))
-GRPC_TIMEOUT             = float(get_env("GRPC_REQUEST_TIMEOUT_S", "30"))
-GRPC_SERVICER_FUNCTIONS  = get_env("GRPC_SERVICER_FUNCTIONS", required=True).split(",")
 
 EMBEDDER_NUM_CPUS        = float(get_env("EMBEDDER_NUM_CPUS", "1"))
 RERANKER_NUM_CPUS        = float(get_env("RERANKER_NUM_CPUS", "1"))
@@ -66,7 +62,6 @@ def check_model(path: str):
     if not os.path.isfile(path):
         logger.error(f"ONNX model not found: {path}")
         sys.exit(1)
-
 
 def make_session(path: str) -> onnxruntime.InferenceSession:
     check_model(path)
@@ -124,21 +119,3 @@ class RerankerServicer(grpc_pb2_grpc.RerankServiceServicer):
         })
         scores = outputs[0].squeeze(axis=1).tolist()
         return grpc_pb2.RerankResponse(scores=scores)
-
-# ---------------- Entrypoint ----------------
-if __name__ == "__main__":
-    ray.init(address="auto", namespace=get_env("RAY_NAMESPACE", "default"))
-
-    serve.start(
-        detached=True,
-        grpc_options=gRPCOptions(
-            port=GRPC_PORT,
-            grpc_servicer_functions=GRPC_SERVICER_FUNCTIONS,
-            request_timeout_s=GRPC_TIMEOUT,
-        ),
-    )
-
-    EmbedderServicer.deploy()
-    RerankerServicer.deploy()
-
-    logger.info("[SUCCESS] Ray Serve gRPC services deployed: EmbedService, RerankService.")

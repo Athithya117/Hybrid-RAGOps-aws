@@ -6,6 +6,10 @@ metadata:
   name: infra
   labels:
     name: infra
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: rag8s
+    meta.helm.sh/release-namespace: default
 ---
 # Source: rag8s/templates/namespaces.yaml
 apiVersion: v1
@@ -14,6 +18,10 @@ metadata:
   name: monitoring
   labels:
     name: monitoring
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: rag8s
+    meta.helm.sh/release-namespace: default
 ---
 # Source: rag8s/templates/namespaces.yaml
 apiVersion: v1
@@ -22,6 +30,10 @@ metadata:
   name: indexing
   labels:
     name: indexing
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: rag8s
+    meta.helm.sh/release-namespace: default
 ---
 # Source: rag8s/templates/namespaces.yaml
 apiVersion: v1
@@ -30,6 +42,10 @@ metadata:
   name: inference
   labels:
     name: inference
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: rag8s
+    meta.helm.sh/release-namespace: default
 ---
 # Source: rag8s/templates/namespaces.yaml
 apiVersion: v1
@@ -38,6 +54,10 @@ metadata:
   name: frontend
   labels:
     name: frontend
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: rag8s
+    meta.helm.sh/release-namespace: default
 ---
 # Source: rag8s/templates/namespaces.yaml
 apiVersion: v1
@@ -46,6 +66,10 @@ metadata:
   name: db
   labels:
     name: db
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: rag8s
+    meta.helm.sh/release-namespace: default
 ---
 # Source: rag8s/templates/namespaces.yaml
 apiVersion: v1
@@ -54,73 +78,65 @@ metadata:
   name: dev
   labels:
     name: dev
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: rag8s
+    meta.helm.sh/release-namespace: default
 ---
 # Source: rag8s/templates/embedder-reranker-rayservice.yaml
 apiVersion: ray.io/v1
 kind: RayService
 metadata:
-  name: rag8s-rag8s-serve
+  name: rag8s-embedder-reranker-serve
   namespace: inference
-  labels:
-    app.kubernetes.io/name: rag8s
-    app.kubernetes.io/instance: rag8s
-    app.kubernetes.io/version: 0.0.1
-    helm.sh/chart: rag8s-0.0.1
 spec:
   rayClusterConfig:
-    rayVersion: 2.48.0
+    rayVersion: "2.48.0"
     headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
       template:
         spec:
-
-          volumes:
-            - name: model-volume
-              emptyDir: {}
-
           containers:
             - name: ray-head
-              image: "registry.example.com/rag8s-onnx:latest"
-              ports:
-                - containerPort: 8000
-                - containerPort: 9000
+              image: "rag8s/rag8s-onnx-embedder-reranker-cpu:latest"
+              imagePullPolicy: IfNotPresent
               resources:
                 requests:
-                  cpu: 500m
-                  memory: 1Gi
+                  cpu: "1"
+                  memory: "2Gi"
                 limits:
-                  cpu: 1
-                  memory: 2Gi
+                  cpu: "1"
+                  memory: "2Gi"
               volumeMounts:
                 - name: model-volume
                   mountPath: /opt/models
-
+          volumes:
+            - name: model-volume
+              emptyDir: {}
     workerGroupSpecs:
       - groupName: worker
         minReplicas: 1
-        maxReplicas: 4
+        maxReplicas: 2
         template:
           spec:
-
-            volumes:
-              - name: model-volume
-                emptyDir: {}
-
             containers:
               - name: ray-worker
-                image: "registry.example.com/rag8s-onnx:latest"
-                ports:
-                  - containerPort: 8000
-                  - containerPort: 9000
+                image: "rag8s/rag8s-onnx-embedder-reranker-cpu:latest"
+                imagePullPolicy: IfNotPresent
                 resources:
                   requests:
-                    cpu: 500m
-                    memory: 1Gi
+                    cpu: "500m"
+                    memory: "1Gi"
                   limits:
-                    cpu: 1
-                    memory: 2Gi
+                    cpu: "1"
+                    memory: "1Gi"
                 volumeMounts:
                   - name: model-volume
                     mountPath: /opt/models
+            volumes:
+              - name: model-volume
+                emptyDir: {}
 
   serveConfigV2: |
     applications:
@@ -130,7 +146,6 @@ spec:
           working_dir: /app
         deployments:
           - name: EmbedderServicer
-            route_prefix: "/embed"
             ray_actor_options:
               num_cpus: 1
             autoscaling_config:
@@ -138,7 +153,6 @@ spec:
               max_replicas: 4
               target_num_ongoing_requests_per_replica: 10
           - name: RerankerServicer
-            route_prefix: "/rerank"
             ray_actor_options:
               num_cpus: 1
             autoscaling_config:

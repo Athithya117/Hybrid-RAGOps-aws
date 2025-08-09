@@ -1,140 +1,75 @@
-{{- if .Values.EmbedderReranker.enabled }}
 apiVersion: ray.io/v1
 kind: RayService
 metadata:
-  name: {{ include "rag8s.fullname" . }}-serve
-  namespace: {{ .Values.EmbedderReranker.namespace | default .Release.Namespace }}
-  labels:
-{{ include "rag8s.labels" . | indent 4 }}
+  name: rag8s-embedder-reranker-serve
+  namespace: inference
 spec:
   rayClusterConfig:
-    rayVersion: {{ .Values.EmbedderReranker.ray.version }}
+    rayVersion: "{{ .Values.EmbedderReranker.rayVersion }}"
     headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
       template:
         spec:
-          {{- if .Values.EmbedderReranker.serviceAccountName }}
-          serviceAccountName: {{ .Values.EmbedderReranker.serviceAccountName }}
-          {{- end }}
-          {{- if .Values.EmbedderReranker.imagePullSecrets }}
-          imagePullSecrets:
-            {{- range $i, $s := .Values.EmbedderReranker.imagePullSecrets }}
-            - name: {{ $s }}
-            {{- end }}
-          {{- end }}
-          {{- if .Values.EmbedderReranker.nodeSelector }}
-          nodeSelector:
-{{ toYaml .Values.EmbedderReranker.nodeSelector | indent 12 }}
-          {{- end }}
-          {{- if .Values.EmbedderReranker.tolerations }}
-          tolerations:
-{{ toYaml .Values.EmbedderReranker.tolerations | indent 12 }}
-          {{- end }}
-          {{- if .Values.EmbedderReranker.affinity }}
-          affinity:
-{{ toYaml .Values.EmbedderReranker.affinity | indent 12 }}
-          {{- end }}
-
-          volumes:
-            - name: model-volume
-              {{- if .Values.EmbedderReranker.usePVC }}
-              persistentVolumeClaim:
-                claimName: {{ .Values.EmbedderReranker.modelPVC }}
-              {{- else }}
-              emptyDir: {}
-              {{- end }}
-
           containers:
             - name: ray-head
-              image: "{{ .Values.EmbedderReranker.ray.image.repository }}:{{ .Values.EmbedderReranker.ray.image.tag }}"
-              ports:
-                - containerPort: 8000
-                - containerPort: 9000
+              image: "{{ .Values.EmbedderReranker.image.repository }}:{{ .Values.EmbedderReranker.image.tag }}"
+              imagePullPolicy: {{ .Values.EmbedderReranker.image.pullPolicy }}
               resources:
                 requests:
-                  cpu: {{ .Values.EmbedderReranker.ray.head.cpu.request }}
-                  memory: {{ .Values.EmbedderReranker.ray.head.memory.request }}
+                  cpu: "1"
+                  memory: "2Gi"
                 limits:
-                  cpu: {{ .Values.EmbedderReranker.ray.head.cpu.limit }}
-                  memory: {{ .Values.EmbedderReranker.ray.head.memory.limit }}
+                  cpu: "1"
+                  memory: "2Gi"
               volumeMounts:
                 - name: model-volume
-                  mountPath: {{ .Values.EmbedderReranker.modelMountPath }}
-
+                  mountPath: /opt/models
+          volumes:
+            - name: model-volume
+              emptyDir: {}
     workerGroupSpecs:
       - groupName: worker
-        minReplicas: {{ .Values.EmbedderReranker.ray.workers.minReplicas }}
-        maxReplicas: {{ .Values.EmbedderReranker.ray.workers.maxReplicas }}
+        minReplicas: 1
+        maxReplicas: 2
         template:
           spec:
-            {{- if .Values.EmbedderReranker.serviceAccountName }}
-            serviceAccountName: {{ .Values.EmbedderReranker.serviceAccountName }}
-            {{- end }}
-            {{- if .Values.EmbedderReranker.imagePullSecrets }}
-            imagePullSecrets:
-              {{- range $i, $s := .Values.EmbedderReranker.imagePullSecrets }}
-              - name: {{ $s }}
-              {{- end }}
-            {{- end }}
-            {{- if .Values.EmbedderReranker.nodeSelector }}
-            nodeSelector:
-{{ toYaml .Values.EmbedderReranker.nodeSelector | indent 12 }}
-            {{- end }}
-            {{- if .Values.EmbedderReranker.tolerations }}
-            tolerations:
-{{ toYaml .Values.EmbedderReranker.tolerations | indent 12 }}
-            {{- end }}
-            {{- if .Values.EmbedderReranker.affinity }}
-            affinity:
-{{ toYaml .Values.EmbedderReranker.affinity | indent 12 }}
-            {{- end }}
-
-            volumes:
-              - name: model-volume
-                {{- if .Values.EmbedderReranker.usePVC }}
-                persistentVolumeClaim:
-                  claimName: {{ .Values.EmbedderReranker.modelPVC }}
-                {{- else }}
-                emptyDir: {}
-                {{- end }}
-
             containers:
               - name: ray-worker
-                image: "{{ .Values.EmbedderReranker.ray.image.repository }}:{{ .Values.EmbedderReranker.ray.image.tag }}"
-                ports:
-                  - containerPort: 8000
-                  - containerPort: 9000
+                image: "{{ .Values.EmbedderReranker.image.repository }}:{{ .Values.EmbedderReranker.image.tag }}"
+                imagePullPolicy: {{ .Values.EmbedderReranker.image.pullPolicy }}
                 resources:
                   requests:
-                    cpu: {{ .Values.EmbedderReranker.ray.workers.cpu.request }}
-                    memory: {{ .Values.EmbedderReranker.ray.workers.memory.request }}
+                    cpu: "500m"
+                    memory: "1Gi"
                   limits:
-                    cpu: {{ .Values.EmbedderReranker.ray.workers.cpu.limit }}
-                    memory: {{ .Values.EmbedderReranker.ray.workers.memory.limit }}
+                    cpu: "1"
+                    memory: "1Gi"
                 volumeMounts:
                   - name: model-volume
-                    mountPath: {{ .Values.EmbedderReranker.modelMountPath }}
+                    mountPath: /opt/models
+            volumes:
+              - name: model-volume
+                emptyDir: {}
 
   serveConfigV2: |
     applications:
       - name: embedder-reranker-app
-        import_path: {{ .Values.EmbedderReranker.importPath }}
+        import_path: rayserve-embedder-reranker:RayService
         runtime_env:
-          working_dir: {{ .Values.EmbedderReranker.runtimeWorkingDir }}
+          working_dir: /app
         deployments:
           - name: EmbedderServicer
-            route_prefix: "/embed"
             ray_actor_options:
               num_cpus: {{ .Values.EmbedderReranker.embedder.numCPUs }}
             autoscaling_config:
-              min_replicas: {{ .Values.EmbedderReranker.embedder.autoscale.minReplicas }}
-              max_replicas: {{ .Values.EmbedderReranker.embedder.autoscale.maxReplicas }}
-              target_num_ongoing_requests_per_replica: {{ .Values.EmbedderReranker.embedder.autoscale.targetRequestsPerReplica }}
+              min_replicas: {{ .Values.EmbedderReranker.embedder.minReplicas }}
+              max_replicas: {{ .Values.EmbedderReranker.embedder.maxReplicas }}
+              target_num_ongoing_requests_per_replica: {{ .Values.EmbedderReranker.embedder.targetOngoingRequestsPerReplica }}
           - name: RerankerServicer
-            route_prefix: "/rerank"
             ray_actor_options:
               num_cpus: {{ .Values.EmbedderReranker.reranker.numCPUs }}
             autoscaling_config:
-              min_replicas: {{ .Values.EmbedderReranker.reranker.autoscale.minReplicas }}
-              max_replicas: {{ .Values.EmbedderReranker.reranker.autoscale.maxReplicas }}
-              target_num_ongoing_requests_per_replica: {{ .Values.EmbedderReranker.reranker.autoscale.targetRequestsPerReplica }}
-{{- end }}
+              min_replicas: {{ .Values.EmbedderReranker.reranker.minReplicas }}
+              max_replicas: {{ .Values.EmbedderReranker.reranker.maxReplicas }}
+              target_num_ongoing_requests_per_replica: {{ .Values.EmbedderReranker.reranker.targetOngoingRequestsPerReplica }}

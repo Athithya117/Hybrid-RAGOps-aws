@@ -1,10 +1,16 @@
----
+{{- $relname := .Release.Name -}}
+{{- $relns := .Release.Namespace -}}
+
 apiVersion: v1
 kind: Namespace
 metadata:
   name: infra
   labels:
     name: infra
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ $relname }}
+    meta.helm.sh/release-namespace: {{ $relns }}
 ---
 apiVersion: v1
 kind: Namespace
@@ -12,6 +18,10 @@ metadata:
   name: monitoring
   labels:
     name: monitoring
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ $relname }}
+    meta.helm.sh/release-namespace: {{ $relns }}
 ---
 apiVersion: v1
 kind: Namespace
@@ -19,6 +29,10 @@ metadata:
   name: indexing
   labels:
     name: indexing
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ $relname }}
+    meta.helm.sh/release-namespace: {{ $relns }}
 ---
 apiVersion: v1
 kind: Namespace
@@ -26,6 +40,10 @@ metadata:
   name: inference
   labels:
     name: inference
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ $relname }}
+    meta.helm.sh/release-namespace: {{ $relns }}
 ---
 apiVersion: v1
 kind: Namespace
@@ -33,6 +51,10 @@ metadata:
   name: frontend
   labels:
     name: frontend
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ $relname }}
+    meta.helm.sh/release-namespace: {{ $relns }}
 ---
 apiVersion: v1
 kind: Namespace
@@ -40,6 +62,10 @@ metadata:
   name: db
   labels:
     name: db
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ $relname }}
+    meta.helm.sh/release-namespace: {{ $relns }}
 ---
 apiVersion: v1
 kind: Namespace
@@ -47,3 +73,7 @@ metadata:
   name: dev
   labels:
     name: dev
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ $relname }}
+    meta.helm.sh/release-namespace: {{ $relns }}
