@@ -454,8 +454,7 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
 ```
 
 
-
-### Corresponding ArangoDB Data Model for NCO Tailor Chunk
+### Corresponding ArangoDB Graph Data Model Representing NCO Tailor Chunk and Linked Entities
 * The **chunk document** holds the main text and metadata with embedding vector stored for similarity search.
 * **Entities** are individual occupational concepts or classifications, stored separately to normalize data.
 * **Edges** explicitly represent relations such as "mentions", "classifiedBy", or attribute predicates.
@@ -510,8 +509,6 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
   "description": "Standard classification of occupations in India"
 }
 ```
-
----
 
 #### 3. Edges Linking Chunk to Entities (`chunkEntityEdges` edge collection)
 
