@@ -1,12 +1,12 @@
 # rag8s-aws/templates/core/pdb.yaml
 # PodDisruptionBudgets for critical workloads.
 # These protect availability during voluntary disruptions (drains, upgrades).
-# Toggle each PDB with values.core.pdb.<service>.enabled (defaults shown below).
+# Toggle each PDB with values.core.pdb.<service>.enabled.
 
 {{- $vals := .Values }}
-{{- $ns_inference := (default "inference" $vals.global.namespace.inference) }}
-{{- $ns_indexing := (default "indexing" $vals.global.namespace.indexing) }}
-{{- $ns_stateful := (default "stateful" $vals.global.namespace.stateful) }}
+{{- $ns_inference := (default "inference" $vals.namespaces.inference) }}
+{{- $ns_indexing := (default "indexing" $vals.namespaces.indexing) }}
+{{- $ns_stateful := (default "stateful" $vals.namespaces.vectorDb) }} # stateful DB workloads
 
 ---
 # Embedder + Reranker (Ray Serve app) PDB
@@ -17,7 +17,6 @@ metadata:
   name: embedder-reranker-pdb
   namespace: {{ $ns_inference }}
 spec:
-  # keep at least 1 replica available; adjust if your min replicas > 1
   minAvailable: {{ default 1 $vals.core.pdb.embedderReranker.minAvailable }}
   selector:
     matchLabels:
@@ -48,7 +47,6 @@ metadata:
   name: frontend-pdb
   namespace: {{ $ns_inference }}
 spec:
-  # If frontend has >1 replicas, you may prefer maxUnavailable: 1
   minAvailable: {{ default 1 $vals.core.pdb.frontend.minAvailable }}
   selector:
     matchLabels:

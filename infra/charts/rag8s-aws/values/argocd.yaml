@@ -1,0 +1,11 @@
+# Values controlling ArgoCD Application creation
+argocd:
+  enabled: true
+  namespace: argocd
+  project: default
+  repoURL: "https://github.com/YOUR_ORG/RAG8s.git"
+  revision: main
+  path: infra/charts/rag8s-aws
+  clusterURL: https://kubernetes.default.svc
+  prune: true
+  selfHeal: true

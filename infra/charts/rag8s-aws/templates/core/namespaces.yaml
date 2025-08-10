@@ -1,64 +1,42 @@
-# rag8s-aws/templates/core/namespaces.yaml
-# Creates all required namespaces for the RAG8s deployment
-# Annotations can be used by service mesh, cost monitoring, or compliance tools
+# ------------------------------------------------------------------------------
+# templates/core/namespaces.yaml
+# ------------------------------------------------------------------------------
+# Step 6 of the 28-step build sequence.
+# Creates Kubernetes Namespace resources for all namespaces defined in values/base.yaml.
+# This is always applied before workloads, so other manifests can safely reference them.
+# Works with both simple string values (current base.yaml) and extended object definitions.
+# ------------------------------------------------------------------------------
 
+{{- /*
+Support two formats in values/base.yaml:
+1. Simple key-value (string) for basic namespace naming:
+   namespaces:
+     inference: inference
+     monitoring: monitoring
+2. Full object for advanced config:
+   namespaces:
+     inference:
+       name: inference
+       workloadType: compute
+       env: staging
+       annotations:
+         foo: bar
+*/ -}}
+
+{{- range $key, $val := .Values.namespaces }}
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: inference
+  # If value is a string, use it directly. If it's a map, use .name
+  name: {{- if kindIs "string" $val }} {{ $val }} {{- else }} {{ $val.name }} {{- end }}
   labels:
-    name: inference
-    workload-type: stateless
-    env: production
+    name: {{- if kindIs "string" $val }} {{ $val }} {{- else }} {{ $val.name }} {{- end }}
+    # workload-type is optional; defaults to the namespace key if not set
+    workload-type: {{- if and (not (kindIs "string" $val)) $val.workloadType }} {{ $val.workloadType }} {{- else }} {{ $key }} {{- end }}
+    env: {{- if and (not (kindIs "string" $val)) $val.env }} {{ $val.env }} {{- else }} production {{- end }}
+  {{- if and (not (kindIs "string" $val)) $val.annotations }}
   annotations:
-    linkerd.io/inject: enabled
-    goldilocks.fairwinds.com/enabled: "true"   # for resource tuning
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: indexing
-  labels:
-    name: indexing
-    workload-type: batch
-    env: production
-  annotations:
-    linkerd.io/inject: enabled
-    goldilocks.fairwinds.com/enabled: "true"
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: stateful
-  labels:
-    name: stateful
-    workload-type: database
-    env: production
-  annotations:
-    linkerd.io/inject: disabled               # DB traffic might bypass mesh
-    goldilocks.fairwinds.com/enabled: "false"
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: monitoring
-  labels:
-    name: monitoring
-    workload-type: observability
-    env: production
-  annotations:
-    linkerd.io/inject: disabled
-    goldilocks.fairwinds.com/enabled: "false"
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: networking
-  labels:
-    name: networking
-    workload-type: ingress
-    env: production
-  annotations:
-    linkerd.io/inject: disabled
-    goldilocks.fairwinds.com/enabled: "false"
+{{ toYaml $val.annotations | indent 4 }}
+  {{- end }}
+{{- end }}

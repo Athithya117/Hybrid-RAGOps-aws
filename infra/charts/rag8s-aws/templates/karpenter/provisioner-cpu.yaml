@@ -1,4 +1,4 @@
-apiVersion: karpenter.sh/v1alpha5
+yes proceed with step 26. apiVersion: karpenter.sh/v1alpha5
 kind: Provisioner
 metadata:
   name: cpu-provisioner

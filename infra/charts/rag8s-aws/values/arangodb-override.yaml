@@ -1,0 +1,30 @@
+# values/db-arangodb.yaml
+arangodb:
+  enabled: true
+
+  image:
+    repository: arangodb/arangodb
+    tag: "3.11.0"
+    pullPolicy: IfNotPresent
+
+  deploymentMode: Cluster   # or Single depending on requirements
+
+  storageClass: local-nvme
+  size: 500Gi
+
+  resources:
+    requests:
+      cpu: "2"
+      memory: "4Gi"
+    limits:
+      cpu: "4"
+      memory: "8Gi"
+
+  nodeSelector:
+    eks.amazonaws.com/nodegroup: "stateful-nvme"
+
+  tolerations: []   # add tolerations if NVMe nodes are tainted
+
+  service:
+    type: ClusterIP
+    monitorPort: 8528

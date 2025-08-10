@@ -1,22 +1,27 @@
-# rag8s-aws/templates/monitoring/servicemonitors.yaml
-# ServiceMonitors for Prometheus Operator to scrape metrics from various components
-
-{{- range .Values.monitoring.serviceMonitors }}
+{{- $root := . -}}
+{{- $mon := $root.Values.monitoring | default dict -}}
+{{- if not (default false $mon.enabled) -}}
+{{- /* monitoring disabled -> no ServiceMonitors rendered */ -}}
+{{- else -}}
+{{- $list := $mon.serviceMonitors | default list -}}
+{{- range $i, $sm := $list }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: {{ .name }}
-  namespace: {{ .namespace }}
+  name: {{ $sm.name }}
+  namespace: {{ default $root.Values.namespaces.monitoring $sm.namespace }}
   labels:
-    {{- include "rag8s-aws.labels" $ | nindent 4 }}
+    {{- include "rag8s.labels" $root | nindent 4 }}
 spec:
   selector:
     matchLabels:
-      {{- toYaml .matchLabels | nindent 6 }}
+{{ toYaml $sm.matchLabels | nindent 6 }}
   endpoints:
-    - port: {{ .port }}
-      {{- if .path }}
-      path: {{ .path }}
+    - port: {{ $sm.port }}
+      {{- if $sm.path }}
+      path: {{ $sm.path }}
       {{- end }}
-      interval: {{ .interval | default "30s" }}
+      interval: {{ default $root.Values.monitoring.scrapeInterval $sm.interval | default "30s" }}
+---
+{{- end }}
 {{- end }}

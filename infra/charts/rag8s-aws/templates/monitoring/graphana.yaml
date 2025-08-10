@@ -1,15 +1,17 @@
-# rag8s-aws/templates/monitoring/grafana.yaml
-# Pre-provision Grafana datasources and dashboards
-
-{{- $vals := .Values }}
-{{- $nsMonitoring := (default "monitoring" $vals.global.namespace.monitoring) }}
+{{- $root := . -}}
+{{- $mon := $root.Values.monitoring | default dict -}}
+{{- if not (default false $mon.enabled) -}}
+{{- /* monitoring disabled -> render nothing */ -}}
+{{- else -}}
+{{- $ns := default $root.Values.namespaces.monitoring $mon.namespace -}}
+{{- $promURL := default "http://prometheus.monitoring.svc:9090" $mon.grafana.prometheusURL -}}
 
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-datasources
-  namespace: {{ $nsMonitoring }}
+  namespace: {{ $ns }}
   labels:
     app.kubernetes.io/name: grafana
     app.kubernetes.io/component: monitoring
@@ -21,7 +23,7 @@ data:
       - name: Prometheus
         type: prometheus
         access: proxy
-        url: {{ $vals.monitoring.grafana.prometheusURL }}
+        url: "{{ $promURL }}"
         isDefault: true
         editable: false
 ---
@@ -29,13 +31,14 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-dashboards
-  namespace: {{ $nsMonitoring }}
+  namespace: {{ $ns }}
   labels:
     app.kubernetes.io/name: grafana
     app.kubernetes.io/component: monitoring
     app.kubernetes.io/part-of: rag8s
     grafana_dashboard: "1"
 data:
+  # These files must exist in the chart (templates/files or /dashboards in the chart)
   ray-overview.json: |
 {{ .Files.Get "dashboards/ray-overview.json" | indent 4 }}
   qdrant-metrics.json: |
@@ -52,7 +55,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-provisioning
-  namespace: {{ $nsMonitoring }}
+  namespace: {{ $ns }}
   labels:
     app.kubernetes.io/name: grafana
     app.kubernetes.io/component: monitoring
@@ -69,3 +72,4 @@ data:
         editable: true
         options:
           path: /var/lib/grafana/dashboards
+{{- end }}

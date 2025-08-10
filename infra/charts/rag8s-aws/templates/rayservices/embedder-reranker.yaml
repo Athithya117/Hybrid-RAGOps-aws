@@ -1,15 +1,18 @@
-{{- if .Values.rayservices.onnxEmbedderReranker.enabled }}
+{{- $root := . -}}
+{{- $vals := $root.Values.rayservices.onnxEmbedderReranker | default dict -}}
+{{- if not (default false $vals.enabled) -}}
+{{- else -}}
 apiVersion: ray.io/v1
 kind: RayService
 metadata:
-  name: {{ default "rag8s-embedder-reranker-serve" .Values.rayservices.onnxEmbedderReranker.name | quote }}
-  namespace: {{ default .Release.Namespace .Values.rayservices.onnxEmbedderReranker.namespace }}
+  name: {{ default "rag8s-embedder-reranker-serve" $vals.name | quote }}
+  namespace: {{ default $root.Release.Namespace $vals.namespace }}
   labels:
     app.kubernetes.io/name: embedder-reranker
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
 spec:
   rayClusterConfig:
-    rayVersion: {{ .Values.rayservices.onnxEmbedderReranker.ray.version | quote }}
+    rayVersion: {{ $vals.ray.version | quote }}
 
     headGroupSpec:
       rayStartParams:
@@ -17,34 +20,33 @@ spec:
       template:
         metadata:
           annotations:
-            {{- if .Values.rayservices.onnxEmbedderReranker.head.annotations }}
-{{ toYaml .Values.rayservices.onnxEmbedderReranker.head.annotations | nindent 12 }}
+            {{- if $vals.head.annotations }}
+{{ toYaml $vals.head.annotations | nindent 12 }}
             {{- end }}
         spec:
-          serviceAccountName: {{ .Values.rayservices.onnxEmbedderReranker.serviceAccountName }}
-          {{- if .Values.rayservices.onnxEmbedderReranker.imagePullSecrets }}
+          serviceAccountName: {{ default $vals.serviceAccountName "ray-inference-sa" }}
+          {{- if $vals.imagePullSecrets }}
           imagePullSecrets:
-            {{- range .Values.rayservices.onnxEmbedderReranker.imagePullSecrets }}
+            {{- range $vals.imagePullSecrets }}
             - name: {{ . }}
             {{- end }}
           {{- end }}
-          {{- if .Values.rayservices.onnxEmbedderReranker.head.nodeSelector }}
+          {{- $headNodeSel := default (dict "karpenter.sh/provisioner-name" "cpu-provisioner" "kubernetes.io/arch" "amd64") $vals.head.nodeSelector }}
           nodeSelector:
-{{ toYaml .Values.rayservices.onnxEmbedderReranker.head.nodeSelector | indent 12 }}
-          {{- end }}
-          {{- if .Values.rayservices.onnxEmbedderReranker.head.tolerations }}
+{{ toYaml $headNodeSel | indent 12 }}
+          {{- if $vals.head.tolerations }}
           tolerations:
-{{ toYaml .Values.rayservices.onnxEmbedderReranker.head.tolerations | indent 12 }}
+{{ toYaml $vals.head.tolerations | indent 12 }}
           {{- end }}
-          {{- if .Values.rayservices.onnxEmbedderReranker.head.affinity }}
+          {{- if $vals.head.affinity }}
           affinity:
-{{ toYaml .Values.rayservices.onnxEmbedderReranker.head.affinity | indent 12 }}
+{{ toYaml $vals.head.affinity | indent 12 }}
           {{- end }}
 
           containers:
             - name: ray-head
-              image: "{{ .Values.rayservices.onnxEmbedderReranker.ray.image.repository }}:{{ .Values.rayservices.onnxEmbedderReranker.ray.image.tag }}"
-              imagePullPolicy: {{ .Values.rayservices.onnxEmbedderReranker.ray.image.pullPolicy | default "IfNotPresent" }}
+              image: "{{ $vals.ray.image.repository }}:{{ $vals.ray.image.tag }}"
+              imagePullPolicy: {{ $vals.ray.image.pullPolicy | default "IfNotPresent" }}
               env:
                 - name: RAY_NODE_ROLE
                   value: "head"
@@ -52,26 +54,23 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.namespace
-                {{- if .Values.rayservices.onnxEmbedderReranker.env }}
-{{ toYaml .Values.rayservices.onnxEmbedderReranker.env | indent 16 }}
+                {{- if $vals.env }}
+{{ toYaml $vals.env | indent 16 }}
                 {{- end }}
               resources:
                 requests:
-                  cpu: {{ .Values.rayservices.onnxEmbedderReranker.ray.head.cpu.request | quote }}
-                  memory: {{ .Values.rayservices.onnxEmbedderReranker.ray.head.memory.request | quote }}
+                  cpu: {{ default "500m" $vals.ray.head.cpu.request | quote }}
+                  memory: {{ default "1Gi" $vals.ray.head.memory.request | quote }}
                 limits:
-                  cpu: {{ .Values.rayservices.onnxEmbedderReranker.ray.head.cpu.limit | quote }}
-                  memory: {{ .Values.rayservices.onnxEmbedderReranker.ray.head.memory.limit | quote }}
+                  cpu: {{ default "1" $vals.ray.head.cpu.limit | quote }}
+                  memory: {{ default "2Gi" $vals.ray.head.memory.limit | quote }}
               ports:
                 - containerPort: 8265
                 - containerPort: 8000
                 - containerPort: 9000
               volumeMounts:
                 - name: model-volume
-                  mountPath: {{ .Values.rayservices.onnxEmbedderReranker.modelMountPath | default "/opt/models" }}
-{{- if .Values.rayservices.onnxEmbedderReranker.useHostPath }}
-                  readOnly: true
-{{- end }}
+                  mountPath: {{ $vals.modelMountPath | default "/opt/models" }}
               readinessProbe:
                 httpGet:
                   path: /
@@ -89,54 +88,54 @@ spec:
 
           volumes:
             - name: model-volume
-{{- if .Values.rayservices.onnxEmbedderReranker.useHostPath }}
+{{- if $vals.useHostPath }}
               hostPath:
-                path: {{ .Values.rayservices.onnxEmbedderReranker.hostPath }}
+                path: {{ $vals.hostPath }}
                 type: DirectoryOrCreate
-{{- else if .Values.rayservices.onnxEmbedderReranker.usePVC }}
+{{- else if $vals.usePVC }}
               persistentVolumeClaim:
-                claimName: {{ .Values.rayservices.onnxEmbedderReranker.modelPVC }}
+                claimName: {{ $vals.modelPVC }}
 {{- else }}
               emptyDir: {}
 {{- end }}
 
     workerGroupSpecs:
       - groupName: worker
-        minReplicas: {{ .Values.rayservices.onnxEmbedderReranker.ray.workers.minReplicas }}
-        maxReplicas: {{ .Values.rayservices.onnxEmbedderReranker.ray.workers.maxReplicas }}
+        minReplicas: {{ $vals.ray.workers.minReplicas }}
+        maxReplicas: {{ $vals.ray.workers.maxReplicas }}
         template:
           metadata:
             annotations:
-              {{- if .Values.rayservices.onnxEmbedderReranker.worker.annotations }}
-{{ toYaml .Values.rayservices.onnxEmbedderReranker.worker.annotations | nindent 14 }}
+              {{- if $vals.worker.annotations }}
+{{ toYaml $vals.worker.annotations | nindent 14 }}
               {{- end }}
           spec:
-            {{- if .Values.rayservices.onnxEmbedderReranker.worker.serviceAccountName }}
-            serviceAccountName: {{ .Values.rayservices.onnxEmbedderReranker.worker.serviceAccountName }}
+            {{- $workerSA := default $vals.worker.serviceAccountName $vals.serviceAccountName }}
+            {{- if $workerSA }}
+            serviceAccountName: {{ $workerSA }}
             {{- end }}
-            {{- if .Values.rayservices.onnxEmbedderReranker.imagePullSecrets }}
+            {{- if $vals.imagePullSecrets }}
             imagePullSecrets:
-              {{- range .Values.rayservices.onnxEmbedderReranker.imagePullSecrets }}
+              {{- range $vals.imagePullSecrets }}
               - name: {{ . }}
               {{- end }}
             {{- end }}
-            {{- if .Values.rayservices.onnxEmbedderReranker.worker.nodeSelector }}
+            {{- $workerNodeSel := default (dict "karpenter.sh/provisioner-name" "cpu-provisioner" "kubernetes.io/arch" "amd64") $vals.worker.nodeSelector }}
             nodeSelector:
-{{ toYaml .Values.rayservices.onnxEmbedderReranker.worker.nodeSelector | indent 14 }}
-            {{- end }}
-            {{- if .Values.rayservices.onnxEmbedderReranker.worker.tolerations }}
+{{ toYaml $workerNodeSel | indent 14 }}
+            {{- if $vals.worker.tolerations }}
             tolerations:
-{{ toYaml .Values.rayservices.onnxEmbedderReranker.worker.tolerations | indent 14 }}
+{{ toYaml $vals.worker.tolerations | indent 14 }}
             {{- end }}
-            {{- if .Values.rayservices.onnxEmbedderReranker.worker.affinity }}
+            {{- if $vals.worker.affinity }}
             affinity:
-{{ toYaml .Values.rayservices.onnxEmbedderReranker.worker.affinity | indent 14 }}
+{{ toYaml $vals.worker.affinity | indent 14 }}
             {{- end }}
 
             containers:
               - name: ray-worker
-                image: "{{ .Values.rayservices.onnxEmbedderReranker.ray.image.repository }}:{{ .Values.rayservices.onnxEmbedderReranker.ray.image.tag }}"
-                imagePullPolicy: {{ .Values.rayservices.onnxEmbedderReranker.ray.image.pullPolicy | default "IfNotPresent" }}
+                image: "{{ $vals.ray.image.repository }}:{{ $vals.ray.image.tag }}"
+                imagePullPolicy: {{ $vals.ray.image.pullPolicy | default "IfNotPresent" }}
                 env:
                   - name: RAY_NODE_ROLE
                     value: "worker"
@@ -144,22 +143,22 @@ spec:
                     valueFrom:
                       fieldRef:
                         fieldPath: metadata.namespace
-                  {{- if .Values.rayservices.onnxEmbedderReranker.env }}
-{{ toYaml .Values.rayservices.onnxEmbedderReranker.env | indent 18 }}
+                  {{- if $vals.env }}
+{{ toYaml $vals.env | indent 18 }}
                   {{- end }}
                 resources:
                   requests:
-                    cpu: {{ .Values.rayservices.onnxEmbedderReranker.ray.workers.cpu.request | quote }}
-                    memory: {{ .Values.rayservices.onnxEmbedderReranker.ray.workers.memory.request | quote }}
+                    cpu: {{ default "500m" $vals.ray.workers.cpu.request | quote }}
+                    memory: {{ default "1Gi" $vals.ray.workers.memory.request | quote }}
                   limits:
-                    cpu: {{ .Values.rayservices.onnxEmbedderReranker.ray.workers.cpu.limit | quote }}
-                    memory: {{ .Values.rayservices.onnxEmbedderReranker.ray.workers.memory.limit | quote }}
+                    cpu: {{ default "1" $vals.ray.workers.cpu.limit | quote }}
+                    memory: {{ default "1Gi" $vals.ray.workers.memory.limit | quote }}
                 ports:
                   - containerPort: 8000
                   - containerPort: 9000
                 volumeMounts:
                   - name: model-volume
-                    mountPath: {{ .Values.rayservices.onnxEmbedderReranker.modelMountPath | default "/opt/models" }}
+                    mountPath: {{ $vals.modelMountPath | default "/opt/models" }}
             readinessProbe:
               httpGet:
                 path: /
@@ -167,41 +166,30 @@ spec:
               initialDelaySeconds: 15
               periodSeconds: 15
               failureThreshold: 6
-
             volumes:
               - name: model-volume
-{{- if .Values.rayservices.onnxEmbedderReranker.useHostPath }}
-                hostPath:
-                  path: {{ .Values.rayservices.onnxEmbedderReranker.hostPath }}
-                  type: DirectoryOrCreate
-{{- else if .Values.rayservices.onnxEmbedderReranker.usePVC }}
-                persistentVolumeClaim:
-                  claimName: {{ .Values.rayservices.onnxEmbedderReranker.modelPVC }}
-{{- else }}
                 emptyDir: {}
-{{- end }}
-
   serveConfigV2: |
     applications:
       - name: embedder-reranker-app
-        import_path: {{ .Values.rayservices.onnxEmbedderReranker.importPath }}
+        import_path: {{ $vals.importPath | default "rayserve-embedder-reranker" }}
         runtime_env:
-          working_dir: {{ .Values.rayservices.onnxEmbedderReranker.runtimeWorkingDir }}
+          working_dir: {{ $vals.runtimeWorkingDir | default "/app" }}
         deployments:
           - name: EmbedderServicer
             route_prefix: "/embed"
             ray_actor_options:
-              num_cpus: {{ .Values.rayservices.onnxEmbedderReranker.embedder.numCPUs }}
+              num_cpus: {{ default 1 $vals.embedder.numCPUs }}
             autoscaling_config:
-              min_replicas: {{ .Values.rayservices.onnxEmbedderReranker.embedder.autoscale.minReplicas }}
-              max_replicas: {{ .Values.rayservices.onnxEmbedderReranker.embedder.autoscale.maxReplicas }}
-              target_num_ongoing_requests_per_replica: {{ .Values.rayservices.onnxEmbedderReranker.embedder.autoscale.targetRequestsPerReplica }}
+              min_replicas: {{ default 1 $vals.embedder.autoscale.minReplicas }}
+              max_replicas: {{ default 4 $vals.embedder.autoscale.maxReplicas }}
+              target_num_ongoing_requests_per_replica: {{ default 10 $vals.embedder.autoscale.targetRequestsPerReplica }}
           - name: RerankerServicer
             route_prefix: "/rerank"
             ray_actor_options:
-              num_cpus: {{ .Values.rayservices.onnxEmbedderReranker.reranker.numCPUs }}
+              num_cpus: {{ default 1 $vals.reranker.numCPUs }}
             autoscaling_config:
-              min_replicas: {{ .Values.rayservices.onnxEmbedderReranker.reranker.autoscale.minReplicas }}
-              max_replicas: {{ .Values.rayservices.onnxEmbedderReranker.reranker.autoscale.maxReplicas }}
-              target_num_ongoing_requests_per_replica: {{ .Values.rayservices.onnxEmbedderReranker.reranker.autoscale.targetRequestsPerReplica }}
+              min_replicas: {{ default 1 $vals.reranker.autoscale.minReplicas }}
+              max_replicas: {{ default 2 $vals.reranker.autoscale.maxReplicas }}
+              target_num_ongoing_requests_per_replica: {{ default 5 $vals.reranker.autoscale.targetRequestsPerReplica }}
 {{- end }}

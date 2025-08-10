@@ -1,6 +1,24 @@
 apiVersion: v2
-name: rag8s
-description: A Helm chart for deploying RAG (Retrieval-Augmented Generation) components
+name: rag8s-aws
+description: Helm chart for deploying RAG8s on AWS EKS with Karpenter, Ray, and databases.
 type: application
-version: 0.0.1
-appVersion: "0.0.1"
+version: 0.0.2
+appVersion: "0.0.2"
+
+dependencies:
+  - name: karpenter
+    version: "1.6.1"
+    repository: "oci://public.ecr.aws/karpenter/karpenter"
+    condition: karpenter.enabled
+  - name: kuberay-operator
+    version: "1.4.2"
+    repository: "https://ray-project.github.io/kuberay-helm/"
+    condition: ray.enabled
+  - name: qdrant
+    version: "1.15.1"
+    repository: "https://qdrant.github.io/qdrant-helm"
+    condition: qdrant.enabled
+  - name: kube-arangodb
+    version: "1.2.24"
+    repository: "https://arangodb.github.io/kube-arangodb"
+    condition: arangodb.enabled

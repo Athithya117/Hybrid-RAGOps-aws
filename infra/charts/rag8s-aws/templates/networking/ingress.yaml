@@ -1,25 +1,35 @@
-{{- range .Values.network.ingress.rules }}
+
+{{- $root := . -}}
+{{- $ing := $root.Values.network.ingress | default dict -}}
+{{- $ns := default $root.Values.namespaces.networking $ing.namespace -}}
+{{- $rules := $ing.rules | default list -}}
+
+{{- range $idx, $r := $rules }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ .serviceName }}-ingress
-  namespace: {{ $.Values.network.ingress.namespace }}
+  name: {{ $r.serviceName }}-ingress
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/name: {{ $r.serviceName }}-ingress
+    app.kubernetes.io/part-of: rag8s
   annotations:
     kubernetes.io/ingress.class: traefik
 spec:
-  {{- if $.Values.network.ingress.tls }}
+  {{- if $ing.tls }}
   tls:
-    {{- toYaml $.Values.network.ingress.tls | nindent 4 }}
+{{ toYaml $ing.tls | nindent 4 }}
   {{- end }}
   rules:
-    - host: {{ .host }}
+    - host: {{ $r.host }}
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: {{ .serviceName }}
+                name: {{ $r.serviceName }}
                 port:
-                  number: {{ .servicePort }}
+                  number: {{ $r.servicePort }}
+---
 {{- end }}

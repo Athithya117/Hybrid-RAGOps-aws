@@ -1,0 +1,43 @@
+# values/karpenter.yaml
+karpenter:
+  enabled: true
+
+  provider:
+    subnetSelector:
+      karpenter.sh/discovery: rag8s-eks
+    securityGroupSelector:
+      karpenter.sh/discovery: rag8s-eks
+
+  gpu:
+    weight: 50
+    instanceTypes:
+      - p3.2xlarge
+      - p4d.24xlarge
+    capacityTypes:
+      - spot
+      - on-demand
+    amiFamily: AL2
+    tags:
+      workload: gpu
+      env: production
+    limits:
+      cpu: "256"
+      memory: "1024Gi"
+    ttlSecondsAfterEmpty: 60
+
+  cpu:
+    weight: 40
+    instanceTypes:
+      - c8g.2xlarge
+      - m6i.large
+    capacityTypes:
+      - spot
+      - on-demand
+    amiFamily: AL2
+    tags:
+      workload: cpu
+      env: production
+    limits:
+      cpu: "512"
+      memory: "2048Gi"
+    ttlSecondsAfterEmpty: 60

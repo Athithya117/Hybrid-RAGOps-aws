@@ -1,150 +1,50 @@
-# rag8s-aws/templates/core/rbac.yaml
-# RBAC roles and bindings for all RAG8s workloads
-# Each ServiceAccount is scoped to the minimum necessary permissions
+{{- $vals := .Values }}
+{{- $ns_inference := (default "inference" $vals.namespaces.inference) }}
+{{- $ns_monitoring := (default "monitoring" $vals.namespaces.monitoring) }}
+{{- $ns_networking := (default "networking" $vals.namespaces.networking) }}
+{{- $ns_vectorDb := (default "vector-db" $vals.namespaces.vectorDb) }}
+{{- $ns_graphDb := (default "graph-db" $vals.namespaces.graphDb) }}
 
-##############
-# INFERENCE
-##############
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+apiVersion: v1
+kind: ServiceAccount
 metadata:
-  name: inference-role
-  namespace: inference
-rules:
-  - apiGroups: [""]
-    resources: ["pods", "services", "endpoints", "configmaps", "persistentvolumeclaims"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
-  - apiGroups: ["apps"]
-    resources: ["deployments", "replicasets"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  name: inference-sa
+  namespace: {{ $ns_inference }}
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: inference-rolebinding
-  namespace: inference
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: inference-role
+  name: inference-sa-view
+  namespace: {{ $ns_inference }}
 subjects:
   - kind: ServiceAccount
     name: inference-sa
-    namespace: inference
-
-##############
-# INDEXING
-##############
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: indexing-role
-  namespace: indexing
-rules:
-  - apiGroups: [""]
-    resources: ["pods", "services", "configmaps", "persistentvolumeclaims"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
-  - apiGroups: ["batch"]
-    resources: ["jobs", "cronjobs"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: indexing-rolebinding
-  namespace: indexing
+    namespace: {{ $ns_inference }}
 roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: indexing-role
-subjects:
-  - kind: ServiceAccount
-    name: indexing-sa
-    namespace: indexing
-
-##############
-# STATEFUL
-##############
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: stateful-role
-  namespace: stateful
-rules:
-  - apiGroups: [""]
-    resources: ["persistentvolumeclaims", "configmaps", "services", "pods"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: stateful-rolebinding
-  namespace: stateful
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: stateful-role
-subjects:
-  - kind: ServiceAccount
-    name: stateful-sa
-    namespace: stateful
-
-##############
-# MONITORING (ClusterRole for Prometheus/Grafana)
-##############
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: monitoring-clusterrole
-rules:
-  - apiGroups: [""]
-    resources: ["nodes", "services", "endpoints", "pods", "configmaps"]
-    verbs: ["get", "list", "watch"]
-  - nonResourceURLs: ["/metrics"]
-    verbs: ["get"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: monitoring-clusterrolebinding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: monitoring-clusterrole
+  name: view
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: monitoring-sa
+  namespace: {{ $ns_monitoring }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: monitoring-sa-view
+  namespace: {{ $ns_monitoring }}
 subjects:
   - kind: ServiceAccount
     name: monitoring-sa
-    namespace: monitoring
-
-##############
-# NETWORKING (Traefik / Ingress Controller)
-##############
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: networking-clusterrole
-rules:
-  - apiGroups: [""]
-    resources: ["services", "endpoints", "pods", "secrets"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: ["extensions", "networking.k8s.io"]
-    resources: ["ingresses", "ingressclasses"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: networking-clusterrolebinding
+    namespace: {{ $ns_monitoring }}
 roleRef:
-  apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: networking-clusterrole
-subjects:
-  - kind: ServiceAccount
-    name: networking-sa
-    namespace: networking
+  name: view
+  apiGroup: rbac.authorization.k8s.io

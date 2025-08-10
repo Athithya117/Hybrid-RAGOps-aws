@@ -1,0 +1,98 @@
+# values/base.yaml
+global:
+  namespace: ""   # Optional override for default namespace; empty = use .Release.Namespace
+  labels: {}
+
+aws:
+  accountId: ""
+iam:
+  roleName: ""
+
+karpenter:
+  enabled: true
+
+ray:
+  enabled: true
+
+qdrant:
+  enabled: true
+
+arangodb:
+  enabled: true
+
+argocd:
+  enabled: false
+  namespace: argocd
+  project: default
+  repoURL: ""
+  revision: HEAD
+  path: infra/charts/rag8s-aws
+  clusterURL: https://kubernetes.default.svc
+  prune: true
+  selfHeal: true
+  override: {}
+
+core:
+  pdb:
+    embedderReranker:
+      enabled: true
+      minAvailable: 1
+    sglang:
+      enabled: true
+      minAvailable: 1
+    frontend:
+      enabled: true
+      minAvailable: 1
+    qdrant:
+      enabled: true
+      minAvailable: 1
+    arangodb:
+      enabled: true
+      minAvailable: 1
+
+  quotas:
+    # INFERENCE namespace: allow GPUs and enough CPU for traffic + model serving
+    inference:
+      enabled: true
+      requestsCpu: "16"
+      requestsMemory: "64Gi"
+      limitsCpu: "32"
+      limitsMemory: "128Gi"
+      pods: "50"
+      # optional: limit GPUs per namespace (extended resource)
+      requestsGPUs: "10"
+
+    # INDEXING namespace: increased to cover worst-case indexing RayJob sizing
+    indexing:
+      enabled: true
+      requestsCpu: "40"    # raised from 32 to 40 to cover head + workers peak
+      requestsMemory: "128Gi"
+      limitsCpu: "64"
+      limitsMemory: "256Gi"
+      pods: "30"
+
+    monitoring:
+      enabled: true
+      requestsCpu: "8"
+      requestsMemory: "32Gi"
+      limitsCpu: "16"
+      limitsMemory: "64Gi"
+      pods: "20"
+
+    stateful:
+      enabled: true
+      requestsCpu: "64"
+      requestsMemory: "256Gi"
+      limitsCpu: "128"
+      limitsMemory: "512Gi"
+      pods: "30"
+      pvcs: "50"
+      storage: "10Ti"
+
+namespaces:
+  inference: inference
+  indexing: indexing
+  monitoring: monitoring
+  networking: networking
+  vectorDb: vector-db
+  graphDb: graph-db

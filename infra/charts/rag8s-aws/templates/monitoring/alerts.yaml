@@ -1,27 +1,33 @@
-{{- if .Values.monitoring.alerts.enabled }}
+{{- $root := . -}}
+{{- $mon := $root.Values.monitoring | default dict -}}
+{{- if not (default false $mon.alerts.enabled) -}}
+{{- /* monitoring alerts disabled -> nothing to render */ -}}
+{{- else -}}
+{{- $groups := $mon.alerts.groups | default list -}}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
-  name: {{ include "rag8s-aws.fullname" . }}-alerts
-  namespace: {{ .Values.monitoring.namespace }}
+  name: {{ include "rag8s.fullname" $root }}-alerts
+  namespace: {{ default $root.Values.namespaces.monitoring $mon.namespace }}
   labels:
     release: prometheus
-    {{- include "rag8s-aws.labels" . | nindent 4 }}
+    {{- include "rag8s.labels" $root | nindent 4 }}
 spec:
   groups:
-    {{- range .Values.monitoring.alerts.groups }}
-    - name: {{ .name }}
-      interval: {{ .interval | default "30s" }}
+    {{- range $gi, $g := $groups }}
+    - name: {{ $g.name }}
+      interval: {{ default "30s" $g.interval }}
       rules:
-        {{- range .rules }}
-        - alert: {{ .alert }}
-          expr: {{ .expr | quote }}
-          for: {{ .for | default "1m" }}
+        {{- $rules := $g.rules | default list }}
+        {{- range $ri, $r := $rules }}
+        - alert: {{ $r.alert }}
+          expr: {{ $r.expr | quote }}
+          for: {{ default "1m" $r.for }}
           labels:
-            severity: {{ .severity | default "warning" }}
+            severity: {{ default "warning" $r.severity }}
           annotations:
-            summary: {{ .summary | quote }}
-            description: {{ .description | quote }}
+            summary: {{ $r.summary | quote }}
+            description: {{ $r.description | quote }}
         {{- end }}
     {{- end }}
 {{- end }}

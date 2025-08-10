@@ -1,19 +1,22 @@
+{{- $root := . -}}
+{{- $rj := $root.Values.rayjobs.indexing | default dict -}}
+{{- $ns := default $root.Values.namespaces.indexing $root.Values.rayjobs.namespace | default $root.Release.Namespace -}}
 apiVersion: ray.io/v1
 kind: RayJob
 metadata:
-  name: {{ .Values.rayjobs.indexing.name }}
-  namespace: {{ .Values.rayjobs.namespace }}
+  name: {{ $rj.name | quote }}
+  namespace: {{ $ns }}
 spec:
-  entrypoint: {{ .Values.rayjobs.indexing.entrypoint }}
+  entrypoint: {{ $rj.entrypoint | quote }}
   runtimeEnvYAML: |
-    working_dir: {{ .Values.rayjobs.indexing.workingDir }}
+    working_dir: {{ $rj.workingDir | quote }}
     pip:
-      {{- toYaml .Values.rayjobs.indexing.pip | nindent 6 }}
-  ttlSecondsAfterFinished: {{ .Values.rayjobs.indexing.ttlSecondsAfterFinished }}
+{{ toYaml $rj.pip | indent 6 }}
+  ttlSecondsAfterFinished: {{ default 3600 $rj.ttlSecondsAfterFinished }}
   shutdownAfterJobFinishes: true
   submissionMode: KubernetesJob
   rayClusterSpec:
-    rayVersion: {{ .Values.rayjobs.indexing.rayVersion }}
+    rayVersion: {{ $rj.rayVersion | quote }}
     headGroupSpec:
       serviceType: ClusterIP
       template:
@@ -22,18 +25,18 @@ spec:
             karpenter.sh/provisioner-name: cpu-provisioner
           containers:
             - name: ray-head
-              image: {{ .Values.rayjobs.indexing.image }}
+              image: {{ $rj.image | quote }}
               resources:
                 requests:
-                  cpu: {{ .Values.rayjobs.indexing.resources.head.cpu }}
-                  memory: {{ .Values.rayjobs.indexing.resources.head.memory }}
+                  cpu: {{ $rj.resources.head.cpu | quote }}
+                  memory: {{ $rj.resources.head.memory | quote }}
                 limits:
-                  cpu: {{ .Values.rayjobs.indexing.resources.head.cpu }}
-                  memory: {{ .Values.rayjobs.indexing.resources.head.memory }}
+                  cpu: {{ $rj.resources.head.cpu | quote }}
+                  memory: {{ $rj.resources.head.memory | quote }}
     workerGroupSpecs:
-      - replicas: {{ .Values.rayjobs.indexing.workerReplicas }}
-        minReplicas: {{ .Values.rayjobs.indexing.workerMin }}
-        maxReplicas: {{ .Values.rayjobs.indexing.workerMax }}
+      - replicas: {{ $rj.workerReplicas | default 1 }}
+        minReplicas: {{ $rj.workerMin | default 1 }}
+        maxReplicas: {{ $rj.workerMax | default 4 }}
         groupName: workers
         template:
           spec:
@@ -41,11 +44,11 @@ spec:
               karpenter.sh/provisioner-name: cpu-provisioner
             containers:
               - name: ray-worker
-                image: {{ .Values.rayjobs.indexing.image }}
+                image: {{ $rj.image | quote }}
                 resources:
                   requests:
-                    cpu: {{ .Values.rayjobs.indexing.resources.worker.cpu }}
-                    memory: {{ .Values.rayjobs.indexing.resources.worker.memory }}
+                    cpu: {{ $rj.resources.worker.cpu | quote }}
+                    memory: {{ $rj.resources.worker.memory | quote }}
                   limits:
-                    cpu: {{ .Values.rayjobs.indexing.resources.worker.cpu }}
-                    memory: {{ .Values.rayjobs.indexing.resources.worker.memory }}
+                    cpu: {{ $rj.resources.worker.cpu | quote }}
+                    memory: {{ $rj.resources.worker.memory | quote }}

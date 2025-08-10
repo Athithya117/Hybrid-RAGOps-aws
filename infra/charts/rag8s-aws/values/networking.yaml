@@ -1,0 +1,52 @@
+# values/networking.yaml
+# Networking defaults for Traefik, Ingress and NetworkPolicies
+network:
+  traefik:
+    namespace: ""    # if empty the template falls back to .Values.namespaces.networking
+    replicas: 2
+    image:
+      repository: traefik
+      tag: v3.1
+      pullPolicy: IfNotPresent
+    service:
+      type: LoadBalancer
+      ports:
+        - name: web
+          port: 80
+          targetPort: 8000
+        - name: websecure
+          port: 443
+          targetPort: 8443
+      annotations: {}
+    resources: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+  ingress:
+    namespace: ""   # fallback to .Values.namespaces.networking if empty
+    tls: []
+    rules: []
+
+  policies:
+    enabled: false
+    # example rule structure (empty by default)
+    # rules:
+    #   - name: allow-traefik-to-backends
+    #     namespace: ""                       # optional; falls back to .Values.namespaces.networking if empty
+    #     podSelector:
+    #       matchLabels:
+    #         app.kubernetes.io/part-of: rag8s
+    #     ingress:
+    #       - from:
+    #           - namespaceSelector:
+    #               matchLabels:
+    #                 name: networking
+    #           - podSelector:
+    #               matchLabels:
+    #                 app.kubernetes.io/name: traefik
+    #         ports:
+    #           - protocol: TCP
+    #             port: 80
+    #     egress: []
+    rules: []

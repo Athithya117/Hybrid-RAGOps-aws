@@ -318,6 +318,45 @@ RAG8s/
 
 ```
 
+
+rag8s-aws/
+├── Chart.yaml                          # Helm chart metadata + dependencies
+├── values
+│   ├── base.yaml                       # Global settings, namespaces, IRSA roles, defaults
+│   ├── networking.yaml                 # Traefik, Ingress hosts/TLS, NetworkPolicies
+│   ├── monitoring.yaml                 # Prometheus, Grafana, alert thresholds
+│   ├── ray.yaml                        # Ray workload configs (images, replicas, scaling)
+│   ├── karpenter.yaml                   # CPU & GPU provisioner settings
+│   ├── db-qdrant.yaml                   # Qdrant overrides (storage, resources, nodeSelector)
+│   └── db-arangodb.yaml                 # ArangoDB overrides
+├── templates
+│   ├── _helpers.tpl                    # Shared naming/labels/annotation templates
+│   ├── argocd.yaml                      # ArgoCD Application manifest for GitOps deployment
+│   ├── helm_charts.sh                   # Utility script to update subchart versions
+│   ├── core
+│   │   ├── namespaces.yaml              # Creates all namespaces from values.base.namespaces
+│   │   ├── serviceaccounts.yaml         # ServiceAccounts per namespace w/ IRSA annotations
+│   │   ├── rbac.yaml                    # Roles/RoleBindings per namespace
+│   │   ├── pdb.yaml                     # PodDisruptionBudgets from values.base.pdb
+│   │   ├── quotas.yaml                  # ResourceQuotas from values.base.quotas
+│   │   └── frontend.yaml                # Frontend deployment/service/HPA
+│   ├── networking
+│   │   ├── traefik.yaml                 # Traefik ingress controller
+│   │   ├── ingress.yaml                 # Ingress resources for services
+│   │   └── networkpolicies.yaml         # NetworkPolicies per namespace
+│   ├── monitoring
+│   │   ├── servicemonitors.yaml         # Prometheus ServiceMonitor objects
+│   │   ├── grafana.yaml                 # Grafana dashboards/datasources
+│   │   └── alerts.yaml                  # PrometheusRule alert definitions
+│   ├── rayservices
+│   │   ├── embedder-reranker.yaml       # RayService for embedding & reranking
+│   │   └── sglang.yaml                  # RayService for language model serving
+│   ├── rayjobs
+│   │   └── indexing.yaml                # RayJob for indexing pipeline
+│   └── karpenter
+│       ├── provisioner-cpu.yaml         # Karpenter CPU provisioner (Spot+OnDemand)
+│       └── provisioner-gpu.yaml         # Karpenter GPU provisioner
+
  
 
 # Models overview

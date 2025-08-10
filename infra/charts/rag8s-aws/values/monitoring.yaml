@@ -1,0 +1,34 @@
+# values/monitoring.yaml
+# Monitoring defaults for Prometheus / Grafana / ServiceMonitors
+monitoring:
+  enabled: false          # set to true to enable monitoring resources
+  namespace: ""           # optional; if empty templates fall back to .Values.namespaces.monitoring
+  scrapeInterval: "30s"
+
+  # Grafana settings
+  grafana:
+    enabled: false
+    # Default prometheus URL (empty by default — set to your Prometheus service)
+    prometheusURL: ""    # e.g. "http://prometheus.monitoring.svc:9090"
+
+    # dashboards: you can add dashboard filenames (they must exist under templates/files or /dashboards)
+    dashboards:
+      enabled: true
+      # If you want to control which dashboards to include, list filenames (optional)
+      list: []
+  # ServiceMonitors to create (empty by default)
+  # Example:
+  # serviceMonitors:
+  #   - name: frontend-servicemonitor
+  #     namespace: ""                # optional, falls back to .Values.namespaces.monitoring
+  #     matchLabels:
+  #       app.kubernetes.io/name: frontend
+  #     port: http
+  #     path: /metrics
+  #     interval: 30s
+  serviceMonitors: []
+
+  alerts:
+    enabled: false
+    # groups: []               # list of PrometheusRule groups (empty by default)
+    groups: []

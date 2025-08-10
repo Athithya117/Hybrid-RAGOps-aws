@@ -1,0 +1,169 @@
+# values/ray.yaml
+rayservices:
+  onnxEmbedderReranker:
+    enabled: true
+    name: rag8s-embedder-reranker-serve
+    namespace: inference
+    serviceAccountName: ray-inference-sa
+    imagePullSecrets: []
+    usePVC: false
+    useHostPath: false
+    hostPath: /opt/models
+    modelPVC: embedder-model-pvc
+    modelMountPath: /opt/models
+    importPath: rayserve-embedder-reranker
+    runtimeWorkingDir: /app
+    env: []
+
+    ray:
+      version: "2.9.3"
+      image:
+        repository: myregistry/ray
+        tag: "2.9.3"
+        pullPolicy: IfNotPresent
+      head:
+        cpu:
+          request: "500m"
+          limit: "1"
+        memory:
+          request: "1Gi"
+          limit: "2Gi"
+      workers:
+        minReplicas: 1
+        maxReplicas: 4
+        cpu:
+          request: "500m"
+          limit: "1"
+        memory:
+          request: "1Gi"
+          limit: "1Gi"
+
+    embedder:
+      numCPUs: 1
+      autoscale:
+        minReplicas: 1
+        maxReplicas: 4
+        targetRequestsPerReplica: 10
+
+    reranker:
+      numCPUs: 1
+      autoscale:
+        minReplicas: 1
+        maxReplicas: 2
+        targetRequestsPerReplica: 5
+
+    # CPU-targeting defaults for embedder-reranker
+    head:
+      nodeSelector:
+        karpenter.sh/provisioner-name: cpu-provisioner
+        kubernetes.io/arch: amd64
+      tolerations: []
+      annotations: {}
+      affinity: {}
+    worker:
+      nodeSelector:
+        karpenter.sh/provisioner-name: cpu-provisioner
+        kubernetes.io/arch: amd64
+      tolerations: []
+      annotations: {}
+      affinity: {}
+
+  sglang:
+    enabled: true
+    name: rag8s-sglang-serve
+    namespace: inference
+    serviceAccountName: ray-inference-sa
+    imagePullSecrets: []
+    ray:
+      version: "2.35.0"
+      image:
+        repository: myrepo/sglang-ray
+        tag: latest
+        pullPolicy: IfNotPresent
+      head:
+        cpu:
+          request: "1000m"
+          limit: "2000m"
+        memory:
+          request: "4Gi"
+          limit: "8Gi"
+      workers:
+        minReplicas: 1
+        maxReplicas: 4
+        cpu:
+          request: "1000m"
+          limit: "2000m"
+        memory:
+          request: "8Gi"
+          limit: "16Gi"
+        gpu:
+          request: 1
+          limit: 1
+    modelMountPath: "/opt/models"
+    service:
+      numGPUs: 1
+      autoscale:
+        minReplicas: 1
+        maxReplicas: 4
+        targetRequestsPerReplica: 5
+
+    # Default: head on CPU provisioner, workers on GPU provisioner
+    head:
+      nodeSelector:
+        karpenter.sh/provisioner-name: cpu-provisioner
+        kubernetes.io/arch: amd64
+      tolerations: []
+      annotations: {}
+      affinity: {}
+
+    worker:
+      nodeSelector:
+        karpenter.sh/provisioner-name: gpu-provisioner
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Exists"
+          effect: "NoSchedule"
+      annotations: {}
+      affinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: karpenter.sh/provisioner-name
+                    operator: In
+                    values:
+                      - gpu-provisioner
+              topologyKey: kubernetes.io/hostname
+
+rayjobs:
+  namespace: indexing
+  indexing:
+    name: rag8s-indexing
+    image: myrepo/rag8s-indexer:latest
+    entrypoint: "python scripts/index_documents.py --source s3://my-bucket"
+    workingDir: "s3://my-bucket/code"
+    pip:
+      - qdrant-client
+      - pandas
+      - arango
+    ttlSecondsAfterFinished: 3600
+    rayVersion: "2.10.0"
+    workerReplicas: 2
+    workerMin: 1
+    workerMax: 4
+    resources:
+      head:
+        cpu: "4"
+        memory: "8Gi"
+      worker:
+        cpu: "8"
+        memory: "16Gi"
+
+serviceAccounts:
+  ray-inference-sa:
+    name: ray-inference-sa
+    namespace: inference
+    iam:
+      roleName: ray-inference-role

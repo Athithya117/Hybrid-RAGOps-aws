@@ -1,0 +1,32 @@
+{{- if .Values.argocd.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ include "rag8s.name" . }}-app
+  namespace: {{ .Values.argocd.namespace | default "argocd" }}
+  labels:
+{{ include "rag8s.labels" . | indent 4 }}
+spec:
+  project: {{ .Values.argocd.project | default "default" }}
+  source:
+    repoURL: {{ .Values.argocd.repoURL }}
+    targetRevision: {{ .Values.argocd.revision | default "HEAD" }}
+    path: {{ .Values.argocd.path | default "infra/charts/rag8s-aws" }}
+    helm:
+      releaseName: {{ include "rag8s.fullname" . }}
+      values: |
+        global:
+          namespace: {{ .Values.global.namespace }}
+        {{- if .Values.override }}
+        {{ toYaml .Values.override | nindent 8 }}
+        {{- end }}
+  destination:
+    namespace: {{ .Values.global.namespace }}
+    server: {{ .Values.argocd.clusterURL | default "https://kubernetes.default.svc" }}
+  syncPolicy:
+    automated:
+      prune: {{ .Values.argocd.prune | default true }}
+      selfHeal: {{ .Values.argocd.selfHeal | default true }}
+    syncOptions:
+      - CreateNamespace=true
+{{- end }}

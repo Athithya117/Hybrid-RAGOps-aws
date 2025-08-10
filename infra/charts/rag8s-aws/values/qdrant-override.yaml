@@ -1,0 +1,39 @@
+# values/db-qdrant.yaml
+qdrant:
+  enabled: true
+
+  image:
+    repository: qdrant/qdrant
+    tag: "1.15.1"
+    pullPolicy: IfNotPresent
+
+  persistence:
+    enabled: true
+    storageClass: local-nvme
+    accessModes:
+      - ReadWriteOnce
+    size: 500Gi
+
+  config:
+    service:
+      http_port: 6333
+      grpc_port: 6334
+    storage:
+      path: /qdrant/storage
+    log_level: INFO
+    wal_enabled: true
+    memory:
+      cache_size: 4096
+
+  nodeSelector:
+    eks.amazonaws.com/nodegroup: "stateful-nvme"
+
+  tolerations: []  # fill if NVMe nodes are tainted
+
+  resources:
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+    requests:
+      cpu: "1"
+      memory: "2Gi"
