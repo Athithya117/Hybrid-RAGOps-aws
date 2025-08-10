@@ -172,7 +172,8 @@ export TOP_K_CHUNKS=                # number of batches will be calculated accor
 
 
 ### The RAG8s platform codebase(currently under development, 20% completed)
-REGIVE THE FULL RAG8s/ tree structure with frontend having deployment, service, hpa. its hard to edit so give it fully/// 
+
+
 ```py
 RAG8s/
 ├── data                                  # Local directory that syncs with s3://<bucket_name>/data/raw
@@ -196,16 +197,16 @@ RAG8s/
 │   │   │   ├── __init__.py               # Format module initializer
 │   │   │   ├── csv.py                    # CSV reader & chunker logic
 │   │   │   ├── doc_docx.py               # Docx parser + fallback handlers
-│   │   │   ├── html.py                    # HTML -> Markdown chunker and DOM processing
-│   │   │   ├── json.py                    # JSON/JSONL flattening and chunking routines
-│   │   │   ├── md.py                      # Markdown chunking and normalization
-│   │   │   ├── mp3.py                     # Audio preprocessing wrapper (slicing metadata)
-│   │   │   ├── pdf.py                     # PDF page extraction and layout-aware parsing
-│   │   │   ├── png_jpeg_jpg.py            # Image OCR pipeline wrapper
-│   │   │   ├── ppt_pptx.py                # PPTX slide extractor (n slide = 1 chunk)
-│   │   │   ├── spreadsheets.py            # Spreadsheet row/column chunking logic
-│   │   │   └── txt.py                     # Plaintext chunkers (paragraph/sentence/window)
-│   │   └── router.py                      # Dispatcher to select parser based on MIME/extension
+│   │   │   ├── html.py                   # HTML -> Markdown chunker and DOM processing
+│   │   │   ├── json.py                   # JSON/JSONL flattening and chunking routines
+│   │   │   ├── md.py                     # Markdown chunking and normalization
+│   │   │   ├── mp3.py                    # Audio preprocessing wrapper (slicing metadata)
+│   │   │   ├── pdf.py                    # PDF page extraction and layout-aware parsing
+│   │   │   ├── png_jpeg_jpg.py           # Image OCR pipeline wrapper
+│   │   │   ├── ppt_pptx.py               # PPTX slide extractor (n slide = 1 chunk)
+│   │   │   ├── spreadsheets.py           # Spreadsheet row/column chunking logic
+│   │   │   └── txt.py                    # Plaintext chunkers (paragraph/sentence/window)
+│   │   └── router.py                     # Dispatcher to select parser based on MIME/extension
 │   ├── relik.sh                          # Helper script to run ReLiK entity/triplet extraction
 │   └── requirements-cpu.txt              # Indexing pipeline runtime dependencies (CPU)
 │
@@ -225,41 +226,43 @@ RAG8s/
 ├── infra
 │   ├── charts
 │   │   └── rag8s-aws
-│   │       ├── Chart.yaml                # Helm chart metadata for rag8s-aws deployment
-│   │       ├── values.yaml               # Default Helm values for rag8s-aws chart includes qdrant, arrangodb helm chart overrides
-│   │       ├── templates
-│   │       │
-│   │       │   ├── _helpers.tpl           # Helm helper templates (labels, names, etc.)
-│   │       │
-│   │       │   ├── core/                  # Shared K8s primitives
-│   │       │   │   ├── namespaces.yaml    # Create namespaces (inference, monitoring, networking, etc.)
-│   │       │   │   ├── serviceaccounts.yaml # All ServiceAccounts (one per namespace if needed)
-│   │       │   │   ├── rbac.yaml          # Roles/RoleBindings/ClusterRoles
-│   │       │   │   ├── pdb.yaml           # PodDisruptionBudgets for high availability
-|   |       |   |   ├── frontend.yaml      # fronend container deployment, hpa,service
-│   │       │   │   └── quotas.yaml        # ResourceQuotas for namespace limits
-│   │       │
-│   │       │   ├── monitoring/
-│   │       │   │   ├── servicemonitors.yaml # ServiceMonitor resources for Prometheus Operator
-│   │       │   │   ├── grafana.yaml       # Grafana dashboards
-│   │       │   │   └── alerts.yaml        # Prometheus alert rules
-│   │       │
-│   │       │   ├── networking/
-│   │       │   │   ├── traefik.yaml       # Traefik ingress controller config
-│   │       │   │   ├── ingress.yaml       # Ingress objects for services
-│   │       │   │   └── networkpolicies.yaml # Restrict cross-namespace traffic
-│   │       │
-│   │       │   ├── rayservices/           # RayServe deployments
-│   │       │   │   ├── embedder-reranker.yaml
-│   │       │   │   └── sglang.yaml
-│   │       │
-│   │       │   ├── rayjobs/               # RayJob batch jobs
-│   │       │   │   └── indexing.yaml
-│   │       │
-│   │       │   ├── karpenter/             # Node provisioning configs
-│   │       │   │   ├── provisioner-cpu.yaml # CPU workloads (Spot + OnDemand)
-│   │       │   │   └── provisioner-gpu.yaml # GPU workloads
-│
+│   │       ├── Chart.yaml                # Helm chart metadata + optional dependencies (Karpenter, Ray, Prometheus)
+│   │       ├── values/                   # Modular Helm values overrides
+│   │       │   ├── base.yaml             # Global settings: namespaces, IRSA roles, default labels, pdb/quotas
+│   │       │   ├── networking.yaml       # Hosts, TLS, Traefik config, NetworkPolicies
+│   │       │   ├── monitoring.yaml       # Prometheus scrape intervals, Grafana dashboards, alert rules
+│   │       │   ├── ray.yaml              # Ray image tags, scaling config, resources
+│   │       │   ├── karpenter.yaml        # CPU & GPU provisioner settings
+│   │       │   ├── db-qdrant.yaml        # Qdrant chart overrides (storage, replicas, nodeSelectors)
+│   │       │   └── db-arangodb.yaml      # ArangoDB chart overrides
+│   │       ├── templates/                # All rendered Kubernetes manifests
+│   │       │   ├── _helpers.tpl          # Shared labels/annotations/name templates
+│   │       │   ├── argocd.yaml           # ArgoCD Application definition for GitOps
+│   │       │   ├── helm_charts.sh        # Script for pulling/updating subchart versions
+│   │       │   ├── core/                 # Cluster-wide primitives
+│   │       │   │   ├── namespaces.yaml   # Namespace creation from values.base.namespaces
+│   │       │   │   ├── serviceaccounts.yaml # ServiceAccounts + IRSA
+│   │       │   │   ├── rbac.yaml         # Roles, ClusterRoles, Bindings
+│   │       │   │   ├── pdb.yaml          # PodDisruptionBudgets from values.base.pdb
+│   │       │   │   ├── frontend.yaml     # Frontend deployment, svc, HPA
+│   │       │   │   └── quotas.yaml       # ResourceQuotas from values.base.quotas
+│   │       │   ├── monitoring/           # Observability resources
+│   │       │   │   ├── servicemonitors.yaml # Prometheus ServiceMonitor CRs
+│   │       │   │   ├── grafana.yaml      # Grafana dashboards + datasources
+│   │       │   │   └── alerts.yaml       # PrometheusRule alert definitions
+│   │       │   ├── networking/           # Ingress, ingress controller, network policies
+│   │       │   │   ├── traefik.yaml      # Traefik Helm chart CRDs/config
+│   │       │   │   ├── ingress.yaml      # Ingress objects per service
+│   │       │   │   └── networkpolicies.yaml # NetworkPolicies for traffic control
+│   │       │   ├── rayservices/          # RayServe workloads
+│   │       │   │   ├── embedder-reranker.yaml # RayService for embeddings/reranking
+│   │       │   │   └── sglang.yaml       # RayService for LLM serving
+│   │       │   ├── rayjobs/              # Ray batch jobs
+│   │       │   │   └── indexing.yaml     # RayJob for indexing pipeline (CPU provisioner)
+│   │       │   └── karpenter/            # Karpenter provisioners
+│   │       │       ├── provisioner-cpu.yaml # CPU workloads, Spot + OnDemand
+│   │       │       └── provisioner-gpu.yaml # GPU workloads, Spot + OnDemand
+│   │       └── README.md                 # Chart-specific README and usage notes
 │   ├── eks
 │   │   ├── __main__.py                    # IAC CLI for EKS cluster provisioning
 │   │   ├── cloudflare.py                  # Cloudflare DNS / zone automation helpers
@@ -270,12 +273,11 @@ RAG8s/
 │   │   ├── iam_roles.py                   # IAM role & policy creators for services
 │   │   ├── indexing_ami.py                # AMI build definitions for indexing nodes
 │   │   ├── inference_ami.py               # AMI build definitions for inference nodes
-│   │   ├── karpenter.py                    # Karpenter provisioner configuration helpers
+│   │   ├── karpenter.py                   # Karpenter provisioner configuration helpers
 │   │   ├── nodegroups.py                  # Nodegroup definitions and sizing logic
 │   │   ├── pulumi.yaml                    # Pulumi project manifest for infra code
 │   │   ├── traefik.py                     # Traefik infrastructure helper code
 │   │   └── vpc.py                         # VPC/subnet/networking helper utilities
-│
 │   ├── onnx
 │   │   ├── Dockerfile                     # ONNX runtime image for CPU inference services
 │   │   ├── grpc.proto                      # gRPC proto definition for ONNX service
@@ -284,7 +286,6 @@ RAG8s/
 │   │   ├── rayserve-embedder-reranker.py   # Ray Serve wrapper to run embedder + reranker
 │   │   ├── requirements-cpu.txt            # ONNX service dependencies
 │   │   └── run.sh                          # Convenience script to start ONNX gRPC server
-│
 │   └── sglang
 │       ├── Dockerfile                      # GPU-enabled image for SGLang model serving
 │       ├── rayserve-sglang.py              # Ray Serve wrapper for SGLang LLM inference
@@ -294,16 +295,16 @@ RAG8s/
 │
 ├── scripts
 │   ├── build_and_push.sh                   # Builds container images and pushes to registry
-│   ├── dynamic-values.yaml.sh               # Generates dynamic Helm values (env-specific)
-│   ├── helm-deploy.sh                       # Wrapper to deploy Helm charts via CI or locally
-│   ├── pulumi-set-configs.sh                # Sets Pulumi configuration and secrets
-│   └── pulumi-set-secret.sh                 # Stores secrets into Pulumi secret store
+│   ├── dynamic-values.yaml.sh              # Generates dynamic Helm values (env-specific)
+│   ├── helm-deploy.sh                      # Wrapper to deploy Helm charts via CI or locally
+│   ├── pulumi-set-configs.sh               # Sets Pulumi configuration and secrets
+│   └── pulumi-set-secret.sh                # Stores secrets into Pulumi secret store
 │
 ├── .devcontainer
 │   ├── Dockerfile                          # Devcontainer image build for local development environment
 │   ├── devcontainer.json                   # VS Code devcontainer configuration (mounts, settings)
 │   └── scripts
-│       └── fix-docker-group.sh             # Script to fix Docker group permissions inside container
+│       └── fix-docker-group.sh             # Script to fix Docker group permissions inside devcontainer
 │
 ├── .dockerignore                           # Files/dirs excluded from Docker build context
 ├── .gitignore                              # Git ignore rules
@@ -314,50 +315,11 @@ RAG8s/
 │       ├── arrangodb                       # Export / dump for ArangoDB (graph DB backup)
 │       └── qdrant                          # Export / dump for Qdrant (vector DB backup)
 │
-└── tmp.md                                  # Temporary notes / scratch markdown file //
+└── tmp.md                                  # Temporary notes / scratch markdown file
 
 ```
 
 
-rag8s-aws/
-├── Chart.yaml                          # Helm chart metadata + dependencies
-├── values
-│   ├── base.yaml                       # Global settings, namespaces, IRSA roles, defaults
-│   ├── networking.yaml                 # Traefik, Ingress hosts/TLS, NetworkPolicies
-│   ├── monitoring.yaml                 # Prometheus, Grafana, alert thresholds
-│   ├── ray.yaml                        # Ray workload configs (images, replicas, scaling)
-│   ├── karpenter.yaml                   # CPU & GPU provisioner settings
-│   ├── db-qdrant.yaml                   # Qdrant overrides (storage, resources, nodeSelector)
-│   └── db-arangodb.yaml                 # ArangoDB overrides
-├── templates
-│   ├── _helpers.tpl                    # Shared naming/labels/annotation templates
-│   ├── argocd.yaml                      # ArgoCD Application manifest for GitOps deployment
-│   ├── helm_charts.sh                   # Utility script to update subchart versions
-│   ├── core
-│   │   ├── namespaces.yaml              # Creates all namespaces from values.base.namespaces
-│   │   ├── serviceaccounts.yaml         # ServiceAccounts per namespace w/ IRSA annotations
-│   │   ├── rbac.yaml                    # Roles/RoleBindings per namespace
-│   │   ├── pdb.yaml                     # PodDisruptionBudgets from values.base.pdb
-│   │   ├── quotas.yaml                  # ResourceQuotas from values.base.quotas
-│   │   └── frontend.yaml                # Frontend deployment/service/HPA
-│   ├── networking
-│   │   ├── traefik.yaml                 # Traefik ingress controller
-│   │   ├── ingress.yaml                 # Ingress resources for services
-│   │   └── networkpolicies.yaml         # NetworkPolicies per namespace
-│   ├── monitoring
-│   │   ├── servicemonitors.yaml         # Prometheus ServiceMonitor objects
-│   │   ├── grafana.yaml                 # Grafana dashboards/datasources
-│   │   └── alerts.yaml                  # PrometheusRule alert definitions
-│   ├── rayservices
-│   │   ├── embedder-reranker.yaml       # RayService for embedding & reranking
-│   │   └── sglang.yaml                  # RayService for language model serving
-│   ├── rayjobs
-│   │   └── indexing.yaml                # RayJob for indexing pipeline
-│   └── karpenter
-│       ├── provisioner-cpu.yaml         # Karpenter CPU provisioner (Spot+OnDemand)
-│       └── provisioner-gpu.yaml         # Karpenter GPU provisioner
-
- 
 
 # Models overview
 
