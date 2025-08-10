@@ -1,0 +1,86 @@
+# rag8s-aws/templates/core/pdb.yaml
+# PodDisruptionBudgets for critical workloads.
+# These protect availability during voluntary disruptions (drains, upgrades).
+# Toggle each PDB with values.core.pdb.<service>.enabled (defaults shown below).
+
+{{- $vals := .Values }}
+{{- $ns_inference := (default "inference" $vals.global.namespace.inference) }}
+{{- $ns_indexing := (default "indexing" $vals.global.namespace.indexing) }}
+{{- $ns_stateful := (default "stateful" $vals.global.namespace.stateful) }}
+
+---
+# Embedder + Reranker (Ray Serve app) PDB
+{{- if (default true $vals.core.pdb.embedderReranker.enabled) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: embedder-reranker-pdb
+  namespace: {{ $ns_inference }}
+spec:
+  # keep at least 1 replica available; adjust if your min replicas > 1
+  minAvailable: {{ default 1 $vals.core.pdb.embedderReranker.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: embedder-reranker
+{{- end }}
+
+---
+# SGLang (GPU LLM) PDB
+{{- if (default true $vals.core.pdb.sglang.enabled) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sglang-pdb
+  namespace: {{ $ns_inference }}
+spec:
+  minAvailable: {{ default 1 $vals.core.pdb.sglang.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sglang
+{{- end }}
+
+---
+# Frontend PDB
+{{- if (default true $vals.core.pdb.frontend.enabled) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: {{ $ns_inference }}
+spec:
+  # If frontend has >1 replicas, you may prefer maxUnavailable: 1
+  minAvailable: {{ default 1 $vals.core.pdb.frontend.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+{{- end }}
+
+---
+# Qdrant PDB (stateful)
+{{- if (default true $vals.core.pdb.qdrant.enabled) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: qdrant-pdb
+  namespace: {{ $ns_stateful }}
+spec:
+  minAvailable: {{ default 1 $vals.core.pdb.qdrant.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qdrant
+{{- end }}
+
+---
+# ArangoDB PDB (stateful)
+{{- if (default true $vals.core.pdb.arangodb.enabled) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: arangodb-pdb
+  namespace: {{ $ns_stateful }}
+spec:
+  minAvailable: {{ default 1 $vals.core.pdb.arangodb.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: arangodb
+{{- end }}

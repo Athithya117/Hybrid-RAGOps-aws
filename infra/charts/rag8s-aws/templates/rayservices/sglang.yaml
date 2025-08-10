@@ -1,0 +1,178 @@
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: {{ default "rag8s-sglang-serve" .Values.rayservices.sglang.name | quote }}
+  namespace: {{ default .Release.Namespace .Values.rayservices.sglang.namespace }}
+  labels:
+    app.kubernetes.io/name: sglang
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  rayClusterConfig:
+    rayVersion: {{ .Values.rayservices.sglang.ray.version | quote }}
+
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+      template:
+        metadata:
+          annotations:
+            {{- if .Values.rayservices.sglang.head.annotations }}
+{{ toYaml .Values.rayservices.sglang.head.annotations | nindent 12 }}
+            {{- end }}
+        spec:
+          {{- if .Values.rayservices.sglang.serviceAccountName }}
+          serviceAccountName: {{ .Values.rayservices.sglang.serviceAccountName }}
+          {{- end }}
+          {{- if .Values.rayservices.sglang.imagePullSecrets }}
+          imagePullSecrets:
+            {{- range .Values.rayservices.sglang.imagePullSecrets }}
+            - name: {{ . }}
+            {{- end }}
+          {{- end }}
+          {{- if .Values.rayservices.sglang.nodeSelector }}
+          nodeSelector:
+{{ toYaml .Values.rayservices.sglang.nodeSelector | indent 12 }}
+          {{- end }}
+          {{- if .Values.rayservices.sglang.tolerations }}
+          tolerations:
+{{ toYaml .Values.rayservices.sglang.tolerations | indent 12 }}
+          {{- end }}
+          {{- if .Values.rayservices.sglang.affinity }}
+          affinity:
+{{ toYaml .Values.rayservices.sglang.affinity | indent 12 }}
+          {{- end }}
+
+          containers:
+            - name: ray-head
+              image: "{{ .Values.rayservices.sglang.ray.image.repository }}:{{ .Values.rayservices.sglang.ray.image.tag }}"
+              imagePullPolicy: {{ .Values.rayservices.sglang.ray.image.pullPolicy | default "IfNotPresent" }}
+              env:
+                - name: RAY_NODE_ROLE
+                  value: "head"
+                - name: RAY_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                {{- if .Values.rayservices.sglang.env }}
+{{ toYaml .Values.rayservices.sglang.env | indent 16 }}
+                {{- end }}
+              resources:
+                requests:
+                  cpu: {{ .Values.rayservices.sglang.ray.head.cpu.request | default "1000m" | quote }}
+                  memory: {{ .Values.rayservices.sglang.ray.head.memory.request | default "4Gi" | quote }}
+                limits:
+                  cpu: {{ .Values.rayservices.sglang.ray.head.cpu.limit | default "2000m" | quote }}
+                  memory: {{ .Values.rayservices.sglang.ray.head.memory.limit | default "8Gi" | quote }}
+              ports:
+                - containerPort: 8265
+                - containerPort: 8000
+                - containerPort: 9000
+              volumeMounts:
+                - name: model-volume
+                  mountPath: {{ .Values.rayservices.sglang.modelMountPath | default "/opt/models" }}
+              readinessProbe:
+                httpGet:
+                  path: /
+                  port: 8265
+                initialDelaySeconds: 15
+                periodSeconds: 10
+                failureThreshold: 6
+              livenessProbe:
+                httpGet:
+                  path: /
+                  port: 8265
+                initialDelaySeconds: 60
+                periodSeconds: 30
+                failureThreshold: 5
+          volumes:
+            - name: model-volume
+              emptyDir: {}
+
+    workerGroupSpecs:
+      - groupName: gpu-workers
+        minReplicas: {{ .Values.rayservices.sglang.ray.workers.minReplicas | default 1 }}
+        maxReplicas: {{ .Values.rayservices.sglang.ray.workers.maxReplicas | default 4 }}
+        template:
+          metadata:
+            annotations:
+              {{- if .Values.rayservices.sglang.worker.annotations }}
+{{ toYaml .Values.rayservices.sglang.worker.annotations | nindent 12 }}
+              {{- end }}
+          spec:
+            {{- if .Values.rayservices.sglang.worker.serviceAccountName }}
+            serviceAccountName: {{ .Values.rayservices.sglang.worker.serviceAccountName }}
+            {{- end }}
+            {{- if .Values.rayservices.sglang.imagePullSecrets }}
+            imagePullSecrets:
+              {{- range .Values.rayservices.sglang.imagePullSecrets }}
+              - name: {{ . }}
+              {{- end }}
+            {{- end }}
+            {{- if .Values.rayservices.sglang.worker.nodeSelector }}
+            nodeSelector:
+{{ toYaml .Values.rayservices.sglang.worker.nodeSelector | indent 12 }}
+            {{- end }}
+            {{- if .Values.rayservices.sglang.worker.tolerations }}
+            tolerations:
+{{ toYaml .Values.rayservices.sglang.worker.tolerations | indent 12 }}
+            {{- end }}
+            {{- if .Values.rayservices.sglang.worker.affinity }}
+            affinity:
+{{ toYaml .Values.rayservices.sglang.worker.affinity | indent 12 }}
+            {{- end }}
+
+            containers:
+              - name: ray-gpu-worker
+                image: "{{ .Values.rayservices.sglang.ray.image.repository }}:{{ .Values.rayservices.sglang.ray.image.tag }}"
+                imagePullPolicy: {{ .Values.rayservices.sglang.ray.image.pullPolicy | default "IfNotPresent" }}
+                env:
+                  - name: RAY_NODE_ROLE
+                    value: "worker"
+                  - name: RAY_NAMESPACE
+                    valueFrom:
+                      fieldRef:
+                        fieldPath: metadata.namespace
+                  {{- if .Values.rayservices.sglang.env }}
+{{ toYaml .Values.rayservices.sglang.env | indent 18 }}
+                  {{- end }}
+                resources:
+                  requests:
+                    cpu: {{ .Values.rayservices.sglang.ray.workers.cpu.request | default "1000m" | quote }}
+                    memory: {{ .Values.rayservices.sglang.ray.workers.memory.request | default "8Gi" | quote }}
+                    nvidia.com/gpu: {{ .Values.rayservices.sglang.ray.workers.gpu.request | default 1 }}
+                  limits:
+                    cpu: {{ .Values.rayservices.sglang.ray.workers.cpu.limit | default "2000m" | quote }}
+                    memory: {{ .Values.rayservices.sglang.ray.workers.memory.limit | default "16Gi" | quote }}
+                    nvidia.com/gpu: {{ .Values.rayservices.sglang.ray.workers.gpu.limit | default 1 }}
+                ports:
+                  - containerPort: 8000
+                  - containerPort: 9000
+                volumeMounts:
+                  - name: model-volume
+                    mountPath: {{ .Values.rayservices.sglang.modelMountPath | default "/opt/models" }}
+            readinessProbe:
+              httpGet:
+                path: /
+                port: 8265
+              initialDelaySeconds: 15
+              periodSeconds: 15
+              failureThreshold: 6
+            volumes:
+              - name: model-volume
+                emptyDir: {}
+
+  serveConfigV2: |
+    applications:
+      - name: sglang-app
+        import_path: {{ .Values.rayservices.sglang.importPath | default "rayserve-sglang" }}
+        runtime_env:
+          working_dir: {{ .Values.rayservices.sglang.runtimeWorkingDir | default "/app" }}
+        deployments:
+          - name: SGLangService
+            route_prefix: "/sglang"
+            ray_actor_options:
+              num_gpus: {{ .Values.rayservices.sglang.service.numGPUs | default 1 }}
+            autoscaling_config:
+              min_replicas: {{ .Values.rayservices.sglang.service.autoscale.minReplicas | default 1 }}
+              max_replicas: {{ .Values.rayservices.sglang.service.autoscale.maxReplicas | default 4 }}
+              target_num_ongoing_requests_per_replica: {{ .Values.rayservices.sglang.service.autoscale.targetRequestsPerReplica | default 5 }}

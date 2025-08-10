@@ -69,3 +69,6 @@ RUN mkdir -p /opt/models && chmod -R 777 /opt/models
 VOLUME ["/opt/models"]
 
 CMD ["python", "rayserve-embedder-reranker.py"]
+
+
+

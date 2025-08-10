@@ -172,124 +172,152 @@ export TOP_K_CHUNKS=                # number of batches will be calculated accor
 
 
 ### The RAG8s platform codebase(currently under development, 20% completed)
-
-```sh
+REGIVE THE FULL RAG8s/ tree structure with frontend having deployment, service, hpa. its hard to edit so give it fully/// 
+```py
 RAG8s/
-├── data                                  # local directory that syncs with s3://<bucket_name>/data/raw 
-|    ├── raw                              # raw files 
-|    └── chunked                          # chunks in json/jsonl format
-|                                    
+├── data                                  # Local directory that syncs with s3://<bucket_name>/data/raw
+│   ├── raw                               # Raw files
+│   └── chunked                           # Chunks in json/jsonl format
+│
 ├── indexing_pipeline
-│   ├── Dockerfile                         # Docker image for indexing workers
-│   ├── cpu-requirements-pinned.txt        # Pinned Python package list for CPU indexing image
-│   ├── cpu-requirements.txt               # Unpinned package list for CPU builds
+│   ├── Dockerfile                        # Docker image for indexing workers
+│   ├── cpu-requirements-pinned.txt       # Pinned Python package list for CPU indexing image
+│   ├── cpu-requirements.txt              # Unpinned package list for CPU builds
 │   ├── index
-│   │   ├── __main__.py                    # CLI entrypoint for indexing jobs
-│   │   ├── arrangodb_indexer.py           # Indexer: writes chunks/entities into ArangoDB
-│   │   ├── config.py                      # Indexing configuration (paths, batch sizes, env)
-│   │   ├── qdrant_indexer.py              # Indexer: writes embeddings/metadata to Qdrant
-│   │   └── utils.py                       # Utility helpers used by indexers (parsers, serializers)
+│   │   ├── __main__.py                   # CLI entrypoint for indexing jobs
+│   │   ├── arrangodb_indexer.py          # Indexer: writes chunks/entities into ArangoDB
+│   │   ├── config.py                     # Indexing configuration (paths, batch sizes, env)
+│   │   ├── qdrant_indexer.py             # Indexer: writes embeddings/metadata to Qdrant
+│   │   └── utils.py                      # Utility helpers used by indexers (parsers, serializers)
 │   ├── parse_chunk
-│   │   ├── __init__.py                    # parse_chunk package initializer
-│   │   ├── doc_docx_to_pdf.py             # Converts .doc/.docx to PDF (LibreOffice headless flow)
+│   │   ├── __init__.py                   # parse_chunk package initializer
+│   │   ├── doc_docx_to_pdf.py            # Converts .doc/.docx to PDF (LibreOffice headless flow)
 │   │   ├── formats
-│   │   │   ├── __init__.py                # Format module initializer
-│   │   │   ├── csv.py                     # CSV reader & chunker logic
-│   │   │   ├── doc_docx.py                # Docx parser + fallback handlers
+│   │   │   ├── __init__.py               # Format module initializer
+│   │   │   ├── csv.py                    # CSV reader & chunker logic
+│   │   │   ├── doc_docx.py               # Docx parser + fallback handlers
 │   │   │   ├── html.py                    # HTML -> Markdown chunker and DOM processing
 │   │   │   ├── json.py                    # JSON/JSONL flattening and chunking routines
 │   │   │   ├── md.py                      # Markdown chunking and normalization
 │   │   │   ├── mp3.py                     # Audio preprocessing wrapper (slicing metadata)
 │   │   │   ├── pdf.py                     # PDF page extraction and layout-aware parsing
 │   │   │   ├── png_jpeg_jpg.py            # Image OCR pipeline wrapper
-│   │   │   ├── ppt_pptx.py                # PPTX slide extractor (1 slide = 1 chunk)
+│   │   │   ├── ppt_pptx.py                # PPTX slide extractor (n slide = 1 chunk)
 │   │   │   ├── spreadsheets.py            # Spreadsheet row/column chunking logic
 │   │   │   └── txt.py                     # Plaintext chunkers (paragraph/sentence/window)
 │   │   └── router.py                      # Dispatcher to select parser based on MIME/extension
-│   ├── relik.sh                           # Helper script to run ReLiK entity/triplet extraction
-│   └── requirements-cpu.txt               # Indexing pipeline runtime dependencies (CPU)
+│   ├── relik.sh                          # Helper script to run ReLiK entity/triplet extraction
+│   └── requirements-cpu.txt              # Indexing pipeline runtime dependencies (CPU)
+│
 ├── inference_pipeline
-│   ├── Dockerfile                         # Dockerfile for inference server image
-│   ├── auth_control.py                    # Authentication & authorization middleware for APIs
-│   ├── eval.py                            # Evaluation scripts for retrieval/reranking metrics
+│   ├── Dockerfile                        # Dockerfile for inference server image
+│   ├── auth_control.py                   # Authentication & authorization middleware for APIs
+│   ├── eval.py                           # Evaluation scripts for retrieval/reranking metrics
 │   ├── frontend
-│   │   ├── Dockerfile                     # Frontend container build file
-│   │   ├── main.py                        # Frontend app entry (UI endpoints / static server)
-│   │   ├── modules                        # (directory) modular UI components / assets
-│   │   └── requirements-cpu.txt           # Frontend Python dependencies
-│   ├── main.py                            # Inference service entrypoint (REST/gRPC server)
-│   ├── retreiver.py                       # Retrieval orchestration (hybrid BM25 + vector + graph)
-│   └── trace_file.py                      # Trace/logging helper to capture inference traces
+│   │   ├── Dockerfile                    # Frontend container build file
+│   │   ├── main.py                       # Frontend app entry (UI endpoints / static server)
+│   │   ├── modules                        # Modular UI components / assets
+│   │   └── requirements-cpu.txt          # Frontend Python dependencies
+│   ├── main.py                           # Inference service entrypoint (REST/gRPC server)
+│   ├── retreiver.py                      # Retrieval orchestration (hybrid BM25 + vector + graph)
+│   └── trace_file.py                     # Trace/logging helper to capture inference traces
+│
 ├── infra
 │   ├── charts
 │   │   └── rag8s-aws
-│   │       ├── Chart.yaml                  # Helm chart metadata for rag8s-aws deployment
+│   │       ├── Chart.yaml                # Helm chart metadata for rag8s-aws deployment
+│   │       ├── values.yaml               # Default Helm values for rag8s-aws chart includes qdrant, arrangodb helm chart overrides
 │   │       ├── templates
-│   │       │   ├── argocd-application.yaml # Argocd Application manifest for GitOps sync
-│   │       │   ├── configmap.yaml          # ConfigMap template for runtime configuration
-│   │       │   ├── embedder-reranker-rayservice.yaml # RayService manifest for ONNX services
-│   │       │   ├── frontend-deployment.yaml# Frontend Kubernetes Deployment manifest
-│   │       │   ├── frontend-hpa.yaml       # HPA for frontend deployment (autoscaling)
-│   │       │   ├── frontend-service.yaml   # Service + Ingress resources for frontend
-│   │       │   ├── grafana.yaml            # Grafana deployment/dashboard template
-│   │       │   ├── indexing-rayjob.yaml    # RayJob template for batch indexing jobs
-│   │       │   ├── namespaces.yaml         # Kubernetes namespaces manifest
-│   │       │   ├── promotheus.yaml         # Prometheus manifests (typo: Prometheus)
-│   │       │   ├── sglang-rayservice.yaml  # RayService manifest for SGLang model serving
-│   │       │   └── traefik.yaml            # Traefik ingress controller manifest
-│   │       └── values.yaml                 # Default Helm values for rag8s-aws chart
+│   │       │
+│   │       │   ├── _helpers.tpl           # Helm helper templates (labels, names, etc.)
+│   │       │
+│   │       │   ├── core/                  # Shared K8s primitives
+│   │       │   │   ├── namespaces.yaml    # Create namespaces (inference, monitoring, networking, etc.)
+│   │       │   │   ├── serviceaccounts.yaml # All ServiceAccounts (one per namespace if needed)
+│   │       │   │   ├── rbac.yaml          # Roles/RoleBindings/ClusterRoles
+│   │       │   │   ├── pdb.yaml           # PodDisruptionBudgets for high availability
+|   |       |   |   ├── frontend.yaml      # fronend container deployment, hpa,service
+│   │       │   │   └── quotas.yaml        # ResourceQuotas for namespace limits
+│   │       │
+│   │       │   ├── monitoring/
+│   │       │   │   ├── servicemonitors.yaml # ServiceMonitor resources for Prometheus Operator
+│   │       │   │   ├── grafana.yaml       # Grafana dashboards
+│   │       │   │   └── alerts.yaml        # Prometheus alert rules
+│   │       │
+│   │       │   ├── networking/
+│   │       │   │   ├── traefik.yaml       # Traefik ingress controller config
+│   │       │   │   ├── ingress.yaml       # Ingress objects for services
+│   │       │   │   └── networkpolicies.yaml # Restrict cross-namespace traffic
+│   │       │
+│   │       │   ├── rayservices/           # RayServe deployments
+│   │       │   │   ├── embedder-reranker.yaml
+│   │       │   │   └── sglang.yaml
+│   │       │
+│   │       │   ├── rayjobs/               # RayJob batch jobs
+│   │       │   │   └── indexing.yaml
+│   │       │
+│   │       │   ├── karpenter/             # Node provisioning configs
+│   │       │   │   ├── provisioner-cpu.yaml # CPU workloads (Spot + OnDemand)
+│   │       │   │   └── provisioner-gpu.yaml # GPU workloads
+│
 │   ├── eks
-│   │   ├── __main__.py                     # IAC CLI for EKS cluster provisioning
-│   │   ├── cloudflare.py                   # Cloudflare DNS / zone automation helpers
-│   │   ├── cloudwatch.py                   # CloudWatch metric/alert helpers
-│   │   ├── config.py                       # Infra configuration variables (accounts, regions)
-│   │   ├── db_backup.py                    # DB backup/restore automation scripts
-│   │   ├── eks_cluster.py                  # EKS cluster orchestration code (Pulumi)
-│   │   ├── iam_roles.py                    # IAM role & policy creators for services
-│   │   ├── indexing_ami.py                 # AMI build definitions for indexing nodes
-│   │   ├── inference_ami.py                # AMI build definitions for inference nodes
+│   │   ├── __main__.py                    # IAC CLI for EKS cluster provisioning
+│   │   ├── cloudflare.py                  # Cloudflare DNS / zone automation helpers
+│   │   ├── cloudwatch.py                  # CloudWatch metric/alert helpers
+│   │   ├── config.py                      # Infra configuration variables (accounts, regions)
+│   │   ├── db_backup.py                   # DB backup/restore automation scripts
+│   │   ├── eks_cluster.py                 # EKS cluster orchestration code (Pulumi)
+│   │   ├── iam_roles.py                   # IAM role & policy creators for services
+│   │   ├── indexing_ami.py                # AMI build definitions for indexing nodes
+│   │   ├── inference_ami.py               # AMI build definitions for inference nodes
 │   │   ├── karpenter.py                    # Karpenter provisioner configuration helpers
-│   │   ├── nodegroups.py                   # Nodegroup definitions and sizing logic
-│   │   ├── pulumi.yaml                     # Pulumi project manifest for infra code
-│   │   ├── traefik.py                      # Traefik infrastructure helper code
-│   │   └── vpc.py                          # VPC/subnet/networking helper utilities
+│   │   ├── nodegroups.py                  # Nodegroup definitions and sizing logic
+│   │   ├── pulumi.yaml                    # Pulumi project manifest for infra code
+│   │   ├── traefik.py                     # Traefik infrastructure helper code
+│   │   └── vpc.py                         # VPC/subnet/networking helper utilities
+│
 │   ├── onnx
-│   │   ├── Dockerfile                      # ONNX runtime image for CPU inference services
-│   │   ├── grpc.proto                       # gRPC proto definition for ONNX service
-│   │   ├── grpc_pb2.py                      # Generated gRPC Python bindings
-│   │   ├── grpc_pb2_grpc.py                 # Generated gRPC server/client scaffolding
-│   │   ├── rayserve-embedder-reranker.py    # Ray Serve wrapper to run embedder + reranker
-│   │   ├── requirements-cpu.txt             # ONNX service dependencies
-│   │   └── run.sh                            # Convenience script to start ONNX gRPC server
+│   │   ├── Dockerfile                     # ONNX runtime image for CPU inference services
+│   │   ├── grpc.proto                      # gRPC proto definition for ONNX service
+│   │   ├── grpc_pb2.py                     # Generated gRPC Python bindings
+│   │   ├── grpc_pb2_grpc.py                # Generated gRPC server/client scaffolding
+│   │   ├── rayserve-embedder-reranker.py   # Ray Serve wrapper to run embedder + reranker
+│   │   ├── requirements-cpu.txt            # ONNX service dependencies
+│   │   └── run.sh                          # Convenience script to start ONNX gRPC server
+│
 │   └── sglang
-│       ├── Dockerfile                       # GPU-enabled image for SGLang model serving
-│       ├── rayserve-sglang.py               # Ray Serve wrapper for SGLang LLM inference
-│       └── requirements-gpu.txt             # GPU runtime dependencies (CUDA/pytorch/etc.)
-├── output.yaml                              # Deployment/output summary produced by infra scripts
+│       ├── Dockerfile                      # GPU-enabled image for SGLang model serving
+│       ├── rayserve-sglang.py              # Ray Serve wrapper for SGLang LLM inference
+│       └── requirements-gpu.txt            # GPU runtime dependencies (CUDA/pytorch/etc.)
+│
+├── output.yaml                             # Deployment/output summary produced by infra scripts
+│
 ├── scripts
-│   ├── build_and_push.sh                    # Builds container images and pushes to registry
+│   ├── build_and_push.sh                   # Builds container images and pushes to registry
 │   ├── dynamic-values.yaml.sh               # Generates dynamic Helm values (env-specific)
 │   ├── helm-deploy.sh                       # Wrapper to deploy Helm charts via CI or locally
 │   ├── pulumi-set-configs.sh                # Sets Pulumi configuration and secrets
 │   └── pulumi-set-secret.sh                 # Stores secrets into Pulumi secret store
+│
 ├── .devcontainer
-│   ├── Dockerfile                         # Devcontainer image build for local development environment
-│   ├── devcontainer.json                  # VS Code devcontainer configuration (mounts, settings)
+│   ├── Dockerfile                          # Devcontainer image build for local development environment
+│   ├── devcontainer.json                   # VS Code devcontainer configuration (mounts, settings)
 │   └── scripts
-│       └── fix-docker-group.sh            # Script to fix Docker group permissions inside container
-├── .dockerignore                          # Files/dirs excluded from Docker build context
-├── .gitignore                             # Git ignore rules
-├── Makefile                               # Convenience targets for build/test/deploy tasks
-├── README.md                              # Project overview, setup and usage instructions
-├── backups                                # S3 backups
+│       └── fix-docker-group.sh             # Script to fix Docker group permissions inside container
+│
+├── .dockerignore                           # Files/dirs excluded from Docker build context
+├── .gitignore                              # Git ignore rules
+├── Makefile                                # Convenience targets for build/test/deploy tasks
+├── README.md                               # Project overview, setup and usage instructions
+├── backups                                 # S3 backups
 │   └── dbs
-│       ├── arrangodb                      # Export / dump for ArangoDB (graph DB backup)
-│       └── qdrant                         # Export / dump for Qdrant (vector DB backup)
-|
-└── tmp.md                                   # Temporary notes / scratch markdown file
-
+│       ├── arrangodb                       # Export / dump for ArangoDB (graph DB backup)
+│       └── qdrant                          # Export / dump for Qdrant (vector DB backup)
+│
+└── tmp.md                                  # Temporary notes / scratch markdown file //
 
 ```
+
  
 
 # Models overview

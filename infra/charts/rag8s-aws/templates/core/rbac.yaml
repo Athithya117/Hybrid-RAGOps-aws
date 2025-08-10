@@ -1,0 +1,150 @@
+# rag8s-aws/templates/core/rbac.yaml
+# RBAC roles and bindings for all RAG8s workloads
+# Each ServiceAccount is scoped to the minimum necessary permissions
+
+##############
+# INFERENCE
+##############
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: inference-role
+  namespace: inference
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "configmaps", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: inference-rolebinding
+  namespace: inference
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: inference-role
+subjects:
+  - kind: ServiceAccount
+    name: inference-sa
+    namespace: inference
+
+##############
+# INDEXING
+##############
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: indexing-role
+  namespace: indexing
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: indexing-rolebinding
+  namespace: indexing
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: indexing-role
+subjects:
+  - kind: ServiceAccount
+    name: indexing-sa
+    namespace: indexing
+
+##############
+# STATEFUL
+##############
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: stateful-role
+  namespace: stateful
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims", "configmaps", "services", "pods"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: stateful-rolebinding
+  namespace: stateful
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: stateful-role
+subjects:
+  - kind: ServiceAccount
+    name: stateful-sa
+    namespace: stateful
+
+##############
+# MONITORING (ClusterRole for Prometheus/Grafana)
+##############
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: monitoring-clusterrole
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "services", "endpoints", "pods", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: monitoring-clusterrolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: monitoring-clusterrole
+subjects:
+  - kind: ServiceAccount
+    name: monitoring-sa
+    namespace: monitoring
+
+##############
+# NETWORKING (Traefik / Ingress Controller)
+##############
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: networking-clusterrole
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "pods", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions", "networking.k8s.io"]
+    resources: ["ingresses", "ingressclasses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: networking-clusterrolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: networking-clusterrole
+subjects:
+  - kind: ServiceAccount
+    name: networking-sa
+    namespace: networking

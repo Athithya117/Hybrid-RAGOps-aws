@@ -1,0 +1,113 @@
+# rag8s-aws/templates/core/frontend.yaml
+# Production-grade frontend service deployment with HPA and Service definition
+
+{{- $vals := .Values }}
+{{- $ns := (default "inference" $vals.global.namespace.inference) }}
+{{- $frontend := $vals.core.frontend }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag8s-frontend
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/name: rag8s-frontend
+    app.kubernetes.io/part-of: rag8s
+spec:
+  replicas: {{ default 2 $frontend.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag8s-frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rag8s-frontend
+        app.kubernetes.io/part-of: rag8s
+    spec:
+      serviceAccountName: {{ default "frontend-sa" $frontend.serviceAccount }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: ["rag8s-frontend"]
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: frontend
+          image: "{{ $frontend.image.repository }}:{{ $frontend.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: rag8s-config
+            - secretRef:
+                name: rag8s-secrets
+          resources:
+            requests:
+              cpu: {{ default "500m" $frontend.resources.requests.cpu }}
+              memory: {{ default "1Gi" $frontend.resources.requests.memory }}
+            limits:
+              cpu: {{ default "1" $frontend.resources.limits.cpu }}
+              memory: {{ default "2Gi" $frontend.resources.limits.memory }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      terminationGracePeriodSeconds: 30
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rag8s-frontend-hpa
+  namespace: {{ $ns }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: rag8s-frontend
+  minReplicas: {{ default 2 $frontend.hpa.minReplicas }}
+  maxReplicas: {{ default 10 $frontend.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ default 60 $frontend.hpa.cpuTargetPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ default 70 $frontend.hpa.memoryTargetPercentage }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag8s-frontend
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/name: rag8s-frontend
+spec:
+  type: {{ default "ClusterIP" $frontend.service.type }}
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: rag8s-frontend

@@ -1,0 +1,32 @@
+apiVersion: karpenter.sh/v1alpha5
+kind: Provisioner
+metadata:
+  name: gpu-provisioner
+spec:
+  weight: {{ .Values.karpenter.gpu.weight }}
+  requirements:
+    - key: "node.kubernetes.io/instance-type"
+      operator: In
+      values: {{ toYaml .Values.karpenter.gpu.instanceTypes | nindent 6 }}
+    - key: "kubernetes.io/arch"
+      operator: In
+      values: ["amd64"]
+    - key: "node.kubernetes.io/accelerator"
+      operator: In
+      values: ["nvidia"]
+    - key: "karpenter.sh/capacity-type"
+      operator: In
+      values: {{ toYaml .Values.karpenter.gpu.capacityTypes | nindent 6 }}
+  provider:
+    subnetSelector:
+      {{- toYaml .Values.karpenter.provider.subnetSelector | nindent 6 }}
+    securityGroupSelector:
+      {{- toYaml .Values.karpenter.provider.securityGroupSelector | nindent 6 }}
+    amiFamily: {{ .Values.karpenter.gpu.amiFamily }}
+    tags:
+      {{- toYaml .Values.karpenter.gpu.tags | nindent 6 }}
+  limits:
+    resources:
+      cpu: {{ .Values.karpenter.gpu.limits.cpu }}
+      memory: {{ .Values.karpenter.gpu.limits.memory }}
+  ttlSecondsAfterEmpty: {{ .Values.karpenter.gpu.ttlSecondsAfterEmpty }}

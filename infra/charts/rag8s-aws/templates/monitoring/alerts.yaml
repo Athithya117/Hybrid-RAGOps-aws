@@ -1,0 +1,27 @@
+{{- if .Values.monitoring.alerts.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "rag8s-aws.fullname" . }}-alerts
+  namespace: {{ .Values.monitoring.namespace }}
+  labels:
+    release: prometheus
+    {{- include "rag8s-aws.labels" . | nindent 4 }}
+spec:
+  groups:
+    {{- range .Values.monitoring.alerts.groups }}
+    - name: {{ .name }}
+      interval: {{ .interval | default "30s" }}
+      rules:
+        {{- range .rules }}
+        - alert: {{ .alert }}
+          expr: {{ .expr | quote }}
+          for: {{ .for | default "1m" }}
+          labels:
+            severity: {{ .severity | default "warning" }}
+          annotations:
+            summary: {{ .summary | quote }}
+            description: {{ .description | quote }}
+        {{- end }}
+    {{- end }}
+{{- end }}

@@ -1,0 +1,25 @@
+{{- range .Values.network.ingress.rules }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .serviceName }}-ingress
+  namespace: {{ $.Values.network.ingress.namespace }}
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  {{- if $.Values.network.ingress.tls }}
+  tls:
+    {{- toYaml $.Values.network.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .serviceName }}
+                port:
+                  number: {{ .servicePort }}
+{{- end }}

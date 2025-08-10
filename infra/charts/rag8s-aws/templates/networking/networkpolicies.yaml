@@ -1,0 +1,40 @@
+{{- if .Values.network.policies.enabled }}
+{{- range .Values.network.policies.rules }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .name }}
+  namespace: {{ .namespace }}
+  labels:
+    app.kubernetes.io/managed-by: helm
+    {{- include "rag8s-aws.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    {{- if .podSelector }}
+    {{- toYaml .podSelector | nindent 4 }}
+    {{- else }}
+    {}
+    {{- end }}
+  {{- if .policyTypes }}
+  policyTypes:
+    {{- toYaml .policyTypes | nindent 4 }}
+  {{- else }}
+  policyTypes:
+    {{- if .ingress }} 
+    - Ingress
+    {{- end }}
+    {{- if .egress }}
+    - Egress
+    {{- end }}
+  {{- end }}
+  {{- if .ingress }}
+  ingress:
+    {{- toYaml .ingress | nindent 4 }}
+  {{- end }}
+  {{- if .egress }}
+  egress:
+    {{- toYaml .egress | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
+{{- end }}

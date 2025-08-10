@@ -1,0 +1,64 @@
+# rag8s-aws/templates/core/namespaces.yaml
+# Creates all required namespaces for the RAG8s deployment
+# Annotations can be used by service mesh, cost monitoring, or compliance tools
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: inference
+  labels:
+    name: inference
+    workload-type: stateless
+    env: production
+  annotations:
+    linkerd.io/inject: enabled
+    goldilocks.fairwinds.com/enabled: "true"   # for resource tuning
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: indexing
+  labels:
+    name: indexing
+    workload-type: batch
+    env: production
+  annotations:
+    linkerd.io/inject: enabled
+    goldilocks.fairwinds.com/enabled: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: stateful
+  labels:
+    name: stateful
+    workload-type: database
+    env: production
+  annotations:
+    linkerd.io/inject: disabled               # DB traffic might bypass mesh
+    goldilocks.fairwinds.com/enabled: "false"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
+    workload-type: observability
+    env: production
+  annotations:
+    linkerd.io/inject: disabled
+    goldilocks.fairwinds.com/enabled: "false"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: networking
+  labels:
+    name: networking
+    workload-type: ingress
+    env: production
+  annotations:
+    linkerd.io/inject: disabled
+    goldilocks.fairwinds.com/enabled: "false"

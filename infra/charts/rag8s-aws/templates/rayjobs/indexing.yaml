@@ -1,0 +1,51 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: {{ .Values.rayjobs.indexing.name }}
+  namespace: {{ .Values.rayjobs.namespace }}
+spec:
+  entrypoint: {{ .Values.rayjobs.indexing.entrypoint }}
+  runtimeEnvYAML: |
+    working_dir: {{ .Values.rayjobs.indexing.workingDir }}
+    pip:
+      {{- toYaml .Values.rayjobs.indexing.pip | nindent 6 }}
+  ttlSecondsAfterFinished: {{ .Values.rayjobs.indexing.ttlSecondsAfterFinished }}
+  shutdownAfterJobFinishes: true
+  submissionMode: KubernetesJob
+  rayClusterSpec:
+    rayVersion: {{ .Values.rayjobs.indexing.rayVersion }}
+    headGroupSpec:
+      serviceType: ClusterIP
+      template:
+        spec:
+          nodeSelector:
+            karpenter.sh/provisioner-name: cpu-provisioner
+          containers:
+            - name: ray-head
+              image: {{ .Values.rayjobs.indexing.image }}
+              resources:
+                requests:
+                  cpu: {{ .Values.rayjobs.indexing.resources.head.cpu }}
+                  memory: {{ .Values.rayjobs.indexing.resources.head.memory }}
+                limits:
+                  cpu: {{ .Values.rayjobs.indexing.resources.head.cpu }}
+                  memory: {{ .Values.rayjobs.indexing.resources.head.memory }}
+    workerGroupSpecs:
+      - replicas: {{ .Values.rayjobs.indexing.workerReplicas }}
+        minReplicas: {{ .Values.rayjobs.indexing.workerMin }}
+        maxReplicas: {{ .Values.rayjobs.indexing.workerMax }}
+        groupName: workers
+        template:
+          spec:
+            nodeSelector:
+              karpenter.sh/provisioner-name: cpu-provisioner
+            containers:
+              - name: ray-worker
+                image: {{ .Values.rayjobs.indexing.image }}
+                resources:
+                  requests:
+                    cpu: {{ .Values.rayjobs.indexing.resources.worker.cpu }}
+                    memory: {{ .Values.rayjobs.indexing.resources.worker.memory }}
+                  limits:
+                    cpu: {{ .Values.rayjobs.indexing.resources.worker.cpu }}
+                    memory: {{ .Values.rayjobs.indexing.resources.worker.memory }}
