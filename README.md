@@ -175,25 +175,26 @@ export TOP_K_CHUNKS=                # number of batches will be calculated accor
 
 
 ```py
+
 RAG8s/
-├── data                                  # Local directory that syncs with s3://<bucket_name>/data/raw
-│   ├── raw                               # Raw files
-│   └── chunked                           # Chunks in json/jsonl format
+├── data/                                 # Local directory that syncs with s3://<bucket_name>/data/raw
+│   ├── raw/                              # Raw data files
+│   └── chunked/                          # Chunks in json/jsonl format
 │
-├── indexing_pipeline
+├── indexing_pipeline/
 │   ├── Dockerfile                        # Docker image for indexing workers
 │   ├── cpu-requirements-pinned.txt       # Pinned Python package list for CPU indexing image
 │   ├── cpu-requirements.txt              # Unpinned package list for CPU builds
-│   ├── index
+│   ├── index/
 │   │   ├── __main__.py                   # CLI entrypoint for indexing jobs
 │   │   ├── arrangodb_indexer.py          # Indexer: writes chunks/entities into ArangoDB
 │   │   ├── config.py                     # Indexing configuration (paths, batch sizes, env)
 │   │   ├── qdrant_indexer.py             # Indexer: writes embeddings/metadata to Qdrant
 │   │   └── utils.py                      # Utility helpers used by indexers (parsers, serializers)
-│   ├── parse_chunk
+│   ├── parse_chunk/
 │   │   ├── __init__.py                   # parse_chunk package initializer
 │   │   ├── doc_docx_to_pdf.py            # Converts .doc/.docx to PDF (LibreOffice headless flow)
-│   │   ├── formats
+│   │   ├── formats/
 │   │   │   ├── __init__.py               # Format module initializer
 │   │   │   ├── csv.py                    # CSV reader & chunker logic
 │   │   │   ├── doc_docx.py               # Docx parser + fallback handlers
@@ -210,11 +211,11 @@ RAG8s/
 │   ├── relik.sh                          # Helper script to run ReLiK entity/triplet extraction
 │   └── requirements-cpu.txt              # Indexing pipeline runtime dependencies (CPU)
 │
-├── inference_pipeline
+├── inference_pipeline/
 │   ├── Dockerfile                        # Dockerfile for inference server image
 │   ├── auth_control.py                   # Authentication & authorization middleware for APIs
 │   ├── eval.py                           # Evaluation scripts for retrieval/reranking metrics
-│   ├── frontend
+│   ├── frontend/
 │   │   ├── Dockerfile                    # Frontend container build file
 │   │   ├── main.py                       # Frontend app entry (UI endpoints / static server)
 │   │   ├── modules                        # Modular UI components / assets
@@ -225,7 +226,7 @@ RAG8s/
 │
 ├── infra
 │   ├── charts
-│   │   └── rag8s-aws
+│   │   └── rag8s-eks
 │   │       ├── Chart.yaml                # Helm chart metadata + optional dependencies (Karpenter, Ray, Prometheus)
 │   │       ├── values/                   # Modular Helm values overrides
 │   │       │   ├── base.yaml             # Global settings: namespaces, IRSA roles, default labels, pdb/quotas
@@ -263,7 +264,8 @@ RAG8s/
 │   │       │       ├── provisioner-cpu.yaml # CPU workloads, Spot + OnDemand
 │   │       │       └── provisioner-gpu.yaml # GPU workloads, Spot + OnDemand
 │   │       └── README.md                 # Chart-specific README and usage notes
-│   ├── eks
+│   │  
+│   ├── pulumi-aws/
 │   │   ├── __main__.py                    # IAC CLI for EKS cluster provisioning
 │   │   ├── cloudflare.py                  # Cloudflare DNS / zone automation helpers
 │   │   ├── cloudwatch.py                  # CloudWatch metric/alert helpers
@@ -274,11 +276,12 @@ RAG8s/
 │   │   ├── indexing_ami.py                # AMI build definitions for indexing nodes
 │   │   ├── inference_ami.py               # AMI build definitions for inference nodes
 │   │   ├── karpenter.py                   # Karpenter provisioner configuration helpers
-│   │   ├── nodegroups.py                  # Nodegroup definitions and sizing logic
+│   │   ├── nodegroups.py                  # Nodegroup definitions for statefulsets qdrant,arangodn
 │   │   ├── pulumi.yaml                    # Pulumi project manifest for infra code
 │   │   ├── traefik.py                     # Traefik infrastructure helper code
 │   │   └── vpc.py                         # VPC/subnet/networking helper utilities
-│   ├── onnx
+│   │ 
+│   ├── onnx/
 │   │   ├── Dockerfile                     # ONNX runtime image for CPU inference services
 │   │   ├── grpc.proto                      # gRPC proto definition for ONNX service
 │   │   ├── grpc_pb2.py                     # Generated gRPC Python bindings
@@ -286,21 +289,22 @@ RAG8s/
 │   │   ├── rayserve-embedder-reranker.py   # Ray Serve wrapper to run embedder + reranker
 │   │   ├── requirements-cpu.txt            # ONNX service dependencies
 │   │   └── run.sh                          # Convenience script to start ONNX gRPC server
-│   └── sglang
+│   │  
+│   └── sglang/
 │       ├── Dockerfile                      # GPU-enabled image for SGLang model serving
 │       ├── rayserve-sglang.py              # Ray Serve wrapper for SGLang LLM inference
 │       └── requirements-gpu.txt            # GPU runtime dependencies (CUDA/pytorch/etc.)
 │
 ├── output.yaml                             # Deployment/output summary produced by infra scripts
 │
-├── scripts
+├── scripts/
 │   ├── build_and_push.sh                   # Builds container images and pushes to registry
 │   ├── dynamic-values.yaml.sh              # Generates dynamic Helm values (env-specific)
 │   ├── helm-deploy.sh                      # Wrapper to deploy Helm charts via CI or locally
 │   ├── pulumi-set-configs.sh               # Sets Pulumi configuration and secrets
 │   └── pulumi-set-secret.sh                # Stores secrets into Pulumi secret store
 │
-├── .devcontainer
+├── .devcontainer/
 │   ├── Dockerfile                          # Devcontainer image build for local development environment
 │   ├── devcontainer.json                   # VS Code devcontainer configuration (mounts, settings)
 │   └── scripts
@@ -310,10 +314,10 @@ RAG8s/
 ├── .gitignore                              # Git ignore rules
 ├── Makefile                                # Convenience targets for build/test/deploy tasks
 ├── README.md                               # Project overview, setup and usage instructions
-├── backups                                 # S3 backups
-│   └── dbs
-│       ├── arrangodb                       # Export / dump for ArangoDB (graph DB backup)
-│       └── qdrant                          # Export / dump for Qdrant (vector DB backup)
+├── backups/                                 # S3 backups
+│   └── dbs/
+│       ├── arrangodb/                       # Export / dump for ArangoDB (graph DB backup)
+│       └── qdrant/                          # Export / dump for Qdrant (vector DB backup)
 │
 └── tmp.md                                  # Temporary notes / scratch markdown file
 
