@@ -1,0 +1,12 @@
+dependencies:
+- name: kuberay-operator
+  repository: https://ray-project.github.io/kuberay-helm/
+  version: 1.4.2
+- name: qdrant
+  repository: https://qdrant.github.io/qdrant-helm
+  version: 1.15.1
+- name: kube-arangodb
+  repository: https://arangodb.github.io/kube-arangodb
+  version: 1.2.24
+digest: sha256:946083823b0c646225b51b84d0461d66dd1c63ad37dfd68578b1781f85351c42
+generated: "2025-08-11T18:14:39.959580447+05:30"

@@ -1,4 +1,4 @@
-# values/db-qdrant.yaml
+# values/qdrant-override.yaml
 qdrant:
   enabled: true
 
@@ -9,10 +9,10 @@ qdrant:
 
   persistence:
     enabled: true
-    storageClass: local-nvme
+    storageClass: standard
     accessModes:
       - ReadWriteOnce
-    size: 500Gi
+    size: 10Gi
 
   config:
     service:
@@ -23,17 +23,15 @@ qdrant:
     log_level: INFO
     wal_enabled: true
     memory:
-      cache_size: 4096
+      cache_size: 1024  # MB
 
-  nodeSelector:
-    eks.amazonaws.com/nodegroup: "stateful-nvme"
-
-  tolerations: []  # fill if NVMe nodes are tainted
+  nodeSelector: {}
+  tolerations: []
 
   resources:
-    limits:
-      cpu: "2"
-      memory: "4Gi"
     requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
       cpu: "1"
       memory: "2Gi"

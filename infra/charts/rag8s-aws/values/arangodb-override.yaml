@@ -1,4 +1,4 @@
-# values/db-arangodb.yaml
+# values/arango-override.yaml
 arangodb:
   enabled: true
 
@@ -7,23 +7,25 @@ arangodb:
     tag: "3.11.0"
     pullPolicy: IfNotPresent
 
-  deploymentMode: Cluster   # or Single depending on requirements
+  # For dev use Single mode to reduce resource & complexity
+  deploymentMode: Single
 
-  storageClass: local-nvme
-  size: 500Gi
+  # small storage for dev
+  storageClass: standard
+  size: 10Gi
 
   resources:
     requests:
-      cpu: "2"
-      memory: "4Gi"
+      cpu: "500m"
+      memory: "1Gi"
     limits:
-      cpu: "4"
-      memory: "8Gi"
+      cpu: "1"
+      memory: "2Gi"
 
-  nodeSelector:
-    eks.amazonaws.com/nodegroup: "stateful-nvme"
+  # no nodeSelector for dev (allow scheduling on single node)
+  nodeSelector: {}
 
-  tolerations: []   # add tolerations if NVMe nodes are tainted
+  tolerations: []
 
   service:
     type: ClusterIP

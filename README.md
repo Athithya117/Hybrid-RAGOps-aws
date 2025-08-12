@@ -2,7 +2,6 @@
 # RAG8s is a production ready RAG environment to build and ship an E2E RAG system using the SOTA tools, models and strategies as of mid 2025. It is currently under development
 
 
-
 ## STEP 2/3 - indexing_pipeline
 
 #### **NVIDIA (June 2025)** : Page-level chunking is the baseline best https://developer.nvidia.com/blog/finding-the-best-chunking-strategy-for-accurate-ai-responses/
@@ -224,9 +223,9 @@ RAG8s/
 │   ├── retreiver.py                      # Retrieval orchestration (hybrid BM25 + vector + graph)
 │   └── trace_file.py                     # Trace/logging helper to capture inference traces
 │
-├── infra
-│   ├── charts
-│   │   └── rag8s-eks
+├── infra/
+│   ├── charts/
+│   │   └── rag8s/
 │   │       ├── Chart.yaml                # Helm chart metadata + optional dependencies (Karpenter, Ray, Prometheus)
 │   │       ├── values/                   # Modular Helm values overrides
 │   │       │   ├── base.yaml             # Global settings: namespaces, IRSA roles, default labels, pdb/quotas
@@ -269,14 +268,13 @@ RAG8s/
 │   │   ├── __main__.py                    # IAC CLI for EKS cluster provisioning
 │   │   ├── cloudflare.py                  # Cloudflare DNS / zone automation helpers
 │   │   ├── cloudwatch.py                  # CloudWatch metric/alert helpers
-│   │   ├── config.py                      # Infra configuration variables (accounts, regions)
 │   │   ├── db_backup.py                   # DB backup/restore automation scripts
 │   │   ├── eks_cluster.py                 # EKS cluster orchestration code (Pulumi)
 │   │   ├── iam_roles.py                   # IAM role & policy creators for services
 │   │   ├── indexing_ami.py                # AMI build definitions for indexing nodes
 │   │   ├── inference_ami.py               # AMI build definitions for inference nodes
 │   │   ├── karpenter.py                   # Karpenter provisioner configuration helpers
-│   │   ├── nodegroups.py                  # Nodegroup definitions for statefulsets qdrant,arangodn
+│   │   ├── nodegroups.py                  # Nodegroup definitions for statefulsets qdrant,arangodb
 │   │   ├── pulumi.yaml                    # Pulumi project manifest for infra code
 │   │   ├── traefik.py                     # Traefik infrastructure helper code
 │   │   └── vpc.py                         # VPC/subnet/networking helper utilities
@@ -513,14 +511,14 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
   "document_id": "e4f72d3a9c5b4f17",                         // Unique document ID (128-bit hash of file path + size)
   "chunk_type": "page",                                       // Type of content: "paragraph", "heading", "section", "table", "page", etc.
 
-  "text": "### National Classification of Occupations (NCO) – Tailors\n\nThe NCO code for Tailor (General) is **7531.0100**. This occupation falls under the broader category **Tailors, Dressmakers, Furriers, and Hatters**. Tailors are responsible for measuring, cutting, and sewing garments to fit clients' specifications. \n\nOther related occupations include:\n- Tailor, Tent (Machine) — NCO code 7534.0100\n- Dressmaker — closely associated within the same category\n\nThe classification covers various regional and linguistic variants of the term \"tailor,\" including seamstress, garment maker, and costume maker, reflecting the multilingual occupational landscape in India. This ensures comprehensive indexing despite naming variations across states and languages.\n\nSkills and tools commonly associated with tailoring include manual sewing, machine operation, pattern drafting, and fabric selection.",  // Final parsed content (Markdown) , 
+  "text": "## Page 194\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n7523.0200 Wood Turner, Machine 7423.15\n\n7523.0300 Wood, Turner Hand 7423.20\n\n7523.0400 Shaper Wood 7423.25\n\n7523.0500 Router, Wood 7423.30\n\n7523.0600 Planer, Wood 7423.35\n\n7523.0700 Four Cutter 7423.40\n\n7523.0800 Wood Sawyer, Hand 7423.42\n\n7523.0900 Moulder, Wood 7423.45\n\n7523.1000 Mortiser Operator 7423.50\n\n7523.1100 Tennoning Machine Operator 7423.55\n\n7523.1200 Jointer Machine Operator 7423.60\n\n7523.1300 Driller Wood 7423.65\n\n7523.1400 Dowell Machine Operator 7423.70\n\n7523.1500 Wood Wool Machine Operator 7423.80\n\n7523.1600 Wood Carver, Machine 8241.10\n\n7523.1700 Fret Saw Machine Operator 8241.20\n\n7523.1800 Sander Operator 8241.30\n\n7523.9900 Wood Working Machine Setters and Setter 8241.90\n\nOperators, Others\n\nGroup 753 Garment and Related Trades Workers\n\nFamily 7531 Tailors, Dressmakers, Furriers and Hatters\n\n7531.0100 Tailor, General 7433.10\n\nVOLUME I 182",
 
   "embedding": [0.0234, -0.1457, 0.3782, 0.0923, -0.0567,..]  // Vector embedding (array of floats); null if not yet computed
 
   "source": {
     "file_type": "application/pdf",                           // MIME type preferred (e.g., "application/pdf", "text/html", "audio/mpeg")
     "source_path": "s3://mospi-data/data/raw/nco_2015_occupations.pdf",  // Full s3 path to original source
-    "page_number": 5,                                         // For paged formats like PDF/ePub; null otherwise
+    "page_number": 194,                                         // For paged formats like PDF/ePub; null otherwise
     "time": [null, null],                                     // [start_time, end_time] in seconds for audio/video; nulls otherwise
     "line_range": null,                                       // For plain/tabular text: [start_line, end_line]; null otherwise
     "bbox": null                                              // For visual formats: [x0, y0, x1, y1] in pixel coordinates; null otherwise
@@ -578,12 +576,13 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
   "chunk_id": "e4f72d3a9c5b4f17_5",
   "document_id": "e4f72d3a9c5b4f17",
   "chunk_type": "page",
-  "text": "### National Classification of Occupations (NCO) – Tailors\n\nThe NCO code for Tailor (General) is **7531.0100**. This occupation falls under the broader category **Tailors, Dressmakers, Furriers, and Hatters**. Tailors are responsible for measuring, cutting, and sewing garments to fit clients' specifications.\n\nOther related occupations include:\n- Tailor, Tent (Machine) — NCO code 7534.0100\n- Dressmaker — closely associated within the same category\n\nThe classification covers various regional and linguistic variants of the term \"tailor,\" including seamstress, garment maker, and costume maker.\n\nSkills and tools commonly associated include manual sewing, machine operation, pattern drafting, and fabric selection.",
+  "text": "## Page 194\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n7523.0200 Wood Turner, Machine 7423.15\n\n7523.0300 Wood, Turner Hand 7423.20\n\n7523.0400 Shaper Wood 7423.25\n\n7523.0500 Router, Wood 7423.30\n\n7523.0600 Planer, Wood 7423.35\n\n7523.0700 Four Cutter 7423.40\n\n7523.0800 Wood Sawyer, Hand 7423.42\n\n7523.0900 Moulder, Wood 7423.45\n\n7523.1000 Mortiser Operator 7423.50\n\n7523.1100 Tennoning Machine Operator 7423.55\n\n7523.1200 Jointer Machine Operator 7423.60\n\n7523.1300 Driller Wood 7423.65\n\n7523.1400 Dowell Machine Operator 7423.70\n\n7523.1500 Wood Wool Machine Operator 7423.80\n\n7523.1600 Wood Carver, Machine 8241.10\n\n7523.1700 Fret Saw Machine Operator 8241.20\n\n7523.1800 Sander Operator 8241.30\n\n7523.9900 Wood Working Machine Setters and Setter 8241.90\n\nOperators, Others\n\nGroup 753 Garment and Related Trades Workers\n\nFamily 7531 Tailors, Dressmakers, Furriers and Hatters\n\n7531.0100 Tailor, General 7433.10\n\nVOLUME I 182",
+
   "embedding": [0.0234, -0.1457, 0.3782, 0.0923, -0.0567, ...],
   "source": {
     "file_type": "application/pdf",
     "source_path": "s3://mospi-data/data/raw/nco_2025_occupations.pdf",
-    "page_number": 5,
+    "page_number": 194,
     "time": [null, null],
     "line_range": null,
     "bbox": null

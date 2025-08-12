@@ -1,6 +1,6 @@
 # values/karpenter.yaml
 karpenter:
-  enabled: true
+  enabled: false
 
   provider:
     subnetSelector:
@@ -19,7 +19,7 @@ karpenter:
     amiFamily: AL2
     tags:
       workload: gpu
-      env: production
+      env: dev
     limits:
       cpu: "256"
       memory: "1024Gi"
@@ -28,7 +28,6 @@ karpenter:
   cpu:
     weight: 40
     instanceTypes:
-      - c8g.2xlarge
       - m6i.large
     capacityTypes:
       - spot
@@ -36,7 +35,7 @@ karpenter:
     amiFamily: AL2
     tags:
       workload: cpu
-      env: production
+      env: dev
     limits:
       cpu: "512"
       memory: "2048Gi"

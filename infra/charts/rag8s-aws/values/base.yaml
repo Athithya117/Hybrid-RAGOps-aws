@@ -1,6 +1,6 @@
 # values/base.yaml
 global:
-  namespace: ""   # Optional override for default namespace; empty = use .Release.Namespace
+  namespace: ""   # use .Release.Namespace by default
   labels: {}
 
 aws:
@@ -9,7 +9,7 @@ iam:
   roleName: ""
 
 karpenter:
-  enabled: true
+  enabled: false
 
 ray:
   enabled: true
@@ -38,8 +38,8 @@ core:
       enabled: true
       minAvailable: 1
     sglang:
-      enabled: true
-      minAvailable: 1
+      enabled: false
+      minAvailable: 0
     frontend:
       enabled: true
       minAvailable: 1
@@ -51,43 +51,41 @@ core:
       minAvailable: 1
 
   quotas:
-    # INFERENCE namespace: allow GPUs and enough CPU for traffic + model serving
+    # scaled down quotas for 16Gi dev node
     inference:
       enabled: true
-      requestsCpu: "16"
-      requestsMemory: "64Gi"
-      limitsCpu: "32"
-      limitsMemory: "128Gi"
-      pods: "50"
-      # optional: limit GPUs per namespace (extended resource)
-      requestsGPUs: "10"
+      requestsCpu: "250m"
+      requestsMemory: "512Mi"
+      limitsCpu: "500m"
+      limitsMemory: "1Gi"
+      pods: "2"
+      requestsGPUs: "0"
 
-    # INDEXING namespace: increased to cover worst-case indexing RayJob sizing
     indexing:
       enabled: true
-      requestsCpu: "40"    # raised from 32 to 40 to cover head + workers peak
-      requestsMemory: "128Gi"
-      limitsCpu: "64"
-      limitsMemory: "256Gi"
-      pods: "30"
+      requestsCpu: "500m"
+      requestsMemory: "512Mi"
+      limitsCpu: "1"
+      limitsMemory: "1Gi"
+      pods: "1"
 
     monitoring:
-      enabled: true
-      requestsCpu: "8"
-      requestsMemory: "32Gi"
-      limitsCpu: "16"
-      limitsMemory: "64Gi"
-      pods: "20"
+      enabled: false
+      requestsCpu: "100m"
+      requestsMemory: "256Mi"
+      limitsCpu: "250m"
+      limitsMemory: "512Mi"
+      pods: "1"
 
     stateful:
       enabled: true
-      requestsCpu: "64"
-      requestsMemory: "256Gi"
-      limitsCpu: "128"
-      limitsMemory: "512Gi"
-      pods: "30"
-      pvcs: "50"
-      storage: "10Ti"
+      requestsCpu: "250m"
+      requestsMemory: "256Mi"
+      limitsCpu: "500m"
+      limitsMemory: "512Mi"
+      pods: "1"
+      pvcs: "1"
+      storage: "1Gi"
 
 namespaces:
   inference: inference
