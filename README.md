@@ -287,11 +287,13 @@ RAG8s/
 │   │       │   ├── _helpers.tpl          # Shared labels/annotations/name templates
 │   │       │   ├── argocd.yaml           # ArgoCD Application definition for GitOps
 │   │       │   ├── core/                 # Cluster-wide primitives
+│   │       │   │   ├── arangobackup-cronjob.yaml # incremental backups to s3://<bucket_name>/backups/
 │   │       │   │   ├── namespaces.yaml   # Namespace creation from values.base.namespaces
 │   │       │   │   ├── serviceaccounts.yaml # ServiceAccounts + IRSA
 │   │       │   │   ├── rbac.yaml         # Roles, ClusterRoles, Bindings
 │   │       │   │   ├── pdb.yaml          # PodDisruptionBudgets from values.base.pdb
 │   │       │   │   ├── frontend.yaml     # Frontend deployment, svc, HPA
+│   │       │   │   ├── valkeye.yaml      # Deployment for Redis compatible in-memory data storage for rate limiting
 │   │       │   │   └── quotas.yaml       # ResourceQuotas from values.base.quotas
 │   │       │   ├── monitoring/           # Observability resources
 │   │       │   │   ├── servicemonitors.yaml # Prometheus ServiceMonitor CRs
@@ -315,19 +317,19 @@ RAG8s/
 │   │   ├── __main__.py                    # IAC CLI for EKS cluster provisioning
 │   │   ├── cloudflare.py                  # Cloudflare DNS / zone automation helpers
 │   │   ├── cloudwatch.py                  # CloudWatch metric/alert helpers
-│   │   ├── db_backup.py                   # DB backup/restore automation scripts
+│   │   ├── db_backup.py                   # DB backup/restore automation scripts for local nvmes based ec2s
 │   │   ├── eks_cluster.py                 # EKS cluster orchestration code (Pulumi)
 │   │   ├── iam_roles.py                   # IAM role & policy creators for services
 │   │   ├── indexing_ami.py                # AMI build definitions for indexing nodes
 │   │   ├── inference_ami.py               # AMI build definitions for inference nodes
 │   │   ├── karpenter.py                   # Karpenter provisioner configuration helpers
-│   │   ├── nodegroups.py                  # Nodegroup definitions for statefulsets arangodb
+│   │   ├── nodegroup.py                   # For arangodb statefulset, valkeye deployment and frontend svc
 │   │   ├── pulumi.yaml                    # Pulumi project manifest for infra code
 │   │   ├── traefik.py                     # Traefik infrastructure helper code
 │   │   └── vpc.py                         # VPC/subnet/networking helper utilities
 │   │ 
 │   ├── onnx/
-│   │   ├── Dockerfile                     # ONNX runtime image for CPU inference services
+│   │   ├── Dockerfile                      # ONNX runtime image for CPU inference services
 │   │   ├── grpc.proto                      # gRPC proto definition for ONNX service
 │   │   ├── grpc_pb2.py                     # Generated gRPC Python bindings
 │   │   ├── grpc_pb2_grpc.py                # Generated gRPC server/client scaffolding
