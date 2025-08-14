@@ -105,69 +105,125 @@ export OCR_RENDER_DPI=300              # higher dpi = high quality image extract
 export MIN_IMG_SIZE_BYTES=3072         # Filter out tiny images under 3 KB (often unneccessary black empty images)
 export OVERWRITE_DOC_DOCX_TO_PDF=true  # (OR) false if dont want to delete original .doc and .docx files in data/raw/
 
+# --- ArangoDB + FAISS Vector Index Settings ---
+
+export ARANGO_VECTOR_INDEX_ENABLE=true            # Enable vector index feature (FAISS integration)
+export ARANGO_VECTOR_INDEX_TYPE=ivf               # 'ivf' (best for >100K vectors), 
+                                                   # 'hnsw' (<100K high recall, memory heavy),
+                                                   # 'pq' (memory-bound, lower recall),
+                                                   # 'ivf+pq' (large-scale, compressed IVF — see PQ_M below)
+
+export ARANGO_VECTOR_INDEX_IVF_NLIST=1000         # IVF clusters; ~sqrt(N); small=256-512, medium=1000-4096, large=8192+
+export ARANGO_VECTOR_INDEX_IVF_NPROBE=10          # IVF query clusters; low latency=4-8, balanced=10-32, max recall=32-128
+
+export ARANGO_VECTOR_INDEX_PQ_M=16                # PQ segments; PQ_M > 0 with TYPE=ivf enables IVF+PQ mode
+                                                   # lower M → more compression, higher M → more accuracy
+
+export ARANGO_VECTOR_INDEX_HNSW_M=32              # HNSW graph connections; small=16-24, medium=32, high recall=48-64
+export ARANGO_VECTOR_INDEX_HNSW_EFCONSTRUCTION=200 # HNSW build-time recall; small=100-200, large=200-400
+export ARANGO_VECTOR_INDEX_HNSW_EFSEARCH=50       # HNSW query-time recall; latency=20-40, balanced=50-100, max recall=100-200
+
+export ARANGO_VECTOR_INDEX_MAX_MEMORY_MB=2048     # Max RAM for vector index; scale with dataset size (small=512MB, medium=2-4GB, large=8GB+)
+
+# --- General ArangoDB Performance Settings ---
+
+export ARANGO_STORAGE_CACHE_SIZE=2048             # Data cache size in MB; ~20-30% of total RAM is a good start
+export ARANGO_QUERY_MEMORY_LIMIT=1024             # Max query RAM in MB; raise if queries scan many docs or large vectors
+
+# --- Logging ---
+
+export ARANGO_LOG_LEVEL=info                      # Log verbosity: 'info' (default), 'debug' for troubleshooting vector indexing
 
 
 export HF_TOKEN=
 
 export RAY_DASHBOARD_PORT=8265
 
-```sh
 export TOP_K_CHUNKS=                # number of batches will be calculated accordingly based on tokens in chunk and max tokens of reranker model
+
+
+| Index Type | Dataset Size              | Memory Usage   | Query Speed | Accuracy | Use Case                           |
+| ---------- | ------------------------- | -------------- | ----------- | -------- | ---------------------------------- |
+| IVF        | Very large (millions+)    | Medium to High | Fast        | Medium   | Large scale, balanced recall/speed |
+| PQ         | Very large (with IVF)     | Low            | Fast        | Medium   | Large scale, memory constrained    |
+| HNSW       | Small to medium (up to M) | Medium to High | Very fast   | High     | High accuracy, latency sensitive   |
+
+
 ```
 
-```sh
-+------------------+
-|   User Query     |
-+------------------+
-         |
-         v
-+-------------------------------+
-| gte-modernbert-base Encoder   |
-+-------------------------------+
-         |
-         v
-+-------------------------------+
-| Dense Top-K Document Retrieval|
-+-------------------------------+
-         |
-         v
-+-----------------------------+        +--------------------+
-|  Retrieved Documents (Text) | -----> |  ReFinED Entity     |
-+-----------------------------+        |  Linking & Linking |
-                                        +--------------------+
-                                                  |
-                                                  v
-                                +---------------------------------+
-                                | Graph Nodes:                    |
-                                | - Docs (with embeddings)        |
-                                | - Entities (Wikidata QIDs)      |
-                                +---------------------------------+
-                                                  |
-                                                  v
-                                  +------------------------------+
-                                  | Inserted into ArangoDB       |
-                                  | (Doc <-> Entity edges)       |
-                                  +------------------------------+
-                                                  |
-                                                  v
-                              +--------------------------------------+
-                              |   AQL Traversal (1..N ANY hops)     |
-                              |   Expand to multi-hop neighbors     |
-                              +--------------------------------------+
-                                                  |
-                                                  v
-                          +-----------------------------------------+
-                          | gte-reranker-modernbert-base            |
-                          | Cross-encodes (Query, Doc) pairs        |
-                          | Scores and reranks results              |
-                          +-----------------------------------------+
-                                                  |
-                                                  v
-                            +-------------------------------+
-                            | LLM Generator (Qwen3)         |
-                            | Answer synthesis or summarizer|
-                            +-------------------------------+
+## **RAG8s Inference Flow**
+
+**Goal:** Add lightweight multi-hop reasoning via precomputed triples in ArangoDB without slowing down BM25 + vector + graph retrieval.
+
+---
+
+### **1. Query Processing**
+
+* Embed query (`gte-modernbert-base`).
+* Lookup entities via simple dictionary/inverted index from precomputed ReLiK output.
+
+---
+
+### **2. Candidate Generation (Parallel)**
+
+* **Vector (FAISS):** Top `N1` by cosine similarity.
+* **BM25 (ArangoSearch):** Top `N2` by keyword relevance.
+* **Graph:** If entity match, retrieve related chunks (`N3`) via 1–2 hops.
+
+---
+
+### **3. GeAR Multi-Hop Expansion**
+
+* Seeds = top BM25 + vector results + entity matches.
+* Beam search 1–3 hops over precomputed triples in ArangoDB.
+* Collect new chunks not in initial set.
+
+```aql
+LET seeds = @seed_entity_ids
+FOR v, e, p IN 1..2 OUTBOUND seeds GRAPH 'EntityGraph'
+  OPTIONS { bfs: true, uniqueVertices: "global" }
+  FILTER v.chunk_id != null
+  LET path_score = 1 / (1 + LENGTH(p.edges))
+  RETURN DISTINCT { chunk_id: v.chunk_id, score: path_score }
 ```
+
+---
+
+### **4. Fusion**
+
+Weighted sum of normalized scores:
+
+```python
+final_score = (
+    0.4 * vec_score +
+    0.25 * bm25_score +
+    0.2 * graph_score +
+    0.15 * gear_score
+)
+```
+
+---
+
+### **5. Dedupe & Sort**
+
+* Keep highest score per `chunk_id`.
+* Sort and keep top `K`.
+
+---
+
+### **6. Optional Rerank**
+
+* Apply `gte-modernbert-reranker-base` if latency allows.
+
+---
+
+**Why it works:**
+
+* No extra inference models (triples are precomputed).
+* GeAR adds multi-hop reasoning without replacing existing retrieval.
+* ArangoDB handles both keyword search and graph traversals efficiently.
+
+---
 
 
 ### The RAG8s platform codebase(currently under development, 20% completed)
@@ -186,9 +242,8 @@ RAG8s/
 │   ├── cpu-requirements.txt              # Unpinned package list for CPU builds
 │   ├── index/
 │   │   ├── __main__.py                   # CLI entrypoint for indexing jobs
-│   │   ├── arrangodb_indexer.py          # Indexer: writes chunks/entities into ArangoDB
+│   │   ├── arrangodb_indexer.py          # Indexer: writes chunks/entities into ArangoDB with FAISS integration
 │   │   ├── config.py                     # Indexing configuration (paths, batch sizes, env)
-│   │   ├── qdrant_indexer.py             # Indexer: writes embeddings/metadata to Qdrant
 │   │   └── utils.py                      # Utility helpers used by indexers (parsers, serializers)
 │   ├── parse_chunk/
 │   │   ├── __init__.py                   # parse_chunk package initializer
@@ -212,7 +267,7 @@ RAG8s/
 │
 ├── inference_pipeline/
 │   ├── Dockerfile                        # Dockerfile for inference server image
-│   ├── auth_control.py                   # Authentication & authorization middleware for APIs
+│   ├── auth_control.py                   # Authentication & authorization middleware for APIs (arrangodb)
 │   ├── eval.py                           # Evaluation scripts for retrieval/reranking metrics
 │   ├── frontend/
 │   │   ├── Dockerfile                    # Frontend container build file
@@ -220,7 +275,7 @@ RAG8s/
 │   │   ├── modules                        # Modular UI components / assets
 │   │   └── requirements-cpu.txt          # Frontend Python dependencies
 │   ├── main.py                           # Inference service entrypoint (REST/gRPC server)
-│   ├── retreiver.py                      # Retrieval orchestration (hybrid BM25 + vector + graph)
+│   ├── retreiver.py                      # Retrieval orchestration (hybrid BM25 + vector + graph + arrangodb kv store)
 │   └── trace_file.py                     # Trace/logging helper to capture inference traces
 │
 ├── infra/
@@ -233,8 +288,6 @@ RAG8s/
 │   │       │   ├── monitoring.yaml       # Prometheus scrape intervals, Grafana dashboards, alert rules
 │   │       │   ├── ray.yaml              # Ray image tags, scaling config, resources
 │   │       │   ├── karpenter.yaml        # CPU & GPU provisioner settings
-│   │       │   ├── db-qdrant.yaml        # Qdrant chart overrides (storage, replicas, nodeSelectors)
-│   │       │   └── db-arangodb.yaml      # ArangoDB chart overrides
 │   │       ├── templates/                # All rendered Kubernetes manifests
 │   │       │   ├── _helpers.tpl          # Shared labels/annotations/name templates
 │   │       │   ├── argocd.yaml           # ArgoCD Application definition for GitOps
@@ -274,7 +327,7 @@ RAG8s/
 │   │   ├── indexing_ami.py                # AMI build definitions for indexing nodes
 │   │   ├── inference_ami.py               # AMI build definitions for inference nodes
 │   │   ├── karpenter.py                   # Karpenter provisioner configuration helpers
-│   │   ├── nodegroups.py                  # Nodegroup definitions for statefulsets qdrant,arangodb
+│   │   ├── nodegroups.py                  # Nodegroup definitions for statefulsets arangodb
 │   │   ├── pulumi.yaml                    # Pulumi project manifest for infra code
 │   │   ├── traefik.py                     # Traefik infrastructure helper code
 │   │   └── vpc.py                         # VPC/subnet/networking helper utilities
@@ -314,10 +367,10 @@ RAG8s/
 ├── README.md                               # Project overview, setup and usage instructions
 ├── backups/                                 # S3 backups
 │   └── dbs/
-│       ├── arrangodb/                       # Export / dump for ArangoDB (graph DB backup)
-│       └── qdrant/                          # Export / dump for Qdrant (vector DB backup)
+│       └── arrangodb/                       # Export / dump for ArangoDB (graph DB backup)
 │
 └── tmp.md                                  # Temporary notes / scratch markdown file
+
 
 ```
 
@@ -657,4 +710,3 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
 ```
 
 ---
-

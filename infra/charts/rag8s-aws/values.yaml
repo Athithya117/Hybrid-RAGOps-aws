@@ -1,0 +1,240 @@
+global:
+  namespace: ""
+  labels: {}
+
+aws:
+  accountId: ""
+iam:
+  roleName: ""
+
+karpenter:
+  enabled: false
+  provider:
+    subnetSelector:
+      karpenter.sh/discovery: rag8s-eks
+    securityGroupSelector:
+      karpenter.sh/discovery: rag8s-eks
+  gpu:
+    weight: 50
+    instanceTypes:
+      - p3.2xlarge
+      - p4d.24xlarge
+    capacityTypes:
+      - spot
+      - on-demand
+    amiFamily: AL2
+    tags:
+      workload: gpu
+      env: dev
+    limits:
+      cpu: "256"
+      memory: "1024Gi"
+    ttlSecondsAfterEmpty: 60
+  cpu:
+    weight: 40
+    instanceTypes:
+      - m6i.large
+    capacityTypes:
+      - spot
+      - on-demand
+    amiFamily: AL2
+    tags:
+      workload: cpu
+      env: dev
+    limits:
+      cpu: "512"
+      memory: "2048Gi"
+    ttlSecondsAfterEmpty: 60
+
+ray:
+  enabled: false
+
+rayservices:
+  sglang:
+    enabled: false
+  onnxEmbedderReranker:
+    enabled: false
+
+rayjobs:
+  namespace: indexing
+  indexing:
+    name: rag8s-indexing
+    image: myrepo/rag8s-indexer:latest
+    entrypoint: "python scripts/index_documents.py --source s3://my-bucket"
+    workingDir: "s3://my-bucket/code"
+    pip:
+      - qdrant-client
+      - pandas
+      - arango
+    ttlSecondsAfterFinished: 3600
+    rayVersion: "2.10.0"
+    workerReplicas: 1
+    workerMin: 1
+    workerMax: 1
+    resources:
+      head:
+        cpu: "250m"
+        memory: "512Mi"
+      worker:
+        cpu: "250m"
+        memory: "512Mi"
+
+arangodb:
+  enabled: true
+
+argocd:
+  enabled: false
+  namespace: argocd
+  project: default
+  repoURL: ""
+  revision: HEAD
+  path: infra/charts/rag8s-aws
+  clusterURL: https://kubernetes.default.svc
+  prune: true
+  selfHeal: true
+  override: {}
+
+core:
+  pdb:
+    embedderReranker:
+      enabled: false
+      minAvailable: 1
+    sglang:
+      enabled: false
+      minAvailable: 0
+    frontend:
+      enabled: false
+      minAvailable: 1
+    arangodb:
+      enabled: true
+      minAvailable: 1
+  quotas:
+    inference:
+      enabled: true
+      requestsCpu: "250m"
+      requestsMemory: "512Mi"
+      limitsCpu: "500m"
+      limitsMemory: "1Gi"
+      pods: "2"
+      requestsGPUs: "0"
+    indexing:
+      enabled: true
+      requestsCpu: "500m"
+      requestsMemory: "512Mi"
+      limitsCpu: "1"
+      limitsMemory: "1Gi"
+      pods: "1"
+    monitoring:
+      enabled: false
+      requestsCpu: "100m"
+      requestsMemory: "256Mi"
+      limitsCpu: "250m"
+      limitsMemory: "512Mi"
+      pods: "1"
+    stateful:
+      enabled: true
+      requestsCpu: "250m"
+      requestsMemory: "256Mi"
+      limitsCpu: "500m"
+      limitsMemory: "512Mi"
+      pods: "1"
+      pvcs: "1"
+      storage: "1Gi"
+
+namespaces:
+  inference: inference
+  indexing: indexing
+  monitoring: monitoring
+  networking: networking
+  arangodb: arangodb
+
+serviceAccounts:
+  ray-inference-sa:
+    name: ray-inference-sa
+    namespace: inference
+    iam:
+      roleName: ""
+
+network:
+  traefik:
+    namespace: ""
+    replicas: 1
+    image:
+      repository: traefik
+      tag: v3.1
+      pullPolicy: IfNotPresent
+    service:
+      type: NodePort
+      ports:
+        - name: web
+          port: 80
+          targetPort: 8000
+        - name: websecure
+          port: 443
+          targetPort: 8443
+      annotations: {}
+    resources: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  ingress:
+    namespace: ""
+    tls: []
+    rules: []
+  policies:
+    enabled: false
+    rules: []
+
+monitoring:
+  enabled: false
+  namespace: ""
+  scrapeInterval: "30s"
+  grafana:
+    enabled: false
+    prometheusURL: ""
+  serviceMonitors: []
+  alerts:
+    enabled: false
+    groups: []
+
+core:
+  arangodb:
+    enabled: true
+    image:
+      repository: "arangodb/arangodb"
+      tag: "3.12.5"
+    authentication:
+      jwtSecretName: "arango-cluster-jwt"
+    agents:
+      count: 3
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "1Gi"
+    coordinators:
+      count: 2
+      resources:
+        requests:
+          cpu: "1000m"
+          memory: "2Gi"
+    dbservers:
+      count: 3
+      resources:
+        requests:
+          cpu: "4000m"
+          memory: "16Gi"
+      podTemplate:
+        nodeSelector:
+          node.kubernetes.io/instance-type: "c8gd"
+        tolerations:
+          - key: "node.kubernetes.io/unschedulable"
+            operator: "Exists"
+            effect: "NoSchedule"
+    storage:
+      engine: "rocksdb"
+      persistentVolume:
+        storageClassName: "local-nvme"
+        size: "500Gi"
+    collectionsDefaults:
+      numberOfShards: 8
+      replicationFactor: 3

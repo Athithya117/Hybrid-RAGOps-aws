@@ -1,0 +1,48 @@
+{{- $topEnabled := .Values.arangodb.enabled | default false -}}
+{{- $coreEnabled := .Values.core.arangodb.enabled | default false -}}
+{{- if or $topEnabled $coreEnabled }}
+apiVersion: database.arangodb.com/v1
+kind: ArangoDeployment
+metadata:
+  name: arango-cluster
+  namespace: {{ default "arangodb" .Values.namespaces.arangodb }}
+spec:
+  mode: Cluster
+  environment: Production
+  image:
+    repository: {{ quote (default "arangodb/arangodb" .Values.core.arangodb.image.repository) }}
+    tag: {{ quote (default "3.12.5" .Values.core.arangodb.image.tag) }}
+  authentication:
+    jwtSecretName: {{ quote (default "arango-cluster-jwt" .Values.core.arangodb.authentication.jwtSecretName) }}
+  agents:
+    count: {{ default 3 .Values.core.arangodb.agents.count }}
+    resources:
+{{ toYaml .Values.core.arangodb.agents.resources | indent 6 }}
+  coordinators:
+    count: {{ default 2 .Values.core.arangodb.coordinators.count }}
+    resources:
+{{ toYaml .Values.core.arangodb.coordinators.resources | indent 6 }}
+  dbservers:
+    count: {{ default 3 .Values.core.arangodb.dbservers.count }}
+    resources:
+{{ toYaml .Values.core.arangodb.dbservers.resources | indent 6 }}
+    {{- if .Values.core.arangodb.dbservers.podTemplate }}
+    podTemplate:
+      spec:
+        {{- if .Values.core.arangodb.dbservers.podTemplate.nodeSelector }}
+        nodeSelector:
+{{ toYaml .Values.core.arangodb.dbservers.podTemplate.nodeSelector | indent 10 }}
+        {{- end }}
+        {{- if .Values.core.arangodb.dbservers.podTemplate.tolerations }}
+        tolerations:
+{{ toYaml .Values.core.arangodb.dbservers.podTemplate.tolerations | indent 10 }}
+        {{- end }}
+    {{- end }}
+  storage:
+    engine: {{ quote (default "rocksdb" .Values.core.arangodb.storage.engine) }}
+    persistentVolume:
+      storageClassName: {{ quote (default "local-nvme" .Values.core.arangodb.storage.persistentVolume.storageClassName) }}
+      size: {{ quote (default "500Gi" .Values.core.arangodb.storage.persistentVolume.size) }}
+  annotations:
+    rag8s/collections-defaults: "shards={{ default 8 .Values.core.arangodb.collectionsDefaults.numberOfShards }},repl={{ default 3 .Values.core.arangodb.collectionsDefaults.replicationFactor }}"
+{{- end }}

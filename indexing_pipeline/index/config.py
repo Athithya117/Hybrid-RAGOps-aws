@@ -1,30 +1,16 @@
-import os
-from enum import Enum
-
-class DistanceMetric(str, Enum):
-    COSINE = "cosine"
-    EUCLID = "euclid"
-    DOT = "dot"
-
-class Settings:
-    # Qdrant
-    QDRANT_URL       = os.getenv("QDRANT_URL", "http://localhost:6333")
-    QDRANT_API_KEY   = os.getenv("QDRANT_API_KEY", None)
-    QDRANT_COLLECTION  = os.getenv("QDRANT_COLLECTION", "rag8s_chunks")
-    VECTOR_DIM       = int(os.getenv("VECTOR_DIM", 768))
-    DISTANCE_METRIC  = DistanceMetric(os.getenv("DISTANCE_METRIC", "cosine"))
-    BATCH_SIZE       = int(os.getenv("BATCH_SIZE", 256))
-
-    # ArangoDB
-    ARANGO_URL           = os.getenv("ARANGO_URL", "http://localhost:8529")
-    ARANGO_USER          = os.getenv("ARANGO_USER", "root")
-    ARANGO_PASSWORD      = os.getenv("ARANGO_PASSWORD", "")
-    ARANGO_DB            = os.getenv("ARANGO_DB", "rag_database")
-    ARANGO_COLLECTION    = os.getenv("ARANGO_COLLECTION", "rag_chunks")
-    ARANGO_EDGE_COLLECTION = os.getenv("ARANGO_EDGE_COLLECTION", "rag_edges")
-    ARANGO_BATCH_SIZE    = int(os.getenv("ARANGO_BATCH_SIZE", 256))
-
-    # Logging
-    LOG_LEVEL        = os.getenv("LOG_LEVEL", "INFO")
-
-settings = Settings()
+# in config.py (extend existing Settings)
+    # Vector index specifics for ArangoDB
+    ARANGO_VECTOR_FIELD     = os.getenv("ARANGO_VECTOR_FIELD", "embedding")
+    ARANGO_VECTOR_METRIC    = os.getenv("ARANGO_VECTOR_METRIC", "cosine")  # "cosine" | "l2"
+    ARANGO_VECTOR_INDEX_NAME = os.getenv("ARANGO_VECTOR_INDEX_NAME", "vec_idx")
+    # Optionally provide JSON string for additional params (nLists, factory, defaultNProbe)
+    # Example: '{"nLists": 256, "factory": "IVF256,PQ64", "defaultNProbe": 10}'
+    ARANGO_VECTOR_PARAMS_JSON = os.getenv("ARANGO_VECTOR_PARAMS_JSON", "")
+    @property
+    def ARANGO_VECTOR_PARAMS(self):
+        if self.ARANGO_VECTOR_PARAMS_JSON:
+            try:
+                return json.loads(self.ARANGO_VECTOR_PARAMS_JSON)
+            except Exception:
+                return {}
+        return {}

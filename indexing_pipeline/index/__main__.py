@@ -1,8 +1,8 @@
+# indexing_pipeline/index/__main__.py
 import json
 from pathlib import Path
 import logging
 from config import settings
-from qdrant_indexer import index_chunks_qdrant
 from arangodb_indexer import index_chunks_arango
 
 logging.basicConfig(level=settings.LOG_LEVEL)
@@ -19,8 +19,5 @@ if __name__ == "__main__":
     chunks = list(load_chunks(DATA_FILE))
     logger.info(f"Loaded {len(chunks)} chunks from {DATA_FILE}")
 
-    # Push to Qdrant
-    index_chunks_qdrant(chunks)
-
-    # Push to ArangoDB
+    # Push to ArangoDB (vector + docs + edges)
     index_chunks_arango(chunks)
