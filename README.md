@@ -232,7 +232,7 @@ final_score = (
 ```py
 
 RAG8s/
-├── data/                                 # Local directory that syncs with s3://<bucket_name>/data/raw
+├── data/                                 # Local directory that syncs with s3://<bucket_name>/data
 │   ├── raw/                              # Raw data files
 │   └── chunked/                          # Chunks in json/jsonl format
 │
@@ -267,8 +267,8 @@ RAG8s/
 │
 ├── inference_pipeline/
 │   ├── Dockerfile                        # Dockerfile for inference server image
-│   ├── auth_control.py                   # Authentication & authorization middleware for APIs (arrangodb)
-│   ├── eval.py                           # Evaluation scripts for retrieval/reranking metrics
+│   ├── auth_control.py                   # Authentication, authorization middleware and rate limiting for APIs
+│   ├── eval.py                           # RAGAI-Catalyst coherence checks, hit\@K monitoring, hallucination detection.
 │   ├── frontend/
 │   │   ├── Dockerfile                    # Frontend container build file
 │   │   ├── main.py                       # Frontend app entry (UI endpoints / static server)
