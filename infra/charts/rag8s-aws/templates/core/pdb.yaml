@@ -1,24 +1,26 @@
 {{- /*
 PodDisruptionBudgets for critical workloads.
-Each PDB is rendered only when its .Values.core.pdb.<service>.enabled is true.
-Selectors are aligned with workload labels:
- - use include "rag8s.selectorLabels" output plus app.kubernetes.io/component where applicable
- - for Ray services that use literal names (embedder-reranker, sglang) match those names
-Namespace resolution uses values.namespaces.* with sensible defaults.
+Each PDB is rendered only when its corresponding .Values.core.pdb.<service>.enabled is true.
+This template avoids nil-pointer dereferences by using safe locals and default patterns.
 */ -}}
 {{- $vals := .Values -}}
-{{- $ns_inference := default (default "inference" $vals.namespaces.inference) (include "rag8s.namespace" .) -}}
-{{- $ns_stateful := default (default "vector-db" $vals.namespaces.vectorDb) (include "rag8s.namespace" .) -}}
+{{- $namespaces := default (dict) $vals.namespaces -}}
+{{- $core := default (dict) $vals.core -}}
+{{- $pdb := default (dict) $core.pdb -}}
+
+{{- $inferenceNS := default (default "inference" $namespaces.inference) (include "rag8s.namespace" .) -}}
+{{- $vectorDbNS := default (default "vector-db" $namespaces.vectorDb) (include "rag8s.namespace" .) -}}
 
 {{- /* Embedder + Reranker (Ray Serve) PDB */ -}}
-{{- if (default false $vals.core.pdb.embedderReranker.enabled) }}
+{{- $embedder := default (dict) $pdb.embedderReranker -}}
+{{- if default false $embedder.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: embedder-reranker-pdb
-  namespace: {{ $ns_inference | quote }}
+  namespace: {{ $inferenceNS | quote }}
 spec:
-  minAvailable: {{ default 1 $vals.core.pdb.embedderReranker.minAvailable }}
+  minAvailable: {{ default 1 $embedder.minAvailable }}
   selector:
     matchLabels:
 {{ include "rag8s.selectorLabels" . | indent 6 }}
@@ -27,14 +29,15 @@ spec:
 
 ---
 {{- /* SGLang (GPU LLM) PDB */ -}}
-{{- if (default false $vals.core.pdb.sglang.enabled) }}
+{{- $sglang := default (dict) $pdb.sglang -}}
+{{- if default false $sglang.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: sglang-pdb
-  namespace: {{ $ns_inference | quote }}
+  namespace: {{ $inferenceNS | quote }}
 spec:
-  minAvailable: {{ default 1 $vals.core.pdb.sglang.minAvailable }}
+  minAvailable: {{ default 1 $sglang.minAvailable }}
   selector:
     matchLabels:
 {{ include "rag8s.selectorLabels" . | indent 6 }}
@@ -43,14 +46,15 @@ spec:
 
 ---
 {{- /* Frontend PDB */ -}}
-{{- if (default false $vals.core.pdb.frontend.enabled) }}
+{{- $frontend := default (dict) $pdb.frontend -}}
+{{- if default false $frontend.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: frontend-pdb
-  namespace: {{ $ns_inference | quote }}
+  namespace: {{ $inferenceNS | quote }}
 spec:
-  minAvailable: {{ default 1 $vals.core.pdb.frontend.minAvailable }}
+  minAvailable: {{ default 1 $frontend.minAvailable }}
   selector:
     matchLabels:
 {{ include "rag8s.selectorLabels" . | indent 6 }}
@@ -58,31 +62,33 @@ spec:
 {{- end }}
 
 ---
-{{- /* Qdrant PDB (stateful) */ -}}
-{{- if (default false $vals.core.pdb.qdrant.enabled) }}
+{{- /* Valkeye PDB (replaces Qdrant) */ -}}
+{{- $valkeye := default (dict) $pdb.valkeye -}}
+{{- if default false $valkeye.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: qdrant-pdb
-  namespace: {{ $ns_stateful | quote }}
+  name: valkeye-pdb
+  namespace: {{ .Release.Namespace | quote }}
 spec:
-  minAvailable: {{ default 1 $vals.core.pdb.qdrant.minAvailable }}
+  minAvailable: {{ default 1 $valkeye.minAvailable }}
   selector:
     matchLabels:
 {{ include "rag8s.selectorLabels" . | indent 6 }}
-      app.kubernetes.io/name: qdrant
+      app: valkeye
 {{- end }}
 
 ---
 {{- /* ArangoDB PDB (stateful) */ -}}
-{{- if (default false $vals.core.pdb.arangodb.enabled) }}
+{{- $arangodb := default (dict) $pdb.arangodb -}}
+{{- if default false $arangodb.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: arangodb-pdb
-  namespace: {{ $ns_stateful | quote }}
+  namespace: {{ $vectorDbNS | quote }}
 spec:
-  minAvailable: {{ default 1 $vals.core.pdb.arangodb.minAvailable }}
+  minAvailable: {{ default 1 $arangodb.minAvailable }}
   selector:
     matchLabels:
 {{ include "rag8s.selectorLabels" . | indent 6 }}

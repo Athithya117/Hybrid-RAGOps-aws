@@ -1,36 +1,12 @@
+export CHART_DIR=./infra/charts/rag8s-aws        
+export VALUES=$CHART_DIR/values.yaml
+export RELEASE=my-rag8s
+export NAMESPACE=rag8s-system
 
 
+helm lint $CHART_DIR --values $VALUES
 
-helm upgrade --install arangodb-release \
-  infra/charts/rag8s-aws \
-  --namespace arangodb \
-  --create-namespace \
-  --values values.yaml \
-  --set arangodb.enabled=true \
-  --set core.arangodb.enabled=true \
-  --set core.arangodb.image.repository=arangodb/arangodb \
-  --set core.arangodb.image.tag=3.12.5 \
-  --set ray.enabled=false \
-  --set rayservices.sglang.enabled=false \
-  --set rayservices.onnxEmbedderReranker.enabled=false \
-  --set argocd.enabled=false \
-  --set monitoring.enabled=false \
-  --set karpenter.enabled=false \
-  --set network.traefik.enabled=false \
-  --set serviceAccounts={}
 
-helm upgrade --install arangodb-release \
-  infra/charts/rag8s-aws \
-  --namespace arangodb \
-  --create-namespace \
-  --values infra/charts/rag8s-aws/values.yaml \
-  --set arangodb.enabled=true \
-  --set core.arangodb.enabled=true \
-  --set ray.enabled=false \
-  --set rayservices.sglang.enabled=false \
-  --set rayservices.onnxEmbedderReranker.enabled=false \
-  --set argocd.enabled=false \
-  --set monitoring.enabled=false \
-  --set karpenter.enabled=false \
-  --set network.traefik.enabled=false \
-  --set serviceAccounts={}
+cd infra/charts/rag8s-aws
+helm dependency update
+

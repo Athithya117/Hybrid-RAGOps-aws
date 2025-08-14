@@ -1,26 +1,36 @@
 {{- /*
-RayService for SGLang (GPU LLM) — values-driven and defensive.
-Renders only when .Values.rayservices.sglang.enabled is true.
-
-Value path: .Values.rayservices.sglang
-Key expectations (all optional; defaults provided):
-  name, namespace
-  ray:
-    version
-    image: { repository, tag, pullPolicy }
-    head: { cpu: {request,limit}, memory: {request,limit} }
-    workers: { minReplicas, maxReplicas, cpu: {request,limit}, memory: {request,limit}, gpu: {request,limit} }
-  serviceAccountName
-  imagePullSecrets
-  modelMountPath, useHostPath, hostPath, usePVC, modelPVC
-  env (map)
-  head / worker: nodeSelector, tolerations, affinity, annotations
-  worker.service.numGPUs or workers.gpu.*
+RayService for SGLang (GPU LLM) — defensive and values-driven.
+This version defines locals up-front to avoid nested/function-paren bugs.
+Renders only when .Values.rayservices.sglang.enabled == true
 */ -}}
 {{- $root := . -}}
 {{- $vals := $root.Values.rayservices.sglang | default dict -}}
 {{- if not (default false $vals.enabled) -}}
 {{- else -}}
+
+{{- /* locals and safe defaults */ -}}
+{{- $ray := $vals.ray | default dict -}}
+{{- $rayHead := $ray.head | default dict -}}
+{{- $rayWorkers := $ray.workers | default dict -}}
+{{- $worker := $vals.worker | default dict -}}
+{{- $svc := $vals.service | default dict -}}
+
+{{- $rw_cpu := default dict (index $rayWorkers "cpu") -}}
+{{- $w_cpu := default dict (index $worker "cpu") -}}
+{{- $rw_mem := default dict (index $rayWorkers "memory") -}}
+{{- $w_mem := default dict (index $worker "memory") -}}
+{{- $rw_gpu := default dict (index $rayWorkers "gpu") -}}
+{{- $w_gpu := default dict (index $worker "gpu") -}}
+
+{{- $minReplicas := default 1 (or (index $rayWorkers "minReplicas") (index $worker "minReplicas")) -}}
+{{- $maxReplicas := default 4 (or (index $rayWorkers "maxReplicas") (index $worker "maxReplicas")) -}}
+
+{{- $headCpuReq := default "1000m" (or (index $rayHead "cpu").request (index $rayHead "cpu").request) -}}
+{{- $headMemReq := default "4Gi" (or (index $rayHead "memory").request (index $rayHead "memory").request) -}}
+
+{{- $workerCpuReq := default "1000m" (or (index $rw_cpu "request") (index $w_cpu "request")) -}}
+{{- $workerMemReq := default "8Gi" (or (index $rw_mem "request") (index $w_mem "request")) -}}
+{{- $workerGpuReq := default 1 (or (index $rw_gpu "request") (index $w_gpu "request")) -}}
 
 apiVersion: ray.io/v1
 kind: RayService
@@ -53,10 +63,10 @@ spec:
           {{- $headNodeSel := default (dict "karpenter.sh/provisioner-name" "cpu-provisioner" "kubernetes.io/arch" "amd64") $vals.head.nodeSelector }}
           nodeSelector:
 {{ toYaml $headNodeSel | indent 12 }}
-          {{- $headTol := default list $vals.head.tolerations }}
-          {{- if $headTol }}
+          {{- $headTols := default list $vals.head.tolerations }}
+          {{- if $headTols }}
           tolerations:
-{{ toYaml $headTol | indent 12 }}
+{{ toYaml $headTols | indent 12 }}
           {{- end }}
           {{- if $vals.head.affinity }}
           affinity:
@@ -79,11 +89,11 @@ spec:
                 {{- end }}
               resources:
                 requests:
-                  cpu: {{ default "1000m" (default (dict $vals.ray.head.cpu) (dict)).request | quote }}
-                  memory: {{ default "4Gi" (default (dict $vals.ray.head.memory) (dict)).request | quote }}
+                  cpu: {{ $headCpuReq | quote }}
+                  memory: {{ $headMemReq | quote }}
                 limits:
-                  cpu: {{ default "2000m" (default (dict $vals.ray.head.cpu) (dict)).limit | quote }}
-                  memory: {{ default "8Gi" (default (dict $vals.ray.head.memory) (dict)).limit | quote }}
+                  cpu: {{ default (index $rayHead "cpu").limit "2000m" | quote }}
+                  memory: {{ default (index $rayHead "memory").limit "8Gi" | quote }}
               ports:
                 - containerPort: 8265
                 - containerPort: 8000
@@ -110,8 +120,8 @@ spec:
 
     workerGroupSpecs:
       - groupName: gpu-workers
-        minReplicas: {{ default 1 (default (index $vals "ray").workers.minReplicas (default 1 (index $vals "worker").minReplicas))) }}
-        maxReplicas: {{ default 4 (default (index $vals "ray").workers.maxReplicas (default 4 (index $vals "worker").maxReplicas))) }}
+        minReplicas: {{ $minReplicas }}
+        maxReplicas: {{ $maxReplicas }}
         template:
           metadata:
             annotations:
@@ -132,8 +142,7 @@ spec:
             nodeSelector:
 {{ toYaml $workerNodeSel | indent 14 }}
 
-            {{- $defaultWorkerTols := list (dict "key" "nvidia.com/gpu" "operator" "Exists" "effect" "NoSchedule") }}
-            {{- $workerTols := default $defaultWorkerTols $vals.worker.tolerations }}
+            {{- $workerTols := default (list (dict "key" "nvidia.com/gpu" "operator" "Exists" "effect" "NoSchedule")) $vals.worker.tolerations }}
             tolerations:
 {{ toYaml $workerTols | indent 14 }}
 
@@ -158,13 +167,13 @@ spec:
                   {{- end }}
                 resources:
                   requests:
-                    cpu: {{ default "1000m" (default (index $vals.ray.workers "cpu").request (default (index $vals.worker "cpu").request)) | quote }}
-                    memory: {{ default "8Gi" (default (index $vals.ray.workers "memory").request (default (index $vals.worker "memory").request)) | quote }}
-                    nvidia.com/gpu: {{ default 1 (default (index $vals.ray.workers "gpu").request (default (index $vals.worker "gpu").request))) }}
+                    cpu: {{ $workerCpuReq | quote }}
+                    memory: {{ $workerMemReq | quote }}
+                    nvidia.com/gpu: {{ $workerGpuReq }}
                   limits:
-                    cpu: {{ default "2000m" (default (index $vals.ray.workers "cpu").limit (default (index $vals.worker "cpu").limit)) | quote }}
-                    memory: {{ default "16Gi" (default (index $vals.ray.workers "memory").limit (default (index $vals.worker "memory").limit)) | quote }}
-                    nvidia.com/gpu: {{ default 1 (default (index $vals.ray.workers "gpu").limit (default (index $vals.worker "gpu").limit))) }}
+                    cpu: {{ default (index $rw_cpu "limit") (index $w_cpu "limit") | default "2000m" | quote }}
+                    memory: {{ default (index $rw_mem "limit") (index $w_mem "limit") | default "16Gi" | quote }}
+                    nvidia.com/gpu: {{ default (index $rw_gpu "limit") (index $w_gpu "limit") | default 1 }}
                 ports:
                   - containerPort: 8000
                   - containerPort: 9000
@@ -192,9 +201,9 @@ spec:
           - name: SGLangService
             route_prefix: "/sglang"
             ray_actor_options:
-              num_gpus: {{ default 1 (or (index $vals "service" "numGPUs") (default (index $vals "service").numGPUs (default (index $vals.ray.workers "gpu").request 1))) }}
+              num_gpus: {{ default 1 (index $svc "numGPUs") }}
             autoscaling_config:
-              min_replicas: {{ default 1 (default (index $vals "service").autoscale.minReplicas (default 1 (index $vals "service").autoscale.minReplicas))) }}
-              max_replicas: {{ default 4 (default (index $vals "service").autoscale.maxReplicas (default 4 (index $vals "service").autoscale.maxReplicas))) }}
-              target_num_ongoing_requests_per_replica: {{ default 5 (default (index $vals "service").autoscale.targetRequestsPerReplica (default 5 (index $vals "service").autoscale.targetRequestsPerReplica))) }}
+              min_replicas: {{ default 1 (index $svc "autoscale" "minReplicas") | default 1 }}
+              max_replicas: {{ default 4 (index $svc "autoscale" "maxReplicas") | default 4 }}
+              target_num_ongoing_requests_per_replica: {{ default 5 (index $svc "autoscale" "targetRequestsPerReplica") | default 5 }}
 {{- end }}

@@ -1,8 +1,8 @@
 {{- /*
 Grafana ConfigMaps (datasources, dashboards, provisioning).
 - Renders only when monitoring.enabled && monitoring.grafana.enabled
-- Uses .Values.monitoring.grafana.dashboards (map name->path). If unset, falls back to defaults (qdrant removed).
-- Only includes dashboard files that exist in the chart (skips missing files).
+- Uses .Values.monitoring.grafana.dashboards (map name->path). If unset, falls back to defaults.
+- Skips missing dashboard files.
 */ -}}
 {{- $root := . -}}
 {{- $mon := $root.Values.monitoring | default dict -}}
@@ -44,8 +44,8 @@ metadata:
     grafana_dashboard: "1"
 data:
 {{- /*
-Use dashboards defined in values: monitoring.grafana.dashboards (map: key->path).
-If not provided, fall back to a safe default list (no qdrant).
+Collect dashboards from values.monitoring.grafana.dashboards (map) if provided,
+otherwise use a safe defaults map. For each entry only render if the file exists.
 */ -}}
 {{- $userDashboards := $mon.grafana.dashboards | default dict -}}
 {{- $defaults := dict
@@ -54,22 +54,23 @@ If not provided, fall back to a safe default list (no qdrant).
      "eks-cluster.json" "dashboards/eks-cluster.json"
      "traefik.json" "dashboards/traefik.json"
  -}}
-{{- /* if user provided a map, iterate that; else use defaults */ -}}
-{{- $dashMap := cond (gt (len $userDashboards) 0) $userDashboards $defaults -}}
-{{- $any := false -}}
-{{- range $fname, $path := $dashMap }}
-{{- $content := $root.Files.Get $path | trim }}
-{{- if ne $content "" }}
+
+{{- if gt (len $userDashboards) 0 }}
+  {{- range $fname, $path := $userDashboards }}
+    {{- $content := $root.Files.Get $path | trim }}
+    {{- if ne $content "" }}
   {{ $fname }}: |
-{{ $root.Files.Get $path | indent 4 }}
-{{- $any = true }}
+{{ $content | indent 4 }}
+    {{- end }}
+  {{- end }}
 {{- else }}
-{{- /* skip missing file; don't render empty keys */ -}}
-{{- end }}
-{{- end }}
-{{- if not $any }}
-  # No dashboard JSON files found or none provided in monitoring.grafana.dashboards.
-  # Add JSON files under charts/rag8s-aws/dashboards/ or set monitoring.grafana.dashboards in values.yaml
+  {{- range $fname, $path := $defaults }}
+    {{- $content := $root.Files.Get $path | trim }}
+    {{- if ne $content "" }}
+  {{ $fname }}: |
+{{ $content | indent 4 }}
+    {{- end }}
+  {{- end }}
 {{- end }}
 
 ---

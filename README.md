@@ -229,7 +229,7 @@ final_score = (
 ### The RAG8s platform codebase(currently under development, 20% completed)
 
 
-```py
+```sh
 
 RAG8s/
 ├── data/                                 # Local directory that syncs with s3://<bucket_name>/data
@@ -366,7 +366,6 @@ RAG8s/
 │       └── arrangodb/                       # Export / dump for ArangoDB (graph DB backup)
 │
 └── tmp.md                                  # Temporary notes / scratch markdown file
-
 
 ```
 
