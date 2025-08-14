@@ -1,6 +1,6 @@
 apiVersion: v2
 name: rag8s-aws
-description: Helm chart for deploying a RAG system on AWS EKS (Ray, Karpenter, ArangoDB, monitoring, networking).
+description: Helm chart for deploying a RAG system on AWS EKS
 type: application
 version: 0.0.2
 appVersion: "0.0.2"
@@ -10,11 +10,10 @@ maintainers:
   - name: Athithya
     email: athithya651@gmail.com
 
-home: https://example.com/rag8s
+home: https://github.com/Athithya-Sakthivel/RAG8s
 sources:
-  - https://github.com/yourorg/rag8s
-
-icon: https://example.com/assets/rag8s-icon.png
+  - https://github.com/Athithya-Sakthivel/RAG8s
+icon: https://raw.githubusercontent.com/Athithya-Sakthivel/RAG8s/main/infra/charts/RAG8s.png
 
 dependencies:
   - name: kuberay-operator

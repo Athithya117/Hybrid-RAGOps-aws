@@ -369,6 +369,7 @@ RAG8s/
 
 ```
 
+![alt text](image.png)
 
 
 # Models overview
