@@ -1,0 +1,94 @@
+{{- $fullname := include "rag8s-aws.fullname" . -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $fullname }}-arangobackup
+  labels:
+    app.kubernetes.io/name: {{ include "rag8s-aws.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: arangobackup
+spec:
+  schedule: "{{ .Values.arangobackup.schedule }}"        # e.g. "0 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.arangobackup.successfulJobsHistoryLimit | default 3 }}
+  failedJobsHistoryLimit: {{ .Values.arangobackup.failedJobsHistoryLimit | default 5 }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.arangobackup.backoffLimit | default 2 }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: {{ include "rag8s-aws.name" . }}
+            app.kubernetes.io/instance: {{ .Release.Name }}
+            job: arangobackup
+        spec:
+          serviceAccountName: {{ default (include "rag8s-aws.serviceAccountName" .) .Values.arangobackup.serviceAccount }}
+          restartPolicy: OnFailure
+          tolerations: {{ toYaml .Values.arangobackup.tolerations | nindent 10 }}
+          nodeSelector: {{ toYaml .Values.arangobackup.nodeSelector | nindent 10 }}
+          containers:
+            - name: arangobackup
+              image: "{{ .Values.arangobackup.image.repository }}:{{ .Values.arangobackup.image.tag }}"
+              imagePullPolicy: {{ .Values.arangobackup.image.pullPolicy }}
+              resources:
+                requests:
+                  cpu: {{ .Values.arangobackup.resources.requests.cpu }}
+                  memory: {{ .Values.arangobackup.resources.requests.memory }}
+                limits:
+                  cpu: {{ .Values.arangobackup.resources.limits.cpu }}
+                  memory: {{ .Values.arangobackup.resources.limits.memory }}
+              env:
+                - name: AWS_REGION
+                  value: "{{ .Values.arangobackup.aws.region }}"
+                - name: S3_BUCKET
+                  value: "{{ .Values.arangobackup.aws.bucket }}"
+                - name: S3_PREFIX
+                  value: "{{ .Values.arangobackup.aws.prefix }}"
+                - name: ARANGO_ENDPOINT
+                  value: "{{ .Values.arangobackup.arango.endpoint }}"
+                - name: ARANGO_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.arangobackup.arango.secret }}
+                      key: username
+                - name: ARANGO_PASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.arangobackup.arango.secret }}
+                      key: password
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backups
+                - name: rclone-config
+                  mountPath: /root/.config/rclone
+                  readOnly: true
+              # single shell command to create incremental backup and upload to S3
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  TS=$(date -u +%F-%H%M%S)
+                  BACKUP_DIR="/backups/arangobackup-${TS}"
+                  mkdir -p "${BACKUP_DIR}"
+                  echo "Starting arangobackup -> ${BACKUP_DIR}"
+                  # create incremental backup (will create full or incremental depending on --last-backup presence)
+                  # If you want strict full every N days, adjust invocation in values or add logic here.
+                  arangobackup create --server.endpoint ${ARANGO_ENDPOINT} --server.username ${ARANGO_USER} --server.password ${ARANGO_PASS} "${BACKUP_DIR}"
+                  echo "Backup created: ${BACKUP_DIR}"
+                  echo "Uploading to s3://${S3_BUCKET}/${S3_PREFIX}/${TS}/"
+                  # Use rclone to copy; rclone config mounted via secret
+                  rclone copy --s3-region ${AWS_REGION} "${BACKUP_DIR}" "s3:${S3_BUCKET}/${S3_PREFIX}/${TS}/" --verbose
+                  echo "Upload complete"
+                  # optional: prune old backups based on retention (keeps last N)
+                  if [ -n "{{ .Values.arangobackup.retention.days | quote }}" ]; then
+                    # retention via rclone delete --min-age, or implement S3 lifecycle instead
+                    echo "Retention cleanup is left to S3 lifecycle or admin"
+                  fi
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: {{ .Values.arangobackup.pvcClaim }}
+            - name: rclone-config
+              secret:
+                secretName: {{ .Values.arangobackup.rcloneSecret }}

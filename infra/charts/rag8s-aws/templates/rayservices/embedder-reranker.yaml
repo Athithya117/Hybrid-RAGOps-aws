@@ -1,18 +1,76 @@
+{{- /*
+RayService for the embedder + reranker (ONNX / CPU) — values-driven and defensive.
+Renders only when .Values.rayservices.onnxEmbedderReranker.enabled == true.
+
+Value path used: .Values.rayservices.onnxEmbedderReranker
+Expected keys (all optional; defaults provided):
+  name
+  namespace
+  ray:
+    version
+    image:
+      repository
+      tag
+      pullPolicy
+    head:
+      cpu:
+        request
+        limit
+    workers:
+      minReplicas
+      maxReplicas
+      cpu:
+        request
+        limit
+      gpu: (not used for CPU embedder)
+  serviceAccountName
+  imagePullSecrets
+  modelMountPath
+  useHostPath
+  hostPath
+  usePVC
+  modelPVC
+  env (map)
+  head:
+    nodeSelector
+    tolerations
+    affinity
+    annotations
+  worker:
+    nodeSelector
+    tolerations
+    affinity
+    annotations
+  embedder:
+    numCPUs
+    autoscale:
+      minReplicas
+      maxReplicas
+      targetRequestsPerReplica
+  reranker:
+    numCPUs
+    autoscale:
+      minReplicas
+      maxReplicas
+      targetRequestsPerReplica
+*/ -}}
 {{- $root := . -}}
 {{- $vals := $root.Values.rayservices.onnxEmbedderReranker | default dict -}}
 {{- if not (default false $vals.enabled) -}}
 {{- else -}}
+
 apiVersion: ray.io/v1
 kind: RayService
 metadata:
   name: {{ default "rag8s-embedder-reranker-serve" $vals.name | quote }}
-  namespace: {{ default $root.Release.Namespace $vals.namespace }}
+  namespace: {{ default (include "rag8s.namespace" $root) $vals.namespace | quote }}
   labels:
     app.kubernetes.io/name: embedder-reranker
-    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    app.kubernetes.io/instance: {{ $root.Release.Name | quote }}
+    {{- include "rag8s.labels" $root | nindent 4 }}
 spec:
   rayClusterConfig:
-    rayVersion: {{ $vals.ray.version | quote }}
+    rayVersion: {{ default "2.10.0" $vals.ray.version | quote }}
 
     headGroupSpec:
       rayStartParams:
@@ -24,12 +82,10 @@ spec:
 {{ toYaml $vals.head.annotations | nindent 12 }}
             {{- end }}
         spec:
-          serviceAccountName: {{ default $vals.serviceAccountName "ray-inference-sa" }}
+          serviceAccountName: {{ default "ray-inference-sa" $vals.serviceAccountName | quote }}
           {{- if $vals.imagePullSecrets }}
           imagePullSecrets:
-            {{- range $vals.imagePullSecrets }}
-            - name: {{ . }}
-            {{- end }}
+{{ toYaml $vals.imagePullSecrets | nindent 12 }}
           {{- end }}
           {{- $headNodeSel := default (dict "karpenter.sh/provisioner-name" "cpu-provisioner" "kubernetes.io/arch" "amd64") $vals.head.nodeSelector }}
           nodeSelector:
@@ -45,8 +101,8 @@ spec:
 
           containers:
             - name: ray-head
-              image: "{{ $vals.ray.image.repository }}:{{ $vals.ray.image.tag }}"
-              imagePullPolicy: {{ $vals.ray.image.pullPolicy | default "IfNotPresent" }}
+              image: "{{ default "rayproject/ray:2.10.0" (printf "%s:%s" $vals.ray.image.repository $vals.ray.image.tag) }}"
+              imagePullPolicy: {{ default "IfNotPresent" $vals.ray.image.pullPolicy }}
               env:
                 - name: RAY_NODE_ROLE
                   value: "head"
@@ -59,50 +115,48 @@ spec:
                 {{- end }}
               resources:
                 requests:
-                  cpu: {{ default "500m" $vals.ray.head.cpu.request | quote }}
-                  memory: {{ default "1Gi" $vals.ray.head.memory.request | quote }}
+                  cpu: {{ default "500m" (default (dict $vals.ray.head.cpu) (dict)).request | quote }}
+                  memory: {{ default "1Gi" (default (dict $vals.ray.head.memory) (dict)).request | quote }}
                 limits:
-                  cpu: {{ default "1" $vals.ray.head.cpu.limit | quote }}
-                  memory: {{ default "2Gi" $vals.ray.head.memory.limit | quote }}
+                  cpu: {{ default "1" (default (dict $vals.ray.head.cpu) (dict)).limit | quote }}
+                  memory: {{ default "2Gi" (default (dict $vals.ray.head.memory) (dict)).limit | quote }}
               ports:
                 - containerPort: 8265
                 - containerPort: 8000
                 - containerPort: 9000
               volumeMounts:
                 - name: model-volume
-                  mountPath: {{ $vals.modelMountPath | default "/opt/models" }}
+                  mountPath: {{ default "/opt/models" $vals.modelMountPath | quote }}
               readinessProbe:
                 httpGet:
                   path: /
                   port: 8265
                 initialDelaySeconds: 10
                 periodSeconds: 10
-                failureThreshold: 6
               livenessProbe:
                 httpGet:
                   path: /
                   port: 8265
                 initialDelaySeconds: 60
                 periodSeconds: 30
-                failureThreshold: 5
 
           volumes:
             - name: model-volume
 {{- if $vals.useHostPath }}
               hostPath:
-                path: {{ $vals.hostPath }}
+                path: {{ $vals.hostPath | quote }}
                 type: DirectoryOrCreate
 {{- else if $vals.usePVC }}
               persistentVolumeClaim:
-                claimName: {{ $vals.modelPVC }}
+                claimName: {{ $vals.modelPVC | quote }}
 {{- else }}
               emptyDir: {}
 {{- end }}
 
     workerGroupSpecs:
       - groupName: worker
-        minReplicas: {{ $vals.ray.workers.minReplicas }}
-        maxReplicas: {{ $vals.ray.workers.maxReplicas }}
+        minReplicas: {{ default 1 (default (index $vals "worker").minReplicas) }}
+        maxReplicas: {{ default 4 (default (index $vals "worker").maxReplicas) }}
         template:
           metadata:
             annotations:
@@ -110,15 +164,13 @@ spec:
 {{ toYaml $vals.worker.annotations | nindent 14 }}
               {{- end }}
           spec:
-            {{- $workerSA := default $vals.worker.serviceAccountName $vals.serviceAccountName }}
+            {{- $workerSA := default $vals.serviceAccountName "ray-inference-sa" }}
             {{- if $workerSA }}
-            serviceAccountName: {{ $workerSA }}
+            serviceAccountName: {{ $workerSA | quote }}
             {{- end }}
             {{- if $vals.imagePullSecrets }}
             imagePullSecrets:
-              {{- range $vals.imagePullSecrets }}
-              - name: {{ . }}
-              {{- end }}
+{{ toYaml $vals.imagePullSecrets | nindent 14 }}
             {{- end }}
             {{- $workerNodeSel := default (dict "karpenter.sh/provisioner-name" "cpu-provisioner" "kubernetes.io/arch" "amd64") $vals.worker.nodeSelector }}
             nodeSelector:
@@ -134,8 +186,8 @@ spec:
 
             containers:
               - name: ray-worker
-                image: "{{ $vals.ray.image.repository }}:{{ $vals.ray.image.tag }}"
-                imagePullPolicy: {{ $vals.ray.image.pullPolicy | default "IfNotPresent" }}
+                image: "{{ default "rayproject/ray:2.10.0" (printf "%s:%s" $vals.ray.image.repository $vals.ray.image.tag) }}"
+                imagePullPolicy: {{ default "IfNotPresent" $vals.ray.image.pullPolicy }}
                 env:
                   - name: RAY_NODE_ROLE
                     value: "worker"
@@ -148,17 +200,17 @@ spec:
                   {{- end }}
                 resources:
                   requests:
-                    cpu: {{ default "500m" $vals.ray.workers.cpu.request | quote }}
-                    memory: {{ default "1Gi" $vals.ray.workers.memory.request | quote }}
+                    cpu: {{ default "500m" (default (index $vals.ray.workers "cpu").request) | quote }}
+                    memory: {{ default "1Gi" (default (index $vals.ray.workers "memory").request) | quote }}
                   limits:
-                    cpu: {{ default "1" $vals.ray.workers.cpu.limit | quote }}
-                    memory: {{ default "1Gi" $vals.ray.workers.memory.limit | quote }}
+                    cpu: {{ default "1" (default (index $vals.ray.workers "cpu").limit) | quote }}
+                    memory: {{ default "1Gi" (default (index $vals.ray.workers "memory").limit) | quote }}
                 ports:
                   - containerPort: 8000
                   - containerPort: 9000
                 volumeMounts:
                   - name: model-volume
-                    mountPath: {{ $vals.modelMountPath | default "/opt/models" }}
+                    mountPath: {{ default "/opt/models" $vals.modelMountPath | quote }}
             readinessProbe:
               httpGet:
                 path: /
@@ -169,27 +221,28 @@ spec:
             volumes:
               - name: model-volume
                 emptyDir: {}
+
   serveConfigV2: |
     applications:
       - name: embedder-reranker-app
-        import_path: {{ $vals.importPath | default "rayserve-embedder-reranker" }}
+        import_path: {{ $vals.importPath | default "rayserve-embedder-reranker" | quote }}
         runtime_env:
-          working_dir: {{ $vals.runtimeWorkingDir | default "/app" }}
+          working_dir: {{ $vals.runtimeWorkingDir | default "/app" | quote }}
         deployments:
           - name: EmbedderServicer
             route_prefix: "/embed"
             ray_actor_options:
-              num_cpus: {{ default 1 $vals.embedder.numCPUs }}
+              num_cpus: {{ default 1 (default (index $vals "embedder").numCPUs) }}
             autoscaling_config:
-              min_replicas: {{ default 1 $vals.embedder.autoscale.minReplicas }}
-              max_replicas: {{ default 4 $vals.embedder.autoscale.maxReplicas }}
-              target_num_ongoing_requests_per_replica: {{ default 10 $vals.embedder.autoscale.targetRequestsPerReplica }}
+              min_replicas: {{ default 1 (default (index $vals "embedder").autoscale.minReplicas) }}
+              max_replicas: {{ default 4 (default (index $vals "embedder").autoscale.maxReplicas) }}
+              target_num_ongoing_requests_per_replica: {{ default 10 (default (index $vals "embedder").autoscale.targetRequestsPerReplica) }}
           - name: RerankerServicer
             route_prefix: "/rerank"
             ray_actor_options:
-              num_cpus: {{ default 1 $vals.reranker.numCPUs }}
+              num_cpus: {{ default 1 (default (index $vals "reranker").numCPUs) }}
             autoscaling_config:
-              min_replicas: {{ default 1 $vals.reranker.autoscale.minReplicas }}
-              max_replicas: {{ default 2 $vals.reranker.autoscale.maxReplicas }}
-              target_num_ongoing_requests_per_replica: {{ default 5 $vals.reranker.autoscale.targetRequestsPerReplica }}
+              min_replicas: {{ default 1 (default (index $vals "reranker").autoscale.minReplicas) }}
+              max_replicas: {{ default 2 (default (index $vals "reranker").autoscale.maxReplicas) }}
+              target_num_ongoing_requests_per_replica: {{ default 5 (default (index $vals "reranker").autoscale.targetRequestsPerReplica) }}
 {{- end }}

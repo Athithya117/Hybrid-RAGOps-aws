@@ -1,14 +1,20 @@
+{{- /*
+ArangoDB ArangoDeployment
+Renders when top-level arangodb.enabled or core.arangodb.enabled is true.
+*/ -}}
 {{- $topEnabled := .Values.arangodb.enabled | default false -}}
 {{- $coreEnabled := .Values.core.arangodb.enabled | default false -}}
 {{- if or $topEnabled $coreEnabled }}
 apiVersion: database.arangodb.com/v1
 kind: ArangoDeployment
 metadata:
-  name: arango-cluster
-  namespace: {{ default "arangodb" .Values.namespaces.arangodb }}
+  name: {{ include "rag8s.subresource" (dict "ctx" . "name" "arangodb") | quote }}
+  namespace: {{ default .Values.namespaces.arangodb (include "rag8s.namespace" .) | quote }}
+  labels:
+{{ include "rag8s.labels" . | indent 4 }}
 spec:
-  mode: Cluster
-  environment: Production
+  mode: {{ default "Cluster" .Values.core.arangodb.mode | quote }}
+  environment: {{ default "Production" .Values.core.arangodb.environment | quote }}
   image:
     repository: {{ quote (default "arangodb/arangodb" .Values.core.arangodb.image.repository) }}
     tag: {{ quote (default "3.12.5" .Values.core.arangodb.image.tag) }}
@@ -17,16 +23,16 @@ spec:
   agents:
     count: {{ default 3 .Values.core.arangodb.agents.count }}
     resources:
-{{ toYaml .Values.core.arangodb.agents.resources | indent 6 }}
+{{ toYaml (default dict .Values.core.arangodb.agents.resources) | indent 6 }}
   coordinators:
     count: {{ default 2 .Values.core.arangodb.coordinators.count }}
     resources:
-{{ toYaml .Values.core.arangodb.coordinators.resources | indent 6 }}
+{{ toYaml (default dict .Values.core.arangodb.coordinators.resources) | indent 6 }}
   dbservers:
     count: {{ default 3 .Values.core.arangodb.dbservers.count }}
     resources:
-{{ toYaml .Values.core.arangodb.dbservers.resources | indent 6 }}
-    {{- if .Values.core.arangodb.dbservers.podTemplate }}
+{{ toYaml (default dict .Values.core.arangodb.dbservers.resources) | indent 6 }}
+{{- if .Values.core.arangodb.dbservers.podTemplate }}
     podTemplate:
       spec:
         {{- if .Values.core.arangodb.dbservers.podTemplate.nodeSelector }}
@@ -37,7 +43,7 @@ spec:
         tolerations:
 {{ toYaml .Values.core.arangodb.dbservers.podTemplate.tolerations | indent 10 }}
         {{- end }}
-    {{- end }}
+{{- end }}
   storage:
     engine: {{ quote (default "rocksdb" .Values.core.arangodb.storage.engine) }}
     persistentVolume:

@@ -1,18 +1,39 @@
+{{- /*
+RayService for SGLang (GPU LLM) — values-driven and defensive.
+Renders only when .Values.rayservices.sglang.enabled is true.
+
+Value path: .Values.rayservices.sglang
+Key expectations (all optional; defaults provided):
+  name, namespace
+  ray:
+    version
+    image: { repository, tag, pullPolicy }
+    head: { cpu: {request,limit}, memory: {request,limit} }
+    workers: { minReplicas, maxReplicas, cpu: {request,limit}, memory: {request,limit}, gpu: {request,limit} }
+  serviceAccountName
+  imagePullSecrets
+  modelMountPath, useHostPath, hostPath, usePVC, modelPVC
+  env (map)
+  head / worker: nodeSelector, tolerations, affinity, annotations
+  worker.service.numGPUs or workers.gpu.*
+*/ -}}
 {{- $root := . -}}
 {{- $vals := $root.Values.rayservices.sglang | default dict -}}
 {{- if not (default false $vals.enabled) -}}
 {{- else -}}
+
 apiVersion: ray.io/v1
 kind: RayService
 metadata:
   name: {{ default "rag8s-sglang-serve" $vals.name | quote }}
-  namespace: {{ default $root.Release.Namespace $vals.namespace }}
+  namespace: {{ default (include "rag8s.namespace" $root) $vals.namespace | quote }}
   labels:
     app.kubernetes.io/name: sglang
-    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    app.kubernetes.io/instance: {{ $root.Release.Name | quote }}
+    {{- include "rag8s.labels" $root | nindent 4 }}
 spec:
   rayClusterConfig:
-    rayVersion: {{ $vals.ray.version | quote }}
+    rayVersion: {{ default "2.10.0" $vals.ray.version | quote }}
 
     headGroupSpec:
       rayStartParams:
@@ -24,16 +45,14 @@ spec:
 {{ toYaml $vals.head.annotations | nindent 12 }}
             {{- end }}
         spec:
-          serviceAccountName: {{ default $vals.serviceAccountName "ray-inference-sa" }}
+          serviceAccountName: {{ default "ray-inference-sa" $vals.serviceAccountName | quote }}
           {{- if $vals.imagePullSecrets }}
           imagePullSecrets:
-            {{- range $vals.imagePullSecrets }}
-            - name: {{ . }}
-            {{- end }}
+{{ toYaml $vals.imagePullSecrets | nindent 12 }}
           {{- end }}
-          {{- $headNS := default (dict "karpenter.sh/provisioner-name" "cpu-provisioner" "kubernetes.io/arch" "amd64") $vals.head.nodeSelector }}
+          {{- $headNodeSel := default (dict "karpenter.sh/provisioner-name" "cpu-provisioner" "kubernetes.io/arch" "amd64") $vals.head.nodeSelector }}
           nodeSelector:
-{{ toYaml $headNS | indent 12 }}
+{{ toYaml $headNodeSel | indent 12 }}
           {{- $headTol := default list $vals.head.tolerations }}
           {{- if $headTol }}
           tolerations:
@@ -46,8 +65,8 @@ spec:
 
           containers:
             - name: ray-head
-              image: "{{ $vals.ray.image.repository }}:{{ $vals.ray.image.tag }}"
-              imagePullPolicy: {{ $vals.ray.image.pullPolicy | default "IfNotPresent" }}
+              image: "{{ default (printf "%s:%s" $vals.ray.image.repository $vals.ray.image.tag) (printf "rayproject/ray:%s" (default "2.10.0" $vals.ray.version)) }}"
+              imagePullPolicy: {{ default "IfNotPresent" $vals.ray.image.pullPolicy }}
               env:
                 - name: RAY_NODE_ROLE
                   value: "head"
@@ -60,75 +79,73 @@ spec:
                 {{- end }}
               resources:
                 requests:
-                  cpu: {{ default "1000m" $vals.ray.head.cpu.request | quote }}
-                  memory: {{ default "4Gi" $vals.ray.head.memory.request | quote }}
+                  cpu: {{ default "1000m" (default (dict $vals.ray.head.cpu) (dict)).request | quote }}
+                  memory: {{ default "4Gi" (default (dict $vals.ray.head.memory) (dict)).request | quote }}
                 limits:
-                  cpu: {{ default "2000m" $vals.ray.head.cpu.limit | quote }}
-                  memory: {{ default "8Gi" $vals.ray.head.memory.limit | quote }}
+                  cpu: {{ default "2000m" (default (dict $vals.ray.head.cpu) (dict)).limit | quote }}
+                  memory: {{ default "8Gi" (default (dict $vals.ray.head.memory) (dict)).limit | quote }}
               ports:
                 - containerPort: 8265
                 - containerPort: 8000
                 - containerPort: 9000
               volumeMounts:
                 - name: model-volume
-                  mountPath: {{ $vals.modelMountPath | default "/opt/models" }}
+                  mountPath: {{ default "/opt/models" $vals.modelMountPath | quote }}
               readinessProbe:
                 httpGet:
                   path: /
                   port: 8265
                 initialDelaySeconds: 15
                 periodSeconds: 10
-                failureThreshold: 6
               livenessProbe:
                 httpGet:
                   path: /
                   port: 8265
                 initialDelaySeconds: 60
                 periodSeconds: 30
-                failureThreshold: 5
+
           volumes:
             - name: model-volume
               emptyDir: {}
 
     workerGroupSpecs:
       - groupName: gpu-workers
-        minReplicas: {{ default 1 $vals.ray.workers.minReplicas }}
-        maxReplicas: {{ default 4 $vals.ray.workers.maxReplicas }}
+        minReplicas: {{ default 1 (default (index $vals "ray").workers.minReplicas (default 1 (index $vals "worker").minReplicas))) }}
+        maxReplicas: {{ default 4 (default (index $vals "ray").workers.maxReplicas (default 4 (index $vals "worker").maxReplicas))) }}
         template:
           metadata:
             annotations:
               {{- if $vals.worker.annotations }}
-{{ toYaml $vals.worker.annotations | nindent 12 }}
+{{ toYaml $vals.worker.annotations | nindent 14 }}
               {{- end }}
           spec:
-            {{- $workerSA := default $vals.worker.serviceAccountName $vals.serviceAccountName }}
+            {{- $workerSA := default $vals.serviceAccountName "ray-inference-sa" }}
             {{- if $workerSA }}
-            serviceAccountName: {{ $workerSA }}
+            serviceAccountName: {{ $workerSA | quote }}
             {{- end }}
             {{- if $vals.imagePullSecrets }}
             imagePullSecrets:
-              {{- range $vals.imagePullSecrets }}
-              - name: {{ . }}
-              {{- end }}
+{{ toYaml $vals.imagePullSecrets | nindent 14 }}
             {{- end }}
 
             {{- $workerNodeSel := default (dict "karpenter.sh/provisioner-name" "gpu-provisioner" "kubernetes.io/arch" "amd64") $vals.worker.nodeSelector }}
             nodeSelector:
-{{ toYaml $workerNodeSel | indent 12 }}
+{{ toYaml $workerNodeSel | indent 14 }}
 
-            {{- $workerTols := default (list (dict "key" "nvidia.com/gpu" "operator" "Exists" "effect" "NoSchedule")) $vals.worker.tolerations }}
+            {{- $defaultWorkerTols := list (dict "key" "nvidia.com/gpu" "operator" "Exists" "effect" "NoSchedule") }}
+            {{- $workerTols := default $defaultWorkerTols $vals.worker.tolerations }}
             tolerations:
-{{ toYaml $workerTols | indent 12 }}
+{{ toYaml $workerTols | indent 14 }}
 
             {{- if $vals.worker.affinity }}
             affinity:
-{{ toYaml $vals.worker.affinity | indent 12 }}
+{{ toYaml $vals.worker.affinity | indent 14 }}
             {{- end }}
 
             containers:
               - name: ray-gpu-worker
-                image: "{{ $vals.ray.image.repository }}:{{ $vals.ray.image.tag }}"
-                imagePullPolicy: {{ $vals.ray.image.pullPolicy | default "IfNotPresent" }}
+                image: "{{ default (printf "%s:%s" $vals.ray.image.repository $vals.ray.image.tag) (printf "rayproject/ray:%s" (default "2.10.0" $vals.ray.version)) }}"
+                imagePullPolicy: {{ default "IfNotPresent" $vals.ray.image.pullPolicy }}
                 env:
                   - name: RAY_NODE_ROLE
                     value: "worker"
@@ -141,19 +158,19 @@ spec:
                   {{- end }}
                 resources:
                   requests:
-                    cpu: {{ default "1000m" $vals.ray.workers.cpu.request | quote }}
-                    memory: {{ default "8Gi" $vals.ray.workers.memory.request | quote }}
-                    nvidia.com/gpu: {{ default 1 $vals.ray.workers.gpu.request }}
+                    cpu: {{ default "1000m" (default (index $vals.ray.workers "cpu").request (default (index $vals.worker "cpu").request)) | quote }}
+                    memory: {{ default "8Gi" (default (index $vals.ray.workers "memory").request (default (index $vals.worker "memory").request)) | quote }}
+                    nvidia.com/gpu: {{ default 1 (default (index $vals.ray.workers "gpu").request (default (index $vals.worker "gpu").request))) }}
                   limits:
-                    cpu: {{ default "2000m" $vals.ray.workers.cpu.limit | quote }}
-                    memory: {{ default "16Gi" $vals.ray.workers.memory.limit | quote }}
-                    nvidia.com/gpu: {{ default 1 $vals.ray.workers.gpu.limit }}
+                    cpu: {{ default "2000m" (default (index $vals.ray.workers "cpu").limit (default (index $vals.worker "cpu").limit)) | quote }}
+                    memory: {{ default "16Gi" (default (index $vals.ray.workers "memory").limit (default (index $vals.worker "memory").limit)) | quote }}
+                    nvidia.com/gpu: {{ default 1 (default (index $vals.ray.workers "gpu").limit (default (index $vals.worker "gpu").limit))) }}
                 ports:
                   - containerPort: 8000
                   - containerPort: 9000
                 volumeMounts:
                   - name: model-volume
-                    mountPath: {{ $vals.modelMountPath | default "/opt/models" }}
+                    mountPath: {{ default "/opt/models" $vals.modelMountPath | quote }}
             readinessProbe:
               httpGet:
                 path: /
@@ -164,19 +181,20 @@ spec:
             volumes:
               - name: model-volume
                 emptyDir: {}
+
   serveConfigV2: |
     applications:
       - name: sglang-app
-        import_path: {{ $vals.importPath | default "rayserve-sglang" }}
+        import_path: {{ $vals.importPath | default "rayserve-sglang" | quote }}
         runtime_env:
-          working_dir: {{ $vals.runtimeWorkingDir | default "/app" }}
+          working_dir: {{ $vals.runtimeWorkingDir | default "/app" | quote }}
         deployments:
           - name: SGLangService
             route_prefix: "/sglang"
             ray_actor_options:
-              num_gpus: {{ default 1 $vals.service.numGPUs }}
+              num_gpus: {{ default 1 (or (index $vals "service" "numGPUs") (default (index $vals "service").numGPUs (default (index $vals.ray.workers "gpu").request 1))) }}
             autoscaling_config:
-              min_replicas: {{ default 1 $vals.service.autoscale.minReplicas }}
-              max_replicas: {{ default 4 $vals.service.autoscale.maxReplicas }}
-              target_num_ongoing_requests_per_replica: {{ default 5 $vals.service.autoscale.targetRequestsPerReplica }}
+              min_replicas: {{ default 1 (default (index $vals "service").autoscale.minReplicas (default 1 (index $vals "service").autoscale.minReplicas))) }}
+              max_replicas: {{ default 4 (default (index $vals "service").autoscale.maxReplicas (default 4 (index $vals "service").autoscale.maxReplicas))) }}
+              target_num_ongoing_requests_per_replica: {{ default 5 (default (index $vals "service").autoscale.targetRequestsPerReplica (default 5 (index $vals "service").autoscale.targetRequestsPerReplica))) }}
 {{- end }}

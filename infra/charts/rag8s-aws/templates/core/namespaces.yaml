@@ -1,40 +1,28 @@
-# ------------------------------------------------------------------------------
-# templates/core/namespaces.yaml
-# ------------------------------------------------------------------------------
-# Step 6 of the 28-step build sequence.
-# Creates Kubernetes Namespace resources for all namespaces defined in values/base.yaml.
-# This is always applied before workloads, so other manifests can safely reference them.
-# Works with both simple string values (current base.yaml) and extended object definitions.
-# ------------------------------------------------------------------------------
-
 {{- /*
-Support two formats in values/base.yaml:
-1. Simple key-value (string) for basic namespace naming:
-   namespaces:
-     inference: inference
-     monitoring: monitoring
-2. Full object for advanced config:
+Create Namespace resources for every entry in .Values.namespaces.
+Support two formats:
+1) simple string:   namespaces: { inference: inference }
+2) object with name/env/workloadType/annotations:
    namespaces:
      inference:
        name: inference
        workloadType: compute
        env: staging
-       annotations:
-         foo: bar
-*/ -}}
+       annotations: { key: value }
 
-{{- range $key, $val := .Values.namespaces }}
+This template always renders a Namespace per map key and uses safe defaults.
+*/ -}}
+{{- $nsmap := .Values.namespaces | default dict -}}
+{{- range $key, $val := $nsmap }}
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  # If value is a string, use it directly. If it's a map, use .name
-  name: {{- if kindIs "string" $val }} {{ $val }} {{- else }} {{ $val.name }} {{- end }}
+  name: {{- if kindIs "string" $val }}{{ $val | quote }}{{- else }}{{ default $key $val.name | quote }}{{- end }}
   labels:
-    name: {{- if kindIs "string" $val }} {{ $val }} {{- else }} {{ $val.name }} {{- end }}
-    # workload-type is optional; defaults to the namespace key if not set
-    workload-type: {{- if and (not (kindIs "string" $val)) $val.workloadType }} {{ $val.workloadType }} {{- else }} {{ $key }} {{- end }}
-    env: {{- if and (not (kindIs "string" $val)) $val.env }} {{ $val.env }} {{- else }} production {{- end }}
+    name: {{- if kindIs "string" $val }}{{ $val | quote }}{{- else }}{{ default $key $val.name | quote }}{{- end }}
+    workload-type: {{- if and (not (kindIs "string" $val)) $val.workloadType }}{{ $val.workloadType | quote }}{{- else }}{{ $key | quote }}{{- end }}
+    env: {{- if and (not (kindIs "string" $val)) $val.env }}{{ $val.env | quote }}{{- else }}production{{- end }}
   {{- if and (not (kindIs "string" $val)) $val.annotations }}
   annotations:
 {{ toYaml $val.annotations | indent 4 }}

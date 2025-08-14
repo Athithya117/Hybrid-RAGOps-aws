@@ -1,12 +1,16 @@
+# Chart-wide defaults for rag8s-aws
 global:
-  namespace: ""
+  namespace: ""     # optional: if set, used as namespace fallback across templates
   labels: {}
 
+# AWS / IRSA
 aws:
   accountId: ""
+
 iam:
   roleName: ""
 
+# Karpenter (provisioners are rendered only when karpenter.enabled: true)
 karpenter:
   enabled: false
   provider:
@@ -46,6 +50,7 @@ karpenter:
       memory: "2048Gi"
     ttlSecondsAfterEmpty: 60
 
+# Ray (operator/subchart controlled)
 ray:
   enabled: false
 
@@ -55,6 +60,7 @@ rayservices:
   onnxEmbedderReranker:
     enabled: false
 
+# RayJobs (indexing job example)
 rayjobs:
   namespace: indexing
   indexing:
@@ -79,9 +85,11 @@ rayjobs:
         cpu: "250m"
         memory: "512Mi"
 
+# Top-level Arango toggle (compat compatibility)
 arangodb:
   enabled: true
 
+# ArgoCD Application (optional)
 argocd:
   enabled: false
   namespace: argocd
@@ -94,7 +102,9 @@ argocd:
   selfHeal: true
   override: {}
 
+# Core grouped config (merged single `core:` block)
 core:
+  # PodDisruptionBudget toggles per service
   pdb:
     embedderReranker:
       enabled: false
@@ -108,6 +118,12 @@ core:
     arangodb:
       enabled: true
       minAvailable: 1
+    # Added PDB entry for Valkey (Redis-compatible)
+    valkey:
+      enabled: true
+      minAvailable: 1
+
+  # ResourceQuotas per workload namespace
   quotas:
     inference:
       enabled: true
@@ -141,63 +157,7 @@ core:
       pvcs: "1"
       storage: "1Gi"
 
-namespaces:
-  inference: inference
-  indexing: indexing
-  monitoring: monitoring
-  networking: networking
-  arangodb: arangodb
-
-serviceAccounts:
-  ray-inference-sa:
-    name: ray-inference-sa
-    namespace: inference
-    iam:
-      roleName: ""
-
-network:
-  traefik:
-    namespace: ""
-    replicas: 1
-    image:
-      repository: traefik
-      tag: v3.1
-      pullPolicy: IfNotPresent
-    service:
-      type: NodePort
-      ports:
-        - name: web
-          port: 80
-          targetPort: 8000
-        - name: websecure
-          port: 443
-          targetPort: 8443
-      annotations: {}
-    resources: {}
-    nodeSelector: {}
-    tolerations: []
-    affinity: {}
-  ingress:
-    namespace: ""
-    tls: []
-    rules: []
-  policies:
-    enabled: false
-    rules: []
-
-monitoring:
-  enabled: false
-  namespace: ""
-  scrapeInterval: "30s"
-  grafana:
-    enabled: false
-    prometheusURL: ""
-  serviceMonitors: []
-  alerts:
-    enabled: false
-    groups: []
-
-core:
+  # ArangoDB cluster settings
   arangodb:
     enabled: true
     image:
@@ -238,3 +198,191 @@ core:
     collectionsDefaults:
       numberOfShards: 8
       replicationFactor: 3
+
+  # Frontend defaults (moved under core.frontend to match templates)
+  frontend:
+    replicas: 2
+    image:
+      repository: "rag8s/frontend"
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    port: 8080
+    readiness:
+      path: /health
+      port: 8080
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    liveness:
+      path: /health
+      port: 8080
+      initialDelaySeconds: 15
+      periodSeconds: 20
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+    hpa:
+      minReplicas: 2
+      maxReplicas: 10
+      cpuTargetPercentage: 60
+      memoryTargetPercentage: 70
+    service:
+      type: ClusterIP
+      port: 80
+    configMap: rag8s-config
+    secret: rag8s-secrets
+    serviceAccount: frontend-sa
+
+# Namespace names used across the chart
+namespaces:
+  inference: inference
+  indexing: indexing
+  monitoring: monitoring
+  networking: networking
+  arangodb: arangodb
+  vectorDb: vector-db
+  graphDb: graph-db
+
+# Pre-populated serviceAccounts (chart creates defaults too)
+serviceAccounts:
+  ray-inference-sa:
+    name: ray-inference-sa
+    namespace: inference
+    iam:
+      roleName: ""
+  frontend-sa:
+    name: frontend-sa
+    namespace: inference
+    iam:
+      roleName: ""
+
+# Networking and Traefik defaults
+network:
+  traefik:
+    namespace: ""
+    replicas: 1
+    image:
+      repository: traefik
+      tag: v3.1
+      pullPolicy: IfNotPresent
+    service:
+      type: LoadBalancer
+      ports:
+        - name: web
+          port: 80
+          targetPort: 8000
+        - name: websecure
+          port: 443
+          targetPort: 8443
+      annotations: {}
+    resources: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  ingress:
+    namespace: ""
+    class: traefik
+    tls: []
+    rules: []
+  policies:
+    enabled: false
+    rules: []
+
+# Monitoring defaults
+monitoring:
+  enabled: false
+  namespace: ""
+  scrapeInterval: "30s"
+  grafana:
+    enabled: false
+    prometheusURL: ""
+    # dashboards: map (name: path inside chart). Set this map if you want custom dashboards.
+    dashboards:
+      ray-overview.json: "dashboards/ray-overview.json"
+      arangodb-overview.json: "dashboards/arangodb-overview.json"
+      eks-cluster.json: "dashboards/eks-cluster.json"
+      traefik.json: "dashboards/traefik.json"
+  serviceMonitors: []
+  alerts:
+    enabled: false
+    groups: []
+
+
+arangobackup:
+  schedule: "0 */6 * * *"                  # every 6 hours; adjust to your needs
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  backoffLimit: 2
+  image:
+    repository: "arangodb/arangodb"      # or a tiny image that contains arangobackup + rclone
+    tag: "3.11.8"                         # pin to your desired ArangoDB version
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+  # PVC that CronJob will write backups to (must exist or create via a PVC template)
+  pvcClaim: "arangodb-backup-pvc"
+  # Secret with rclone config (key files expected by the job)
+  rcloneSecret: "rclone-config"
+  # Service account for the CronJob (should have limited RBAC)
+  serviceAccount: "default"
+  nodeSelector:
+    storage: nvme
+  tolerations: []
+  aws:
+    region: "us-east-1"
+    bucket: "my-arangodb-backups"
+    prefix: "arangodb"                     # s3 prefix under bucket
+  arango:
+    endpoint: "tcp://arangodb.default.svc.cluster.local:8529"
+    secret: "arangodb-credentials"         # secret with keys: username, password
+  # Retention is best handled via S3 lifecycle; keep this for informational use
+  retention:
+    days: 30
+
+# -------------------------------------- 
+# Valkey (Redis-compatible) configuration
+# --------------------------------------
+valkey:
+  enabled: true
+  replicas: 1
+  serviceAccount: "default"
+  image:
+    repository: "valkey/valkey"   # or your internal Valkey image
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  # In-memory max size (string accepted by Valkey)
+  maxmemory: "2gb"
+  # Append-only persistence for durability: "no" because we only need daily reset
+  appendonly: "no"
+
+  persistence:
+    enabled: false       # no AOF / disk persistence needed
+
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+
+  pod:
+    replicas: 1            # single pod is enough
+    stateful: false        # can run as Deployment
+
+  nodeSelector:
+    storage: nvme
+  tolerations: []
+  affinity: {}
+
+
+# Misc / future extension points
+extras: {}

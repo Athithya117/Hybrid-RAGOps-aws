@@ -1,71 +1,57 @@
+{{- /*
+ResourceQuotas per namespace.
+- Nil-safe against missing `.Values.core.quotas` keys.
+- Emits only the quota resources/fields that are set in values.yaml (no accidental 0-limits).
+- Namespaces are driven by `.Values.namespaces.*` with safe defaults.
+*/ -}}
 {{- $vals := .Values -}}
-{{- $ns_inference := default "inference" (default $vals.namespaces.inference $vals.global.namespace) -}}
-{{- $ns_indexing := default "indexing" (default $vals.namespaces.indexing $vals.global.namespace) -}}
-{{- $ns_monitoring := default "monitoring" (default $vals.namespaces.monitoring $vals.global.namespace) -}}
-{{- $ns_stateful := default "stateful" (default $vals.namespaces.vectorDb $vals.global.namespace) -}}
+{{- $ns := $vals.namespaces | default dict -}}
+{{- $core := $vals.core | default dict -}}
+{{- $quotas := (index $core "quotas") | default dict -}}
 
-{{- if (default true $vals.core.quotas.inference.enabled) }}
+{{- $items := list
+  (dict "name" "inference-quota"  "cfg" ((index $quotas "inference")  | default dict) "ns" (default "inference"  (index $ns "inference")))
+  (dict "name" "indexing-quota"   "cfg" ((index $quotas "indexing")   | default dict) "ns" (default "indexing"   (index $ns "indexing")))
+  (dict "name" "monitoring-quota" "cfg" ((index $quotas "monitoring") | default dict) "ns" (default "monitoring" (index $ns "monitoring")))
+  (dict "name" "stateful-quota"   "cfg" ((index $quotas "stateful")   | default dict) "ns" (default "arangodb"  (index $ns "arangodb")))
+-}}
+
+{{- range $i, $it := $items }}
+{{- $cfg := $it.cfg -}}
+{{- if (default false (index $cfg "enabled")) }}
 apiVersion: v1
 kind: ResourceQuota
 metadata:
-  name: inference-quota
-  namespace: {{ $ns_inference }}
+  name: {{ $it.name }}
+  namespace: {{ $it.ns | quote }}
+  labels:
+{{ include "rag8s.labels" $ | indent 4 }}
 spec:
   hard:
-    requests.cpu: "{{ default "16" $vals.core.quotas.inference.requestsCpu }}"
-    requests.memory: "{{ default "64Gi" $vals.core.quotas.inference.requestsMemory }}"
-    limits.cpu: "{{ default "32" $vals.core.quotas.inference.limitsCpu }}"
-    limits.memory: "{{ default "128Gi" $vals.core.quotas.inference.limitsMemory }}"
-    pods: "{{ default "50" $vals.core.quotas.inference.pods }}"
-    requests.nvidia.com/gpu: "{{ default "10" $vals.core.quotas.inference.requestsGPUs }}"
-{{- end }}
-
+    {{- with (index $cfg "requestsCpu") }}
+    requests.cpu: {{ . | quote }}
+    {{- end }}
+    {{- with (index $cfg "requestsMemory") }}
+    requests.memory: {{ . | quote }}
+    {{- end }}
+    {{- with (index $cfg "limitsCpu") }}
+    limits.cpu: {{ . | quote }}
+    {{- end }}
+    {{- with (index $cfg "limitsMemory") }}
+    limits.memory: {{ . | quote }}
+    {{- end }}
+    {{- with (index $cfg "pods") }}
+    pods: {{ . | quote }}
+    {{- end }}
+    {{- with (index $cfg "requestsGPUs") }}
+    requests.nvidia.com/gpu: {{ . | quote }}
+    {{- end }}
+    {{- with (index $cfg "pvcs") }}
+    persistentvolumeclaims: {{ . | quote }}
+    {{- end }}
+    {{- with (index $cfg "storage") }}
+    storage: {{ . | quote }}
+    {{- end }}
 ---
-{{- if (default true $vals.core.quotas.indexing.enabled) }}
-apiVersion: v1
-kind: ResourceQuota
-metadata:
-  name: indexing-quota
-  namespace: {{ $ns_indexing }}
-spec:
-  hard:
-    requests.cpu: "{{ default "40" $vals.core.quotas.indexing.requestsCpu }}"
-    requests.memory: "{{ default "128Gi" $vals.core.quotas.indexing.requestsMemory }}"
-    limits.cpu: "{{ default "64" $vals.core.quotas.indexing.limitsCpu }}"
-    limits.memory: "{{ default "256Gi" $vals.core.quotas.indexing.limitsMemory }}"
-    pods: "{{ default "30" $vals.core.quotas.indexing.pods }}"
 {{- end }}
-
----
-{{- if (default true $vals.core.quotas.monitoring.enabled) }}
-apiVersion: v1
-kind: ResourceQuota
-metadata:
-  name: monitoring-quota
-  namespace: {{ $ns_monitoring }}
-spec:
-  hard:
-    requests.cpu: "{{ default "8" $vals.core.quotas.monitoring.requestsCpu }}"
-    requests.memory: "{{ default "32Gi" $vals.core.quotas.monitoring.requestsMemory }}"
-    limits.cpu: "{{ default "16" $vals.core.quotas.monitoring.limitsCpu }}"
-    limits.memory: "{{ default "64Gi" $vals.core.quotas.monitoring.limitsMemory }}"
-    pods: "{{ default "20" $vals.core.quotas.monitoring.pods }}"
-{{- end }}
-
----
-{{- if (default true $vals.core.quotas.stateful.enabled) }}
-apiVersion: v1
-kind: ResourceQuota
-metadata:
-  name: stateful-quota
-  namespace: {{ $ns_stateful }}
-spec:
-  hard:
-    requests.cpu: "{{ default "64" $vals.core.quotas.stateful.requestsCpu }}"
-    requests.memory: "{{ default "256Gi" $vals.core.quotas.stateful.requestsMemory }}"
-    limits.cpu: "{{ default "128" $vals.core.quotas.stateful.limitsCpu }}"
-    limits.memory: "{{ default "512Gi" $vals.core.quotas.stateful.limitsMemory }}"
-    pods: "{{ default "30" $vals.core.quotas.stateful.pods }}"
-    persistentvolumeclaims: "{{ default "50" $vals.core.quotas.stateful.pvcs }}"
-    storage: "{{ default "10Ti" $vals.core.quotas.stateful.storage }}"
 {{- end }}

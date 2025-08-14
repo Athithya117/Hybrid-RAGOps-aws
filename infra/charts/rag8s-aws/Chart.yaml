@@ -1,22 +1,32 @@
 apiVersion: v2
 name: rag8s-aws
-description: Helm chart for deploying RAG8s on AWS EKS with Karpenter, Ray, and databases.
+description: Helm chart for deploying RAG8s on AWS EKS (Ray, Karpenter, ArangoDB, monitoring, networking).
 type: application
 version: 0.0.2
 appVersion: "0.0.2"
+kubeVersion: ">=1.20.0"
+
+maintainers:
+  - name: rag8s
+    email: ops@example.com
+
+home: https://example.com/rag8s
+sources:
+  - https://github.com/yourorg/rag8s
 
 dependencies:
-# - name: karpenter
-#   version: "1.5.0"
-#   repository: "oci://public.ecr.aws/karpenter/karpenter"
-#   condition: karpenter.enabled
-
   - name: kuberay-operator
     version: "1.4.2"
     repository: "https://ray-project.github.io/kuberay-helm/"
     condition: ray.enabled
-    
+
   - name: kube-arangodb
     version: "1.2.24"
     repository: "https://arangodb.github.io/kube-arangodb"
     condition: arangodb.enabled
+
+# Optional Karpenter dependency (enable only if you want Helm to manage Karpenter)
+#  - name: karpenter
+#    version: "1.5.0"
+#    repository: "oci://public.ecr.aws/karpenter/karpenter"
+#    condition: karpenter.enabled

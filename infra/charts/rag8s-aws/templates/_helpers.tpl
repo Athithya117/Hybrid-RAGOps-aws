@@ -1,3 +1,7 @@
+{{- /*
+Common template helpers for rag8s-aws
+*/ -}}
+
 {{- define "rag8s.name" -}}
 {{- default .Chart.Name .Values.nameOverride -}}
 {{- end -}}
@@ -6,7 +10,7 @@
 {{- $default := printf "%s-%s" .Release.Name (include "rag8s.name" .) -}}
 {{- $name := default $default .Values.fullnameOverride -}}
 {{- if gt (len $name) 63 -}}
-{{- $name = (printf "%.63s" $name) -}}
+{{- $name = printf "%.63s" $name -}}
 {{- end -}}
 {{- trimSuffix "-" $name -}}
 {{- end -}}
@@ -49,9 +53,10 @@ app.kubernetes.io/component: {{ default "app" .Values.component | quote }}
 {{- define "rag8s.irsaAnnotations" -}}
 {{- $acc := .Values.aws.accountId | default "" -}}
 {{- $role := .Values.iam.roleName | default "" -}}
-{{- if and $acc $role }}
+{{- /* ensure both non-empty */ -}}
+{{- if and (ne $acc "") (ne $role "") -}}
 eks.amazonaws.com/role-arn: "arn:aws:iam::{{ $acc }}:role/{{ $role }}"
-{{- end }}
+{{- end -}}
 {{- end -}}
 
 {{- define "rag8s.mergeAnnotations" -}}

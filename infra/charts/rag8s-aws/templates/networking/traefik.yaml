@@ -1,17 +1,24 @@
-{{- $vals := .Values -}}
+{{- /*
+Traefik Deployment + Service
+- Renders when .Values.network.traefik is present (chart-level default exists).
+- Values-driven: image, replicas, service (type/ports/annotations), resources, nodeSelector, tolerations, affinity.
+- Uses helpers for consistent labels.
+- Guarded imagePullSecrets and optional configuration blocks.
+*/ -}}
+{{- $root := . -}}
 {{- $t := .Values.network.traefik | default dict -}}
-{{- $nsFallback := default "networking" .Values.namespaces.networking -}}
-{{- $ns := default $nsFallback $t.namespace -}}
+{{- $ns := default (default "networking" .Values.namespaces.networking) (include "rag8s.namespace" $root) -}}
+{{- $svc := default dict $t.service -}}
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: traefik
-  namespace: {{ $ns }}
+  namespace: {{ $ns | quote }}
   labels:
+{{ include "rag8s.labels" $root | indent 4 }}
     app.kubernetes.io/name: traefik
-    {{- include "rag8s.labels" . | nindent 4 }}
 spec:
   replicas: {{ default 2 $t.replicas }}
   selector:
@@ -21,45 +28,56 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: traefik
+        {{- include "rag8s.labels" $root | nindent 8 }}
     spec:
       serviceAccountName: traefik
+      {{- if $t.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml $t.imagePullSecrets | indent 8 }}
+      {{- end }}
       containers:
         - name: traefik
-          image: "{{ default "traefik:v3.1" (printf "%s:%s" $t.image.repository $t.image.tag) }}"
+          image: {{ default "traefik:v3.1" (printf "%s:%s" $t.image.repository $t.image.tag) | quote }}
           imagePullPolicy: {{ default "IfNotPresent" $t.image.pullPolicy }}
           args:
-            - --api.dashboard=true
-            - --entrypoints.web.address=:8000
-            - --entrypoints.websecure.address=:8443
+            - --api.insecure=true
+            - --entryPoints.web.address=:8000
+            - --entryPoints.websecure.address=:8443
             - --providers.kubernetescrd
           ports:
-            {{- range $p := $t.service.ports }}
+{{- $ports := default (list (dict "name" "web" "targetPort" 8000) (dict "name" "websecure" "targetPort" 8443)) $svc.ports }}
+{{- range $p := $ports }}
             - name: {{ $p.name }}
               containerPort: {{ $p.targetPort }}
               protocol: TCP
-            {{- end }}
+{{- end }}
           resources:
-{{ toYaml $t.resources | nindent 12 }}
+{{ toYaml (default dict $t.resources) | indent 12 }}
       nodeSelector:
-{{ toYaml $t.nodeSelector | nindent 8 }}
+{{ toYaml (default dict $t.nodeSelector) | indent 8 }}
       tolerations:
-{{ toYaml $t.tolerations | nindent 8 }}
+{{ toYaml (default list $t.tolerations) | indent 8 }}
       affinity:
-{{ toYaml $t.affinity | nindent 8 }}
+{{ toYaml (default dict $t.affinity) | indent 8 }}
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: traefik
-  namespace: {{ $ns }}
+  namespace: {{ $ns | quote }}
   labels:
     app.kubernetes.io/name: traefik
+    {{- include "rag8s.labels" $root | nindent 4 }}
   annotations:
-{{ toYaml $t.service.annotations | nindent 4 }}
+{{- if $svc.annotations }}
+{{ toYaml $svc.annotations | indent 4 }}
+{{- else }}
+{{- /* keep an empty block out if no annotations provided */ -}}
+{{- end }}
 spec:
-  type: {{ default "LoadBalancer" $t.service.type }}
+  type: {{ default "LoadBalancer" $svc.type | quote }}
   selector:
     app.kubernetes.io/name: traefik
   ports:
-{{ toYaml $t.service.ports | nindent 4 }}
+{{ toYaml (default (list (dict "name" "web" "port" 80 "targetPort" 8000) (dict "name" "websecure" "port" 443 "targetPort" 8443)) $svc.ports) | indent 4 }}

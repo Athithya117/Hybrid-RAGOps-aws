@@ -282,16 +282,10 @@ RAG8s/
 │   ├── charts/
 │   │   └── rag8s/
 │   │       ├── Chart.yaml                # Helm chart metadata + optional dependencies (Karpenter, Ray, Prometheus)
-│   │       ├── values/                   # Modular Helm values overrides
-│   │       │   ├── base.yaml             # Global settings: namespaces, IRSA roles, default labels, pdb/quotas
-│   │       │   ├── networking.yaml       # Hosts, TLS, Traefik config, NetworkPolicies
-│   │       │   ├── monitoring.yaml       # Prometheus scrape intervals, Grafana dashboards, alert rules
-│   │       │   ├── ray.yaml              # Ray image tags, scaling config, resources
-│   │       │   ├── karpenter.yaml        # CPU & GPU provisioner settings
+│   │       ├── values.yaml               # Dynamically created by scripts/dynamic-values.yaml.sh 
 │   │       ├── templates/                # All rendered Kubernetes manifests
 │   │       │   ├── _helpers.tpl          # Shared labels/annotations/name templates
 │   │       │   ├── argocd.yaml           # ArgoCD Application definition for GitOps
-│   │       │   ├── helm_charts.sh        # Script for pulling/updating subchart versions
 │   │       │   ├── core/                 # Cluster-wide primitives
 │   │       │   │   ├── namespaces.yaml   # Namespace creation from values.base.namespaces
 │   │       │   │   ├── serviceaccounts.yaml # ServiceAccounts + IRSA

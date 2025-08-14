@@ -1,28 +1,33 @@
+{{- /*
+ArgoCD Application manifest for this chart.
+Renders only when .Values.argocd.enabled is true.
+Produces a Helm-based Application that installs this chart into the target cluster.
+*/ -}}
 {{- if .Values.argocd.enabled }}
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: {{ include "rag8s.name" . }}-app
-  namespace: {{ .Values.argocd.namespace | default "argocd" }}
+  namespace: {{ .Values.argocd.namespace | default "argocd" | quote }}
   labels:
 {{ include "rag8s.labels" . | indent 4 }}
 spec:
-  project: {{ .Values.argocd.project | default "default" }}
+  project: {{ .Values.argocd.project | default "default" | quote }}
   source:
-    repoURL: {{ .Values.argocd.repoURL }}
-    targetRevision: {{ .Values.argocd.revision | default "HEAD" }}
-    path: {{ .Values.argocd.path | default "infra/charts/rag8s-aws" }}
+    repoURL: {{ .Values.argocd.repoURL | quote }}
+    targetRevision: {{ .Values.argocd.revision | default "HEAD" | quote }}
+    path: {{ .Values.argocd.path | default "infra/charts/rag8s-aws" | quote }}
     helm:
-      releaseName: {{ include "rag8s.fullname" . }}
+      releaseName: {{ include "rag8s.fullname" . | quote }}
       values: |
         global:
-          namespace: {{ .Values.global.namespace }}
-        {{- if .Values.override }}
-        {{ toYaml .Values.override | nindent 8 }}
+          namespace: {{ .Values.global.namespace | default .Release.Namespace | quote }}
+        {{- if .Values.argocd.override }}
+{{ toYaml .Values.argocd.override | nindent 8 }}
         {{- end }}
   destination:
-    namespace: {{ .Values.global.namespace }}
-    server: {{ .Values.argocd.clusterURL | default "https://kubernetes.default.svc" }}
+    server: {{ .Values.argocd.clusterURL | default "https://kubernetes.default.svc" | quote }}
+    namespace: {{ .Values.global.namespace | default .Values.argocd.namespace | default .Release.Namespace | quote }}
   syncPolicy:
     automated:
       prune: {{ .Values.argocd.prune | default true }}

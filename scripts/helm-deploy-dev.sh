@@ -1,16 +1,36 @@
 
 
-mkdir -p infra/charts/rag8s-aws/dev
 
-helm template rag8s-aws \
+helm upgrade --install arangodb-release \
   infra/charts/rag8s-aws \
-  -f infra/charts/rag8s-aws/values/base.yaml \
-  -f infra/charts/rag8s-aws/values/argocd.yaml \
-  -f infra/charts/rag8s-aws/values/karpenter.yaml \
-  -f infra/charts/rag8s-aws/values/monitoring.yaml \
-  -f infra/charts/rag8s-aws/values/networking.yaml \
-  -f infra/charts/rag8s-aws/values/ray.yaml \
-  --show-only templates/core/namespaces.yaml \
   --namespace arangodb \
-  > infra/charts/rag8s-aws/dev/00_namespaces.yaml
+  --create-namespace \
+  --values values.yaml \
+  --set arangodb.enabled=true \
+  --set core.arangodb.enabled=true \
+  --set core.arangodb.image.repository=arangodb/arangodb \
+  --set core.arangodb.image.tag=3.12.5 \
+  --set ray.enabled=false \
+  --set rayservices.sglang.enabled=false \
+  --set rayservices.onnxEmbedderReranker.enabled=false \
+  --set argocd.enabled=false \
+  --set monitoring.enabled=false \
+  --set karpenter.enabled=false \
+  --set network.traefik.enabled=false \
+  --set serviceAccounts={}
 
+helm upgrade --install arangodb-release \
+  infra/charts/rag8s-aws \
+  --namespace arangodb \
+  --create-namespace \
+  --values infra/charts/rag8s-aws/values.yaml \
+  --set arangodb.enabled=true \
+  --set core.arangodb.enabled=true \
+  --set ray.enabled=false \
+  --set rayservices.sglang.enabled=false \
+  --set rayservices.onnxEmbedderReranker.enabled=false \
+  --set argocd.enabled=false \
+  --set monitoring.enabled=false \
+  --set karpenter.enabled=false \
+  --set network.traefik.enabled=false \
+  --set serviceAccounts={}

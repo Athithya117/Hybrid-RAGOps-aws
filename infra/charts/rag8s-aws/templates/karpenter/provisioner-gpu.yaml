@@ -1,32 +1,46 @@
-yes 26. apiVersion: karpenter.sh/v1alpha5
+{{- /*
+Karpenter GPU Provisioner
+Renders only when .Values.karpenter.enabled is true.
+This provisioner is intended for GPU workloads (e.g. Ray SGLang).
+*/ -}}
+{{- if .Values.karpenter.enabled }}
+apiVersion: karpenter.sh/v1alpha5
 kind: Provisioner
 metadata:
   name: gpu-provisioner
+  labels:
+{{ include "rag8s.labels" . | indent 4 }}
 spec:
-  weight: {{ .Values.karpenter.gpu.weight }}
+  weight: {{ default 50 .Values.karpenter.gpu.weight }}
+
   requirements:
     - key: "node.kubernetes.io/instance-type"
       operator: In
-      values: {{ toYaml .Values.karpenter.gpu.instanceTypes | nindent 6 }}
+      values: {{ toYaml (default (list "p3.2xlarge" "p4d.24xlarge") .Values.karpenter.gpu.instanceTypes) | nindent 6 }}
     - key: "kubernetes.io/arch"
       operator: In
-      values: ["amd64"]
+      values: {{ toYaml (default (list "amd64") (list .Values.karpenter.gpu.arch | default "amd64")) | nindent 6 }}
+    # accelerator selector: preserve original intent; many environments rely on instanceType + GPU resource requests
     - key: "node.kubernetes.io/accelerator"
       operator: In
-      values: ["nvidia"]
+      values: {{ toYaml (default (list "nvidia") (list .Values.karpenter.gpu.accelerator | default "nvidia")) | nindent 6 }}
     - key: "karpenter.sh/capacity-type"
       operator: In
-      values: {{ toYaml .Values.karpenter.gpu.capacityTypes | nindent 6 }}
+      values: {{ toYaml (default (list "spot" "on-demand") .Values.karpenter.gpu.capacityTypes) | nindent 6 }}
+
   provider:
     subnetSelector:
-      {{- toYaml .Values.karpenter.provider.subnetSelector | nindent 6 }}
+{{ toYaml (default dict .Values.karpenter.provider.subnetSelector) | indent 6 }}
     securityGroupSelector:
-      {{- toYaml .Values.karpenter.provider.securityGroupSelector | nindent 6 }}
-    amiFamily: {{ .Values.karpenter.gpu.amiFamily }}
+{{ toYaml (default dict .Values.karpenter.provider.securityGroupSelector) | indent 6 }}
+    amiFamily: {{ quote (default "AL2" .Values.karpenter.gpu.amiFamily) }}
     tags:
-      {{- toYaml .Values.karpenter.gpu.tags | nindent 6 }}
+{{ toYaml (default dict .Values.karpenter.gpu.tags) | indent 6 }}
+
   limits:
     resources:
-      cpu: {{ .Values.karpenter.gpu.limits.cpu }}
-      memory: {{ .Values.karpenter.gpu.limits.memory }}
-  ttlSecondsAfterEmpty: {{ .Values.karpenter.gpu.ttlSecondsAfterEmpty }}
+      cpu: {{ quote (default "256" .Values.karpenter.gpu.limits.cpu) }}
+      memory: {{ quote (default "1024Gi" .Values.karpenter.gpu.limits.memory) }}
+
+  ttlSecondsAfterEmpty: {{ default 60 .Values.karpenter.gpu.ttlSecondsAfterEmpty }}
+{{- end }}

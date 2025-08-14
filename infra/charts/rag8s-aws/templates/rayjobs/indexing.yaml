@@ -1,54 +1,114 @@
+{{- /*
+RayJob for indexing pipeline (values-driven).
+Guarded: uses defaults to avoid template errors if some fields missing.
+Expected values at: .Values.rayjobs.indexing
+*/ -}}
 {{- $root := . -}}
 {{- $rj := $root.Values.rayjobs.indexing | default dict -}}
-{{- $ns := default $root.Values.namespaces.indexing $root.Values.rayjobs.namespace | default $root.Release.Namespace -}}
+{{- /* Namespace resolution: explicit rayjobs.namespace -> values.namespaces.indexing -> release namespace */ -}}
+{{- $ns := default (default $root.Values.namespaces.indexing $rj.namespace) (include "rag8s.namespace" $root) -}}
+
+{{- /* helper defaults for nodeSelectors/tolerations/affinity/imagePullSecrets */ -}}
+{{- $defaultProvisioner := "cpu-provisioner" -}}
+{{- $headNodeSelector := default (dict "karpenter.sh/provisioner-name" $defaultProvisioner) (or (index $rj "headNodeSelector") (index $rj "nodeSelector")) -}}
+{{- $workerNodeSelector := default (dict "karpenter.sh/provisioner-name" $defaultProvisioner) (or (index $rj "workerNodeSelector") (index $rj "nodeSelector")) -}}
+{{- $headTolerations := default list (index $rj "headTolerations") -}}
+{{- $workerTolerations := default list (index $rj "workerTolerations") -}}
+{{- $headAffinity := default dict (index $rj "headAffinity") -}}
+{{- $workerAffinity := default dict (index $rj "workerAffinity") -}}
+{{- $imagePullSecretsHead := default list (index $rj "headImagePullSecrets") -}}
+{{- $imagePullSecretsWorker := default list (index $rj "workerImagePullSecrets") -}}
+
 apiVersion: ray.io/v1
 kind: RayJob
 metadata:
-  name: {{ $rj.name | quote }}
-  namespace: {{ $ns }}
+  name: {{ default "rag8s-indexing" $rj.name | quote }}
+  namespace: {{ $ns | quote }}
+  labels:
+{{ include "rag8s.labels" $root | indent 4 }}
 spec:
-  entrypoint: {{ $rj.entrypoint | quote }}
+  entrypoint: {{ default "python scripts/index_documents.py --source s3://my-bucket" $rj.entrypoint | quote }}
+  # runtimeEnvYAML is a literal block containing Ray runtime env (working_dir, pip, etc.)
   runtimeEnvYAML: |
-    working_dir: {{ $rj.workingDir | quote }}
+    working_dir: {{ default (default "/work" $rj.workingDir) $rj.workingDir | quote }}
+    {{- if $rj.pip }}
     pip:
 {{ toYaml $rj.pip | indent 6 }}
+    {{- end }}
   ttlSecondsAfterFinished: {{ default 3600 $rj.ttlSecondsAfterFinished }}
-  shutdownAfterJobFinishes: true
-  submissionMode: KubernetesJob
+  shutdownAfterJobFinishes: {{ default true $rj.shutdownAfterJobFinishes }}
+  submissionMode: {{ default "KubernetesJob" $rj.submissionMode | quote }}
   rayClusterSpec:
-    rayVersion: {{ $rj.rayVersion | quote }}
+    rayVersion: {{ default "2.10.0" $rj.rayVersion | quote }}
     headGroupSpec:
-      serviceType: ClusterIP
+      serviceType: {{ default "ClusterIP" (index $rj "headServiceType") | quote }}
       template:
+        metadata:
+          annotations:
+            {{- if $rj.head.annotations }}
+{{ toYaml $rj.head.annotations | nindent 12 }}
+            {{- end }}
         spec:
           nodeSelector:
-            karpenter.sh/provisioner-name: cpu-provisioner
+{{ toYaml $headNodeSelector | indent 12 }}
+          {{- if $headTolerations }}
+          tolerations:
+{{ toYaml $headTolerations | indent 12 }}
+          {{- end }}
+          {{- if $headAffinity }}
+          affinity:
+{{ toYaml $headAffinity | indent 12 }}
+          {{- end }}
+          {{- if $imagePullSecretsHead }}
+          imagePullSecrets:
+{{ toYaml $imagePullSecretsHead | indent 12 }}
+          {{- end }}
           containers:
             - name: ray-head
-              image: {{ $rj.image | quote }}
+              image: {{ default "myrepo/rag8s-indexer:latest" $rj.image | quote }}
+              imagePullPolicy: {{ default "IfNotPresent" (index $rj "imagePullPolicy") | quote }}
               resources:
                 requests:
-                  cpu: {{ $rj.resources.head.cpu | quote }}
-                  memory: {{ $rj.resources.head.memory | quote }}
+                  cpu: {{ default "250m" (index $rj "resources").head.cpu | quote }}
+                  memory: {{ default "512Mi" (index $rj "resources").head.memory | quote }}
                 limits:
-                  cpu: {{ $rj.resources.head.cpu | quote }}
-                  memory: {{ $rj.resources.head.memory | quote }}
+                  cpu: {{ default (index $rj "resources").head.cpu (index $rj "resources").head.cpu | quote }}
+                  memory: {{ default (index $rj "resources").head.memory (index $rj "resources").head.memory | quote }}
+
     workerGroupSpecs:
-      - replicas: {{ $rj.workerReplicas | default 1 }}
-        minReplicas: {{ $rj.workerMin | default 1 }}
-        maxReplicas: {{ $rj.workerMax | default 4 }}
-        groupName: workers
+      - groupName: workers
+        replicas: {{ default 1 $rj.workerReplicas }}
+        minReplicas: {{ default 1 $rj.workerMin }}
+        maxReplicas: {{ default 4 $rj.workerMax }}
         template:
+          metadata:
+            annotations:
+              {{- if $rj.worker.annotations }}
+{{ toYaml $rj.worker.annotations | nindent 12 }}
+              {{- end }}
           spec:
             nodeSelector:
-              karpenter.sh/provisioner-name: cpu-provisioner
+{{ toYaml $workerNodeSelector | indent 12 }}
+            {{- if $workerTolerations }}
+            tolerations:
+{{ toYaml $workerTolerations | indent 12 }}
+            {{- end }}
+            {{- if $workerAffinity }}
+            affinity:
+{{ toYaml $workerAffinity | indent 12 }}
+            {{- end }}
+            {{- if $imagePullSecretsWorker }}
+            imagePullSecrets:
+{{ toYaml $imagePullSecretsWorker | indent 12 }}
+            {{- end }}
             containers:
               - name: ray-worker
-                image: {{ $rj.image | quote }}
+                image: {{ default "myrepo/rag8s-indexer:latest" $rj.image | quote }}
+                imagePullPolicy: {{ default "IfNotPresent" (index $rj "imagePullPolicy") | quote }}
                 resources:
                   requests:
-                    cpu: {{ $rj.resources.worker.cpu | quote }}
-                    memory: {{ $rj.resources.worker.memory | quote }}
+                    cpu: {{ default "250m" (index $rj "resources").worker.cpu | quote }}
+                    memory: {{ default "512Mi" (index $rj "resources").worker.memory | quote }}
                   limits:
-                    cpu: {{ $rj.resources.worker.cpu | quote }}
-                    memory: {{ $rj.resources.worker.memory | quote }}
+                    cpu: {{ default (index $rj "resources").worker.cpu (index $rj "resources").worker.cpu | quote }}
+                    memory: {{ default (index $rj "resources").worker.memory (index $rj "resources").worker.memory | quote }}

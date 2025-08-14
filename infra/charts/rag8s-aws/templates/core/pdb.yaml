@@ -1,84 +1,91 @@
-# rag8s-aws/templates/core/pdb.yaml
-# PodDisruptionBudgets for critical workloads.
-# These protect availability during voluntary disruptions (drains, upgrades).
-# Toggle each PDB with values.core.pdb.<service>.enabled.
+{{- /*
+PodDisruptionBudgets for critical workloads.
+Each PDB is rendered only when its .Values.core.pdb.<service>.enabled is true.
+Selectors are aligned with workload labels:
+ - use include "rag8s.selectorLabels" output plus app.kubernetes.io/component where applicable
+ - for Ray services that use literal names (embedder-reranker, sglang) match those names
+Namespace resolution uses values.namespaces.* with sensible defaults.
+*/ -}}
+{{- $vals := .Values -}}
+{{- $ns_inference := default (default "inference" $vals.namespaces.inference) (include "rag8s.namespace" .) -}}
+{{- $ns_stateful := default (default "vector-db" $vals.namespaces.vectorDb) (include "rag8s.namespace" .) -}}
 
-{{- $vals := .Values }}
-{{- $ns_inference := (default "inference" $vals.namespaces.inference) }}
-{{- $ns_indexing := (default "indexing" $vals.namespaces.indexing) }}
-{{- $ns_stateful := (default "stateful" $vals.namespaces.vectorDb) }} # stateful DB workloads
-
----
-# Embedder + Reranker (Ray Serve app) PDB
-{{- if (default true $vals.core.pdb.embedderReranker.enabled) }}
+{{- /* Embedder + Reranker (Ray Serve) PDB */ -}}
+{{- if (default false $vals.core.pdb.embedderReranker.enabled) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: embedder-reranker-pdb
-  namespace: {{ $ns_inference }}
+  namespace: {{ $ns_inference | quote }}
 spec:
   minAvailable: {{ default 1 $vals.core.pdb.embedderReranker.minAvailable }}
   selector:
     matchLabels:
+{{ include "rag8s.selectorLabels" . | indent 6 }}
       app.kubernetes.io/name: embedder-reranker
 {{- end }}
 
 ---
-# SGLang (GPU LLM) PDB
-{{- if (default true $vals.core.pdb.sglang.enabled) }}
+{{- /* SGLang (GPU LLM) PDB */ -}}
+{{- if (default false $vals.core.pdb.sglang.enabled) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: sglang-pdb
-  namespace: {{ $ns_inference }}
+  namespace: {{ $ns_inference | quote }}
 spec:
   minAvailable: {{ default 1 $vals.core.pdb.sglang.minAvailable }}
   selector:
     matchLabels:
+{{ include "rag8s.selectorLabels" . | indent 6 }}
       app.kubernetes.io/name: sglang
 {{- end }}
 
 ---
-# Frontend PDB
-{{- if (default true $vals.core.pdb.frontend.enabled) }}
+{{- /* Frontend PDB */ -}}
+{{- if (default false $vals.core.pdb.frontend.enabled) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: frontend-pdb
-  namespace: {{ $ns_inference }}
+  namespace: {{ $ns_inference | quote }}
 spec:
   minAvailable: {{ default 1 $vals.core.pdb.frontend.minAvailable }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: frontend
+{{ include "rag8s.selectorLabels" . | indent 6 }}
+      app.kubernetes.io/component: frontend
 {{- end }}
 
 ---
-# Qdrant PDB (stateful)
-{{- if (default true $vals.core.pdb.qdrant.enabled) }}
+{{- /* Qdrant PDB (stateful) */ -}}
+{{- if (default false $vals.core.pdb.qdrant.enabled) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: qdrant-pdb
-  namespace: {{ $ns_stateful }}
+  namespace: {{ $ns_stateful | quote }}
 spec:
   minAvailable: {{ default 1 $vals.core.pdb.qdrant.minAvailable }}
   selector:
     matchLabels:
+{{ include "rag8s.selectorLabels" . | indent 6 }}
       app.kubernetes.io/name: qdrant
 {{- end }}
 
 ---
-# ArangoDB PDB (stateful)
-{{- if (default true $vals.core.pdb.arangodb.enabled) }}
+{{- /* ArangoDB PDB (stateful) */ -}}
+{{- if (default false $vals.core.pdb.arangodb.enabled) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: arangodb-pdb
-  namespace: {{ $ns_stateful }}
+  namespace: {{ $ns_stateful | quote }}
 spec:
   minAvailable: {{ default 1 $vals.core.pdb.arangodb.minAvailable }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: arangodb
+{{ include "rag8s.selectorLabels" . | indent 6 }}
+      # Arango operator must propagate these labels to pods; if it doesn't, adjust selector to match operator pod labels.
+      app.kubernetes.io/name: {{ include "rag8s.name" . | quote }}
 {{- end }}

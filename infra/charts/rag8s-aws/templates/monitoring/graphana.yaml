@@ -1,8 +1,12 @@
+{{- /*
+Grafana ConfigMaps (datasources, dashboards, provisioning).
+- Renders only when monitoring.enabled && monitoring.grafana.enabled
+- Uses .Values.monitoring.grafana.dashboards (map name->path). If unset, falls back to defaults (qdrant removed).
+- Only includes dashboard files that exist in the chart (skips missing files).
+*/ -}}
 {{- $root := . -}}
 {{- $mon := $root.Values.monitoring | default dict -}}
-{{- if not (default false $mon.enabled) -}}
-{{- /* monitoring disabled -> render nothing */ -}}
-{{- else -}}
+{{- if and (default false $mon.enabled) (default false $mon.grafana.enabled) -}}
 {{- $ns := default $root.Values.namespaces.monitoring $mon.namespace -}}
 {{- $promURL := default "http://prometheus.monitoring.svc:9090" $mon.grafana.prometheusURL -}}
 
@@ -11,7 +15,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-datasources
-  namespace: {{ $ns }}
+  namespace: {{ $ns | quote }}
   labels:
     app.kubernetes.io/name: grafana
     app.kubernetes.io/component: monitoring
@@ -26,36 +30,54 @@ data:
         url: "{{ $promURL }}"
         isDefault: true
         editable: false
+
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-dashboards
-  namespace: {{ $ns }}
+  namespace: {{ $ns | quote }}
   labels:
     app.kubernetes.io/name: grafana
     app.kubernetes.io/component: monitoring
     app.kubernetes.io/part-of: rag8s
     grafana_dashboard: "1"
 data:
-  # These files must exist in the chart (templates/files or /dashboards in the chart)
-  ray-overview.json: |
-{{ .Files.Get "dashboards/ray-overview.json" | indent 4 }}
-  qdrant-metrics.json: |
-{{ .Files.Get "dashboards/qdrant-metrics.json" | indent 4 }}
-  arangodb-overview.json: |
-{{ .Files.Get "dashboards/arangodb-overview.json" | indent 4 }}
-  eks-cluster.json: |
-{{ .Files.Get "dashboards/eks-cluster.json" | indent 4 }}
-  traefik.json: |
-{{ .Files.Get "dashboards/traefik.json" | indent 4 }}
+{{- /*
+Use dashboards defined in values: monitoring.grafana.dashboards (map: key->path).
+If not provided, fall back to a safe default list (no qdrant).
+*/ -}}
+{{- $userDashboards := $mon.grafana.dashboards | default dict -}}
+{{- $defaults := dict
+     "ray-overview.json" "dashboards/ray-overview.json"
+     "arangodb-overview.json" "dashboards/arangodb-overview.json"
+     "eks-cluster.json" "dashboards/eks-cluster.json"
+     "traefik.json" "dashboards/traefik.json"
+ -}}
+{{- /* if user provided a map, iterate that; else use defaults */ -}}
+{{- $dashMap := cond (gt (len $userDashboards) 0) $userDashboards $defaults -}}
+{{- $any := false -}}
+{{- range $fname, $path := $dashMap }}
+{{- $content := $root.Files.Get $path | trim }}
+{{- if ne $content "" }}
+  {{ $fname }}: |
+{{ $root.Files.Get $path | indent 4 }}
+{{- $any = true }}
+{{- else }}
+{{- /* skip missing file; don't render empty keys */ -}}
+{{- end }}
+{{- end }}
+{{- if not $any }}
+  # No dashboard JSON files found or none provided in monitoring.grafana.dashboards.
+  # Add JSON files under charts/rag8s-aws/dashboards/ or set monitoring.grafana.dashboards in values.yaml
+{{- end }}
 
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-provisioning
-  namespace: {{ $ns }}
+  namespace: {{ $ns | quote }}
   labels:
     app.kubernetes.io/name: grafana
     app.kubernetes.io/component: monitoring

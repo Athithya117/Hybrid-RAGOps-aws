@@ -1,27 +1,69 @@
+{{- /*
+ServiceMonitor template
+- Renders ServiceMonitor CRs for each entry under .Values.monitoring.serviceMonitors (list).
+- Each entry structure:
+  - name: required
+  - namespace: (optional) where ServiceMonitor object will be created (defaults to monitoring namespace)
+  - targetNamespace: (optional) namespace where the target Service resides; used in namespaceSelector.matchNames
+  - matchLabels: map of labels to select Services
+  - labels: additional labels to attach to the ServiceMonitor metadata
+  - endpoints: list of endpoint objects:
+      - port: <portName or portNumber> (required)
+      - path: "/metrics" (optional)
+      - interval: "30s" (optional, defaults to monitoring.scrapeInterval or "30s")
+      - scheme: http|https (optional)
+      - relabelings: metric relabel configs (optional map/list; passed through as metricRelabelings)
+*/ -}}
 {{- $root := . -}}
 {{- $mon := $root.Values.monitoring | default dict -}}
-{{- if not (default false $mon.enabled) -}}
-{{- /* monitoring disabled -> no ServiceMonitors rendered */ -}}
-{{- else -}}
-{{- $list := $mon.serviceMonitors | default list -}}
-{{- range $i, $sm := $list }}
+{{- $smList := $mon.serviceMonitors | default list -}}
+{{- if and (default false $mon.enabled) (gt (len $smList) 0) -}}
+{{- $defaultNS := default (default "monitoring" $root.Values.namespaces.monitoring) (include "rag8s.namespace" $root) -}}
+
+{{- range $i, $sm := $smList }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: {{ $sm.name }}
-  namespace: {{ default $root.Values.namespaces.monitoring $sm.namespace }}
+  name: {{ $sm.name | quote }}
+  namespace: {{ default $defaultNS $sm.namespace | quote }}
   labels:
-    {{- include "rag8s.labels" $root | nindent 4 }}
+{{ include "rag8s.labels" $root | indent 4 }}
+{{- if $sm.labels }}
+{{ toYaml $sm.labels | indent 4 }}
+{{- end }}
 spec:
   selector:
     matchLabels:
-{{ toYaml $sm.matchLabels | nindent 6 }}
+{{- $ml := default dict $sm.matchLabels -}}
+{{ toYaml $ml | indent 6 }}
+  namespaceSelector:
+{{- if $sm.namespaceSelector }}
+{{ toYaml $sm.namespaceSelector | indent 4 }}
+{{- else }}
+    matchNames:
+      - {{ default $sm.targetNamespace (default $sm.namespace $defaultNS) | quote }}
+{{- end }}
   endpoints:
-    - port: {{ $sm.port }}
-      {{- if $sm.path }}
-      path: {{ $sm.path }}
-      {{- end }}
-      interval: {{ default $root.Values.monitoring.scrapeInterval $sm.interval | default "30s" }}
+{{- $endpoints := default list $sm.endpoints }}
+{{- if not (len $endpoints) }}
+    # No endpoints defined for this ServiceMonitor; define endpoints in values.monitoring.serviceMonitors[*].endpoints
+{{- else }}
+{{- range $ei, $e := $endpoints }}
+    - port: {{ $e.port | quote }}
+{{- if $e.path }}
+      path: {{ $e.path | quote }}
+{{- end }}
+      interval: {{ default $e.interval $root.Values.monitoring.scrapeInterval | default "30s" | quote }}
+{{- if $e.scheme }}
+      scheme: {{ $e.scheme | quote }}
+{{- end }}
+{{- if $e.metricRelabelings }}
+      metricRelabelings:
+{{ toYaml $e.metricRelabelings | indent 8 }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 ---
 {{- end }}
 {{- end }}

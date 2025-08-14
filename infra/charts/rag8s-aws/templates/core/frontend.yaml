@@ -1,55 +1,68 @@
-{{- $vals := .Values }}
-{{- $ns := (default "inference" $vals.namespaces.inference) }}
-{{- $frontend := $vals.core.frontend | default dict }}
+{{- /*
+Frontend Deployment + HPA + Service
+Fully values-driven. Uses helpers for consistent names/labels/namespaces.
+Renders into the inference namespace by default.
+*/ -}}
+{{- $vals := .Values -}}
+{{- $ns := default (default "inference" $vals.namespaces.inference) (include "rag8s.namespace" .) -}}
+{{- $frontend := $vals.core.frontend | default dict -}}
+{{- $hpa := default dict $frontend.hpa -}}
+{{- $name := include "rag8s.fullname" . -}}
+{{- $selector := include "rag8s.selectorLabels" . -}}
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "rag8s.fullname" . }}
-  namespace: {{ $ns }}
+  name: {{ $name | quote }}
+  namespace: {{ $ns | quote }}
   labels:
-    {{- include "rag8s.labels" . | nindent 4 }}
+{{ include "rag8s.labels" . | indent 4 }}
     app.kubernetes.io/component: frontend
 spec:
   replicas: {{ default 2 $frontend.replicas }}
   selector:
     matchLabels:
-      {{- include "rag8s.selectorLabels" . | nindent 6 }}
+{{ $selector | indent 6 }}
+      app.kubernetes.io/component: frontend
   template:
     metadata:
       labels:
-        {{- include "rag8s.selectorLabels" . | nindent 8 }}
+{{ $selector | indent 8 }}
         app.kubernetes.io/component: frontend
     spec:
-      serviceAccountName: {{ default "frontend-sa" $frontend.serviceAccount }}
+      serviceAccountName: {{ default "frontend-sa" $frontend.serviceAccount | quote }}
+      {{- if $frontend.nodeSelector }}
+      nodeSelector:
+{{ toYaml $frontend.nodeSelector | indent 8 }}
+      {{- end }}
+      {{- if $frontend.tolerations }}
+      tolerations:
+{{ toYaml $frontend.tolerations | indent 8 }}
+      {{- end }}
+      {{- if $frontend.affinity }}
       affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchExpressions:
-                  - key: app.kubernetes.io/name
-                    operator: In
-                    values: ["{{ include "rag8s.name" . }}"]
-              topologyKey: kubernetes.io/hostname
+{{ toYaml $frontend.affinity | indent 8 }}
+      {{- end }}
       containers:
         - name: frontend
           image: "{{ default "rag8s/frontend" $frontend.image.repository }}:{{ default "latest" $frontend.image.tag }}"
           imagePullPolicy: {{ default "IfNotPresent" $frontend.image.pullPolicy }}
           ports:
             - containerPort: {{ default 8080 $frontend.port }}
+              name: http
+              protocol: TCP
           envFrom:
+            {{- if $frontend.configMap }}
             - configMapRef:
-                name: {{ default "rag8s-config" $frontend.configMap }}
+                name: {{ $frontend.configMap }}
+            {{- end }}
+            {{- if $frontend.secret }}
             - secretRef:
-                name: {{ default "rag8s-secrets" $frontend.secret }}
+                name: {{ $frontend.secret }}
+            {{- end }}
           resources:
-            requests:
-              cpu: {{ default "500m" (default dict $frontend.resources.requests).cpu }}
-              memory: {{ default "1Gi" (default dict $frontend.resources.requests).memory }}
-            limits:
-              cpu: {{ default "1" (default dict $frontend.resources.limits).cpu }}
-              memory: {{ default "2Gi" (default dict $frontend.resources.limits).memory }}
+{{ toYaml (default dict $frontend.resources) | indent 12 }}
           readinessProbe:
             httpGet:
               path: {{ default "/health" $frontend.readiness.path }}
@@ -68,46 +81,48 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ include "rag8s.fullname" . }}-hpa
-  namespace: {{ $ns }}
+  name: {{ printf "%s-hpa" $name | quote }}
+  namespace: {{ $ns | quote }}
   labels:
-    {{- include "rag8s.labels" . | nindent 4 }}
+{{ include "rag8s.labels" . | indent 4 }}
+    app.kubernetes.io/component: frontend
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "rag8s.fullname" . }}
-  minReplicas: {{ default 2 (default dict $frontend.hpa).minReplicas }}
-  maxReplicas: {{ default 10 (default dict $frontend.hpa).maxReplicas }}
+    name: {{ $name | quote }}
+  minReplicas: {{ default 2 $hpa.minReplicas }}
+  maxReplicas: {{ default 10 $hpa.maxReplicas }}
   metrics:
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
-          averageUtilization: {{ default 60 (default dict $frontend.hpa).cpuTargetPercentage }}
+          averageUtilization: {{ default 60 $hpa.cpuTargetPercentage }}
     - type: Resource
       resource:
         name: memory
         target:
           type: Utilization
-          averageUtilization: {{ default 70 (default dict $frontend.hpa).memoryTargetPercentage }}
+          averageUtilization: {{ default 70 $hpa.memoryTargetPercentage }}
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "rag8s.fullname" . }}
-  namespace: {{ $ns }}
+  name: {{ $name | quote }}
+  namespace: {{ $ns | quote }}
   labels:
-    {{- include "rag8s.labels" . | nindent 4 }}
+{{ include "rag8s.labels" . | indent 4 }}
     app.kubernetes.io/component: frontend
 spec:
   type: {{ default "ClusterIP" (default dict $frontend.service).type }}
+  selector:
+{{ $selector | indent 4 }}
+    app.kubernetes.io/component: frontend
   ports:
-    - port: {{ default 80 (default dict $frontend.service).port }}
+    - name: http
+      port: {{ default 80 (default dict $frontend.service).port }}
       targetPort: {{ default 8080 $frontend.port }}
       protocol: TCP
-      name: http
-  selector:
-    {{- include "rag8s.selectorLabels" . | nindent 4 }}

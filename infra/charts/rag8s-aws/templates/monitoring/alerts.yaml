@@ -1,33 +1,61 @@
+{{- /*
+PrometheusRule: monitoring.alerts.groups driven.
+Expected values structure (example):
+monitoring:
+  alerts:
+    enabled: true
+    groups:
+      - name: node.rules
+        interval: "30s"
+        rules:
+          - alert: HighCpu
+            expr: node_cpu_seconds_total{mode!="idle"} > 0.9
+            for: 5m
+            severity: critical
+            summary: "Node CPU is very high"
+            description: "Node {{ $labels.instance }} CPU > 90% for 5m"
+*/ -}}
 {{- $root := . -}}
 {{- $mon := $root.Values.monitoring | default dict -}}
-{{- if not (default false $mon.alerts.enabled) -}}
-{{- /* monitoring alerts disabled -> nothing to render */ -}}
-{{- else -}}
-{{- $groups := $mon.alerts.groups | default list -}}
+{{- $alerts := $mon.alerts | default dict -}}
+{{- if (default false $alerts.enabled) }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
   name: {{ include "rag8s.fullname" $root }}-alerts
-  namespace: {{ default $root.Values.namespaces.monitoring $mon.namespace }}
+  namespace: {{ default (default $root.Values.namespaces.monitoring $alerts.namespace) (include "rag8s.namespace" $root) | quote }}
   labels:
     release: prometheus
-    {{- include "rag8s.labels" $root | nindent 4 }}
+{{ include "rag8s.labels" $root | indent 4 }}
 spec:
   groups:
+    {{- $groups := $alerts.groups | default list -}}
+    {{- if not (len $groups) }}
+    # No alert groups defined (monitoring.alerts.groups is empty)
+    {{- else }}
     {{- range $gi, $g := $groups }}
-    - name: {{ $g.name }}
-      interval: {{ default "30s" $g.interval }}
+    - name: {{ default (printf "group-%d" $gi) $g.name | quote }}
+      interval: {{ default "30s" $g.interval | quote }}
       rules:
-        {{- $rules := $g.rules | default list }}
+        {{- $rules := $g.rules | default list -}}
+        {{- if not (len $rules) }}
+        # no rules in this group
+        {{- else }}
         {{- range $ri, $r := $rules }}
-        - alert: {{ $r.alert }}
+        - alert: {{ $r.alert | quote }}
           expr: {{ $r.expr | quote }}
-          for: {{ default "1m" $r.for }}
+          for: {{ default "1m" $r.for | quote }}
           labels:
-            severity: {{ default "warning" $r.severity }}
+            severity: {{ default "warning" $r.severity | quote }}
           annotations:
+            {{- if $r.summary }}
             summary: {{ $r.summary | quote }}
+            {{- end }}
+            {{- if $r.description }}
             description: {{ $r.description | quote }}
+            {{- end }}
         {{- end }}
+        {{- end }}
+    {{- end }}
     {{- end }}
 {{- end }}
