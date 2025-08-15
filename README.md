@@ -114,51 +114,51 @@ export MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller th
 ```sh 
 
 # Arango / vector index toggles
-export ARANGO_VECTOR_INDEX_ENABLE=true                # false to disable vector ops (read-only or minimal infra)
-export ARANGO_VECTOR_INDEX_TYPE="ivf"                 # choose 'hnsw' (<100k docs), 'ivf' (>=100k), 'ivf+pq' for huge corpora
-export ARANGO_VECTOR_INDEX_MAX_MEMORY_MB=2048         # soft cap for index memory on node; increase with corpus size
+export ARANGO_VECTOR_INDEX_ENABLE=true                # range: true|false; false to disable vector ops (read-only or minimal infra)
+export ARANGO_VECTOR_INDEX_TYPE="ivf"                 # range: 'hnsw'|'ivf'|'ivf+pq'; choose 'hnsw' (<100k docs), 'ivf' (>=100k), 'ivf+pq' for huge corpora
+export ARANGO_VECTOR_INDEX_MAX_MEMORY_MB=2048         # range: 512-65536 MB; soft cap for index memory on node; increase with corpus size
 
 # IVF-specific (only if using ivf)
-export ARANGO_VECTOR_INDEX_IVF_NLIST=1000             # set ~sqrt(N_vectors); increase for very large corpora
-export ARANGO_VECTOR_INDEX_IVF_NPROBE=10              # raise for recall at cost of latency
+export ARANGO_VECTOR_INDEX_IVF_NLIST=1000             # range: 256-16384; set ~sqrt(N_vectors); increase for very large corpora
+export ARANGO_VECTOR_INDEX_IVF_NPROBE=10              # range: 4-128; raise for recall at cost of latency
 
 # PQ (only if using ivf+pq/pq)
-export ARANGO_VECTOR_INDEX_PQ_M=16                    # PQ segments; must divide embedding dim; tune for memory vs accuracy
+export ARANGO_VECTOR_INDEX_PQ_M=16                    # range: 8-32; PQ segments; must divide embedding dim; tune for memory vs accuracy
 
 # HNSW-specific (only if using hnsw)
-export ARANGO_VECTOR_INDEX_HNSW_M=32                  # higher => more memory but higher recall
-export ARANGO_VECTOR_INDEX_HNSW_EFCONSTRUCTION=200    # raise for better index build quality
-export ARANGO_VECTOR_INDEX_HNSW_EFSEARCH=50           # raise for higher query recall (latency ↑)
+export ARANGO_VECTOR_INDEX_HNSW_M=32                  # range: 16-64; higher => more memory but higher recall
+export ARANGO_VECTOR_INDEX_HNSW_EFCONSTRUCTION=200    # range: 100-800; raise for better index build quality
+export ARANGO_VECTOR_INDEX_HNSW_EFSEARCH=50           # range: 40-300; raise for higher query recall (latency ↑)
 
 # FAISS sidecar / local index
-export FAISS_INDEX_PATH="/mnt/faiss/index.ivf"        # local index path (empty if not used)
-export FAISS_INDEX_DIM=768                            # must match embedding model output
-export FAISS_NLIST=256                                # local FAISS nlist; increase for large indices
-export FAISS_NPROBE=10                                # raise for recall at latency cost
+export FAISS_INDEX_PATH="/mnt/faiss/index.ivf"        # range: filesystem path|"empty"; local index path (empty if not used)
+export FAISS_INDEX_DIM=768                            # range: embedding dim; must match embedding model output
+export FAISS_NLIST=256                                # range: 128-16384; local FAISS nlist; increase for large indices
+export FAISS_NPROBE=10                                # range: 1-128; raise for recall at latency cost
 
 # Retrieval fusion weights (tune by devset; relative importance)
-export W_VEC=0.6                                      # raise if domain embeddings are highly accurate
-export W_BM25=0.3                                     # raise if exact keyword matches are critical
-export W_GRAPH=0.1                                    # raise if graph/triplet hits are very high precision
-export W_RERANK=0.5                                   # meaningful only when reranker enabled
+export W_VEC=0.6                                      # range: 0.0-1.0; raise if domain embeddings are highly accurate
+export W_BM25=0.3                                     # range: 0.0-1.0; raise if exact keyword matches are critical
+export W_GRAPH=0.1                                    # range: 0.0-1.0; raise if graph/triplet hits are very high precision
+export W_RERANK=0.5                                   # range: 0.0-1.0; meaningful only when reranker enabled
 
 # Candidate fanout & GeAR
-export N_VEC=15                                       # top-K vector candidates (raise for recall on large corpora)
-export N_BM25=15                                      # top-K BM25 candidates
-export N_GRAPH=5                                      # graph neighbor limit (keep small to control DB load)
-export MAX_GEARS_HOPS=1                               # 1 default; enable 2 behind feature flag for deeper multi-hop
-export GEAR_BEAM_WIDTH=3                              # beam width for GeAR expansion; increase with caution
+export N_VEC=15                                       # range: 5-100; top-K vector candidates (raise for recall on large corpora)
+export N_BM25=15                                      # range: 5-100; top-K BM25 candidates
+export N_GRAPH=5                                      # range: 1-10; graph neighbor limit (keep small to control DB load)
+export MAX_GEARS_HOPS=1                               # range: 1-2; 1 default; enable 2 behind feature flag for deeper multi-hop
+export GEAR_BEAM_WIDTH=3                              # range: 1-5; beam width for GeAR expansion; increase with caution
 
 # Pre-fusion thresholds (filters to reduce noise)
-export VEC_SCORE_THRESH=0.20                          # min vector similarity to keep a candidate (raise for precision)
-export BM25_SCORE_THRESH=1.50                         # min BM25 to keep (raise to filter weak keyword hits)
-export GRAPH_SCORE_THRESH=0.0                         # min graph edge confidence (set >0 if confidences provided)
+export VEC_SCORE_THRESH=0.20                          # range: 0.05-0.40; min vector similarity to keep a candidate (raise for precision)
+export BM25_SCORE_THRESH=1.50                         # range: 0.5-3.0; min BM25 to keep (raise to filter weak keyword hits)
+export GRAPH_SCORE_THRESH=0.0                         # range: 0.0-0.5; min graph edge confidence (set >0 if confidences provided)
 
 # Reranker & metadata boosting
-export USE_RERANKER=true                              # enable only if you accept added latency/cost for higher precision
-export RERANK_BATCH_SIZE=16                           # increase to amortize GPU/CPU when latency allows
-export META_BOOST_FIELD="timestamp"                   # metadata key to bias ranking (e.g., timestamp, source_score)
-export META_BOOST_WEIGHT=0.20                         # 0.0-1.0; raise if metadata should strongly affect ranking
+export USE_RERANKER=true                              # range: true|false; enable only if you accept added latency/cost for higher precision
+export RERANK_BATCH_SIZE=16                           # range: 4-64; increase to amortize GPU/CPU when latency allows
+export META_BOOST_FIELD="timestamp"                   # range: metadata key name; metadata key to bias ranking (e.g., timestamp, source_score)
+export META_BOOST_WEIGHT=0.20                         # range: 0.0-1.0; raise if metadata should strongly affect ranking
 
 ```
 
@@ -343,7 +343,7 @@ RAG8s/
 │   │       │   │   └── networkpolicies.yaml # NetworkPolicies for traffic control
 │   │       │   ├── rayservices/          # RayServe workloads
 │   │       │   │   ├── embedder-reranker.yaml # RayService for embeddings/reranking
-│   │       │   │   └── sglang.yaml       # RayService for LLM serving
+│   │       │   │   └── vllm.yaml         # RayService for LLM serving
 │   │       │   ├── rayjobs/              # Ray batch jobs
 │   │       │   │   └── indexing.yaml     # RayJob for indexing pipeline (CPU provisioner)
 │   │       │   └── karpenter/            # Karpenter provisioners
@@ -375,9 +375,9 @@ RAG8s/
 │   │   ├── requirements-cpu.txt            # ONNX service dependencies
 │   │   └── run.sh                          # Convenience script to start ONNX gRPC server
 │   │  
-│   └── sglang/
-│       ├── Dockerfile                      # GPU-enabled image for SGLang model serving
-│       ├── rayserve-sglang.py              # Ray Serve wrapper for SGLang LLM inference  # observe: logs, metrics
+│   └── vllm/
+│       ├── Dockerfile                      # GPU-enabled image for vllm serving
+│       ├── rayserve-vllm.py                # Ray Serve wrapper for vllm inference  # observe: logs, metrics
 │       └── requirements-gpu.txt            # GPU runtime dependencies (CUDA/pytorch/etc.)
 │
 ├── output.yaml                             # Deployment/output summary produced by infra scripts
@@ -418,7 +418,7 @@ RAG8s/
 | gte-reranker-modernbert-base | English      | 149M   | 8,192                   | Very high (CPU/ONNX) | —            | 598 MiB      | 149 MiB (INT8)      | 1.0 GiB           | —                   |
 | relik-cie-tiny               | English      | 174M   | \~3,000                 | High (CPU)           | 73.8%        | 663.8 MiB    | 165.9 MiB (INT8)    | 0.94 GiB          | —                   |
 | relik-cie-small              | English      | 216M   | \~3,000                 | high (CPU)           | 74.3%        | 824.0 MiB    | 206.0 MiB (INT8)    | 1.40 GiB          | —                   |
-| relik-cie-large              | English      | 467M   | \~3,000                 | Moderate (CPU)       | 75.6%        | 1,781.5 MiB  | 445.4 MiB (INT8)    | 2.43 GiB          | —                   |
+| relik-cie-large              | English      | 467M   | \~3,000                 | low (CPU)       | 75.6%        | 1,781.5 MiB  | 445.4 MiB (INT8)    | 2.43 GiB          | —                   |
 | Qwen3-0.6B-quantized.w4a16   | Multilingual | 600M   | 32,768                  | High (W4A16 AWQ)     | —            | \~2.4 GiB\*  | 860 MiB (W4A16)     | —                 | \~1.1 GiB           |
 | Qwen3-1.7B-quantized.w4a16   | Multilingual | 1.7B   | 32,768                  | High (W4A16 AWQ)     | —            | \~6.8 GiB\*  | 2.0 GiB (W4A16)     | —                 | \~2.7 GiB           |
 | Qwen3-4B-quantized.w4a16     | Multilingual | 4B     | 32,768 (native)         | High (W4A16 AWQ)     | —            | \~16.0 GiB\* | 3.43 GiB (W4A16)    | —                 | \~5.6 GiB           |
@@ -457,12 +457,11 @@ RAG8s/
 
 ---
 
-### 🔹 **\[3] ReLiK-CIE-Tiny**
+### 🔹 **\[3] ReLiK-CIE-tiny(For precomputing triplets, not deployed)**
 
 A compact and efficient **entity + relation extraction** model designed for **Graph-RAG pipelines**. Unlike fast entity-only models (e.g., SpEL, ReFinED), `relik-cie-tiny` can extract both **named entities** and **semantic triplets** (`(head, relation, tail)`), enabling direct construction of **knowledge subgraphs** from raw text.
 
 * Extracts **entities and triplets** in a single pass
-* Suitable for **CPU inference** via ONNX
 * Balanced for **accuracy and runtime performance**
   🔗 [relik-ie/relik-cie-tiny](https://huggingface.co/relik-ie/relik-cie-tiny)
 
@@ -470,22 +469,16 @@ A compact and efficient **entity + relation extraction** model designed for **Gr
 
 ---
 
-### 🔹 **\[4] RedHatAI/Qwen3-4B-W4A16**
+### 🔹 **Qwen3-4B-W4A16 (vLLM Deployment)**
 
-A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (4-bit weights + FP16 activations). Built on **Qwen3-4B**, this variant supports **32,768-token context** natively and achieves performance comparable to models 10× its size (e.g., Qwen2.5-72B). Optimized for **SGLang inference**, it balances **speed, memory efficiency, and accuracy**, running seamlessly on GPUs like A10G, L4, and L40S.
+A compact, high-throughput **instruction-tuned LLM** quantized with **W4A16** (4-bit weights + FP16 activations). Built on **Qwen3-4B**, this variant supports **32,768-token context** natively and achieves performance comparable to models 10× its size (e.g., Qwen2.5-72B). Optimized for **vLLM inference**, it balances **speed, memory efficiency, and accuracy**, running efficiently on GPUs like A10G, L4, and L40S. vLLM fully supports W4A16, awq and MoE models, leveraging CUDA kernels for faster inference (sglang doesnt support these yet) and horizontal scaling.
 
 * Architecture: **Transformer** (Qwen3 series, multilingual)
-* Context Length: **32k tokens** (SGLang-native)
+* Context Length: **32k tokens** (vLLM-native)
 * Quantization: **W4A16 (AWQ)** — 4-bit weights, FP16 activations
-* VRAM Usage: **\~4.8–5.2 GiB** (fits on 24 GiB GPUs with headroom)
+* VRAM Usage: **≈4.8–5.2 GiB** (fits on 24 GiB GPUs with headroom)
 
 🔗 [RedHatAI Qwen3-4B-W4A16](https://huggingface.co/RedHatAI/Qwen3-4B-quantized.w4a16)
-
-> “Even a tiny model like Qwen3-4B can rival the performance of Qwen2.5-72B-Instruct.”
-> — [Qwen3 Blog](https://qwenlm.github.io/blog/qwen3/)
-> — [Thinking-mode](https://qwenlm.github.io/blog/qwen3/#key-features)
-
-> **Use case**: Smaller models (e.g., Qwen3-4B-W4A16 or 8B) fit on a single VM, making them better suited for data-parallel engines like **SGLang**, rather than tensor-parallel systems like **vLLM**.
 
 ---
 
@@ -556,189 +549,3 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **W4A16** (
 [12]: https://instances.vantage.sh/aws/ec2/c8gd.48xlarge
 
 </details>
-
-# EXAMPLES
-
-### Qdrant Payload Object (Point in Vector Database)
-
-* **Purpose:**
-  The payload object stores both the **vector embedding** of the text chunk and its **associated metadata** within Qdrant, enabling efficient similarity search combined with rich filtering.
-
-* **Embedding:**
-  The numeric array (e.g., `[0.0234, -0.1457, 0.3782, ...]`) is a fixed-length dense vector representing semantic meaning extracted by a transformer model. This vector enables approximate nearest neighbor (ANN) search for relevance ranking.
-
-* **Metadata (Payload):**
-  Key-value pairs store important structured information alongside the vector. This includes:
-
-  * `chunk_id`, `document_id` to uniquely identify the source chunk.
-  * `chunk_type` describing the nature of the content (e.g., "page").
-  * `text` snippet or summary (optional or truncated) for quick reference.
-  * Source details like `file_type`, `source_path`, `page_number` to trace origin.
-  * Timestamp and tags (`occupation`, `NCO`, `tailor`) for filtering results by content type or category.
-  * Linked entity IDs (`Q7531`, `Q1251134`) to connect with knowledge graph nodes or perform hybrid vector-graph queries.
-
-* **Filtering & Search:**
-  Payload fields allow **metadata filtering** combined with vector similarity. For example, retrieving points with tag `"occupation"` and embedding closest to the query vector representing "tailor".
-
-* **Use Case in NCO:**
-  Storing the NCO chunk as a Qdrant point means you can search for occupations semantically (e.g., "dressmaker" or regional terms for "tailor") even if keyword search fails due to synonyms or multilingual variations, while still filtering precisely by category or document source.
-
-* **Integration:**
-  This payload object serves as a **bridge between dense vector search and structured metadata filtering**, enabling hybrid retrieval systems that leverage both unstructured semantic similarity and structured knowledge.
-
----
-
-
-
-```sh
-{
-  "chunk_id": "e4f72d3a9c5b4f17_5",                           // Unique chunk ID: <document_hash>_<chunk_index> (1-based)
-  "document_id": "e4f72d3a9c5b4f17",                         // Unique document ID (128-bit hash of file path + size)
-  "chunk_type": "page",                                       // Type of content: "paragraph", "heading", "section", "table", "page", etc.
-
-  "text": "## Page 194\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n7523.0200 Wood Turner, Machine 7423.15\n\n7523.0300 Wood, Turner Hand 7423.20\n\n7523.0400 Shaper Wood 7423.25\n\n7523.0500 Router, Wood 7423.30\n\n7523.0600 Planer, Wood 7423.35\n\n7523.0700 Four Cutter 7423.40\n\n7523.0800 Wood Sawyer, Hand 7423.42\n\n7523.0900 Moulder, Wood 7423.45\n\n7523.1000 Mortiser Operator 7423.50\n\n7523.1100 Tennoning Machine Operator 7423.55\n\n7523.1200 Jointer Machine Operator 7423.60\n\n7523.1300 Driller Wood 7423.65\n\n7523.1400 Dowell Machine Operator 7423.70\n\n7523.1500 Wood Wool Machine Operator 7423.80\n\n7523.1600 Wood Carver, Machine 8241.10\n\n7523.1700 Fret Saw Machine Operator 8241.20\n\n7523.1800 Sander Operator 8241.30\n\n7523.9900 Wood Working Machine Setters and Setter 8241.90\n\nOperators, Others\n\nGroup 753 Garment and Related Trades Workers\n\nFamily 7531 Tailors, Dressmakers, Furriers and Hatters\n\n7531.0100 Tailor, General 7433.10\n\nVOLUME I 182",
-
-  "embedding": [0.0234, -0.1457, 0.3782, 0.0923, -0.0567,..]  // Vector embedding (array of floats); null if not yet computed
-
-  "source": {
-    "file_type": "application/pdf",                           // MIME type preferred (e.g., "application/pdf", "text/html", "audio/mpeg")
-    "source_path": "s3://mospi-data/data/raw/nco_2015_occupations.pdf",  // Full s3 path to original source
-    "page_number": 194,                                         // For paged formats like PDF/ePub; null otherwise
-    "time": [null, null],                                     // [start_time, end_time] in seconds for audio/video; nulls otherwise
-    "line_range": null,                                       // For plain/tabular text: [start_line, end_line]; null otherwise
-    "bbox": null                                              // For visual formats: [x0, y0, x1, y1] in pixel coordinates; null otherwise
-  },
-
-  "graph": {
-    "graph_node_id": "e4f72d3a9c5b4f17_5",                   // Same as chunk_id (recommended)
-    "parent_id": "e4f72d3a9c5b4f17_page5",                   // Parent node ID (e.g., page, section, table)
-    "previous_id": "e4f72d3a9c5b4f17_4",                     // Optional: previous chunk
-    "next_id": "e4f72d3a9c5b4f17_6"                          // Optional: next chunk
-  },
-
-  "metadata": {
-    "timestamp": "2025-08-03T12:15:27Z",                     // UTC ISO timestamp of chunk creation/parsing
-    "tags": ["occupation", "tailor", "NCO", "classification"],  // High-level content tags (semantic or manual)
-    "layout_tags": ["heading", "paragraph", "list"]           // Structural tags (e.g., "heading", "table", etc.)
-  },
-
-  "entities": [
-    "Q7531",                                                  // Example Wikidata ID for Tailor occupation (hypothetical)
-    "Q1251134"                                                // Wikidata ID for National Classification of Occupations (example)
-  ],                                                         // Optional: Linked entity IDs (Wikidata, etc.) or null if not yet computed
-
-  "triplets": [                                              // Extracted subject-predicate-object relations
-    {
-      "subject": "Tailor (General)", "predicate": "hasNCOCode", "object": "7531.0100"
-    },
-    {
-      "subject": "Tailor (General)","predicate": "belongsToCategory", "object": "Tailors, Dressmakers, Furriers, and Hatters"
-    },
-    {
-      "subject": "Tailor, Tent (Machine)", "predicate": "hasNCOCode", "object": "7534.0100"
-    },
-    {
-      "subject": "Tailor (General)", "predicate": "hasSynonyms", "object": "Seamstress, Dressmaker, Garment Maker, Costume Maker"
-    }
-  ]
-}
-```
-
-
-### Corresponding ArangoDB Graph Data Model Representing NCO Tailor Chunk and Linked Entities
-* The **chunk document** holds the main text and metadata with embedding vector stored for similarity search.
-* **Entities** are individual occupational concepts or classifications, stored separately to normalize data.
-* **Edges** explicitly represent relations such as "mentions", "classifiedBy", or attribute predicates.
-* This graph structure enables **multi-hop queries** and semantic traversals beyond keyword matching.
-
----
-
-#### 1. Chunk Document (`chunks` collection)
-
-```json
-{
-  "_key": "e4f72d3a9c5b4f17_5",
-  "chunk_id": "e4f72d3a9c5b4f17_5",
-  "document_id": "e4f72d3a9c5b4f17",
-  "chunk_type": "page",
-  "text": "## Page 194\n\nNational Classification of Occupations – 2015 Concordance Table\n\nNCO 2015 NCO 2004\n\n7523.0200 Wood Turner, Machine 7423.15\n\n7523.0300 Wood, Turner Hand 7423.20\n\n7523.0400 Shaper Wood 7423.25\n\n7523.0500 Router, Wood 7423.30\n\n7523.0600 Planer, Wood 7423.35\n\n7523.0700 Four Cutter 7423.40\n\n7523.0800 Wood Sawyer, Hand 7423.42\n\n7523.0900 Moulder, Wood 7423.45\n\n7523.1000 Mortiser Operator 7423.50\n\n7523.1100 Tennoning Machine Operator 7423.55\n\n7523.1200 Jointer Machine Operator 7423.60\n\n7523.1300 Driller Wood 7423.65\n\n7523.1400 Dowell Machine Operator 7423.70\n\n7523.1500 Wood Wool Machine Operator 7423.80\n\n7523.1600 Wood Carver, Machine 8241.10\n\n7523.1700 Fret Saw Machine Operator 8241.20\n\n7523.1800 Sander Operator 8241.30\n\n7523.9900 Wood Working Machine Setters and Setter 8241.90\n\nOperators, Others\n\nGroup 753 Garment and Related Trades Workers\n\nFamily 7531 Tailors, Dressmakers, Furriers and Hatters\n\n7531.0100 Tailor, General 7433.10\n\nVOLUME I 182",
-
-  "embedding": [0.0234, -0.1457, 0.3782, 0.0923, -0.0567, ...],
-  "source": {
-    "file_type": "application/pdf",
-    "source_path": "s3://mospi-data/data/raw/nco_2025_occupations.pdf",
-    "page_number": 194,
-    "time": [null, null],
-    "line_range": null,
-    "bbox": null
-  },
-  "metadata": {
-    "timestamp": "2025-08-03T12:15:27Z",
-    "tags": ["occupation", "tailor", "NCO", "classification"],
-    "layout_tags": ["heading", "paragraph", "list"]
-  }
-}
-```
-
----
-
-#### 2. Entity Documents (`entities` collection)
-
-```json
-{
-  "_key": "Q7531",
-  "wikidata_id": "Q7531",
-  "label": "Tailor (General)",
-  "aliases": ["Seamstress", "Dressmaker", "Garment Maker", "Costume Maker"]
-}
-```
-
-```json
-{
-  "_key": "Q1251134",
-  "wikidata_id": "Q1251134",
-  "label": "National Classification of Occupations",
-  "description": "Standard classification of occupations in India"
-}
-```
-
-#### 3. Edges Linking Chunk to Entities (`chunkEntityEdges` edge collection)
-
-```json
-{
-  "_from": "chunks/e4f72d3a9c5b4f17_5",
-  "_to": "entities/Q7531",
-  "relation": "mentions"
-}
-```
-
-```json
-{
-  "_from": "chunks/e4f72d3a9c5b4f17_5",
-  "_to": "entities/Q1251134",
-  "relation": "sourceClassification"
-}
-```
-
----
-
-#### 4. Entity Relations (`entityRelationEdges` edge collection)
-
-```json
-{
-  "_from": "entities/Q7531",
-  "_to": "entities/Q1251134",
-  "predicate": "classifiedBy"
-}
-```
-
-```json
-{
-  "_from": "entities/Q7531",
-  "_to": null,
-  "predicate": "hasNCOCode",
-  "object": "7531.0100"
-}
-```
-
----
