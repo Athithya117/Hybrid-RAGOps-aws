@@ -4,8 +4,8 @@ set -euo pipefail
 # === CONFIGURATION ===
 : "${DOCKER_USERNAME:=rag8s}"                                # Set default DockerHub username
 : "${DOCKER_PASSWORD:?Docker password/token not provided}"   # Fail if password not set
-DOCKER_REPO_NAME="${DOCKER_USERNAME}/rag8s-onnx-embedder-reranker-cpu"
-DOCKER_IMAGE_TAG="v1"
+DOCKER_REPO_NAME="${DOCKER_USERNAME}/rag8s-onnx-embedder-reranker-cpu-amd64"
+DOCKER_IMAGE_TAG="gte-modernbert"
 
 # === BUILD IMAGE ===
 echo "[*] Building image: $DOCKER_REPO_NAME:$DOCKER_IMAGE_TAG"

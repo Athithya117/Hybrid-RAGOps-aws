@@ -29,17 +29,19 @@ def get_env(name: str, default=None, required: bool = False, cast=None):
     return val
 
 # ---------------- Config ----------------
-HF_HOME = get_env("HF_HOME", "/opt/models/hf")
+# Set HF_HOME to where Dockerfile places downloaded model files by default
+HF_HOME = get_env("HF_HOME", "/app/models/hf")
 MODEL_EMBEDDER_NAME = get_env("MODEL_EMBEDDER_NAME", required=True)
 MODEL_RERANKER_NAME = get_env("MODEL_RERANKER_NAME", required=True)
 
+# Allow explicit ONNX paths; otherwise compute plausible defaults that match the image layout
 EMBEDDER_ONNX_PATH = get_env(
     "EMBEDDER_ONNX_PATH",
-    f"{HF_HOME}/onnx/{MODEL_EMBEDDER_NAME.split('/')[-1]}/model.onnx"
+    f"{HF_HOME}/{MODEL_EMBEDDER_NAME.split('/')[-1]}/onnx/model_int8.onnx"
 )
 RERANKER_ONNX_PATH = get_env(
     "RERANKER_ONNX_PATH",
-    f"{HF_HOME}/onnx/{MODEL_RERANKER_NAME.split('/')[-1]}/model.onnx"
+    f"{HF_HOME}/{MODEL_RERANKER_NAME.split('/')[-1]}/onnx/model_int8.onnx"
 )
 
 OMP_NUM_THREADS = get_env("OMP_NUM_THREADS", "1", cast=int)
@@ -81,20 +83,20 @@ def make_session(path: str) -> onnxruntime.InferenceSession:
 )
 class EmbedderServicer(grpc_pb2_grpc.EmbedServiceServicer):
     def __init__(self):
+        logger.info("Loading embedder tokenizer from %s (cache_dir=%s)", MODEL_EMBEDDER_NAME, HF_HOME)
         self.tokenizer = PreTrainedTokenizerFast.from_pretrained(
             MODEL_EMBEDDER_NAME, cache_dir=HF_HOME, trust_remote_code=True
         )
         assert self.tokenizer.is_fast, "Fast tokenizer not loaded — install 'tokenizers'"
+        logger.info("Loading embedder ONNX from %s", EMBEDDER_ONNX_PATH)
         self.session = make_session(EMBEDDER_ONNX_PATH)
 
     @serve.batch(max_batch_size=BATCH_MAX_SIZE, batch_wait_timeout_s=BATCH_WAIT_TIMEOUT_S)
     async def Embed(self, requests: List[grpc_pb2.EmbedRequest]) -> grpc_pb2.EmbedResponse:
-        # Flatten texts from batched requests
         all_texts = [t for req in requests for t in req.texts]
         enc = self.tokenizer(all_texts, padding=True, truncation=True, return_tensors="np")
         outputs = self.session.run(None, {"input_ids": enc["input_ids"], "attention_mask": enc["attention_mask"]})
         embeddings = outputs[0].mean(axis=1).tolist()
-        # Map back to response per request if needed (here simply return concatenated)
         return grpc_pb2.EmbedResponse(embeddings=embeddings)
 
 @serve.deployment(
@@ -103,10 +105,12 @@ class EmbedderServicer(grpc_pb2_grpc.EmbedServiceServicer):
 )
 class RerankerServicer(grpc_pb2_grpc.RerankServiceServicer):
     def __init__(self):
+        logger.info("Loading reranker tokenizer from %s (cache_dir=%s)", MODEL_RERANKER_NAME, HF_HOME)
         self.tokenizer = PreTrainedTokenizerFast.from_pretrained(
             MODEL_RERANKER_NAME, cache_dir=HF_HOME, trust_remote_code=True
         )
         assert self.tokenizer.is_fast, "Fast tokenizer not loaded — install 'tokenizers'"
+        logger.info("Loading reranker ONNX from %s", RERANKER_ONNX_PATH)
         self.session = make_session(RERANKER_ONNX_PATH)
 
     @serve.batch(max_batch_size=BATCH_MAX_SIZE, batch_wait_timeout_s=BATCH_WAIT_TIMEOUT_S)

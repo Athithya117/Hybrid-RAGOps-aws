@@ -6,4 +6,4 @@ dependencies:
   repository: https://arangodb.github.io/kube-arangodb
   version: 1.2.24
 digest: sha256:2030a31f9afb09217b1d281c716712a10c8011b427b9daf41ee6e9b5699f7067
-generated: "2025-08-14T07:41:58.755229438+05:30"
+generated: "2025-08-15T12:38:24.248602586+05:30"

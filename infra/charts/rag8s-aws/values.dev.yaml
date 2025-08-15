@@ -1,6 +1,6 @@
-# values.yaml - final
+# Dev values - minimal defaults. All major features disabled by default.
+# Keeps minimal resource requests so the whole stack (if enabled) stays well under ~16 GiB RAM.
 global:
-  namespace: ""
   labels: {}
 
 aws:
@@ -29,8 +29,10 @@ karpenter:
       workload: gpu
       env: dev
     limits:
-      cpu: "256"
-      memory: "1024Gi"
+      # Reduced from massive values to something reasonable for a small dev cluster.
+      # These are cluster-level limits for autoscaler decisions; keep them small for dev.
+      cpu: "64"
+      memory: "256Gi"
     ttlSecondsAfterEmpty: 60
   cpu:
     weight: 40
@@ -44,78 +46,71 @@ karpenter:
       workload: cpu
       env: dev
     limits:
-      cpu: "512"
-      memory: "2048Gi"
+      cpu: "64"
+      memory: "256Gi"
     ttlSecondsAfterEmpty: 60
 
 ray:
   enabled: true
   image:
     repository: "rayproject/ray"
-    tag: "2.10.0"
+    tag: "2.48.0"
     pullPolicy: IfNotPresent
   head:
+    # reasonable tiny head to run ray control plane in dev
     cpu:
-      request: "1000m"
-      limit: "2000m"
+      request: "200m"
+      limit: "500m"
     memory:
-      request: "4Gi"
-      limit: "8Gi"
+      request: "512Mi"
+      limit: "1Gi"
 
 rayservices:
   vllm:
-    enabled: true
+    enabled: false
     name: rag8s-vllm-serve
     namespace: llm
     serviceAccountName: ray-inference-sa
     modelMountPath: "/opt/models"
     runtimeWorkingDir: "/app"
     importPath: "vllm.entrypoints.openai.api_server:app"
-    env:
-      - name: LOG_LEVEL
-        value: "INFO"
-      - name: OTEL_SERVICE_NAME
-        value: "vllm-service"
+    env: []
     imagePullSecrets: []
     ray:
-      version: "2.10.0"
+      version: "2.48.0"
       image:
         repository: "rayproject/ray"
-        tag: "2.10.0"
+        tag: "2.48.0"
         pullPolicy: IfNotPresent
       head:
         cpu:
-          request: "1000m"
-          limit: "2000m"
+          request: "300m"
+          limit: "1"
         memory:
-          request: "4Gi"
-          limit: "8Gi"
+          request: "1Gi"
+          limit: "2Gi"
         nodeSelector: {}
         tolerations: []
       workers:
+        # keep a single worker capped to 1 replica for dev - increase if you have more memory
         cpu:
-          request: "1000m"
-          limit: "2000m"
+          request: "500m"
+          limit: "1"
         memory:
-          request: "8Gi"
-          limit: "16Gi"
+          request: "2Gi"
+          limit: "4Gi"
         gpu:
-          request: 1
-          limit: 1
-        minReplicas: 1
-        maxReplicas: 4
+          request: 0
+          limit: 0
+        minReplicas: 0
+        maxReplicas: 1
     worker:
-      nodeSelector:
-        karpenter.sh/provisioner-name: "gpu-provisioner"
-      tolerations:
-        - key: "nvidia.com/gpu"
-          operator: "Exists"
-          effect: "NoSchedule"
+      nodeSelector: {}
+      tolerations: []
       affinity: {}
       annotations: {}
     head:
-      nodeSelector:
-        karpenter.sh/provisioner-name: "cpu-provisioner"
+      nodeSelector: {}
       tolerations: []
       affinity: {}
       annotations: {}
@@ -124,91 +119,60 @@ rayservices:
         repository: "yourregistry/vllm"
         tag: "latest"
         pullPolicy: IfNotPresent
-      model: "meta-llama/Llama-2-13b-chat-hf"
+      model: ""
       tensorParallelSize: 1
       args: []
       env: []
     service:
-      numGPUs: 1
+      numGPUs: 0
       autoscale:
-        minReplicas: 1
-        maxReplicas: 4
+        minReplicas: 0
+        maxReplicas: 1
+        # targetRequestsPerReplica irrelevant for single-replica dev but left conservative
         targetRequestsPerReplica: 5
 
   onnxEmbedderReranker:
-    enabled: true
-    name: rag8s-embedder-reranker-serve
-    namespace: llm
+    enabled: false
+    name: rag8s-embedder-reranker-rayserve-cpu-amd64
+    namespace: inference
     serviceAccountName: ray-inference-sa
     ray:
-      version: "2.10.0"
+      version: "2.48.0"
       image:
-        repository: rayproject/ray
-        tag: "2.10.0"
+        repository: "rag8s/rag8s-onnx-embedder-reranker-cpu-amd64"
+        tag: "gte-modernbert"
         pullPolicy: IfNotPresent
       head:
         cpu:
-          request: "500m"
-          limit: "1"
+          request: "100m"
+          limit: "250m"
         memory:
-          request: "1Gi"
-          limit: "2Gi"
-        nodeSelector:
-          karpenter.sh/provisioner-name: cpu-provisioner
-          kubernetes.io/arch: amd64
-        tolerations: []
+          request: "128Mi"
+          limit: "256Mi"
       workers:
         cpu:
-          request: "500m"
-          limit: "1"
+          request: "250m"
+          limit: "500m"
         memory:
-          request: "1Gi"
+          request: "512Mi"
           limit: "1Gi"
-        minReplicas: 1
-        maxReplicas: 4
-        nodeSelector:
-          karpenter.sh/provisioner-name: cpu-provisioner
-          kubernetes.io/arch: amd64
-        tolerations: []
-    imagePullSecrets: []
-    modelMountPath: "/opt/models"
-    useHostPath: false
-    hostPath: ""
-    usePVC: false
-    modelPVC: ""
-    env: {}
-    head:
-      annotations: {}
-      nodeSelector:
-        karpenter.sh/provisioner-name: cpu-provisioner
-        kubernetes.io/arch: amd64
-      tolerations: []
-      affinity: {}
-    worker:
-      minReplicas: 1
-      maxReplicas: 4
-      annotations: {}
-      nodeSelector:
-        karpenter.sh/provisioner-name: cpu-provisioner
-        kubernetes.io/arch: amd64
-      tolerations: []
-      affinity: {}
+        minReplicas: 0
+        maxReplicas: 1
     embedder:
       numCPUs: 1
       autoscale:
-        minReplicas: 1
-        maxReplicas: 4
-        targetRequestsPerReplica: 10
+        minReplicas: 0
+        maxReplicas: 1
     reranker:
       numCPUs: 1
       autoscale:
-        minReplicas: 1
-        maxReplicas: 2
-        targetRequestsPerReplica: 5
+        minReplicas: 0
+        maxReplicas: 1
     importPath: "rayserve-embedder-reranker"
     runtimeWorkingDir: "/app"
 
 rayjobs:
+  enabled: false
   namespace: indexing
   indexing:
     name: rag8s-indexing
@@ -220,21 +184,21 @@ rayjobs:
       - pandas
       - arango
     ttlSecondsAfterFinished: 3600
-    rayVersion: "2.10.0"
-    workerReplicas: 1
-    workerMin: 1
+    rayVersion: "2.48.0"
+    workerReplicas: 0
+    workerMin: 0
     workerMax: 1
     resources:
       head:
-        cpu: "250m"
+        cpu: "200m"
         memory: "512Mi"
       worker:
-        cpu: "250m"
-        memory: "512Mi"
+        cpu: "500m"
+        memory: "1Gi"
 
-# Keep top-level arangodb for any templates referencing it directly
+# Top-level Arango kept, but disabled for dev and trimmed to tiny footprint
 arangodb:
-  enabled: true
+  enabled: false
   image:
     repository: "arangodb/arangodb"
     tag: "3.12.5"
@@ -242,38 +206,34 @@ arangodb:
   authentication:
     jwtSecretName: "arango-cluster-jwt"
   agents:
-    count: 3
+    count: 1
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+  coordinators:
+    count: 1
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "512Mi"
+  dbservers:
+    count: 1
     resources:
       requests:
         cpu: "500m"
         memory: "1Gi"
-  coordinators:
-    count: 2
-    resources:
-      requests:
-        cpu: "1000m"
-        memory: "2Gi"
-  dbservers:
-    count: 3
-    resources:
-      requests:
-        cpu: "4000m"
-        memory: "16Gi"
     podTemplate:
-      nodeSelector:
-        node.kubernetes.io/instance-type: "c8gd"
-      tolerations:
-        - key: "node.kubernetes.io/unschedulable"
-          operator: "Exists"
-          effect: "NoSchedule"
+      nodeSelector: {}
+      tolerations: []
   storage:
     engine: "rocksdb"
     persistentVolume:
-      storageClassName: "local-nvme"
-      size: "500Gi"
+      storageClassName: "standard"
+      size: "10Gi"
   collectionsDefaults:
-    numberOfShards: 8
-    replicationFactor: 3
+    numberOfShards: 1
+    replicationFactor: 1
 
 argocd:
   enabled: false
@@ -290,13 +250,13 @@ argocd:
 core:
   pdb:
     embedderReranker:
-      enabled: false
+      enabled: true
       minAvailable: 1
     vllm:
-      enabled: false
-      minAvailable: 0
+      enabled: true
+      minAvailable: 1
     frontend:
-      enabled: false
+      enabled: true
       minAvailable: 1
     arangodb:
       enabled: true
@@ -308,38 +268,40 @@ core:
   quotas:
     inference:
       enabled: true
-      requestsCpu: "250m"
-      requestsMemory: "512Mi"
-      limitsCpu: "500m"
-      limitsMemory: "1Gi"
+      # per-pod request: plan for somewhat heavy inference pods but allow only 2 pods at once
+      requestsCpu: "500m"
+      requestsMemory: "2Gi"
+      limitsCpu: "1"
+      limitsMemory: "4Gi"
       pods: "2"
       requestsGPUs: "0"
+
     indexing:
-      enabled: true
-      requestsCpu: "500m"
-      requestsMemory: "512Mi"
-      limitsCpu: "1"
-      limitsMemory: "1Gi"
-      pods: "1"
+      enabled: false
+      requestsCpu: "50m"
+      requestsMemory: "128Mi"
+      limitsCpu: "100m"
+      limitsMemory: "256Mi"
+      pods: "0"
     monitoring:
       enabled: false
-      requestsCpu: "100m"
-      requestsMemory: "256Mi"
-      limitsCpu: "250m"
-      limitsMemory: "512Mi"
-      pods: "1"
+      requestsCpu: "50m"
+      requestsMemory: "128Mi"
+      limitsCpu: "100m"
+      limitsMemory: "256Mi"
+      pods: "0"
     stateful:
-      enabled: true
-      requestsCpu: "250m"
-      requestsMemory: "256Mi"
-      limitsCpu: "500m"
-      limitsMemory: "512Mi"
-      pods: "1"
-      pvcs: "1"
+      enabled: false
+      requestsCpu: "50m"
+      requestsMemory: "128Mi"
+      limitsCpu: "100m"
+      limitsMemory: "256Mi"
+      pods: "0"
+      pvcs: "0"
       storage: "1Gi"
 
   arangodb:
-    enabled: true
+    enabled: false
     image:
       repository: "arangodb/arangodb"
       tag: "3.12.5"
@@ -347,41 +309,38 @@ core:
     authentication:
       jwtSecretName: "arango-cluster-jwt"
     agents:
-      count: 3
+      count: 1
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "256Mi"
+    coordinators:
+      count: 1
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "512Mi"
+    dbservers:
+      count: 1
       resources:
         requests:
           cpu: "500m"
           memory: "1Gi"
-    coordinators:
-      count: 2
-      resources:
-        requests:
-          cpu: "1000m"
-          memory: "2Gi"
-    dbservers:
-      count: 3
-      resources:
-        requests:
-          cpu: "4000m"
-          memory: "16Gi"
       podTemplate:
-        nodeSelector:
-          node.kubernetes.io/instance-type: "c8gd"
-        tolerations:
-          - key: "node.kubernetes.io/unschedulable"
-            operator: "Exists"
-            effect: "NoSchedule"
+        nodeSelector: {}
+        tolerations: []
     storage:
       engine: "rocksdb"
       persistentVolume:
-        storageClassName: "local-nvme"
-        size: "500Gi"
+        storageClassName: "standard"
+        size: "10Gi"
     collectionsDefaults:
-      numberOfShards: 8
-      replicationFactor: 3
+      numberOfShards: 1
+      replicationFactor: 1
 
   frontend:
-    replicas: 2
+    enabled: false
+    replicas: 1
     image:
       repository: "rag8s/frontend"
       tag: "latest"
@@ -399,14 +358,14 @@ core:
       periodSeconds: 20
     resources:
       requests:
-        cpu: "500m"
-        memory: "1Gi"
+        cpu: "200m"
+        memory: "256Mi"
       limits:
-        cpu: "1"
-        memory: "2Gi"
+        cpu: "500m"
+        memory: "512Mi"
     hpa:
-      minReplicas: 2
-      maxReplicas: 10
+      minReplicas: 0
+      maxReplicas: 1
       cpuTargetPercentage: 60
       memoryTargetPercentage: 70
     service:
@@ -417,29 +376,28 @@ core:
     serviceAccount: frontend-sa
 
   valkey:
-    enabled: true
-    replicas: 1
+    enabled: false
+    replicas: 0
     serviceAccount: "default"
     image:
       repository: "valkey/valkey"
       tag: "latest"
       pullPolicy: IfNotPresent
-    maxmemory: "2gb"
+    maxmemory: "512mb"
     appendonly: "no"
     persistence:
       enabled: false
     resources:
       requests:
-        cpu: "200m"
-        memory: "512Mi"
+        cpu: "100m"
+        memory: "128Mi"
       limits:
-        cpu: "500m"
-        memory: "1Gi"
+        cpu: "250m"
+        memory: "256Mi"
     pod:
-      replicas: 1
+      replicas: 0
       stateful: false
-    nodeSelector:
-      storage: nvme
+    nodeSelector: {}
     tolerations: []
     affinity: {}
 
@@ -465,13 +423,13 @@ serviceAccounts:
 network:
   traefik:
     namespace: ""
-    replicas: 1
+    replicas: 0
     image:
       repository: traefik
       tag: v3.1
       pullPolicy: IfNotPresent
     service:
-      type: LoadBalancer
+      type: ClusterIP
       ports:
         - name: web
           port: 80
@@ -480,7 +438,13 @@ network:
           port: 443
           targetPort: 8443
       annotations: {}
-    resources: {}
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "250m"
+        memory: "256Mi"
     nodeSelector: {}
     tolerations: []
     affinity: {}
@@ -494,36 +458,30 @@ network:
     rules: []
 
 monitoring:
-  enabled: true
+  enabled: false
   namespace: monitoring
   scrapeInterval: "30s"
   prometheus:
-    enabled: true
+    enabled: false
     serviceMonitor:
-      enabled: true
+      enabled: false
       interval: "30s"
   grafana:
-    enabled: true
+    enabled: false
     prometheusURL: "http://prometheus.monitoring.svc.cluster.local:9090"
-    dashboards:
-      ray-overview.json: "dashboards/ray-overview.json"
-      arangodb-overview.json: "dashboards/arangodb-overview.json"
-      eks-cluster.json: "dashboards/eks-cluster.json"
-      traefik.json: "dashboards/traefik.json"
-    datasources:
-      - name: Prometheus
-        type: prometheus
-        url: "http://prometheus.monitoring.svc.cluster.local:9090"
+    dashboards: {}
+    datasources: []
   serviceMonitors: []
   alerts:
-    enabled: true
+    enabled: false
     groups: []
 
 arangobackup:
+  enabled: false
   schedule: "0 */6 * * *"
-  successfulJobsHistoryLimit: 3
-  failedJobsHistoryLimit: 5
-  backoffLimit: 2
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  backoffLimit: 1
   image:
     repository: "arangodb/arangodb"
     tag: "3.11.8"
@@ -531,50 +489,48 @@ arangobackup:
   resources:
     requests:
       cpu: "100m"
-      memory: "256Mi"
+      memory: "128Mi"
     limits:
-      cpu: "500m"
-      memory: "1Gi"
+      cpu: "250m"
+      memory: "256Mi"
   pvcClaim: "arangodb-backup-pvc"
   rcloneSecret: "rclone-config"
   serviceAccount: "default"
-  nodeSelector:
-    storage: nvme
+  nodeSelector: {}
   tolerations: []
   aws:
     region: "us-east-1"
-    bucket: "my-arangodb-backups"
+    bucket: ""
     prefix: "arangodb"
   arango:
     endpoint: "tcp://arangodb.default.svc.cluster.local:8529"
     secret: "arangodb-credentials"
   retention:
-    days: 30
+    days: 7
 
 valkey:
-  enabled: true
-  replicas: 1
+  enabled: false
+  replicas: 0
   serviceAccount: "default"
   image:
     repository: "valkey/valkey"
     tag: "latest"
     pullPolicy: IfNotPresent
-  maxmemory: "2gb"
+  maxmemory: "512mb"
   appendonly: "no"
   persistence:
     enabled: false
   resources:
     requests:
-      cpu: "200m"
-      memory: "512Mi"
+      cpu: "100m"
+      memory: "128Mi"
     limits:
-      cpu: "500m"
-      memory: "1Gi"
+      cpu: "250m"
+      memory: "256Mi"
   pod:
-    replicas: 1
+    replicas: 0
     stateful: false
-  nodeSelector:
-    storage: nvme
+  nodeSelector: {}
   tolerations: []
   affinity: {}
 

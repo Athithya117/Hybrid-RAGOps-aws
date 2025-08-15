@@ -30,4 +30,3 @@ message Pair {
 message RerankResponse {
   repeated float scores = 1;
 }
-

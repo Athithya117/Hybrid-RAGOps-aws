@@ -1,0 +1,244 @@
+# Final cleaned manifest
+
+# Namespaces
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: "arangodb"
+  labels:
+    name: "arangodb"
+    workload-type: "arangodb"
+    env: "production"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: "indexing"
+  labels:
+    name: "indexing"
+    workload-type: "indexing"
+    env: "production"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: "inference"
+  labels:
+    name: "inference"
+    workload-type: "inference"
+    env: "production"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: "monitoring"
+  labels:
+    name: "monitoring"
+    workload-type: "monitoring"
+    env: "production"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: "networking"
+  labels:
+    name: "networking"
+    workload-type: "networking"
+    env: "production"
+---
+# ServiceAccounts
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: inference-sa
+  namespace: "inference"
+  labels:
+    app.kubernetes.io/name: rag8s-aws
+    app.kubernetes.io/instance: rag8s-embedder-reranker-dev
+    app.kubernetes.io/version: "0.0.2"
+    helm.sh/chart: rag8s-aws-0.0.2
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: monitoring-sa
+  namespace: "inference"
+  labels:
+    app.kubernetes.io/name: rag8s-aws
+    app.kubernetes.io/instance: rag8s-embedder-reranker-dev
+    app.kubernetes.io/version: "0.0.2"
+    helm.sh/chart: rag8s-aws-0.0.2
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: frontend-sa
+  namespace: "inference"
+  labels:
+    app.kubernetes.io/name: rag8s-aws
+    app.kubernetes.io/instance: rag8s-embedder-reranker-dev
+    app.kubernetes.io/version: "0.0.2"
+    helm.sh/chart: rag8s-aws-0.0.2
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: "ray-inference-sa"
+  namespace: "inference"
+  labels:
+    app.kubernetes.io/name: rag8s-aws
+    app.kubernetes.io/instance: rag8s-embedder-reranker-dev
+    app.kubernetes.io/version: "0.0.2"
+    helm.sh/chart: rag8s-aws-0.0.2
+---
+# RBAC: Role for frontend reader
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: frontend-reader
+  namespace: "inference"
+  labels:
+    app.kubernetes.io/name: rag8s-aws
+    app.kubernetes.io/instance: rag8s-embedder-reranker-dev
+    app.kubernetes.io/version: "0.0.2"
+    helm.sh/chart: rag8s-aws-0.0.2
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - secrets
+      - services
+      - endpoints
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+---
+# RoleBinding: frontend-sa -> frontend-reader
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: frontend-reader-binding
+  namespace: "inference"
+  labels:
+    app.kubernetes.io/name: rag8s-aws
+    app.kubernetes.io/instance: rag8s-embedder-reranker-dev
+    app.kubernetes.io/version: "0.0.2"
+    helm.sh/chart: rag8s-aws-0.0.2
+subjects:
+  - kind: ServiceAccount
+    name: "frontend-sa"
+    namespace: "inference"
+roleRef:
+  kind: Role
+  name: frontend-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+# RoleBinding: inference-sa -> ClusterRole view (namespace-scoped binding)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: inference-sa-view
+  namespace: "inference"
+  labels:
+    app.kubernetes.io/name: rag8s-aws
+    app.kubernetes.io/instance: rag8s-embedder-reranker-dev
+    app.kubernetes.io/version: "0.0.2"
+    helm.sh/chart: rag8s-aws-0.0.2
+subjects:
+  - kind: ServiceAccount
+    name: "inference-sa"
+    namespace: "inference"
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io
+---
+# RoleBinding: monitoring-sa -> ClusterRole view (namespace-scoped binding)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: monitoring-sa-view
+  namespace: "inference"
+  labels:
+    app.kubernetes.io/name: rag8s-aws
+    app.kubernetes.io/instance: rag8s-embedder-reranker-dev
+    app.kubernetes.io/version: "0.0.2"
+    helm.sh/chart: rag8s-aws-0.0.2
+subjects:
+  - kind: ServiceAccount
+    name: "monitoring-sa"
+    namespace: "inference"
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io
+---
+# RayService (requires Ray operator / CRD ray.io/v1 to be installed)
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: "rag8s-embedder-reranker-rayserve-cpu"
+  namespace: "inference"
+  labels:
+    app.kubernetes.io/name: embedder-reranker
+    app.kubernetes.io/instance: "rag8s-embedder-reranker-dev"
+    app.kubernetes.io/managed-by: rag8s-aws
+    app.kubernetes.io/version: "0.0.2"
+    helm.sh/chart: rag8s-aws-0.0.2
+spec:
+  rayClusterConfig:
+    rayVersion: "2.48.0"
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+      template:
+        spec:
+          serviceAccountName: "ray-inference-sa"
+          containers:
+            - name: ray-head
+              image: "rag8s/rag8s-onnx-embedder-reranker-cpu-amd64:gte-modernbert"
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: RAY_NODE_ROLE
+                  value: "head"
+              ports:
+                - containerPort: 8265
+                - containerPort: 8000
+                - containerPort: 9000
+          volumes:
+            - name: model-volume
+              emptyDir: {}
+    workerGroupSpecs:
+      - groupName: worker
+        minReplicas: 1
+        maxReplicas: 4
+        template:
+          spec:
+            serviceAccountName: "ray-inference-sa"
+            containers:
+              - name: ray-worker
+                image: "rag8s/rag8s-onnx-embedder-reranker-cpu-amd64:gte-modernbert"
+                imagePullPolicy: IfNotPresent
+                env:
+                  - name: RAY_NODE_ROLE
+                    value: "worker"
+            volumes:
+              - name: model-volume
+                emptyDir: {}
+  serveConfigV2: |
+    applications:
+      - name: embedder-reranker-app
+        import_path: "rayserve-embedder-reranker"
+        runtime_env:
+          working_dir: "/app"
+        deployments:
+          - name: EmbedderServicer
+            route_prefix: "/embed"
+            ray_actor_options:
+              num_cpus: 1
+          - name: RerankerServicer
+            route_prefix: "/rerank"
+            ray_actor_options:
+              num_cpus: 1

@@ -5,3 +5,4 @@ transformers==4.41.2
 grpcio==1.74.0
 grpcio-health-checking==1.74.0
 grpcio-tools==1.74.0
+huggingface-hub==0.34.3
