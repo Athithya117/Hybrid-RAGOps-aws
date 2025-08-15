@@ -243,8 +243,6 @@ namespaces:
   monitoring: monitoring
   networking: networking
   arangodb: arangodb
-  vectorDb: vector-db
-  graphDb: graph-db
 
 # Pre-populated serviceAccounts (chart creates defaults too)
 serviceAccounts:

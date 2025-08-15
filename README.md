@@ -94,62 +94,104 @@
 
 ```sh
 
-export S3_BUCKET=e2e-rag-system        # Give a complex name
-export S3_RAW_PREFIX=data/raw/         
-export S3_CHUNKED_PREFIX=data/chunked/   
-export CHUNK_FORMAT=json               # (OR) 'jsonl' for faster read and storage efficiency for headless use(but not readable)
-export DISABLE_OCR=false               # (OR) true = disable ocr and the text in images of docs will not be extracted(but very fast)
-export OCR_ENGINE=tesseract            # (OR) `rapidocr` for complex english but slower
-export FORCE_OCR=false                 # (OR) true = always OCR; false = skip if text exists(false recommended)
-export OCR_RENDER_DPI=300              # higher dpi = high quality image extraction = higher cost and higher chance of extracting tiny texts
-export MIN_IMG_SIZE_BYTES=3072         # Filter out tiny images under 3 KB (often unneccessary black empty images)
-export OVERWRITE_DOC_DOCX_TO_PDF=true  # (OR) false if dont want to delete original .doc and .docx files in data/raw/
+# Storage / paths
+export S3_BUCKET=e2e-rag-system                      # set per-env/tenant (unique bucket)
+export S3_RAW_PREFIX=data/raw/                        # raw ingest prefix (change to isolate datasets)
+export S3_CHUNKED_PREFIX=data/chunked/                # chunked output prefix (change to separate processed data)
+export CHUNK_FORMAT=json                              # 'json' (readable) or 'jsonl' (stream/space efficient)
+export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to replace docx with PDF, false to keep originals
 
-# --- ArangoDB + FAISS Vector Index Settings ---
-
-export ARANGO_VECTOR_INDEX_ENABLE=true            # Enable vector index feature (FAISS integration)
-export ARANGO_VECTOR_INDEX_TYPE=ivf               # 'ivf' (best for >100K vectors), 
-                                                   # 'hnsw' (<100K high recall, memory heavy),
-                                                   # 'pq' (memory-bound, lower recall),
-                                                   # 'ivf+pq' (large-scale, compressed IVF — see PQ_M below)
-
-export ARANGO_VECTOR_INDEX_IVF_NLIST=1000         # IVF clusters; ~sqrt(N); small=256-512, medium=1000-4096, large=8192+
-export ARANGO_VECTOR_INDEX_IVF_NPROBE=10          # IVF query clusters; low latency=4-8, balanced=10-32, max recall=32-128
-
-export ARANGO_VECTOR_INDEX_PQ_M=16                # PQ segments; PQ_M > 0 with TYPE=ivf enables IVF+PQ mode
-                                                   # lower M → more compression, higher M → more accuracy
-
-export ARANGO_VECTOR_INDEX_HNSW_M=32              # HNSW graph connections; small=16-24, medium=32, high recall=48-64
-export ARANGO_VECTOR_INDEX_HNSW_EFCONSTRUCTION=200 # HNSW build-time recall; small=100-200, large=200-400
-export ARANGO_VECTOR_INDEX_HNSW_EFSEARCH=50       # HNSW query-time recall; latency=20-40, balanced=50-100, max recall=100-200
-
-export ARANGO_VECTOR_INDEX_MAX_MEMORY_MB=2048     # Max RAM for vector index; scale with dataset size (small=512MB, medium=2-4GB, large=8GB+)
-
-# --- General ArangoDB Performance Settings ---
-
-export ARANGO_STORAGE_CACHE_SIZE=2048             # Data cache size in MB; ~20-30% of total RAM is a good start
-export ARANGO_QUERY_MEMORY_LIMIT=1024             # Max query RAM in MB; raise if queries scan many docs or large vectors
-
-# --- Logging ---
-
-export ARANGO_LOG_LEVEL=info                      # Log verbosity: 'info' (default), 'debug' for troubleshooting vector indexing
-
-
-export HF_TOKEN=
-
-export RAY_DASHBOARD_PORT=8265
-
-export TOP_K_CHUNKS=                # number of batches will be calculated accordingly based on tokens in chunk and max tokens of reranker model
-
-
-| Index Type | Dataset Size              | Memory Usage   | Query Speed | Accuracy | Use Case                           |
-| ---------- | ------------------------- | -------------- | ----------- | -------- | ---------------------------------- |
-| IVF        | Very large (millions+)    | Medium to High | Fast        | Medium   | Large scale, balanced recall/speed |
-| PQ         | Very large (with IVF)     | Low            | Fast        | Medium   | Large scale, memory constrained    |
-| HNSW       | Small to medium (up to M) | Medium to High | Very fast   | High     | High accuracy, latency sensitive   |
+# OCR & image extraction
+export DISABLE_OCR=false                              # true to skip OCR (faster) | false to extract text from images
+export OCR_ENGINE=tesseract                           # 'tesseract' (fast/common) or 'rapidocr' (higher accuracy, slower)
+export FORCE_OCR=false                                # true to always OCR (use if source text unreliable)
+export OCR_RENDER_DPI=300                             # increase for tiny text; lower for speed
+export MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller than this (reduce noise)
 
 
 ```
+
+```sh 
+
+# Arango / vector index toggles
+export ARANGO_VECTOR_INDEX_ENABLE=true                # false to disable vector ops (read-only or minimal infra)
+export ARANGO_VECTOR_INDEX_TYPE="ivf"                 # choose 'hnsw' (<100k docs), 'ivf' (>=100k), 'ivf+pq' for huge corpora
+export ARANGO_VECTOR_INDEX_MAX_MEMORY_MB=2048         # soft cap for index memory on node; increase with corpus size
+
+# IVF-specific (only if using ivf)
+export ARANGO_VECTOR_INDEX_IVF_NLIST=1000             # set ~sqrt(N_vectors); increase for very large corpora
+export ARANGO_VECTOR_INDEX_IVF_NPROBE=10              # raise for recall at cost of latency
+
+# PQ (only if using ivf+pq/pq)
+export ARANGO_VECTOR_INDEX_PQ_M=16                    # PQ segments; must divide embedding dim; tune for memory vs accuracy
+
+# HNSW-specific (only if using hnsw)
+export ARANGO_VECTOR_INDEX_HNSW_M=32                  # higher => more memory but higher recall
+export ARANGO_VECTOR_INDEX_HNSW_EFCONSTRUCTION=200    # raise for better index build quality
+export ARANGO_VECTOR_INDEX_HNSW_EFSEARCH=50           # raise for higher query recall (latency ↑)
+
+# FAISS sidecar / local index
+export FAISS_INDEX_PATH="/mnt/faiss/index.ivf"        # local index path (empty if not used)
+export FAISS_INDEX_DIM=768                            # must match embedding model output
+export FAISS_NLIST=256                                # local FAISS nlist; increase for large indices
+export FAISS_NPROBE=10                                # raise for recall at latency cost
+
+# Retrieval fusion weights (tune by devset; relative importance)
+export W_VEC=0.6                                      # raise if domain embeddings are highly accurate
+export W_BM25=0.3                                     # raise if exact keyword matches are critical
+export W_GRAPH=0.1                                    # raise if graph/triplet hits are very high precision
+export W_RERANK=0.5                                   # meaningful only when reranker enabled
+
+# Candidate fanout & GeAR
+export N_VEC=15                                       # top-K vector candidates (raise for recall on large corpora)
+export N_BM25=15                                      # top-K BM25 candidates
+export N_GRAPH=5                                      # graph neighbor limit (keep small to control DB load)
+export MAX_GEARS_HOPS=1                               # 1 default; enable 2 behind feature flag for deeper multi-hop
+export GEAR_BEAM_WIDTH=3                              # beam width for GeAR expansion; increase with caution
+
+# Pre-fusion thresholds (filters to reduce noise)
+export VEC_SCORE_THRESH=0.20                          # min vector similarity to keep a candidate (raise for precision)
+export BM25_SCORE_THRESH=1.50                         # min BM25 to keep (raise to filter weak keyword hits)
+export GRAPH_SCORE_THRESH=0.0                         # min graph edge confidence (set >0 if confidences provided)
+
+# Reranker & metadata boosting
+export USE_RERANKER=true                              # enable only if you accept added latency/cost for higher precision
+export RERANK_BATCH_SIZE=16                           # increase to amortize GPU/CPU when latency allows
+export META_BOOST_FIELD="timestamp"                   # metadata key to bias ranking (e.g., timestamp, source_score)
+export META_BOOST_WEIGHT=0.20                         # 0.0-1.0; raise if metadata should strongly affect ranking
+
+```
+
+# Timeouts / concurrency / performance
+export RETRIEVAL_TIMEOUT=5                            # seconds; increase if backing systems are slower
+export RETRIEVAL_BATCH_SIZE=4                         # parallelism for retrieval calls; increase with CPU/network capacity
+export MAX_CONCURRENT_QUERIES=32                      # throttle to protect DBs; scale with infra
+# Arango general performance / logging
+export ARANGO_STORAGE_CACHE_SIZE=2048                 # set ~20-30% host RAM for read-heavy nodes
+export ARANGO_QUERY_MEMORY_LIMIT=1024                 # raise if AQL traversals need more memory
+export ARANGO_LOG_LEVEL="info"                        # 'debug' only for troubleshooting
+export ARANGO_URL="http://arangodb:8529"              # Arango endpoint (use in-cluster svc in prod)
+export ARANGO_DB="rag8s"                              # DB name
+export ARANGO_USER="root"                             # use non-root least-priv user in prod
+export ARANGO_PASS=""                                 # SECRET: inject from Vault/K8s Secret
+
+
+# Ray / orchestration (node-level)
+export RAY_DASHBOARD_PORT=8265                        # Ray dashboard port (change to avoid conflicts)
+export RAY_NUM_CPUS=4                                 # set per node; increase for heavier parallel indexing/inference
+export RAY_NUM_GPUS=0                                 # set >0 on GPU nodes for model serving/training
+
+# Observability / app logging
+export APP_LOG_LEVEL="info"                           # 'debug' only temporarily for troubleshooting
+
+
+
+```
+
+
+
+```sh
+
 
 ## **RAG8s Inference Flow**
 
@@ -238,11 +280,9 @@ RAG8s/
 │
 ├── indexing_pipeline/
 │   ├── Dockerfile                        # Docker image for indexing workers
-│   ├── cpu-requirements-pinned.txt       # Pinned Python package list for CPU indexing image
-│   ├── cpu-requirements.txt              # Unpinned package list for CPU builds
 │   ├── index/
-│   │   ├── __main__.py                   # CLI entrypoint for indexing jobs
-│   │   ├── arrangodb_indexer.py          # Indexer: writes chunks/entities into ArangoDB with FAISS integration
+│   │   ├── __main__.py                   # CLI entrypoint for indexing jobs  # observe: logs, metrics, traces
+│   │   ├── arrangodb_indexer.py          # Indexer: writes chunks/entities into ArangoDB with FAISS integration  # observe: logs, metrics
 │   │   ├── config.py                     # Indexing configuration (paths, batch sizes, env)
 │   │   └── utils.py                      # Utility helpers used by indexers (parsers, serializers)
 │   ├── parse_chunk/
@@ -267,22 +307,22 @@ RAG8s/
 │
 ├── inference_pipeline/
 │   ├── Dockerfile                        # Dockerfile for inference server image
-│   ├── auth_control.py                   # Authentication, authorization middleware and rate limiting for APIs
-│   ├── eval.py                           # RAGAI-Catalyst coherence checks, hit\@K monitoring, hallucination detection.
+│   ├── auth_control.py                   # Authentication, authorization middleware and rate limiting for APIs  # observe: logs, metrics
+│   ├── eval.py                           # RAGAI-Catalyst coherence checks, hit@K monitoring, hallucination detection  # observe: logs, metrics
 │   ├── frontend/
 │   │   ├── Dockerfile                    # Frontend container build file
-│   │   ├── main.py                       # Frontend app entry (UI endpoints / static server)
+│   │   ├── main.py                       # Frontend app entry (UI endpoints / static server)  # observe: logs, metrics
 │   │   ├── modules                        # Modular UI components / assets
 │   │   └── requirements-cpu.txt          # Frontend Python dependencies
-│   ├── main.py                           # Inference service entrypoint (REST/gRPC server)
-│   ├── retreiver.py                      # Retrieval orchestration (hybrid BM25 + vector + graph + arrangodb kv store)
-│   └── trace_file.py                     # Trace/logging helper to capture inference traces
-│
+│   ├── main.py                           # Inference service entrypoint (REST/gRPC server)  # observe: logs, metrics, traces
+│   ├── retreiver.py                      # Retrieval orchestration (hybrid BM25 + vector + graph + GeAR lightweight multihop)  # observe: logs, metrics
+│   └── trace_file.py                     # View or download Presigned urls for the raw docs as source link s3://<bucket_name>data/raw/<file_name>.<format>
+|
 ├── infra/
 │   ├── charts/
 │   │   └── rag8s/
 │   │       ├── Chart.yaml                # Helm chart metadata + optional dependencies (Karpenter, Ray, Prometheus)
-│   │       ├── values.yaml               # Dynamically created by scripts/dynamic-values.yaml.sh 
+│   │       ├── values.yaml               # Dynamically created by scripts/dynamic-values.yaml.sh
 │   │       ├── templates/                # All rendered Kubernetes manifests
 │   │       │   ├── _helpers.tpl          # Shared labels/annotations/name templates
 │   │       │   ├── argocd.yaml           # ArgoCD Application definition for GitOps
@@ -309,8 +349,8 @@ RAG8s/
 │   │       │   ├── rayjobs/              # Ray batch jobs
 │   │       │   │   └── indexing.yaml     # RayJob for indexing pipeline (CPU provisioner)
 │   │       │   └── karpenter/            # Karpenter provisioners
-│   │       │       ├── provisioner-cpu.yaml # CPU workloads, Spot + OnDemand
-│   │       │       └── provisioner-gpu.yaml # GPU workloads, Spot + OnDemand
+│   │       │       ├── provisioner-cpu.yaml # CPU workloads, Spot + pre-warmed OnDemand
+│   │       │       └── provisioner-gpu.yaml # GPU workloads, Spot + pre-warmed OnDemand
 │   │       └── README.md                 # Chart-specific README and usage notes
 │   │  
 │   ├── pulumi-aws/
@@ -333,13 +373,13 @@ RAG8s/
 │   │   ├── grpc.proto                      # gRPC proto definition for ONNX service
 │   │   ├── grpc_pb2.py                     # Generated gRPC Python bindings
 │   │   ├── grpc_pb2_grpc.py                # Generated gRPC server/client scaffolding
-│   │   ├── rayserve-embedder-reranker.py   # Ray Serve wrapper to run embedder + reranker
+│   │   ├── rayserve-embedder-reranker.py   # Ray Serve wrapper to run embedder + reranker  # observe: logs, metrics
 │   │   ├── requirements-cpu.txt            # ONNX service dependencies
 │   │   └── run.sh                          # Convenience script to start ONNX gRPC server
 │   │  
 │   └── sglang/
 │       ├── Dockerfile                      # GPU-enabled image for SGLang model serving
-│       ├── rayserve-sglang.py              # Ray Serve wrapper for SGLang LLM inference
+│       ├── rayserve-sglang.py              # Ray Serve wrapper for SGLang LLM inference  # observe: logs, metrics
 │       └── requirements-gpu.txt            # GPU runtime dependencies (CUDA/pytorch/etc.)
 │
 ├── output.yaml                             # Deployment/output summary produced by infra scripts
@@ -361,15 +401,13 @@ RAG8s/
 ├── .gitignore                              # Git ignore rules
 ├── Makefile                                # Convenience targets for build/test/deploy tasks
 ├── README.md                               # Project overview, setup and usage instructions
-├── backups/                                 # S3 backups
+├── backups/                                
 │   └── dbs/
-│       └── arrangodb/                       # Export / dump for ArangoDB (graph DB backup)
+│       └── arrangodb/                      
 │
 └── tmp.md                                  # Temporary notes / scratch markdown file
 
 ```
-
-![alt text](image.png)
 
 
 # Models overview
