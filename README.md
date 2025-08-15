@@ -1,5 +1,5 @@
 
-# RAG8s is a production ready RAG environment to build and ship an E2E RAG system using the SOTA tools, models and strategies as of mid 2025. It is currently under development
+# RAG8s is a production ready E2E RAG system built using the SOTA tools, models and strategies as of mid 2025. 
 
 
 ## STEP 2/3 - indexing_pipeline
@@ -183,8 +183,6 @@ export RAY_NUM_GPUS=0                                 # set >0 on GPU nodes for 
 
 # Observability / app logging
 export APP_LOG_LEVEL="info"                           # 'debug' only temporarily for troubleshooting
-
-
 
 ```
 
