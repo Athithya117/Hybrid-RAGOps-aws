@@ -270,6 +270,7 @@ final_score = (
 
 
 ```sh
+
 RAG8s/
 ├── data/                                 # Local directory that syncs with s3://<bucket_name>/data
 │   ├── raw/                              # Raw data files
@@ -369,9 +370,15 @@ RAG8s/
 │       ├── grpc.proto                    # gRPC proto definition for vllm service
 │       ├── rayserve-vllm.py              # Ray Serve wrapper for vllm inference  # observe: logs, metrics
 │       └── requirements-gpu.txt          # GPU runtime dependencies (CUDA/pytorch/etc.)
-│
-├── output.yaml                             # Deployment/output summary produced by infra scripts
-│
+|
+└── utils                                   
+|    ├── archive/                           # Files no longer maintained
+|    ├── bootstrap-dev.sh                   # Installs all the required tools for development and testing
+|    ├── bootstrap-prod.sh                  # Installs minimal tools for prod
+|    ├── force_sync_data_with_s3.py         # sync/force sync the data/ in local fs/ with s3://<bucket_name>/data/
+|    ├── lc.sh                              # Local kind cluster for testing rag8s
+|    └── s3_bucket.py                       # Create/delete s3 bucket 
+|    
 ├── scripts/
 │   ├── build_and_push.sh                   # Builds container images and pushes to registry
 │   ├── dynamic-values.yaml.sh              # Generates dynamic Helm values (env-specific)
@@ -389,11 +396,9 @@ RAG8s/
 ├── .gitignore                              # Git ignore rules
 ├── Makefile                                # Convenience targets for build/test/deploy tasks
 ├── README.md                               # Project overview, setup and usage instructions
-├── backups/
-│   └── dbs/
-│       └── arrangodb/
-│
-└── tmp.md                                  # Temporary notes / scratch markdown file
+└── backups/                                # Local directory that syncs with s3://<bucket_name>/backups
+    └── dbs/
+        └── arrangodb/
 
 ```
 
