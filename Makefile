@@ -22,7 +22,7 @@ s3:
 	aws s3 ls "s3://$S3_BUCKET/" --recursive | head -n 100
 
 tree:
-	tree -a -I '.git|.venv|.venv2|aws|docs|utils|models|tmp|raw|chunked'
+	tree -a -I '.git|data|.venv|raw_data|.venv2|aws|docs|utils|models|tmp|raw|chunked'
 
 .PHONY: backup
 

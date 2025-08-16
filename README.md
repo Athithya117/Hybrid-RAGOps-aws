@@ -270,7 +270,6 @@ final_score = (
 
 
 ```sh
-
 RAG8s/
 ├── data/                                 # Local directory that syncs with s3://<bucket_name>/data
 │   ├── raw/                              # Raw data files
@@ -317,69 +316,61 @@ RAG8s/
 │   └── trace_file.py                     # View or download Presigned urls for the raw docs as source link s3://<bucket_name>data/raw/<file_name>.<format>
 |
 ├── infra/
-│   ├── charts/
-│   │   └── rag8s/
-│   │       ├── Chart.yaml                # Helm chart metadata + optional dependencies (Karpenter, Ray, Prometheus)
-│   │       ├── values.yaml               # Dynamically created by scripts/dynamic-values.yaml.sh
-│   │       ├── templates/                # All rendered Kubernetes manifests
-│   │       │   ├── _helpers.tpl           # Shared labels/annotations/name templates
-│   │       │   ├── argocd.yaml            # ArgoCD Application definition for GitOps
-│   │       │   ├── core/                  # Cluster-wide primitives
-│   │       │   │   ├── arangobackup-cronjob.yaml # Incremental backups to s3://<bucket_name>/backups/
-│   │       │   │   ├── namespaces.yaml    # Namespace creation from values.base.namespaces
-│   │       │   │   ├── serviceaccounts.yaml # ServiceAccounts + IRSA
-│   │       │   │   ├── rbac.yaml          # Roles, ClusterRoles, Bindings
-│   │       │   │   ├── pdb.yaml           # PodDisruptionBudgets from values.base.pdb
-│   │       │   │   ├── frontend.yaml      # Frontend deployment, svc, HPA
-│   │       │   │   ├── valkeye.yaml       # Deployment for Redis compatible in-memory data storage for rate limiting
-│   │       │   │   └── quotas.yaml        # ResourceQuotas from values.base.quotas
-│   │       │   ├── monitoring/            # Observability resources
-│   │       │   │   ├── servicemonitors.yaml   # Prometheus ServiceMonitor CRs
-│   │       │   │   ├── grafana.yaml           # Grafana dashboards + datasources
-│   │       │   │   ├── alerts.yaml            # PrometheusRule alert definitions
-
-│   │       │   ├── networking/            # Ingress, ingress controller, network policies
-│   │       │   │   ├── traefik.yaml       # Traefik Helm chart CRDs/config
-│   │       │   │   ├── ingress.yaml       # Ingress objects per service
-│   │       │   │   └── networkpolicies.yaml # NetworkPolicies for traffic control
-│   │       │   ├── rayservices/           # RayServe workloads
-│   │       │   │   ├── embedder-reranker.yaml # RayService for embeddings/reranking
-│   │       │   │   └── vllm.yaml          # RayService for LLM serving
-│   │       │   ├── rayjobs/               # Ray batch jobs
-│   │       │   │   └── indexing.yaml      # RayJob for indexing pipeline (CPU provisioner)
-│   │       │   └── karpenter/             # Karpenter provisioners
-│   │       │       ├── provisioner-cpu.yaml # CPU workloads, Spot + pre-warmed OnDemand
-│   │       │       └── provisioner-gpu.yaml # GPU workloads, Spot + pre-warmed OnDemand
-│   │       └── README.md                  # Chart-specific README and usage notes
-|
-│   │  
-│   ├── pulumi-aws/
-│   │   ├── __main__.py                    # IAC CLI for EKS cluster provisioning
-│   │   ├── cloudflare.py                  # Cloudflare DNS / zone automation helpers
-│   │   ├── db_backup.py                   # DB backup/restore automation scripts for local nvmes based ec2s
-│   │   ├── eks_cluster.py                 # EKS cluster orchestration code (Pulumi)
-│   │   ├── iam_roles.py                   # IAM role & policy creators for services
-│   │   ├── indexing_ami.py                # AMI build definitions for indexing nodes
-│   │   ├── inference_ami.py               # AMI build definitions for inference nodes
-│   │   ├── karpenter.py                   # Karpenter provisioner configuration helpers
-│   │   ├── nodegroup.py                   # For arangodb statefulset, valkeye deployment and frontend svc
-│   │   ├── pulumi.yaml                    # Pulumi project manifest for infra code
-│   │   ├── traefik.py                     # Traefik infrastructure helper code
-│   │   └── vpc.py                         # VPC/subnet/networking helper utilities
-│   │ 
+│   ├── manifests/                        
+│   │   ├── Chart.yaml                    # Helm chart metadata: name, version, dependencies
+│   │   ├── templates/
+│   │   │   ├── core/
+│   │   │   │   ├── 00_namespaces.yaml    # Define dev/prod namespaces
+│   │   │   │   ├── 01_quotas_pdbs.yaml   # ResourceQuotas & PodDisruptionBudgets per namespace
+│   │   │   │   ├── 02_serviceaccounts.yaml # Core service accounts for workloads & operators
+│   │   │   │   ├── 03_rbac.yaml          # ClusterRole, Role, and bindings for access control
+│   │   │   │   └── 04_network.yaml       # Traefik ingress, NetworkPolicies, security rules
+│   │   │   ├── dbs/
+│   │   │   │   ├── 05_arangodb.yaml      # ArangoDB StatefulSet, persistence, and resources
+│   │   │   │   └── 06_valkeye.yaml       # Valkeye Redis backend deployment & configuration
+│   │   │   ├── observability/
+│   │   │   │   ├── 07_promotheus.yaml    # Prometheus server, alerting rules, and metrics scraping
+│   │   │   │   ├── 08_otel_jaeger.yaml   # OpenTelemetry collector & Jaeger tracing setup
+│   │   │   │   ├── 09_loki.yaml          # Loki logging backend for cluster logs
+│   │   │   │   └── 10_grafana.yaml       # Grafana dashboard, persistence, and datasource setup
+│   │   │   └── workloads/
+│   │   │       ├── 11_jobs.yaml          # CronJobs for DB backup, Ray indexing pipeline, etc.
+│   │   │       ├── 12_rayservice.yaml    # RayService deployments: frontend, valkeye, embedded-reranker, VLLM
+│   │   │       └── 13_karpenter-nodepools.yaml # Karpenter provisioners for CPU/GPU autoscaling
+│   │   └── values/
+│   │       ├── core.yaml                 # Values for namespaces, quotas, RBAC, and network policies
+│   │       ├── dbs.yaml                  # Values for ArangoDB and Valkeye Helm charts
+│   │       ├── obserability.yaml         # Values for Prometheus, Grafana, Loki, OTEL/Jaeger
+│   │       └── workloads.yaml            # Values for Jobs, RayService, and Karpenter nodepools
+│   │
+│   ├── eks/                            
+│   │   ├── _00_config.py                 # Global variables & Pulumi config
+│   │   ├── _01_vpc.py                    # Networking must exist before cluster
+│   │   ├── _02_iam_roles_pre_eks.py      # IAM roles required to create EKS
+│   │   ├── _03_eks_cluster.py            # EKS cluster depends on VPC + pre-EKS IAM
+│   │   ├── _04_nodegroups.py             # Nodegroups depend on cluster + IAM
+│   │   ├── _05_iam_roles_post_eks.py     # IAM roles for workloads (Ray, Karpenter, Valkeye)
+│   │   ├── _06_karpenter.py              # Karpenter provisioning depends on cluster + nodegroups + IAM
+│   │   ├── _07_cloudflare.py             # DNS records, depends on cluster endpoint
+│   │   ├── _08_indexing_ami.py           # Indexing AMIs, depends on cluster/nodegroups
+│   │   ├── _09_inference_ami.py          # Inference/GPU AMIs, depends on cluster/nodegroups
+│   │   ├── _10_db_backup.py              # CronJobs or backup jobs, depends on DB running in cluster
+│   │   ├── _11___main__.py               # Orchestrates imports & execution
+│   │   └── pulumi.yaml                   # Pulumi project manifest for infra code
+│   │
 │   ├── onnx/
-│   │   ├── Dockerfile                      # ONNX runtime image for CPU inference services
-│   │   ├── grpc.proto                      # gRPC proto definition for ONNX service
-│   │   ├── grpc_pb2.py                     # Generated gRPC Python bindings
-│   │   ├── grpc_pb2_grpc.py                # Generated gRPC server/client scaffolding
-│   │   ├── rayserve-embedder-reranker.py   # Ray Serve wrapper to run embedder + reranker  # observe: logs, metrics
-│   │   ├── requirements-cpu.txt            # ONNX service dependencies
-│   │   └── run.sh                          # Convenience script to start ONNX gRPC server
-│   │  
+│   │   ├── Dockerfile                    # ONNX runtime image for CPU inference services
+│   │   ├── grpc.proto                    # gRPC proto definition for ONNX service
+│   │   ├── grpc_pb2.py                   # Generated gRPC Python bindings
+│   │   ├── grpc_pb2_grpc.py              # Generated gRPC server/client scaffolding
+│   │   ├── rayserve-embedder-reranker.py # Ray Serve wrapper to run embedder + reranker  # observe: logs, metrics
+│   │   ├── requirements-cpu.txt          # ONNX service dependencies
+│   │   └── run.sh                         # Convenience script to start ONNX gRPC server
+│   │
 │   └── vllm/
-│       ├── Dockerfile                      # GPU-enabled image for vllm serving
-│       ├── rayserve-vllm.py                # Ray Serve wrapper for vllm inference  # observe: logs, metrics
-│       └── requirements-gpu.txt            # GPU runtime dependencies (CUDA/pytorch/etc.)
+│       ├── Dockerfile                    # GPU-enabled image for vllm serving
+│       ├── rayserve-vllm.py              # Ray Serve wrapper for vllm inference  # observe: logs, metrics
+│       └── requirements-gpu.txt          # GPU runtime dependencies (CUDA/pytorch/etc.)
 │
 ├── output.yaml                             # Deployment/output summary produced by infra scripts
 │
@@ -400,9 +391,9 @@ RAG8s/
 ├── .gitignore                              # Git ignore rules
 ├── Makefile                                # Convenience targets for build/test/deploy tasks
 ├── README.md                               # Project overview, setup and usage instructions
-├── backups/                                
+├── backups/
 │   └── dbs/
-│       └── arrangodb/                      
+│       └── arrangodb/
 │
 └── tmp.md                                  # Temporary notes / scratch markdown file
 

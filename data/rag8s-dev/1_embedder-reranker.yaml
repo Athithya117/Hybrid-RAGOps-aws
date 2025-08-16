@@ -176,14 +176,15 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 ---
 # RayService (requires Ray operator / CRD ray.io/v1 to be installed)
+
 apiVersion: ray.io/v1
 kind: RayService
 metadata:
-  name: "rag8s-embedder-reranker-rayserve-cpu"
-  namespace: "inference"
+  name: rag8s-embedder-reranker-rayserve-cpu
+  namespace: inference
   labels:
     app.kubernetes.io/name: embedder-reranker
-    app.kubernetes.io/instance: "rag8s-embedder-reranker-dev"
+    app.kubernetes.io/instance: rag8s-embedder-reranker-dev
     app.kubernetes.io/managed-by: rag8s-aws
     app.kubernetes.io/version: "0.0.2"
     helm.sh/chart: rag8s-aws-0.0.2
@@ -195,50 +196,52 @@ spec:
         dashboard-host: "0.0.0.0"
       template:
         spec:
-          serviceAccountName: "ray-inference-sa"
+          serviceAccountName: ray-inference-sa
           containers:
             - name: ray-head
-              image: "rag8s/rag8s-onnx-embedder-reranker-cpu-amd64:gte-modernbert"
+              image: rag8s/rag8s-onnx-embedder-reranker-cpu-amd64:gte-modernbert
               imagePullPolicy: IfNotPresent
               env:
                 - name: RAY_NODE_ROLE
-                  value: "head"
+                  value: head
               ports:
                 - containerPort: 8265
                 - containerPort: 8000
                 - containerPort: 9000
-          volumes:
-            - name: model-volume
-              emptyDir: {}
     workerGroupSpecs:
       - groupName: worker
         minReplicas: 1
         maxReplicas: 4
         template:
           spec:
-            serviceAccountName: "ray-inference-sa"
+            serviceAccountName: ray-inference-sa
             containers:
               - name: ray-worker
-                image: "rag8s/rag8s-onnx-embedder-reranker-cpu-amd64:gte-modernbert"
+                image: rag8s/rag8s-onnx-embedder-reranker-cpu-amd64:gte-modernbert
                 imagePullPolicy: IfNotPresent
                 env:
                   - name: RAY_NODE_ROLE
-                    value: "worker"
-            volumes:
-              - name: model-volume
-                emptyDir: {}
+                    value: worker
   serveConfigV2: |
     applications:
       - name: embedder-reranker-app
-        import_path: "rayserve-embedder-reranker"
+        import_path: rayserve-embedder-reranker
         runtime_env:
-          working_dir: "/app"
+          working_dir: /app
         deployments:
           - name: EmbedderServicer
-            route_prefix: "/embed"
+            route_prefix: /embed
             ray_actor_options:
               num_cpus: 1
+            autoscaling_config:
+              min_replicas: 1
+              max_replicas: 4
+              target_ongoing_requests: 10
           - name: RerankerServicer
-            route_prefix: "/rerank"
+            route_prefix: /rerank
             ray_actor_options:
               num_cpus: 1
+            autoscaling_config:
+              min_replicas: 1
+              max_replicas: 2
+              target_ongoing_requests: 5

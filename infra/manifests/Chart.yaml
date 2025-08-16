@@ -1,0 +1,77 @@
+apiVersion: v2
+name: rag8s
+description: Helm chart for deploying a RAG system on AWS EKS
+type: application
+version: 0.0.1
+appVersion: "0.0.1"
+kubeVersion: ">=1.20.0"
+
+maintainers:
+  - name: Athithya
+    email: athithya651@gmail.com
+
+home: https://github.com/Athithya-Sakthivel/RAG8s
+sources:
+  - https://github.com/Athithya-Sakthivel/RAG8s
+icon: https://raw.githubusercontent.com/Athithya-Sakthivel/RAG8s/main/infra/charts/RAG8s.png
+
+dependencies:
+  - name: argo-cd
+    version: 8.3.0
+    repository: https://argoproj.github.io/argo-helm
+    condition: argo.enabled
+
+  - name: kube-arangodb
+    version: 1.2.24
+    repository: https://arangodb.github.io/kube-arangodb
+    condition: arangodb.enabled
+
+  - name: redis
+    version: 22.0.3
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+
+  - name: kuberay-operator
+    version: 1.4.2
+    repository: https://ray-project.github.io/kuberay-helm/
+    condition: ray.enabled
+
+  - name: kube-prometheus-stack
+    version: 76.3.0
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: monitoring.enabled
+
+  - name: grafana
+    version: 9.3.2
+    repository: https://grafana.github.io/helm-charts
+    condition: monitoring.enabled
+
+  - name: loki
+    version: 6.36.1
+    repository: https://grafana.github.io/helm-charts
+    condition: logging.enabled
+
+  - name: opentelemetry-collector
+    version: 0.62.3
+    repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+    condition: observability.enabled
+
+  - name: jaeger
+    version: 3.4.1
+    repository: https://jaegertracing.github.io/helm-charts
+    condition: observability.enabled
+
+  - name: traefik
+    version: 37.0.0
+    repository: https://helm.traefik.io/traefik
+    condition: ingress.enabled
+
+  - name: karpenter
+    version: 0.16.3
+    repository: https://charts.karpenter.sh
+    condition: autoscaling.enabled
+
+  - name: kube-state-metrics
+    version: 6.1.4
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: monitoring.enabled
