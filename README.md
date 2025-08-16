@@ -361,14 +361,12 @@ RAG8s/
 │   ├── onnx/
 │   │   ├── Dockerfile                    # ONNX runtime image for CPU inference services
 │   │   ├── grpc.proto                    # gRPC proto definition for ONNX service
-│   │   ├── grpc_pb2.py                   # Generated gRPC Python bindings
-│   │   ├── grpc_pb2_grpc.py              # Generated gRPC server/client scaffolding
 │   │   ├── rayserve-embedder-reranker.py # Ray Serve wrapper to run embedder + reranker  # observe: logs, metrics
-│   │   ├── requirements-cpu.txt          # ONNX service dependencies
-│   │   └── run.sh                         # Convenience script to start ONNX gRPC server
+│   │   └── requirements-cpu.txt          # ONNX service dependencies
 │   │
 │   └── vllm/
 │       ├── Dockerfile                    # GPU-enabled image for vllm serving
+│       ├── grpc.proto                    # gRPC proto definition for vllm service
 │       ├── rayserve-vllm.py              # Ray Serve wrapper for vllm inference  # observe: logs, metrics
 │       └── requirements-gpu.txt          # GPU runtime dependencies (CUDA/pytorch/etc.)
 │
