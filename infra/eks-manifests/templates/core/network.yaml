@@ -1,0 +1,239 @@
+{{- /*
+Traefik ingress controller + NetworkPolicies, wired to .Values.core.network
+*/ -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: traefik-ingress
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: traefik
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: traefik-ingress
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "secrets", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "ingressclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: traefik-ingress
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: traefik-ingress
+subjects:
+  - kind: ServiceAccount
+    name: traefik-ingress
+    namespace: kube-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: traefik
+spec:
+  replicas: {{ .Values.core.network.traefik.replicas | default 2 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: traefik
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: traefik-ingress
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: traefik
+      containers:
+        - name: traefik
+          image: traefik:v3.5.0
+          args:
+            - "--api.insecure=false"
+            - "--entrypoints.web.address=:80"
+            - "--entrypoints.websecure.address=:443"
+            - "--providers.kubernetesingress=true"
+            - "--accesslog.format=json"
+            - "--metrics.prometheus=true"
+          ports:
+            - name: web
+              containerPort: 80
+            - name: websecure
+              containerPort: 443
+            - name: ping
+              containerPort: 9000
+            - name: metrics
+              containerPort: 9100
+          resources:
+{{ toYaml .Values.core.network.traefik.resources | indent 12 }}
+          securityContext:
+            runAsUser: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 9000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 9000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: traefik
+  annotations:
+    {{- with .Values.core.network.traefik.annotations }}
+    {{- range $k, $v := . }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+    {{- end }}
+spec:
+  type: {{ .Values.core.network.traefik.serviceType | default "LoadBalancer" }}
+  ports:
+    - port: 80
+      name: web
+    - port: 443
+      name: websecure
+  selector:
+    app.kubernetes.io/name: traefik
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: traefik
+spec:
+  controller: traefik.io/ingress-controller
+---
+# Reliability middlewares (referenced by ingress annotations in workloads)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: default-reliability
+  namespace: kube-system
+spec:
+  retry:
+    attempts: 3
+    initialInterval: 100ms
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: default-circuit-breaker
+  namespace: kube-system
+spec:
+  circuitBreaker:
+    expression: "LatencyAtQuantileMS(50.0) > 500 || NetworkErrorRatio() > 0.5"
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: default-timeouts
+  namespace: kube-system
+spec:
+  headers:
+    customRequestHeaders:
+      X-Request-Start: "t={{`{{`}} date_unix {{`}}`}}"
+---
+{{- /* per-namespace NetworkPolicies using core.network.policies flags */ -}}
+{{- range $env, $cfg := .Values.core.namespaces }}
+{{- if $.Values.core.network.policies.enableDefaultDeny }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ $cfg.name }}
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+{{- end }}
+
+{{- if $.Values.core.network.policies.enableAllowTraefik }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik
+  namespace: {{ $cfg.name }}
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+  policyTypes: ["Ingress"]
+{{- end }}
+
+{{- if $.Values.core.network.policies.enableAllowDns }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: {{ $cfg.name }}
+spec:
+  podSelector: {}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+  policyTypes: ["Egress"]
+{{- end }}
+{{- end }}

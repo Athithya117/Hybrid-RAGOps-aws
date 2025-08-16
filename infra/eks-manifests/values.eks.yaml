@@ -1,0 +1,150 @@
+# values.eks.yaml (prod)
+# New terms used in this file: [workloads], [pdb], [serviceAccounts], [rayservice], [rayjob_cronjob], [enable]
+core:
+  # ------------ namespace + quotas (prod) ------------
+  namespaces:
+    prod:
+      name: rag8s-prod
+      team: rag-team
+      annotations:
+        cost-center: "ml-prod"
+      quotas:
+        requests.cpu: "20"
+        requests.memory: 64Gi
+        limits.cpu: "40"
+        limits.memory: 128Gi
+        persistentvolumeclaims: "20"
+        requests.storage: 1Ti
+      limits:
+        default:
+          cpu: "1000m"
+          memory: "1Gi"
+        requests:
+          cpu: "500m"
+          memory: "512Mi"
+      pdb:
+        minAvailable: 2
+
+  # ------------ service accounts (IRSA ARNs for EKS) ------------
+  serviceAccounts:
+    - name: ray-operator
+      iamRoleArn: arn:aws:iam::<ACCOUNT_ID>:role/ray-operator-prod
+    - name: arangodb-operator
+      iamRoleArn: arn:aws:iam::<ACCOUNT_ID>:role/arangodb-operator-prod
+    - name: vllm-inference
+      iamRoleArn: arn:aws:iam::<ACCOUNT_ID>:role/vllm-inference-prod
+    - name: backup-job
+      iamRoleArn: arn:aws:iam::<ACCOUNT_ID>:role/backup-job-prod
+
+  # ------------ network (traefik) - prod defaults ------------
+  network:
+    traefik:
+      replicas: 2
+      serviceType: LoadBalancer
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: nlb
+        service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+        service.beta.kubernetes.io/aws-load-balancer-ssl-cert: arn:aws:acm:REGION:ACCOUNT_ID:certificate/CERT_ID
+        service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "256Mi"
+        limits:
+          cpu: "1"
+          memory: "512Mi"
+    policies:
+      enableDefaultDeny: true
+      enableAllowTraefik: true
+      enableAllowDns: true
+
+  # ------------ workloads: enable/disable + pdb per workload (prod tuned) ------------
+  workloads:
+
+    rayservice:
+      enabled: true
+      pdb:
+        # default for the rayservice group — used where subcomponent doesn't override [pdb]
+        defaultMinAvailable: 2
+      embedder-reranker:
+        enabled: true
+        replicas: 3
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+        pdb:
+          minAvailable: 2
+      valkeye:
+        enabled: true
+        replicas: 2
+        resources:
+          requests:
+            cpu: "300m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+        pdb:
+          minAvailable: 1
+      frontend:
+        enabled: true
+        replicas: 3
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+        pdb:
+          minAvailable: 1
+      vllm:
+        enabled: true            # prod: enable GPU inference
+        replicas: 2
+        resources:
+          requests:
+            cpu: "1000m"
+            memory: "4Gi"
+          limits:
+            cpu: "4"
+            memory: "16Gi"
+        pdb:
+          minAvailable: 1
+
+    rayjob_cronjob:
+      enabled: true
+      ray-indexing-job:
+        enabled: true
+        schedule: "0 */4 * * *"          # more frequent in prod
+        concurrencyPolicy: "Forbid"
+        successfulJobsHistoryLimit: 5
+        failedJobsHistoryLimit: 2
+        resources:
+          requests:
+            cpu: "1"
+            memory: "4Gi"
+          limits:
+            cpu: "2"
+            memory: "8Gi"
+        pdb:
+          minAvailable: 0
+      arangobackup-cronjob:
+        enabled: true
+        schedule: "0 03 * * *"           # daily 03:00 in prod
+        concurrencyPolicy: "Forbid"
+        backup:
+          s3Bucket: "my-prod-backups"    # replace with real bucket
+          s3Prefix: "arangodb/"
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+        pdb:
+          minAvailable: 0

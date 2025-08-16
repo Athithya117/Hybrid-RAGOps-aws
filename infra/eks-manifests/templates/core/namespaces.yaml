@@ -1,0 +1,22 @@
+{{- /*
+Create all namespaces defined in .Values.core.namespaces
+*/ -}}
+{{- range $env, $cfg := .Values.core.namespaces }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $cfg.name }}
+  labels:
+    environment: {{ $env }}
+    app.kubernetes.io/name: {{ include "chart.name" . }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    {{- if $cfg.team }}
+    team: {{ $cfg.team }}
+    {{- end }}
+  {{- if $cfg.annotations }}
+  annotations:
+    {{- toYaml $cfg.annotations | nindent 4 }}
+  {{- end }}
+{{- end }}

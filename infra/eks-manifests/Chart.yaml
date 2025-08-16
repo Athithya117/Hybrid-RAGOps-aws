@@ -1,0 +1,16 @@
+apiVersion: v2
+name: rag8s-eks
+description: Helm chart for deploying a RAG system on AWS EKS
+type: application
+version: 0.0.1
+appVersion: "0.0.1"
+kubeVersion: ">=1.20.0"
+
+maintainers:
+  - name: Athithya
+    email: athithya651@gmail.com
+
+home: https://github.com/Athithya-Sakthivel/RAG8s
+sources:
+  - https://github.com/Athithya-Sakthivel/RAG8s
+icon: https://raw.githubusercontent.com/Athithya-Sakthivel/RAG8s/main/infra/eks-manifests/RAG8s.png

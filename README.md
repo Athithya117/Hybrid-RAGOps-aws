@@ -2,6 +2,10 @@
 # RAG8s is a production ready E2E RAG system built using the SOTA tools, models and strategies as of mid 2025. 
 
 
+
+
+
+
 ## STEP 2/3 - indexing_pipeline
 
 #### **NVIDIA (June 2025)** : Page-level chunking is the baseline best https://developer.nvidia.com/blog/finding-the-best-chunking-strategy-for-accurate-ai-responses/
@@ -206,13 +210,13 @@ GeAR reasoning → “Use the graph + triplets to infer which paths and nodes ar
 FAISS handles “meaning in text,” GeAR handles “meaning in structure.” Both are needed for a hybrid RAG.
 
 
-
+```
 
 
 ### The RAG8s platform codebase
 
 
-```sh
+```py
 
 RAG8s/
 ├── data/                                 # Local directory that syncs with s3://<bucket_name>/data
@@ -260,45 +264,42 @@ RAG8s/
 │   └── trace_file.py                     # View or download Presigned urls for the raw docs as source link s3://<bucket_name>data/raw/<file_name>.<format>
 |
 ├── infra/
-│   ├── manifests/                        
-│   │   ├── Chart.yaml                    # Helm chart metadata: name, version, dependencies
+│   ├── eks-manifests/                        
+│   │   ├── Chart.yaml                    # Helm chart metadata: name, version
 │   │   ├── templates/
+│   │   │   ├── argocd.yaml               # argocd app for orchestrating workloads in order
 │   │   │   ├── core/
-│   │   │   │   ├── 00_namespaces.yaml    # Define dev/prod namespaces
-│   │   │   │   ├── 01_quotas_pdbs.yaml   # ResourceQuotas & PodDisruptionBudgets per namespace
-│   │   │   │   ├── 02_serviceaccounts.yaml # Core service accounts for workloads & operators
-│   │   │   │   ├── 03_rbac.yaml          # ClusterRole, Role, and bindings for access control
-│   │   │   │   └── 04_network.yaml       # Traefik ingress, NetworkPolicies, security rules
+│   │   │   │   ├── namespaces.yaml       # Define dev/prod namespaces
+│   │   │   │   ├── quotas_pdbs.yaml      # ResourceQuotas & PodDisruptionBudgets per namespace
+│   │   │   │   ├── serviceaccounts.yaml   # Core service accounts for workloads & operators
+│   │   │   │   ├── rbac.yaml             # ClusterRole, Role, and bindings for access control
+│   │   │   │   └── network.yaml       # Traefik ingress, NetworkPolicies, security rules
 │   │   │   ├── dbs/
-│   │   │   │   ├── 05_arangodb.yaml      # ArangoDB StatefulSet, persistence, and resources
-│   │   │   │   └── 06_valkeye.yaml       # Valkeye helm chart values for rate limiting
+│   │   │   │   ├── arangodb.yaml      # ArangoDB StatefulSet, persistence, and resources
 │   │   │   ├── observability/
-│   │   │   │   ├── 07_promotheus.yaml    # Prometheus server, alerting rules, and metrics scraping
-│   │   │   │   ├── 08_otel_jaeger.yaml   # OpenTelemetry collector & Jaeger tracing setup
-│   │   │   │   ├── 09_loki.yaml          # Loki logging backend for cluster logs
-│   │   │   │   └── 10_grafana.yaml       # Grafana dashboard, persistence, and datasource setup
+│   │   │   │   ├── promotheus.yaml    # Prometheus server, alerting rules, and metrics scraping
+│   │   │   │   ├── otel_jaeger.yaml   # OpenTelemetry collector & Jaeger tracing setup
+│   │   │   │   ├── loki.yaml          # Loki logging backend for cluster logs
+│   │   │   │   └── grafana.yaml       # Grafana dashboard, persistence, and datasource setup
 │   │   │   └── workloads/
-│   │   │       ├── 11_jobs.yaml          # CronJobs for DB backup, Ray indexing pipeline, etc.
-│   │   │       ├── 12_rayservice.yaml    # RayService deployments: frontend, embedded-reranker, VLLM
-│   │   │       └── 13_karpenter-nodepools.yaml # Karpenter provisioners for CPU/GPU autoscaling
-│   │   └── values/
-│   │       ├── core.yaml                 # Values for namespaces, quotas, RBAC, and network policies
-│   │       ├── dbs.yaml                  # Values for ArangoDB and Valkeye Helm charts
-│   │       ├── obserability.yaml         # Values for Prometheus, Grafana, Loki, OTEL/Jaeger helm charts
-│   │       └── workloads.yaml            # Values for Jobs, RayService, and Karpenter nodepools
+│   │   │       ├── rayjob_cronjob.yaml # CronJobs for DB backup, Ray indexing pipeline, etc.
+│   │   │       ├── rayservice.yaml    # RayService deployments: frontend, embedded-reranker, VLLM, valkeye
+│   │   │       └── karpenter-nodepools.yaml # Karpenter provisioners for CPU/GPU autoscaling
+│   │   ├── values.kind.yaml            # values for local cluster
+│   │   └── values.eks.yaml             # values for prod eks cluster
 │   │
-│   ├── eks/                            
-│   │   ├── _00_config.py                 # Global variables & Pulumi config
-│   │   ├── _01_vpc.py                    # Networking must exist before cluster
-│   │   ├── _02_iam_roles_pre_eks.py      # IAM roles required to create EKS
-│   │   ├── _03_eks_cluster.py            # EKS cluster depends on VPC + pre-EKS IAM
-│   │   ├── _04_nodegroups.py             # Nodegroups depend on cluster + IAM
-│   │   ├── _05_iam_roles_post_eks.py     # IAM roles for workloads (Ray, Karpenter, Valkeye)
-│   │   ├── _06_karpenter.py              # Karpenter provisioning depends on cluster + nodegroups + IAM
-│   │   ├── _07_cloudflare.py             # DNS records, depends on cluster endpoint
-│   │   ├── _08_indexing_ami.py           # Indexing AMIs, depends on cluster/nodegroups
-│   │   ├── _09_inference_ami.py          # Inference/GPU AMIs, depends on cluster/nodegroups
-│   │   ├── _10_db_backup.py              # CronJobs or backup jobs, depends on DB running in cluster
+│   ├── pulumi-aws/                            
+│   │   ├── config.py                 # Global variables & Pulumi config
+│   │   ├── vpc.py                    # Networking must exist before cluster
+│   │   ├── iam_roles_pre_eks.py      # IAM roles required to create EKS
+│   │   ├── eks_cluster.py            # EKS cluster depends on VPC + pre-EKS IAM
+│   │   ├── nodegroups.py             # Nodegroups depend on cluster + IAM
+│   │   ├── iam_roles_post_eks.py     # IAM roles for workloads (Ray, Karpenter, Valkeye)
+│   │   ├── karpenter.py              # Karpenter provisioning depends on cluster + nodegroups + IAM
+│   │   ├── cloudflare.py             # DNS records, depends on cluster endpoint
+│   │   ├── indexing_ami.py           # Indexing AMIs, depends on cluster/nodegroups
+│   │   ├── inference_ami.py          # Inference/GPU AMIs, depends on cluster/nodegroups
+│   │   ├── db_backup.py              # CronJobs or backup jobs, depends on DB running in cluster
 │   │   ├── ___main__.py                  # Orchestrates imports & execution
 │   │   └── pulumi.yaml                   # Pulumi project manifest for infra code
 │   │
@@ -489,3 +490,15 @@ A compact, high-throughput **instruction-tuned LLM** quantized with **W4A16** (4
 [12]: https://instances.vantage.sh/aws/ec2/c8gd.48xlarge
 
 </details>
+
+
+
+
+
+
+
+
+
+
+
+

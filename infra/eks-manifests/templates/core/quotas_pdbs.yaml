@@ -1,0 +1,51 @@
+{{- /*
+Namespace-level ResourceQuotas, LimitRanges and an optional namespace PodDisruptionBudget.
+Driven by .Values.core.namespaces.<env>.quotas|limits|pdb
+*/ -}}
+{{- range $env, $cfg := .Values.core.namespaces }}
+{{- if $cfg.quotas }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ $cfg.name }}-quota
+  namespace: {{ $cfg.name }}
+spec:
+  hard:
+    {{- toYaml $cfg.quotas | nindent 4 }}
+{{- end }}
+
+{{- if $cfg.limits }}
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: {{ $cfg.name }}-limits
+  namespace: {{ $cfg.name }}
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: {{ $cfg.limits.default.cpu }}
+        memory: {{ $cfg.limits.default.memory }}
+      defaultRequest:
+        cpu: {{ $cfg.limits.requests.cpu }}
+        memory: {{ $cfg.limits.requests.memory }}
+{{- end }}
+
+{{- if $cfg.pdb }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $cfg.name }}-namespace-pdb
+  namespace: {{ $cfg.name }}
+  labels:
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+spec:
+  minAvailable: {{ $cfg.pdb.minAvailable | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/namespace: {{ $cfg.name }}
+{{- end }}
+{{- end }}

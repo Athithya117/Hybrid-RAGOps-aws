@@ -1,0 +1,126 @@
+{{- /*
+ClusterRoles for operators and namespace Roles for workloads.
+Operators get cluster-level access to manage CRDs; workloads get least-privilege Role bindings.
+Uses .Values.core.namespaces to scope bindings.
+*/ -}}
+{{- range $env, $cfg := .Values.core.namespaces }}
+{{- $ns := $cfg.name }}
+
+# Ray Operator (ClusterRole + ClusterRoleBinding)
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ray-operator-{{ $env }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "endpoints", "events"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["ray.io"]
+    resources: ["rayclusters", "rayjobs"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ray-operator-{{ $env }}-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ray-operator-{{ $env }}
+subjects:
+  - kind: ServiceAccount
+    name: ray-operator
+    namespace: {{ $ns }}
+
+# ArangoDB Operator (ClusterRole + ClusterRoleBinding)
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: arangodb-operator-{{ $env }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "persistentvolumeclaims", "secrets", "events"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets", "deployments"]
+    verbs: ["*"]
+  - apiGroups: ["database.arangodb.com"]
+    resources: ["arangodeployments"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: arangodb-operator-{{ $env }}-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: arangodb-operator-{{ $env }}
+subjects:
+  - kind: ServiceAccount
+    name: arangodb-operator
+    namespace: {{ $ns }}
+
+# vLLM inference (namespace Role + Binding) - least privilege to read config & secrets
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vllm-inference
+  namespace: {{ $ns }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vllm-inference-binding
+  namespace: {{ $ns }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: vllm-inference
+subjects:
+  - kind: ServiceAccount
+    name: vllm-inference
+    namespace: {{ $ns }}
+
+# backup-job Role (namespace-scoped)
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backup-job
+  namespace: {{ $ns }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "persistentvolumeclaims"]
+    verbs: ["get", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backup-job-binding
+  namespace: {{ $ns }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: backup-job
+subjects:
+  - kind: ServiceAccount
+    name: backup-job
+    namespace: {{ $ns }}
+
+{{- end }}

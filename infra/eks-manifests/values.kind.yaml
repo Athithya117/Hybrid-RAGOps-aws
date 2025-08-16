@@ -1,0 +1,150 @@
+# values.kind.yaml (dev)
+# New terms used in this file: [workloads], [pdb], [serviceAccounts], [rayservice], [rayjob_cronjob], [enable]
+core:
+  # ------------ namespace + quotas (dev) ------------
+  namespaces:
+    dev:
+      name: rag8s-dev
+      team: rag-team
+      annotations:
+        cost-center: "ml-dev"
+      quotas:
+        requests.cpu: "4"
+        requests.memory: 8Gi
+        limits.cpu: "8"
+        limits.memory: 16Gi
+        persistentvolumeclaims: "5"
+        requests.storage: 100Gi
+      limits:
+        default:
+          cpu: "500m"
+          memory: "512Mi"
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+      pdb:
+        minAvailable: 1
+
+  # ------------ service accounts (no IRSA in kind) ------------
+  serviceAccounts:
+    - name: ray-operator
+      # local: no IAM role
+      iamRoleArn: ""
+    - name: arangodb-operator
+      iamRoleArn: ""
+    - name: vllm-inference
+      iamRoleArn: ""
+    - name: backup-job
+      iamRoleArn: ""
+
+  # ------------ network (traefik) - tuned for local kind ------------
+  network:
+    traefik:
+      replicas: 1
+      serviceType: NodePort
+      annotations: {}                # keep empty for local / kind
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+        limits:
+          cpu: "500m"
+          memory: "256Mi"
+    policies:
+      enableDefaultDeny: true
+      enableAllowTraefik: true
+      enableAllowDns: true
+
+  # ------------ workloads: enable/disable + pdb per workload ------------
+  workloads:
+
+    # RayService: group of long-running services (each subcomponent has its own pdb)
+    rayservice:
+      enabled: true                      # [enable] master toggle for rayservice group
+      pdb:
+        # sensible default for dev; can be overridden per subcomponent
+        defaultMinAvailable: 1           # used if subcomponent doesn't specify its own [pdb]
+      embedder-reranker:
+        enabled: true
+        replicas: 1
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+        pdb:
+          minAvailable: 1
+      valkeye:
+        enabled: true
+        replicas: 1
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        pdb:
+          minAvailable: 1
+      frontend:
+        enabled: true
+        replicas: 1
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "250m"
+            memory: "256Mi"
+        pdb:
+          minAvailable: 1
+      vllm:
+        enabled: false    # disabled in local by default (GPU workloads)
+        replicas: 0
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+        pdb:
+          minAvailable: 0
+
+    # RayJob / CronJobs: indexing, backups
+    rayjob_cronjob:
+      enabled: true
+      ray-indexing-job:
+        enabled: true
+        schedule: "0 */6 * * *"          # every 6 hours
+        concurrencyPolicy: "Forbid"
+        successfulJobsHistoryLimit: 3
+        failedJobsHistoryLimit: 1
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+        # CronJobs create Jobs — PDB is generally unnecessary, keep optional
+        pdb:
+          minAvailable: 0
+      arangobackup-cronjob:
+        enabled: true
+        schedule: "0 02 * * *"           # daily 02:00
+        concurrencyPolicy: "Forbid"
+        backup:
+          s3Bucket: "my-dev-backups"     # replace as needed
+          s3Prefix: "arangodb/"
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        pdb:
+          minAvailable: 0
