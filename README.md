@@ -335,12 +335,12 @@ RAG8s/
 │   │   │   │   └── 10_grafana.yaml       # Grafana dashboard, persistence, and datasource setup
 │   │   │   └── workloads/
 │   │   │       ├── 11_jobs.yaml          # CronJobs for DB backup, Ray indexing pipeline, etc.
-│   │   │       ├── 12_rayservice.yaml    # RayService deployments: frontend, valkeye, embedded-reranker, VLLM
+│   │   │       ├── 12_rayservice.yaml    # RayService deployments: frontend, embedded-reranker, VLLM
 │   │   │       └── 13_karpenter-nodepools.yaml # Karpenter provisioners for CPU/GPU autoscaling
 │   │   └── values/
 │   │       ├── core.yaml                 # Values for namespaces, quotas, RBAC, and network policies
 │   │       ├── dbs.yaml                  # Values for ArangoDB and Valkeye Helm charts
-│   │       ├── obserability.yaml         # Values for Prometheus, Grafana, Loki, OTEL/Jaeger
+│   │       ├── obserability.yaml         # Values for Prometheus, Grafana, Loki, OTEL/Jaeger helm charts
 │   │       └── workloads.yaml            # Values for Jobs, RayService, and Karpenter nodepools
 │   │
 │   ├── eks/                            
@@ -355,7 +355,7 @@ RAG8s/
 │   │   ├── _08_indexing_ami.py           # Indexing AMIs, depends on cluster/nodegroups
 │   │   ├── _09_inference_ami.py          # Inference/GPU AMIs, depends on cluster/nodegroups
 │   │   ├── _10_db_backup.py              # CronJobs or backup jobs, depends on DB running in cluster
-│   │   ├── _11___main__.py               # Orchestrates imports & execution
+│   │   ├── ___main__.py                  # Orchestrates imports & execution
 │   │   └── pulumi.yaml                   # Pulumi project manifest for infra code
 │   │
 │   ├── onnx/
