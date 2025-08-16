@@ -436,8 +436,6 @@ RAG8s/
 * Parameter size: **149M**
   🔗 [https://huggingface.co/Alibaba-NLP/gte-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-modernbert-base)
 
-> **Use case**: Recommended for fast, CPU-efficient **semantic retrieval** in low-latency RAG pipelines with long context document embeddings.
-
 ---
 
 ### 🔹 **\[2] gte-reranker-modernbert-base**
@@ -448,8 +446,6 @@ RAG8s/
 * Extremely fast CPU inference with ONNX (FlashAttention 2)
   🔗 [https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base)
 
-> **Use case**: Ideal for **re-ranking top-k retrieved passages** after dense retrieval to improve precision in RAG answer selection.
-
 ---
 
 ### 🔹 **\[3] ReLiK-CIE-tiny(For precomputing triplets, not deployed)**
@@ -459,8 +455,6 @@ A compact and efficient **entity + relation extraction** model designed for **Gr
 * Extracts **entities and triplets** in a single pass
 * Balanced for **accuracy and runtime performance**
   🔗 [relik-ie/relik-cie-tiny](https://huggingface.co/relik-ie/relik-cie-tiny)
-
-> **Use case**: Ideal for production Graph-RAG inference pipelines where lightweight models must still generate structured knowledge without relying on large LLM backends.
 
 ---
 
