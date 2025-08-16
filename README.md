@@ -371,7 +371,7 @@ RAG8s/
 │       ├── rayserve-vllm.py              # Ray Serve wrapper for vllm inference  # observe: logs, metrics
 │       └── requirements-gpu.txt          # GPU runtime dependencies (CUDA/pytorch/etc.)
 |
-└── utils                                   
+└── utils/                                   
 |    ├── archive/                           # Files no longer maintained
 |    ├── bootstrap-dev.sh                   # Installs all the required tools for development and testing
 |    ├── bootstrap-prod.sh                  # Installs minimal tools for prod
@@ -475,7 +475,13 @@ A compact, high-throughput **instruction-tuned LLM** quantized with **W4A16** (4
 
 🔗 [RedHatAI Qwen3-4B-W4A16](https://huggingface.co/RedHatAI/Qwen3-4B-quantized.w4a16)
 
+> “Even a tiny model like Qwen3-4B can rival the performance of Qwen2.5-72B-Instruct.”
+> — [Qwen3 Blog](https://qwenlm.github.io/blog/qwen3/)
+> — [Thinking-mode](https://qwenlm.github.io/blog/qwen3/#key-features)
+
 ---
+
+
 
 <details>
  <summary>EC2 (Click the triangle)</summary>
