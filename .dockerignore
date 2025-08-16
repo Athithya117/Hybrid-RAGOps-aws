@@ -1,36 +1,45 @@
-# Python environments
+# Ignore everything not needed in Docker context
+# Speeds up builds and protects secrets
+
+# Python envs
 .venv/
 .venv2/
 venv/
 myenv/
+.venv1
+.venv1/
+.venv_refined/
+
+data
 
 # Python cache
 __pycache__/
 *.pyc
+data/rag8s-aws
+data/rag8s-dev
+rag8s-aws/
+rag8s-dev/
 
-# Secrets
-02-secrets.yml
-tmp.md
-raw
-
-# Data & Models
-data/
-data_sample/
-chunked/
+# Large or sensitive data
 models/
 lid.176.bin
 backups/
-
-# Archives
-*.zip
-
-# Misc
-tmp/
 images/
-infra/
-notebooks/
+tmp/
+
+raw_data
+
+# Secrets and config
+02-secrets.yml
+tmp.md
 commands.md
 cli.md
 
-# Git-related
+# Git and versioning
 .git/
+.gitignore
+.dockerignore
+# Development files not needed in Docker image
+notebooks/
+*.md
+*.zip

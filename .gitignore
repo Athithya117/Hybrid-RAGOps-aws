@@ -10,9 +10,15 @@ myenv/
 .venv1/
 .venv_refined/
 
+data
+
 # Python cache
 __pycache__/
 *.pyc
+data/rag8s-aws
+data/rag8s-dev
+rag8s-aws/
+rag8s-dev/
 
 # Large or sensitive data
 models/
