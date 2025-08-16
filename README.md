@@ -190,83 +190,26 @@ export APP_LOG_LEVEL="info"                           # 'debug' only temporarily
 
 ```sh
 
+User query
+    │
+    ├─→ arangosearch → candidates
+    ├─→ Vector search → semantically similar candidates
+    └─→ Graph (ArangoDB) + GeAR → multi-hop linked candidates
+            ↓
+        Candidate merger & reranker (optional)
+            ↓
+        LLM generation / RAG output
 
-## **RAG8s Inference Flow**
+Graph traversal → “Follow the edges and return everything connected.”
 
-**Goal:** Add lightweight multi-hop reasoning via precomputed triples in ArangoDB without slowing down BM25 + vector + graph retrieval.
-
----
-
-### **1. Query Processing**
-
-* Embed query (`gte-modernbert-base`).
-* Lookup entities via simple dictionary/inverted index from precomputed ReLiK output.
-
----
-
-### **2. Candidate Generation (Parallel)**
-
-* **Vector (FAISS):** Top `N1` by cosine similarity.
-* **BM25 (ArangoSearch):** Top `N2` by keyword relevance.
-* **Graph:** If entity match, retrieve related chunks (`N3`) via 1–2 hops.
-
----
-
-### **3. GeAR Multi-Hop Expansion**
-
-* Seeds = top BM25 + vector results + entity matches.
-* Beam search 1–3 hops over precomputed triples in ArangoDB.
-* Collect new chunks not in initial set.
-
-```aql
-LET seeds = @seed_entity_ids
-FOR v, e, p IN 1..2 OUTBOUND seeds GRAPH 'EntityGraph'
-  OPTIONS { bfs: true, uniqueVertices: "global" }
-  FILTER v.chunk_id != null
-  LET path_score = 1 / (1 + LENGTH(p.edges))
-  RETURN DISTINCT { chunk_id: v.chunk_id, score: path_score }
-```
-
----
-
-### **4. Fusion**
-
-Weighted sum of normalized scores:
-
-```python
-final_score = (
-    0.4 * vec_score +
-    0.25 * bm25_score +
-    0.2 * graph_score +
-    0.15 * gear_score
-)
-```
-
----
-
-### **5. Dedupe & Sort**
-
-* Keep highest score per `chunk_id`.
-* Sort and keep top `K`.
-
----
-
-### **6. Optional Rerank**
-
-* Apply `gte-modernbert-reranker-base` if latency allows.
-
----
-
-**Why it works:**
-
-* No extra inference models (triples are precomputed).
-* GeAR adds multi-hop reasoning without replacing existing retrieval.
-* ArangoDB handles both keyword search and graph traversals efficiently.
-
----
+GeAR reasoning → “Use the graph + triplets to infer which paths and nodes are actually relevant to the query, even if not directly connected.”
+FAISS handles “meaning in text,” GeAR handles “meaning in structure.” Both are needed for a hybrid RAG.
 
 
-### The RAG8s platform codebase(currently under development, 20% completed)
+
+
+
+### The RAG8s platform codebase
 
 
 ```sh
@@ -289,7 +232,6 @@ RAG8s/
 │   │   ├── formats/
 │   │   │   ├── __init__.py               # Format module initializer
 │   │   │   ├── csv.py                    # CSV reader & chunker logic
-│   │   │   ├── doc_docx.py               # Docx parser + fallback handlers
 │   │   │   ├── html.py                   # HTML -> Markdown chunker and DOM processing
 │   │   │   ├── json.py                   # JSON/JSONL flattening and chunking routines
 │   │   │   ├── md.py                     # Markdown chunking and normalization
@@ -313,7 +255,8 @@ RAG8s/
 │   │   ├── modules                        # Modular UI components / assets
 │   │   └── requirements-cpu.txt          # Frontend Python dependencies
 │   ├── main.py                           # Inference service entrypoint (REST/gRPC server)  # observe: logs, metrics, traces
-│   ├── retreiver.py                      # Retrieval orchestration (hybrid BM25 + vector + graph + GeAR lightweight multihop)  # observe: logs, metrics
+│   ├── llm_retrieval.py                  # Retrieval orchestration (hybrid BM25 + vector + graph + GeAR lightweight multihop)  # observe: logs, metrics
+│   ├── llmless_retrieval.py              # Returns only raw chunks/triplets and source urls from arangodb if rate limit exceeded
 │   └── trace_file.py                     # View or download Presigned urls for the raw docs as source link s3://<bucket_name>data/raw/<file_name>.<format>
 |
 ├── infra/
@@ -328,7 +271,7 @@ RAG8s/
 │   │   │   │   └── 04_network.yaml       # Traefik ingress, NetworkPolicies, security rules
 │   │   │   ├── dbs/
 │   │   │   │   ├── 05_arangodb.yaml      # ArangoDB StatefulSet, persistence, and resources
-│   │   │   │   └── 06_valkeye.yaml       # Valkeye Redis backend deployment & configuration
+│   │   │   │   └── 06_valkeye.yaml       # Valkeye helm chart values for rate limiting
 │   │   │   ├── observability/
 │   │   │   │   ├── 07_promotheus.yaml    # Prometheus server, alerting rules, and metrics scraping
 │   │   │   │   ├── 08_otel_jaeger.yaml   # OpenTelemetry collector & Jaeger tracing setup
@@ -434,7 +377,8 @@ RAG8s/
 * Optimized for ONNX export and CPU-inference
 * Embedding dimension: **768**
 * Parameter size: **149M**
-  🔗 [https://huggingface.co/Alibaba-NLP/gte-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-modernbert-base)
+
+🔗 [https://huggingface.co/Alibaba-NLP/gte-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-modernbert-base)
 
 ---
 
@@ -444,7 +388,8 @@ RAG8s/
 * High BEIR benchmark score (**nDCG\@10 ≈ 90.7%**)
 * Same architecture & size as embedding model (149M), supports **8192 tokens**
 * Extremely fast CPU inference with ONNX (FlashAttention 2)
-  🔗 [https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base)
+
+🔗 [https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base)
 
 ---
 
@@ -454,13 +399,14 @@ A compact and efficient **entity + relation extraction** model designed for **Gr
 
 * Extracts **entities and triplets** in a single pass
 * Balanced for **accuracy and runtime performance**
-  🔗 [relik-ie/relik-cie-tiny](https://huggingface.co/relik-ie/relik-cie-tiny)
+
+🔗 [relik-ie/relik-cie-tiny](https://huggingface.co/relik-ie/relik-cie-tiny)
 
 ---
 
 ### 🔹 **Qwen3-4B-W4A16 (vLLM Deployment)**
 
-A compact, high-throughput **instruction-tuned LLM** quantized with **W4A16** (4-bit weights + FP16 activations). Built on **Qwen3-4B**, this variant supports **32,768-token context** natively and achieves performance comparable to models 10× its size (e.g., Qwen2.5-72B). Optimized for **vLLM inference**, it balances **speed, memory efficiency, and accuracy**, running efficiently on GPUs like A10G, L4, and L40S. vLLM fully supports W4A16, awq and MoE models, leveraging CUDA kernels for faster inference (sglang doesnt support these yet) and horizontal scaling.
+A compact, high-throughput **instruction-tuned LLM** quantized with **W4A16** (4-bit weights + FP16 activations). Built on **Qwen3-4B**, this variant supports **32,768-token context** natively and achieves performance comparable to models 10× its size (e.g., Qwen2.5-72B). Optimized for vLLM inference, it balances speed, memory efficiency, and accuracy, running efficiently on GPUs like A10G, L4, and L40S. **vLLM fully supports W4A16, awq and MoE models like Qwen3-30B-A3B, leveraging CUDA kernels for faster inference (sglang doesnt support these yet) and horizontal scaling**.
 
 * Architecture: **Transformer** (Qwen3 series, multilingual)
 * Context Length: **32k tokens** (vLLM-native)
@@ -470,8 +416,7 @@ A compact, high-throughput **instruction-tuned LLM** quantized with **W4A16** (4
 🔗 [RedHatAI Qwen3-4B-W4A16](https://huggingface.co/RedHatAI/Qwen3-4B-quantized.w4a16)
 
 > “Even a tiny model like Qwen3-4B can rival the performance of Qwen2.5-72B-Instruct.”
-> — [Qwen3 Blog](https://qwenlm.github.io/blog/qwen3/)
-> — [Thinking-mode](https://qwenlm.github.io/blog/qwen3/#key-features)
+— [Qwen3 Blog](https://qwenlm.github.io/blog/qwen3/#introduction) , [Thinking-mode](https://qwenlm.github.io/blog/qwen3/#key-features)
 
 ---
 
