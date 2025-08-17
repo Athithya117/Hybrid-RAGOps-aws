@@ -2,6 +2,21 @@
 # RAG8s is a production ready E2E RAG system built using the SOTA tools, models and strategies as of mid 2025. 
 
 
+
+
+
+
+
+
+
+# STEP 0/3 env setup
+
+
+
+
+git config --global user.name "Your Name"
+git config --global user.email you@example.com
+
 ```sh
 gh auth login
 ```
@@ -14,7 +29,6 @@ gh auth login
 ! First copy your one-time code: <code>
 - Press Enter to open github.com in your browser... 
 ✓ Authentication complete. Press Enter to continue...
-
 
 
 
