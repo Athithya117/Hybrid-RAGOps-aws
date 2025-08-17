@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# install_tools.sh
-# Ubuntu 22.04 focused bootstrap for RAG infra tooling (pinned versions as of Aug 2025)
-# Run as: ./install_tools.sh
-set -euo pipefail
+
+
+
 IFS=$'\n\t'
 
 # --- Predefined env (user requested)
@@ -32,6 +31,22 @@ require_sudo() {
   fi
 }
 
+echo "Installing latest Tesseract 5.x from alex-p PPA..."
+sudo apt-get update -y
+if ! grep -q "^deb .\+ppa.launchpadcontent.net/alex-p/tesseract-ocr5" /etc/apt/sources.list*; then
+   add-apt-repository -y ppa:alex-p/tesseract-ocr5
+fi
+sudo apt-get update -y
+sudo apt-get install -y tesseract-ocr libtesseract-dev libleptonica-dev
+
+
+sudo add-apt-repository ppa:libreoffice/ppa -y && \
+sudo apt-get update && \
+sudo apt-get install -y libreoffice \
+  ttf-mscorefonts-installer fonts-dejavu fonts-liberation && \
+
+
+
 # Basic system prep
 require_sudo
 log "[1/14] apt update/upgrade + essential packages"
@@ -44,7 +59,6 @@ sudo apt-get install -yq --no-install-recommends \
   unzip apt-transport-https
 
 log "[2/14] pip upgrades"
-python3 -m pip install --upgrade pip wheel cachecontrol
 
 # Atomic download+install helper for single-file binaries
 dl_and_install_single_binary() {
@@ -136,30 +150,6 @@ install_pulumi() {
   fi
 }
 
-# Node.js (NodeSource script installs pinned major LTS)
-install_node() {
-  if ! command -v node >/dev/null 2>&1; then
-    log "Installing Node.js LTS ${NODE_VERSION}"
-    curl -fsSL "https://deb.nodesource.com/setup_${NODE_VERSION}" | sudo -E bash -
-    sudo apt-get install -y nodejs
-    sudo npm install -g vite --no-progress
-  else
-    log "node present (skipping)"
-  fi
-}
-
-# sops (pinned)
-install_sops() {
-  if ! command -v sops >/dev/null 2>&1 || [[ "$(sops --version 2>/dev/null || true)" != *"${SOPS_VERSION}"* ]]; then
-    log "Installing sops ${SOPS_VERSION}"
-    local bin="/tmp/sops-${SOPS_VERSION#v}"
-    curl -fSL --retry 3 -o "${bin}" "https://github.com/getsops/sops/releases/download/${SOPS_VERSION}/sops-${SOPS_VERSION}.linux.amd64"
-    sudo install -m 0555 "${bin}" /usr/local/bin/sops
-    rm -f "${bin}"
-  else
-    log "sops already matches ${SOPS_VERSION} (skipping)"
-  fi
-}
 
 # k3d (official installer; supports TAG override)
 install_k3d() {
@@ -185,7 +175,7 @@ install_tesseract() {
 # Misc directories & perms
 setup_dirs() {
   log "Creating model and workspace directories"
-  sudo mkdir -p "${MODEL_HOME}/hf/hub" "${MODEL_HOME}/hf/assets" /workspace/backups/dbs/qdrant /workspace/backups/dbs/arrangodb /workspace/data
+  sudo mkdir -p "${MODEL_HOME}/hf/hub" "${MODEL_HOME}/hf/assets" /workspace/backups/dbs/arrangodb /workspace/data
   sudo chmod -R 0775 "${MODEL_HOME}" /workspace || true
   sudo chown -R "$(id -u):$(id -g)" "${MODEL_HOME}" /workspace || true
 }
@@ -205,8 +195,6 @@ install_eksctl
 install_argocd
 install_helm
 install_pulumi
-install_node
-install_sops
 install_k3d
 install_tesseract
 
@@ -223,7 +211,7 @@ append_if_missing 'export PYTHONPATH=$(pwd)' ~/.bashrc
 
 # Final verification summary
 log "Verification (versions):"
-for cmd in aws kubectl eksctl argocd helm pulumi node sops k3d; do
+for cmd in aws kubectl eksctl argocd helm pulumi k3d; do
   if command -v "${cmd}" >/dev/null 2>&1; then
     printf '  %-8s -> %s\n' "${cmd}" "$(${cmd} --version 2>/dev/null | head -n1 || echo 'version unknown')"
   else

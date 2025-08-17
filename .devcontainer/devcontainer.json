@@ -1,39 +1,31 @@
 {
   "name": "RAG8s",
-  "build": {
-    "dockerfile": "Dockerfile",
-    "context": ".",
-    "args": {
-      "DOCKER_GID": "999"
-    }
-  },
+  "build": { "dockerfile": "Dockerfile", "context": "." },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "remoteUser": "vscode",
   "runArgs": [
-    "--gpus", "all",
+  //"--gpus", "all",
     "--cap-add=SYS_PTRACE",
     "--security-opt=seccomp=unconfined",
-    "-v", "/var/run/docker.sock:/var/run/docker.sock"
+    "-v",
+    "/var/run/docker.sock:/var/run/docker.sock"
   ],
-  "remoteUser": "vscode",
-  "postCreateCommand": "bash .devcontainer/scripts/fix-docker-group.sh",
-  "workspaceFolder": "/workspace",
-  "mounts": [
-    "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
-  ],
-  "features": {},
+  "containerEnv": {
+    "DOCKER_GID": "999",
+    "DOCKER_PROXY_HOST": "",
+    "DOCKER_PROXY_PORT": ""
+  },
+  "postCreateCommand": "sudo bash /workspace/utils/bootstrap-dev.sh && sudo bash /workspace/utils/lc.sh",
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-vscode-remote.remote-containers",
-        "ms-vscode-remote.remote-ssh",
-        "tomoki1207.pdf",
-        "astral-sh.ruff"
+        "ms-azuretools.vscode-docker"
       ],
       "settings": {
         "files.autoSave": "afterDelay",
-        "files.autoSaveDelay": 1000,
-        "editor.formatOnSave": true,
-        "python.formatting.provider": "ruff",
-        "ruff.organizeImports": true
+        "files.autoSaveDelay": 1000
       }
     }
   }

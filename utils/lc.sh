@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
-CLUSTER_NAME="rag8s-dev"
-NAMESPACE="ray-system"
+
+CLUSTER_NAME="rag8s-local"
+NAMESPACE="rag8s-dev"
 KIND_VERSION="v0.29.0"
 KUBERAY_VERSION="1.4.2"
 
