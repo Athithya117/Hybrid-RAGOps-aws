@@ -62,8 +62,6 @@ sudo apt-get install -yq --no-install-recommends \
   gnupg lsb-release software-properties-common zip \
   unzip apt-transport-https
 
-log "[2/14] pip upgrades"
-
 # Atomic download+install helper for single-file binaries
 dl_and_install_single_binary() {
   local url="$1" binname="$2" mode="${3:-0555}"
