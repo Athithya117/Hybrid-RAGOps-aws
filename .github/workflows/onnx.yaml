@@ -6,13 +6,13 @@ on:
       - 'infra/onnx/**'
   workflow_dispatch:
 
+env:
+  IMAGE_REPO: rag8s/rag8s-onnx-embedder-reranker-cpu-amd64
+
 jobs:
   build:
     runs-on: ubuntu-22.04
     environment: default
-    env:
-      IMAGE_REPO: ${{ secrets.EMBEDDER_RERANKER_IMAGE_REPO }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3

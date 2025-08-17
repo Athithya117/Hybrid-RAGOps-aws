@@ -235,13 +235,5 @@ helm upgrade --install rag8s-onnx infra/onnx -n rag8s-prod --create-namespace \
   --set image.repository=$IMAGE_REPO --set image.tag=$TAG
 ```
 
-Tail logs:
-
-```bash
-kubectl -n rag8s-prod logs -f <pod> -c ray-head
-```
-
-Run GH Actions manually: GitHub → Actions → select `Build, scan, push ONNX image` → Run workflow.
-
 
 
