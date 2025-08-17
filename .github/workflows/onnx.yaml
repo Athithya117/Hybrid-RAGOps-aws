@@ -1,6 +1,5 @@
 name: Build, scan, push ONNX image (infra/onnx)
 
-# Trigger on changes to infra/onnx files (and allow manual runs)
 on:
   push:
     paths:
@@ -8,84 +7,40 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-push:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
-      - name: Set up QEMU (for multi-platform build)
-        uses: docker/setup-qemu-action@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Log in to container registry
+      - name: Log in to Docker registry
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-          # registry optional; default is docker.io. For GHCR set registry: ghcr.io
 
-      - name: Build and push image (context: infra/onnx)
-        uses: docker/build-push-action@v5
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build and push ONNX image
+        uses: docker/build-push-action@v4
         with:
-          context: infra/onnx
-          file: infra/onnx/Dockerfile
+          context: ./infra/onnx
           push: true
-          tags: ${{ secrets.IMAGE_REPO }}:${{ github.sha }}
-          # optionally add platforms: linux/amd64,linux/arm64
-          # optionally configure caching (cache-from / cache-to)
+          tags: ${{ secrets.IMAGE_REPO }}:latest
 
-      - name: Image digest / info
-        run: |
-          echo "Built image: ${{ secrets.IMAGE_REPO }}:${{ github.sha }}"
-          docker run --rm --entrypoint "" ${{ secrets.IMAGE_REPO }}:${{ github.sha }} true || true
-        continue-on-error: true
-
-      - name: Scan image (Trivy)
-        uses: aquasecurity/trivy-action@v1
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.18.0
         with:
-          image-ref: ${{ secrets.IMAGE_REPO }}:${{ github.sha }}
+          image-ref: ${{ secrets.IMAGE_REPO }}:latest
+          format: table
+          exit-code: 1
+          ignore-unfixed: true
 
-      - name: Run container for smoke tests (start)
-        if: ${{ secrets.HF_TOKEN }}
+      - name: Run smoke test
         run: |
-          # run container detached, map HTTP port so smoke test can reach it
-          docker run --rm -d --name onnx_smoke_test \
-            -e HF_TOKEN="${{ secrets.HF_TOKEN }}" \
-            -p 8000:8000 \
-            ${{ secrets.IMAGE_REPO }}:${{ github.sha }}
-          # wait until health endpoint returns 200 or timeout
-          echo "Waiting for health endpoint..."
-          for i in $(seq 1 24); do
-            if curl -fsS http://127.0.0.1:8000/healthz >/dev/null 2>&1; then
-              echo "health OK"
-              break
-            else
-              echo "attempt $i: service not ready yet, sleeping 5s"
-              sleep 5
-            fi
-          done
-        timeout-minutes: 10
-
-      - name: Run smoke curl test (validate inference-ready)
-        if: ${{ secrets.HF_TOKEN }}
-        run: |
-          # quick check that health is OK and a simple inference works (if endpoint exists)
-          curl -fsS http://127.0.0.1:8000/healthz || (echo "healthz failed" && exit 1)
-          echo "Optional: run a tiny inference or grpc health check here"
-        timeout-minutes: 5
-
-      - name: Cleanup smoke container
-        if: ${{ secrets.HF_TOKEN }}
-        run: |
-          docker ps -a --filter "name=onnx_smoke_test" --format '{{.ID}} {{.Names}}' || true
-          docker rm -f onnx_smoke_test || true
-
-      - name: Success message
-        run: |
-          echo "Image build+push finished: ${{ secrets.IMAGE_REPO }}:${{ github.sha }}"
+          docker run --rm \
+            -e HF_TOKEN=${{ secrets.HF_TOKEN }} \
+            ${{ secrets.IMAGE_REPO }}:latest \
+            bash infra/onnx/tests/smoke_test.sh
