@@ -1,0 +1,122 @@
+{{- $vals := .Values -}}
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: {{ include "rag8s.fullname" . }}
+  labels:
+{{ include "rag8s.labels" . | indent 4 }}
+spec:
+  rayClusterConfig:
+    rayVersion: "{{ $vals.rayVersion }}"
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+      template:
+        metadata:
+          annotations:
+            prometheus.io/scrape: "{{ ternary "true" "false" $vals.prometheus.enabled }}"
+            prometheus.io/port: "8265"
+        spec:
+          serviceAccountName: {{ include "rag8s.fullname" . }}-sa
+          terminationGracePeriodSeconds: {{ $vals.terminationGracePeriodSeconds | default 120 }}
+          containers:
+            - name: ray-head
+              image: "{{ $vals.image.repository }}:{{ $vals.image.tag }}"
+              imagePullPolicy: {{ $vals.image.pullPolicy }}
+              ports:
+                - containerPort: 8265
+                  name: dashboard
+                - containerPort: {{ $vals.serve.httpPort }}
+                  name: serve
+                - containerPort: {{ $vals.serve.grpcPort }}
+                  name: grpc
+              env:
+                - name: HF_HOME
+                  value: "{{ $vals.env.HF_HOME }}"
+                - name: MODEL_EMBEDDER_NAME
+                  value: "{{ $vals.env.MODEL_EMBEDDER_NAME }}"
+                - name: MODEL_RERANKER_NAME
+                  value: "{{ $vals.env.MODEL_RERANKER_NAME }}"
+                - name: EMBEDDER_OMP_NUM_THREADS
+                  value: "{{ $vals.env.EMBEDDER_OMP_NUM_THREADS }}"
+                - name: RERANKER_OMP_NUM_THREADS
+                  value: "{{ $vals.env.RERANKER_OMP_NUM_THREADS }}"
+                - name: EMBEDDER_BATCH_MAX_SIZE
+                  value: "{{ $vals.env.EMBEDDER_BATCH_MAX_SIZE }}"
+                - name: RERANKER_BATCH_MAX_SIZE
+                  value: "{{ $vals.env.RERANKER_BATCH_MAX_SIZE }}"
+                - name: HF_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $vals.secrets.hfTokenSecretName }}
+                      key: hf_token
+              readinessProbe:
+                httpGet:
+                  path: {{ $vals.probes.readiness.path }}
+                  port: {{ $vals.serve.httpPort }}
+                initialDelaySeconds: {{ $vals.probes.readiness.initialDelaySeconds }}
+                periodSeconds: {{ $vals.probes.readiness.periodSeconds }}
+                failureThreshold: {{ $vals.probes.readiness.failureThreshold }}
+              livenessProbe:
+                httpGet:
+                  path: {{ $vals.probes.liveness.path }}
+                  port: {{ $vals.serve.httpPort }}
+                initialDelaySeconds: {{ $vals.probes.liveness.initialDelaySeconds }}
+                periodSeconds: {{ $vals.probes.liveness.periodSeconds }}
+                failureThreshold: {{ $vals.probes.liveness.failureThreshold }}
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchExpressions:
+                      - key: app.kubernetes.io/name
+                        operator: In
+                        values:
+                          - {{ include "rag8s.name" . }}
+                  topologyKey: "kubernetes.io/hostname"
+    workerGroupSpecs:
+      - groupName: worker-cpu
+        minReplicas: {{ $vals.serve.deployments.embedder.autoscaling.min_replicas | default 1 }}
+        maxReplicas: {{ $vals.serve.deployments.embedder.autoscaling.max_replicas | default 4 }}
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: "{{ $vals.image.repository }}:{{ $vals.image.tag }}"
+                imagePullPolicy: {{ $vals.image.pullPolicy }}
+                resources:
+                  requests:
+                    cpu: "{{ $vals.replicaDefaults.worker.resources.requests.cpu }}"
+                    memory: "{{ $vals.replicaDefaults.worker.resources.requests.memory }}"
+                  limits:
+                    cpu: "{{ $vals.replicaDefaults.worker.resources.limits.cpu }}"
+                    memory: "{{ $vals.replicaDefaults.worker.resources.limits.memory }}"
+                env:
+                  - name: HF_HOME
+                    value: "{{ $vals.env.HF_HOME }}"
+                  - name: HF_TOKEN
+                    valueFrom:
+                      secretKeyRef:
+                        name: {{ $vals.secrets.hfTokenSecretName }}
+                        key: hf_token
+  serveConfigV2: |
+    applications:
+      - name: rag8s_onnx_app
+        import_path: {{ $vals.serve.importPath | quote }}
+        deployments:
+          - name: embedder
+            num_replicas: {{ $vals.serve.deployments.embedder.num_replicas }}
+            ray_actor_options:
+              num_cpus: {{ $vals.serve.deployments.embedder.ray_actor_num_cpus }}
+            autoscaling_config:
+              min_replicas: {{ $vals.serve.deployments.embedder.autoscaling.min_replicas }}
+              max_replicas: {{ $vals.serve.deployments.embedder.autoscaling.max_replicas }}
+              target_num_ongoing_requests_per_replica: {{ $vals.serve.deployments.embedder.autoscaling.target_num_ongoing_requests_per_replica }}
+          - name: reranker
+            num_replicas: {{ $vals.serve.deployments.reranker.num_replicas }}
+            ray_actor_options:
+              num_cpus: {{ $vals.serve.deployments.reranker.ray_actor_num_cpus }}
+            autoscaling_config:
+              min_replicas: {{ $vals.serve.deployments.reranker.autoscaling.min_replicas }}
+              max_replicas: {{ $vals.serve.deployments.reranker.autoscaling.max_replicas }}
+              target_num_ongoing_requests_per_replica: {{ $vals.serve.deployments.reranker.autoscaling.target_num_ongoing_requests_per_replica }}

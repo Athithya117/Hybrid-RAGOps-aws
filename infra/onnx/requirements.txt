@@ -1,0 +1,8 @@
+ray[serve]==2.48.0
+onnxruntime==1.15.0
+transformers==4.41.2
+tokenizers==0.15.2
+grpcio==1.74.0
+grpcio-tools==1.74.0  # build-time usage; builder stage only
+prometheus-client==0.16.0
+numpy==1.23.5

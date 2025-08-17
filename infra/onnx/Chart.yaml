@@ -1,0 +1,6 @@
+apiVersion: v2
+name: rag8s-onnx
+description: "RAG8s ONNX embedder & reranker - mini Helm chart"
+type: application
+version: 0.1.0
+appVersion: "2.48.0"

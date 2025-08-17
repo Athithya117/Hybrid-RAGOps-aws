@@ -11,7 +11,7 @@ message EmbedRequest {
 }
 
 message EmbedResponse {
-  repeated float embeddings = 1; // flatten or encode as needed
+  repeated float embeddings = 1;
 }
 
 service RerankService {
