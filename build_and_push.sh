@@ -37,7 +37,7 @@ while [ $ATTEMPTS -lt $MAX ]; do
   ATTEMPTS=$((ATTEMPTS+1))
   sleep $SLEEP
 done
-if [ $OK -ne 1 ]; then error "Smoke test failed. Dumping container logs and inspect:"; docker inspect "$CID" || true; docker logs "$CID" || true; docker stop "$CID" >/dev/null 2>&1 || true; [ -n "$DOCKER_PASSWORD" ] && docker.logout; exit 1; fi
+if [ $OK -ne 1 ]; then error "Smoke test failed. Dumping container logs and inspect:"; docker inspect "$CID" || true; docker logs "$CID" || true; docker stop "$CID" >/dev/null 2>&1 || true; [ -n "$DOCKER_PASSWORD" ] && docker logout; exit 1; fi
 docker stop "$CID" >/dev/null 2>&1
 [ -n "$DOCKER_PASSWORD" ] && docker logout
 log "Docker image $DOCKER_REPO:$DOCKER_TAG pushed and smoke test passed"
