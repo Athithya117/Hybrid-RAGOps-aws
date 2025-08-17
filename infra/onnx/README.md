@@ -3,10 +3,6 @@
 **Location:** `infra/onnx/`
 **Purpose:** Docker image + Ray Serve code + Helm-style manifest templates for running the ONNX embedder & reranker on KubeRay (RayService) in a cloud Kubernetes environment.
 
-This README is a concise, production-oriented reference for developers/operators: what is in `infra/onnx/`, how to build and test, how to deploy, configuration and secrets, monitoring and autoscaling notes, and common troubleshooting steps.
-
----
-
 ## Quick summary (one-liner)
 
 Build and push the image (CI), create your HF secret in the cluster, then deploy the `RayService` via the templated Helm manifest; the RayService will bootstrap Ray + Serve and deploy the two services: **Embedder** and **Reranker**.
