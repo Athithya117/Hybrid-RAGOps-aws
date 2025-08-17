@@ -46,6 +46,10 @@ sudo apt-get install -y libreoffice \
   ttf-mscorefonts-installer fonts-dejavu fonts-liberation && \
 
 
+sudo curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | bash
+sudo apt-get update
+sudo apt-get install -y git-lfs
+sudo git lfs install
 
 # Basic system prep
 require_sudo
