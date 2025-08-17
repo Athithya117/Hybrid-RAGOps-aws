@@ -1,46 +1,49 @@
+## **RAG8s** is a **production-ready** e2e RAG system with hybrid retrieval (vectors + keyword + graph), GeAR multihop reasoning engineered for high throughput, low-latency retrieval, and adaptive scaling. It is organized into **three main components**—`infra/`, `indexing_pipeline/`, and `inference_pipeline/`—each responsible for a distinct set of concerns (platform, data ingestion/indexing, and online query serving + evaluation).
 
-# RAG8s is a production ready E2E RAG system built using the SOTA tools, models and strategies as of mid 2025. 
+---
 
+## 1) infra/  (Infrastructure & Platform)
 
+**Provides the cloud-native foundation that runs and scales the system. **It's currently aws native** but is extensible to other cloud like Azure and GCP**
 
+**Core responsibilities**
+* Cluster & compute: **EKS (Kubernetes)**, **Karpenter** for CPU/GPU/spot node pools, autoscaling.  
+* Distributed serving & batch: **Ray / KubeRay** (RayService, RayJob).  
+* IaC & provisioning: **Pulumi**, **AWS Image Builder**, **SSM Parameter Store** (model paths, AMI IDs).  
+* GitOps & packaging: **ArgoCD**, **Helm** charts (per-env `values.kind.yaml` / `values.eks.yaml`).  
+* Networking & access: **Traefik** ingress, **Cloudflare** DNS, optional **OIDC/Keycloak** for federated auth, **gRPC + rayserve** endpoints.
 
+**Storage & utilities**
+* **S3** for raw data, chunk caches, backups; presigned URLs for secure access.  
+* **jsonlines / .jsonl** for stage logs/audits and replay.
 
+**Observability & evaluation**
+* **Prometheus** + **Alertmanager** → metrics, recording rules, alerting.  
+* **Grafana** → dashboards and SLO/SLA visualization.  
+* **OpenTelemetry Collector** (DaemonSet) → unified pipeline for metrics, logs, traces.  
+* **RAGAI-Catalyst** → online + offline evaluation, tracing, guardrails, experiment management (self-hosted in cluster).  
 
+**CI/CD**
+* **GitHub Actions** → lint, tests, Docker builds, Helm validation.  
+* **ArgoCD** → declarative sync of manifests into cluster.
 
+---
 
+## 2) indexing_pipeline/  (Indexing & Ingestion)
 
-# STEP 0/3 env setup
+**Ingests raw sources, extracts structured content, produces chunked artifacts and embeddings, and populates graph/vector stores**
 
+* **Parsing:** document ingestion with **PyMuPDF**, **pdfplumber**, **tesserocr/RapidOCR** (OCR), **faster-whisper** (audio), **BeautifulSoup/extractous** (HTML).  
+* **Chunking & Preprocessing:** page-level + layout-aware segmentation, silence-based audio slicing, JSON flattening, deduplication, tag-structured HTML/Markdown chunking. 
 
-
-
-git config --global user.name "Your Name"
-git config --global user.email you@example.com
-
-```sh
-gh auth login
-```
-
-? What account do you want to log into? GitHub.com
-? What is your preferred protocol for Git operations? SSH
-? Generate a new SSH key to add to your GitHub account? No
-? How would you like to authenticate GitHub CLI? Login with a web browser
-
-! First copy your one-time code: <code>
-- Press Enter to open github.com in your browser... 
-✓ Authentication complete. Press Enter to continue...
-
-
-
-## STEP 2/3 - indexing_pipeline
+<details>
+  <summary> View chunk stratergies and chunk schema (Click the triangle)</summary>
 
 #### **NVIDIA (June 2025)** : Page-level chunking is the baseline best https://developer.nvidia.com/blog/finding-the-best-chunking-strategy-for-accurate-ai-responses/
 
 > “Page-level chunking is the overall winner: Our experiments clearly show that page-level chunking achieved the highest average accuracy (0.648) across all datasets and the lowest standard deviation (0.107), showing more consistent performance across different content types. Page-level chunking demonstrated superior overall performance when compared to both token-based chunking and section-level chunking.” 
 
 #### RAG8s implements page-wise chunking and similar chunking for scalability without losing accuracy
-<details>
-  <summary> View chunk stratergies and chunk schema (Click the triangle)</summary>
 
 ```sh
 
@@ -117,7 +120,218 @@ gh auth login
 | **ZIP Archives**        | zipfile, tarfile, custom dispatcher                                              | - Files extracted, routed to correct parsers based on extension (pdf, docx, txt, etc.)                                                                                                                               | - Allows batch ingestion  <br> - Enables unified multi-file upload experience                                                     |
 | **Plaintext Files**     | open(), re, nltk, tiktoken (optional)                                            | - Chunk by paragraph, newline gaps (`\n\n`), or fixed line/token window                                                                                                                                              | - Extremely lightweight  <br> - Works well with logs, scraped data, or long articles                                              |
 
+
 </details>
+---
+
+* **Embedding generation:** dense vector creation using **gte-modernbert-base** (ONNX) or appropriate sentence/embed models.  
+* **Triplet extraction / graph augmentation:** run entity/triplet extractors (e.g., `relik-cie-tiny`) at index time to populate `triplets` and `entity_graph`.  
+* **Storage:** store embeddings + metadata in **ArangoDB (with FAISS integration)** for hybrid dense+graph retrieval; persist raw artifacts to S3.  
+* **Orchestration & scaling:** RayJobs for parallel ingestion and indexing; cronjobs for backups (arangobackup → S3); modular Docker images for CPU/GPU runtime.
+
+---
+
+## 3) inference_pipeline/  (Retrieval, Reasoning, Generation & Evaluation)
+
+Serves queries end-to-end: retrieval (vector + keyword + graph), multi-hop reasoning, reranking, optional generation, and evaluation/guardrails.
+
+**Model & retrieval primitives**
+* Embedding encoder: **gte-modernbert-base** (ONNX).  
+* Reranker: **gte-reranker-modernbert-base** (ONNX) — optional cross-encoder reranking.  
+* Generator (optional): **Qwen / Qwen3-4b-awq** (quantized model) served via RayService/gRPC.  
+* Graph & vector store: **ArangoDB + FAISS**.  
+* Cache/fallback store: **ValKeye** (Redis-compatible) for rate limits and LLMLessMode fallback.
+
+**Primary workflow (concise)**
+1. **Query intake & normalization** — text normalization, filter parsing.  
+2. **Hybrid retrieval** — FAISS vector search + ArangoSearch (BM25) + ArangoDB triplets.  
+3. **GeAR multihop** — entity graph traversal (2–3 hops) to surface path-based evidence for multi-hop questions.  
+4. **Merge & dedupe** — canonicalize chunks, cluster near-duplicates, normalize scores.  
+5. **Ranking** — weighted combination: `vector + bm25 + graph + GeAR_multihop`.  
+6. **Answer assembly:**  
+   * **If LLM available:** apply reranker, then generate concise NL answer.  
+   * **If LLM unavailable (LLM-less fallback):** return deterministic outputs (structured JSON + template text) with full provenance.
+
+**LLM-less fallback (llmless mode) — succinct**
+* Deterministic, auditable answers built only from retrieved chunks & triplets; no generative invention.  
+* Returns (a) **Structured JSON** (chunks, triplets, graph paths, provenance) and (b) **Concise deterministic text** using templates that cite `(filename.pdf, p.N)`.  
+* Ensures graceful degradation and deterministic reproducibility when generation is unavailable.
+
+**Outputs**
+* JSON evidence objects (canonical schema), template-based human summary, and optional LLM-generated text when available.  
+* Metrics to emit: `retrieval_latency_ms`, `faiss_hits`, `arangosearch_hits`, `graph_hits`, `merge_time_ms`, `reranker_time_ms`, `cache_hit_rate`.
+
+---
+
+## Operational notes & quick checklist
+
+* Ensure indexing stores `chunk_id`, `filename`, `page`, `s3_path`, `embedding` for every chunk.  
+* Populate `triplets` and `entity_graph` at index time for GeAR multihop effectiveness.  
+* Add OTel SDK hooks in `frontend`, `inference_pipeline`, and indexing workers to stream traces and eval artifacts to Catalyst.  
+* Expose evaluation aggregates (e.g., `hallucination_rate`) from Catalyst to Prometheus via a small bridge job if you want SLOs in Grafana.  
+* Protect presigned S3 URLs and enforce auth checks before serving them.
+
+---
+
+<details>
+<summary> RAG8s codebase/tree structure for quick overview </summary>
+
+```sh
+RAG8s/
+├── data/                                 # Local directory that syncs with s3://<bucket_name>/data
+│   ├── raw/                              # Raw data files
+│   └── chunked/                          # Chunks in json/jsonl format
+│
+├── indexing_pipeline/
+│   ├── Dockerfile                        # Docker image for indexing workers
+│   ├── index/
+│   │   ├── __main__.py                   # CLI entrypoint for indexing jobs  # observe: logs, metrics, traces
+│   │   ├── arrangodb_indexer.py          # Indexer: writes chunks/entities into ArangoDB with FAISS integration  # observe: logs, metrics
+│   │   ├── config.py                     # Indexing configuration (paths, batch sizes, env)
+│   │   └── utils.py                      # Utility helpers used by indexers (parsers, serializers)
+│   ├── parse_chunk/
+│   │   ├── __init__.py                   # parse_chunk package initializer
+│   │   ├── doc_docx_to_pdf.py            # Converts .doc/.docx to PDF (LibreOffice headless flow)
+│   │   ├── formats/
+│   │   │   ├── __init__.py               # Format module initializer
+│   │   │   ├── csv.py                    # CSV reader & chunker logic
+│   │   │   ├── html.py                   # HTML -> Markdown chunker and DOM processing
+│   │   │   ├── json.py                   # JSON/JSONL flattening and chunking routines
+│   │   │   ├── md.py                     # Markdown chunking and normalization
+│   │   │   ├── mp3.py                    # Audio preprocessing wrapper (slicing metadata)
+│   │   │   ├── pdf.py                    # PDF page extraction and layout-aware parsing
+│   │   │   ├── png_jpeg_jpg.py           # Image OCR pipeline wrapper
+│   │   │   ├── ppt_pptx.py               # PPTX slide extractor (n slide = 1 chunk)
+│   │   │   ├── spreadsheets.py           # Spreadsheet row/column chunking logic
+│   │   │   └── txt.py                    # Plaintext chunkers (paragraph/sentence/window)
+│   │   └── router.py                     # Dispatcher to select parser based on MIME/extension
+│   ├── relik.sh                          # Helper script to run ReLiK entity/triplet extraction
+│   └── requirements-cpu.txt              # Indexing pipeline runtime dependencies (CPU)
+│
+├── inference_pipeline/
+│   ├── Dockerfile                        # Dockerfile for inference server image
+│   ├── auth_control.py                   # Authentication, authorization middleware and rate limiting for APIs  # observe: logs, metrics
+│   ├── eval.py                           # RAGAI-Catalyst coherence checks, hit@K monitoring, hallucination detection  # observe: logs, metrics
+│   ├── frontend/
+│   │   ├── Dockerfile                    # Frontend container build file
+│   │   ├── main.py                       # Frontend app entry (UI endpoints / static server)  # observe: logs, metrics
+│   │   ├── modules                        # Modular UI components / assets
+│   │   └── requirements-cpu.txt          # Frontend Python dependencies
+│   ├── main.py                           # Inference service entrypoint (REST/gRPC server)  # observe: logs, metrics, traces
+│   ├── llm_retrieval.py                  # Retrieval orchestration (hybrid BM25 + vector + graph + GeAR lightweight multihop)  # observe: logs, metrics
+│   ├── llmless_retrieval.py              # Returns only raw chunks/triplets and source urls from arangodb if rate limit exceeded
+│   └── trace_file.py                     # View or download Presigned urls for the raw docs as source link s3://<bucket_name>data/raw/<file_name>.<format>
+|
+├── infra/
+│   ├── eks-manifests/                        
+│   │   ├── Chart.yaml                    # Helm chart metadata: name, version
+│   │   ├── templates/
+│   │   │   ├── argocd.yaml               # ArgoCD app controller for orchestrating workloads
+│   │   │   ├── core/
+│   │   │   │   ├── namespaces.yaml       # Define dev/prod namespaces
+│   │   │   │   ├── quotas_pdbs.yaml      # ResourceQuotas & PodDisruptionBudgets per namespace
+│   │   │   │   ├── serviceaccounts.yaml  # Core service accounts for workloads & operators
+│   │   │   │   ├── rbac.yaml             # ClusterRole, Role, and bindings for access control
+│   │   │   │   └── network.yaml          # Traefik ingress, NetworkPolicies, security rules
+│   │   │   ├── dbs/
+│   │   │   │   ├── arangodb.yaml         # ArangoDB StatefulSet, persistence, and resources
+│   │   │   ├── observability/
+│   │   │   │   ├── prometheus.yaml       # Prometheus deployment: metrics scraping + rules
+│   │   │   │   ├── alertmanager.yaml     # Prometheus Alertmanager (alerting engine)
+│   │   │   │   ├── grafana.yaml          # Grafana: dashboards, persistence, data sources
+│   │   │   │   ├── otel-collector.yaml   # OTel Collector (unified logs, metrics, and traces pipelines)
+│   │   │   │   └── catalyst.yaml         # RAGAI-Catalyst service (evals, tracing, guardrails, experiments)
+│   │   │   └── workloads/
+│   │   │       ├── rayjob_cronjob.yaml   # CronJobs: DB backup, Ray indexing, etc.
+│   │   │       ├── rayservice.yaml       # RayService workloads: frontend, VLLM, reranker, ValKeye
+│   │   │       └── karpenter-nodepools.yaml # Karpenter provisioners for CPU/GPU autoscaling
+│   │   ├── values.kind.yaml              # Helm values for local Kind cluster
+│   │   └── values.eks.yaml               # Helm values for production EKS cluster
+│   │
+│   ├── pulumi-aws/                            
+│   │   ├── config.py                 # Global variables & Pulumi config
+│   │   ├── vpc.py                    # Networking must exist before cluster
+│   │   ├── iam_roles_pre_eks.py      # IAM roles required to create EKS
+│   │   ├── eks_cluster.py            # EKS cluster depends on VPC + pre-EKS IAM
+│   │   ├── nodegroups.py             # Nodegroups depend on cluster + IAM
+│   │   ├── iam_roles_post_eks.py     # IAM roles for workloads (Ray, Karpenter, Valkeye)
+│   │   ├── karpenter.py              # Karpenter provisioning depends on cluster + nodegroups + IAM
+│   │   ├── cloudflare.py             # DNS records, depends on cluster endpoint
+│   │   ├── indexing_ami.py           # Indexing AMIs, depends on cluster/nodegroups
+│   │   ├── inference_ami.py          # Inference/GPU AMIs, depends on cluster/nodegroups
+│   │   ├── db_backup.py              # CronJobs or backup jobs, depends on DB running in cluster
+│   │   ├── ___main__.py                  # Orchestrates imports & execution
+│   │   └── pulumi.yaml                   # Pulumi project manifest for infra code
+│   │
+│   ├── onnx/
+│   │   ├── Dockerfile                    # ONNX runtime image for CPU inference services
+│   │   ├── grpc.proto                    # gRPC proto definition for ONNX service
+│   │   ├── rayserve-embedder-reranker.py # Ray Serve wrapper to run embedder + reranker  # observe: logs, metrics
+│   │   └── requirements-cpu.txt          # ONNX service dependencies
+│   │
+│   └── vllm/
+│       ├── Dockerfile                    # GPU-enabled image for vllm serving
+│       ├── grpc.proto                    # gRPC proto definition for vllm service
+│       ├── rayserve-vllm.py              # Ray Serve wrapper for vllm inference  # observe: logs, metrics
+│       └── requirements-gpu.txt          # GPU runtime dependencies (CUDA/pytorch/etc.)
+|
+└── utils/                                   
+|    ├── archive/                           # Files no longer maintained
+|    ├── bootstrap-dev.sh                   # Installs all the required tools for development and testing
+|    ├── bootstrap-prod.sh                  # Installs minimal tools for prod
+|    ├── force_sync_data_with_s3.py         # sync/force sync the data/ in local fs/ with s3://<bucket_name>/data/
+|    ├── lc.sh                              # Local kind cluster for testing rag8s
+|    └── s3_bucket.py                       # Create/delete s3 bucket 
+|    
+├── scripts/
+│   ├── build_and_push.sh                   # Builds container images and pushes to registry
+│   ├── dynamic-values.yaml.sh              # Generates dynamic Helm values (env-specific)
+│   ├── helm-deploy.sh                      # Wrapper to deploy Helm charts via CI or locally
+│   ├── pulumi-set-configs.sh               # Sets Pulumi configuration and secrets
+│   └── pulumi-set-secret.sh                # Stores secrets into Pulumi secret store
+│
+├── .devcontainer/
+│   ├── Dockerfile                          # Devcontainer image build for local development environment
+│   ├── devcontainer.json                   # VS Code devcontainer configuration (mounts, settings)
+│   └── scripts
+│       └── fix-docker-group.sh             # Script to fix Docker group permissions inside devcontainer
+│
+├── .dockerignore                           # Files/dirs excluded from Docker build context
+├── .gitignore                              # Git ignore rules
+├── Makefile                                # Convenience targets for build/test/deploy tasks
+├── README.md                               # Project overview, setup and usage instructions
+└── backups/                                # Local directory that syncs with s3://<bucket_name>/backups
+    └── dbs/
+        └── arrangodb/
+
+```
+</details>
+
+
+
+---
+
+
+
+# Get started with RAG8s
+### STEP 0/3 environment setup
+git config --global user.name "Your Name" && git config --global user.email you@example.com
+
+```sh
+root ➜ /workspace (main) $ gh auth login
+
+? What account do you want to log into? GitHub.com
+? What is your preferred protocol for Git operations? SSH
+? Generate a new SSH key to add to your GitHub account? No
+? How would you like to authenticate GitHub CLI? Login with a web browser
+
+! First copy your one-time code: <code>
+- Press Enter to open github.com in your browser... 
+✓ Authentication complete. Press Enter to continue...
+
+```
+
+## STEP 2/3 - indexing_pipeline
 
 
 ### Export the neccessary configs.
@@ -234,141 +448,6 @@ Graph traversal → “Follow the edges and return everything connected.”
 
 GeAR reasoning → “Use the graph + triplets to infer which paths and nodes are actually relevant to the query, even if not directly connected.”
 FAISS handles “meaning in text,” GeAR handles “meaning in structure.” Both are needed for a hybrid RAG.
-
-
-```
-
-
-### The RAG8s platform codebase
-
-
-```py
-
-RAG8s/
-├── data/                                 # Local directory that syncs with s3://<bucket_name>/data
-│   ├── raw/                              # Raw data files
-│   └── chunked/                          # Chunks in json/jsonl format
-│
-├── indexing_pipeline/
-│   ├── Dockerfile                        # Docker image for indexing workers
-│   ├── index/
-│   │   ├── __main__.py                   # CLI entrypoint for indexing jobs  # observe: logs, metrics, traces
-│   │   ├── arrangodb_indexer.py          # Indexer: writes chunks/entities into ArangoDB with FAISS integration  # observe: logs, metrics
-│   │   ├── config.py                     # Indexing configuration (paths, batch sizes, env)
-│   │   └── utils.py                      # Utility helpers used by indexers (parsers, serializers)
-│   ├── parse_chunk/
-│   │   ├── __init__.py                   # parse_chunk package initializer
-│   │   ├── doc_docx_to_pdf.py            # Converts .doc/.docx to PDF (LibreOffice headless flow)
-│   │   ├── formats/
-│   │   │   ├── __init__.py               # Format module initializer
-│   │   │   ├── csv.py                    # CSV reader & chunker logic
-│   │   │   ├── html.py                   # HTML -> Markdown chunker and DOM processing
-│   │   │   ├── json.py                   # JSON/JSONL flattening and chunking routines
-│   │   │   ├── md.py                     # Markdown chunking and normalization
-│   │   │   ├── mp3.py                    # Audio preprocessing wrapper (slicing metadata)
-│   │   │   ├── pdf.py                    # PDF page extraction and layout-aware parsing
-│   │   │   ├── png_jpeg_jpg.py           # Image OCR pipeline wrapper
-│   │   │   ├── ppt_pptx.py               # PPTX slide extractor (n slide = 1 chunk)
-│   │   │   ├── spreadsheets.py           # Spreadsheet row/column chunking logic
-│   │   │   └── txt.py                    # Plaintext chunkers (paragraph/sentence/window)
-│   │   └── router.py                     # Dispatcher to select parser based on MIME/extension
-│   ├── relik.sh                          # Helper script to run ReLiK entity/triplet extraction
-│   └── requirements-cpu.txt              # Indexing pipeline runtime dependencies (CPU)
-│
-├── inference_pipeline/
-│   ├── Dockerfile                        # Dockerfile for inference server image
-│   ├── auth_control.py                   # Authentication, authorization middleware and rate limiting for APIs  # observe: logs, metrics
-│   ├── eval.py                           # RAGAI-Catalyst coherence checks, hit@K monitoring, hallucination detection  # observe: logs, metrics
-│   ├── frontend/
-│   │   ├── Dockerfile                    # Frontend container build file
-│   │   ├── main.py                       # Frontend app entry (UI endpoints / static server)  # observe: logs, metrics
-│   │   ├── modules                        # Modular UI components / assets
-│   │   └── requirements-cpu.txt          # Frontend Python dependencies
-│   ├── main.py                           # Inference service entrypoint (REST/gRPC server)  # observe: logs, metrics, traces
-│   ├── llm_retrieval.py                  # Retrieval orchestration (hybrid BM25 + vector + graph + GeAR lightweight multihop)  # observe: logs, metrics
-│   ├── llmless_retrieval.py              # Returns only raw chunks/triplets and source urls from arangodb if rate limit exceeded
-│   └── trace_file.py                     # View or download Presigned urls for the raw docs as source link s3://<bucket_name>data/raw/<file_name>.<format>
-|
-├── infra/
-│   ├── eks-manifests/                        
-│   │   ├── Chart.yaml                    # Helm chart metadata: name, version
-│   │   ├── templates/
-│   │   │   ├── argocd.yaml               # argocd app for orchestrating workloads in order
-│   │   │   ├── core/
-│   │   │   │   ├── namespaces.yaml       # Define dev/prod namespaces
-│   │   │   │   ├── quotas_pdbs.yaml      # ResourceQuotas & PodDisruptionBudgets per namespace
-│   │   │   │   ├── serviceaccounts.yaml   # Core service accounts for workloads & operators
-│   │   │   │   ├── rbac.yaml             # ClusterRole, Role, and bindings for access control
-│   │   │   │   └── network.yaml       # Traefik ingress, NetworkPolicies, security rules
-│   │   │   ├── dbs/
-│   │   │   │   ├── arangodb.yaml      # ArangoDB StatefulSet, persistence, and resources
-│   │   │   ├── observability/
-│   │   │   │   ├── promotheus.yaml    # Prometheus server, alerting rules, and metrics scraping
-│   │   │   │   ├── otel_jaeger.yaml   # OpenTelemetry collector & Jaeger tracing setup
-│   │   │   │   ├── loki.yaml          # Loki logging backend for cluster logs
-│   │   │   │   └── grafana.yaml       # Grafana dashboard, persistence, and datasource setup
-│   │   │   └── workloads/
-│   │   │       ├── rayjob_cronjob.yaml # CronJobs for DB backup, Ray indexing pipeline, etc.
-│   │   │       ├── rayservice.yaml    # RayService deployments: frontend, embedded-reranker, VLLM, valkeye
-│   │   │       └── karpenter-nodepools.yaml # Karpenter provisioners for CPU/GPU autoscaling
-│   │   ├── values.kind.yaml            # values for local cluster
-│   │   └── values.eks.yaml             # values for prod eks cluster
-│   │
-│   ├── pulumi-aws/                            
-│   │   ├── config.py                 # Global variables & Pulumi config
-│   │   ├── vpc.py                    # Networking must exist before cluster
-│   │   ├── iam_roles_pre_eks.py      # IAM roles required to create EKS
-│   │   ├── eks_cluster.py            # EKS cluster depends on VPC + pre-EKS IAM
-│   │   ├── nodegroups.py             # Nodegroups depend on cluster + IAM
-│   │   ├── iam_roles_post_eks.py     # IAM roles for workloads (Ray, Karpenter, Valkeye)
-│   │   ├── karpenter.py              # Karpenter provisioning depends on cluster + nodegroups + IAM
-│   │   ├── cloudflare.py             # DNS records, depends on cluster endpoint
-│   │   ├── indexing_ami.py           # Indexing AMIs, depends on cluster/nodegroups
-│   │   ├── inference_ami.py          # Inference/GPU AMIs, depends on cluster/nodegroups
-│   │   ├── db_backup.py              # CronJobs or backup jobs, depends on DB running in cluster
-│   │   ├── ___main__.py                  # Orchestrates imports & execution
-│   │   └── pulumi.yaml                   # Pulumi project manifest for infra code
-│   │
-│   ├── onnx/
-│   │   ├── Dockerfile                    # ONNX runtime image for CPU inference services
-│   │   ├── grpc.proto                    # gRPC proto definition for ONNX service
-│   │   ├── rayserve-embedder-reranker.py # Ray Serve wrapper to run embedder + reranker  # observe: logs, metrics
-│   │   └── requirements-cpu.txt          # ONNX service dependencies
-│   │
-│   └── vllm/
-│       ├── Dockerfile                    # GPU-enabled image for vllm serving
-│       ├── grpc.proto                    # gRPC proto definition for vllm service
-│       ├── rayserve-vllm.py              # Ray Serve wrapper for vllm inference  # observe: logs, metrics
-│       └── requirements-gpu.txt          # GPU runtime dependencies (CUDA/pytorch/etc.)
-|
-└── utils/                                   
-|    ├── archive/                           # Files no longer maintained
-|    ├── bootstrap-dev.sh                   # Installs all the required tools for development and testing
-|    ├── bootstrap-prod.sh                  # Installs minimal tools for prod
-|    ├── force_sync_data_with_s3.py         # sync/force sync the data/ in local fs/ with s3://<bucket_name>/data/
-|    ├── lc.sh                              # Local kind cluster for testing rag8s
-|    └── s3_bucket.py                       # Create/delete s3 bucket 
-|    
-├── scripts/
-│   ├── build_and_push.sh                   # Builds container images and pushes to registry
-│   ├── dynamic-values.yaml.sh              # Generates dynamic Helm values (env-specific)
-│   ├── helm-deploy.sh                      # Wrapper to deploy Helm charts via CI or locally
-│   ├── pulumi-set-configs.sh               # Sets Pulumi configuration and secrets
-│   └── pulumi-set-secret.sh                # Stores secrets into Pulumi secret store
-│
-├── .devcontainer/
-│   ├── Dockerfile                          # Devcontainer image build for local development environment
-│   ├── devcontainer.json                   # VS Code devcontainer configuration (mounts, settings)
-│   └── scripts
-│       └── fix-docker-group.sh             # Script to fix Docker group permissions inside devcontainer
-│
-├── .dockerignore                           # Files/dirs excluded from Docker build context
-├── .gitignore                              # Git ignore rules
-├── Makefile                                # Convenience targets for build/test/deploy tasks
-├── README.md                               # Project overview, setup and usage instructions
-└── backups/                                # Local directory that syncs with s3://<bucket_name>/backups
-    └── dbs/
-        └── arrangodb/
 
 ```
 
