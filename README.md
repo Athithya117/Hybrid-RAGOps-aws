@@ -3,6 +3,16 @@
 
 
 
+vscode ➜ /workspace (main) $ gh auth login
+? What account do you want to log into? GitHub.com
+? What is your preferred protocol for Git operations? SSH
+? Generate a new SSH key to add to your GitHub account? No
+? How would you like to authenticate GitHub CLI? Login with a web browser
+
+! First copy your one-time code: E893-B6D7
+- Press Enter to open github.com in your browser... 
+✓ Authentication complete. Press Enter to continue...
+
 
 
 

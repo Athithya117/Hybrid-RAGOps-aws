@@ -1,11 +1,15 @@
 {
   "name": "RAG8s",
-  "build": { "dockerfile": "Dockerfile", "context": "." },
+  "build": { 
+    "dockerfile": "Dockerfile", 
+    "context": "." 
+  },
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
-  "remoteUser": "vscode",
+  "remoteUser": "root",
+  
   "runArgs": [
-  //"--gpus", "all",
+    "--network=host",
     "--cap-add=SYS_PTRACE",
     "--security-opt=seccomp=unconfined",
     "-v",
@@ -16,7 +20,10 @@
     "DOCKER_PROXY_HOST": "",
     "DOCKER_PROXY_PORT": ""
   },
-  "postCreateCommand": "sudo bash /workspace/utils/bootstrap-dev.sh && sudo bash /workspace/utils/lc.sh",
+  
+  // Remove sudo since root is now the user
+  "postCreateCommand": "bash /workspace/utils/bootstrap-dev.sh && bash /workspace/utils/lc.sh",
+  
   "customizations": {
     "vscode": {
       "extensions": [
