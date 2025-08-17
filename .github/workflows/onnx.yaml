@@ -8,8 +8,11 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     environment: default
+    env:
+      IMAGE_REPO: ${{ secrets.EMBEDDER_RERANKER_IMAGE_REPO }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -27,13 +30,17 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: ./infra/onnx
+          file: ./infra/onnx/Dockerfile
           push: true
-          tags: ${{ secrets.IMAGE_REPO }}:latest
+          tags: |
+            ${{ env.IMAGE_REPO }}:${{ github.sha }}
+            ${{ env.IMAGE_REPO }}:gte-modernbert
+            ${{ env.IMAGE_REPO }}:latest
 
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@0.18.0
         with:
-          image-ref: ${{ secrets.IMAGE_REPO }}:latest
+          image-ref: ${{ env.IMAGE_REPO }}:latest
           format: table
           exit-code: 1
           ignore-unfixed: true
@@ -42,5 +49,5 @@ jobs:
         run: |
           docker run --rm \
             -e HF_TOKEN=${{ secrets.HF_TOKEN }} \
-            ${{ secrets.IMAGE_REPO }}:latest \
+            ${{ env.IMAGE_REPO }}:latest \
             bash infra/onnx/tests/smoke_test.sh
