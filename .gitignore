@@ -1,22 +1,21 @@
 # Ignore everything not needed in Docker context
 # Speeds up builds and protects secrets
 
-# Python envs
+# Python virtual environments
 .venv/
 .venv2/
-venv/
-myenv/
-.venv1
 .venv1/
 .venv_refined/
-
-data
+venv/
+myenv/
 
 # Python cache
 __pycache__/
 *.pyc
-data/rag8s-aws
-data/rag8s-dev
+
+# Data directories
+data/
+raw_data/
 rag8s-aws/
 rag8s-dev/
 
@@ -27,19 +26,21 @@ backups/
 images/
 tmp/
 
-raw_data
-
 # Secrets and config
 02-secrets.yml
-tmp.md
 commands.md
 cli.md
+tmp.md
 
 # Git and versioning
 .git/
 .gitignore
 .dockerignore
+
 # Development files not needed in Docker image
 notebooks/
-*.md
 *.zip
+
+# ---- Markdown Rule Fix ----
+# Do NOT ignore all markdown files — allow README.md, docs, etc.
+# If you need to ignore some md files, list them explicitly above
