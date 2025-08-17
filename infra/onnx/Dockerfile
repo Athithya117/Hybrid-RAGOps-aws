@@ -14,10 +14,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /src
 
-# Copy requirements and install build-time deps (keep build-time packages here)
+# Copy requirements first to leverage Docker cache
 COPY requirements-cpu.txt .
-# Install runtime deps in builder so we can copy site-packages to runtime stage
-RUN pip install --no-cache-dir -r requirements-cpu.txt
+
+# Upgrade pip and install runtime deps in builder so we can copy site-packages to runtime stage
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements-cpu.txt
 
 # Copy source files
 COPY grpc.proto .
