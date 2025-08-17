@@ -2,8 +2,10 @@
 # RAG8s is a production ready E2E RAG system built using the SOTA tools, models and strategies as of mid 2025. 
 
 
+```sh
+gh auth login
+```
 
-root ➜ /workspace (main) $ gh auth login
 ? What account do you want to log into? GitHub.com
 ? What is your preferred protocol for Git operations? SSH
 ? Generate a new SSH key to add to your GitHub account? No
