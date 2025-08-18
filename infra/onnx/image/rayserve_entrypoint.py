@@ -1,5 +1,3 @@
-# prerequesitie to run utils/archive/download_hf.py
-
 import logging,threading,time,signal,os
 from http.server import HTTPServer,BaseHTTPRequestHandler
 from threading import Event

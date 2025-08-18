@@ -1,5 +1,3 @@
-# prerequesitie to run: utils/archive/download_hf.py
-
 import os,logging,sys,signal
 from typing import List,Optional
 import numpy as np
@@ -8,8 +6,8 @@ from transformers import PreTrainedTokenizerFast
 import grpc_pb2,grpc_pb2_grpc
 from ray import serve
 from prometheus_client import Counter,Histogram
-os.environ.setdefault("HF_HOME","/app/models/hf")
-os.environ.setdefault("MODEL_DIR","/app/models/onnx")
+os.environ.setdefault("HF_HOME","/workspace/models/hf")
+os.environ.setdefault("MODEL_DIR","/workspace/models/onnx")
 os.environ.setdefault("EMBEDDER_OMP_NUM_THREADS","1")
 os.environ.setdefault("RERANKER_OMP_NUM_THREADS","1")
 os.environ.setdefault("EMBEDDER_BATCH_MAX_SIZE","8")
@@ -32,8 +30,8 @@ def get_env(name:str,default=None,required:bool=False,cast=None):
             logger.warning("Failed casting env %s=%r with %s: %s",name,val,cast,e)
             return val
     return val
-HF_HOME=get_env("HF_HOME","/app/models/hf")
-MODEL_DIR=get_env("MODEL_DIR","/app/models/onnx")
+HF_HOME=get_env("HF_HOME","/workspace/models/hf")
+MODEL_DIR=get_env("MODEL_DIR","/workspace/models/onnx")
 MODEL_EMBEDDER_NAME=get_env("MODEL_EMBEDDER_NAME",None,required=True)
 MODEL_RERANKER_NAME=get_env("MODEL_RERANKER_NAME",None,required=True)
 EMBEDDER_ONNX_PATH=get_env("EMBEDDER_ONNX_PATH",None)
@@ -245,7 +243,3 @@ def warmup_models():
         logger.info("Model warmup completed.")
     except Exception as e:
         logger.exception("Warmup failed: %s",e)
-def create_health_check(app_ready_flag):
-    def health():
-        return app_ready_flag.is_set()
-    return health
