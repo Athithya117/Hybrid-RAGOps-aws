@@ -11,3 +11,5 @@ grpcio==1.74.0
 grpcio-tools==1.74.0
 prometheus-client==0.22.1
 numpy==2.2.6
+uvicorn==0.35.0
+fastapi==0.116.1

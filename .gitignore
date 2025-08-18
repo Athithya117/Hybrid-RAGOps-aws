@@ -12,7 +12,8 @@ myenv/
 # Python cache
 __pycache__/
 *.pyc
-
+repos
+production-stack
 # Data directories
 data/
 raw_data/

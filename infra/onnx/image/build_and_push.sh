@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+docker rm tmp_rag8s_test || true
 export DOCKER_USERNAME="${DOCKER_USERNAME:-rag8s}"
 export DOCKER_PASSWORD="${DOCKER_PASSWORD:-}"
 export DOCKER_REPO="${DOCKER_REPO:-${DOCKER_USERNAME}/rag8s-onnx-embedder-reranker-cpu-amd64}"
