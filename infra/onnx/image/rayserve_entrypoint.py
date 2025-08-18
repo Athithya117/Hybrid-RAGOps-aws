@@ -1,6 +1,9 @@
+# prerequesitie to run utils/archive/download_hf.py
+
 import logging,threading,time,signal,os
 from http.server import HTTPServer,BaseHTTPRequestHandler
 from threading import Event
+import ray
 from ray import serve
 from rayserve_embedder_reranker import EmbedderServicer,RerankerServicer,warmup_models
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO"),format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -27,13 +30,29 @@ def _deploy_if_needed():
     last_exc=None
     while attempts<max_attempts:
         try:
-            if not serve.is_running():
-                serve.start(detached=True);logger.info("Started Ray Serve (detached).")
-            EmbedderServicer.deploy();RerankerServicer.deploy();logger.info("Deployments applied (Embedder,Reranker).")
+            if not ray.is_initialized():
+                logger.info("ray not initialized; calling ray.init()")
+                ray.init()
+                logger.info("ray.init() succeeded")
+            try:
+                serve.start(detached=True,http_options={"location":"NoServer"})
+                logger.info("Called serve.start(detached=True, http_options={'location':'NoServer'})")
+            except Exception as e:
+                logger.warning("serve.start raised (continuing): %s",e)
+            logger.info("Binding deployments via .bind() and calling serve.run(..., route_prefix=None, blocking=False)")
+            embed_app=EmbedderServicer.bind()
+            rerank_app=RerankerServicer.bind()
+            try:
+                serve.run(embed_app,name="rag8s_embedder_app",route_prefix=None,blocking=False)
+                serve.run(rerank_app,name="rag8s_reranker_app",route_prefix=None,blocking=False)
+                logger.info("serve.run called for embedder and reranker (route_prefix=None)")
+            except Exception as e:
+                logger.exception("serve.run failed: %s",e)
+                raise
             try:
                 warmup_models()
             except Exception as e:
-                logger.exception("Warmup exception: %s",e)
+                logger.exception("warmup_models exception: %s",e)
             _app_ready.set()
             return
         except Exception as e:
@@ -43,7 +62,6 @@ def _deploy_if_needed():
             time.sleep(backoff*attempts)
     logger.error("All deploy attempts failed, raising")
     raise last_exc
-app={"name":"rag8s_onnx_app","deployments":["embedder","reranker"]}
 _http_server=_start_health_server(port=int(os.getenv("HTTP_PORT","8000")))
 try:
     _deploy_if_needed()
@@ -52,9 +70,13 @@ except Exception:
 def _graceful_shutdown(signum,frame):
     logger.info("Received signal %s, shutting down Serve and health server",signum)
     try:
-        if serve.is_running():serve.shutdown()
+        if hasattr(serve,"shutdown"):
+            try:
+                serve.shutdown()
+            except Exception:
+                logger.exception("Error shutting down Serve")
     except Exception:
-        logger.exception("Error shutting down Serve")
+        logger.exception("Error checking serve.shutdown")
     try:
         _http_server.shutdown()
     except Exception:

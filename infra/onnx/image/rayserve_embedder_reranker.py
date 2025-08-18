@@ -1,3 +1,5 @@
+# prerequesitie to run: utils/archive/download_hf.py
+
 import os,logging,sys,signal
 from typing import List,Optional
 import numpy as np
@@ -106,11 +108,14 @@ def check_model(path:str):
         raise FileNotFoundError(path)
 def make_session(path:str,intra_op_threads=1)->onnxruntime.InferenceSession:
     check_model(path)
+    logger.info("Creating ONNX Runtime session for %s with intra_op_threads=%s",path,intra_op_threads)
     opts=onnxruntime.SessionOptions()
     opts.intra_op_num_threads=intra_op_threads
     opts.execution_mode=onnxruntime.ExecutionMode.ORT_SEQUENTIAL
     opts.graph_optimization_level=onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
-    return onnxruntime.InferenceSession(path,opts,providers=["CPUExecutionProvider"])
+    sess=onnxruntime.InferenceSession(path,opts,providers=["CPUExecutionProvider"])
+    logger.info("ONNX Runtime session created for %s",path)
+    return sess
 def final_onnx_path_for(repo_env_name:str,explicit_env_path:Optional[str],repo_id:str)->str:
     if explicit_env_path:
         if os.path.isfile(explicit_env_path):
@@ -125,75 +130,118 @@ def final_onnx_path_for(repo_env_name:str,explicit_env_path:Optional[str],repo_i
     raise FileNotFoundError(f"ONNX model for {repo_id} not found under MODEL_DIR ({MODEL_DIR}) or HF_HOME ({HF_HOME}).")
 def final_tokenizer_dir_for(repo_id:str)->Optional[str]:
     return resolve_tokenizer_dir(repo_id)
+_EMBED_TOKENIZER=None
+_EMBED_SESSION=None
+_RERANK_TOKENIZER=None
+_RERANK_SESSION=None
+_initialized=False
+def ensure_initialized():
+    global _EMBED_TOKENIZER,_EMBED_SESSION,_RERANK_TOKENIZER,_RERANK_SESSION,_initialized
+    if _initialized:
+        return
+    logger.info("Initializing module-level tokenizers and sessions for embedder=%s reranker=%s",MODEL_EMBEDDER_NAME,MODEL_RERANKER_NAME)
+    try:
+        embed_tok_dir=final_tokenizer_dir_for(MODEL_EMBEDDER_NAME)
+        if not embed_tok_dir:
+            logger.error("Embedder tokenizer dir missing for %s",MODEL_EMBEDDER_NAME)
+            raise SystemExit(3)
+        logger.info("Loading embedder tokenizer from %s",embed_tok_dir)
+        _EMBED_TOKENIZER=PreTrainedTokenizerFast.from_pretrained(embed_tok_dir,local_files_only=True,trust_remote_code=True)
+        assert getattr(_EMBED_TOKENIZER,"is_fast",True),"Fast tokenizer not loaded"
+        logger.info("Embedder tokenizer loaded")
+        embed_onnx=final_onnx_path_for("EMBEDDER_ONNX_PATH",EMBEDDER_ONNX_PATH,MODEL_EMBEDDER_NAME)
+        _EMBED_SESSION=make_session(embed_onnx,intra_op_threads=EMBEDDER_OMP_NUM_THREADS)
+        logger.info("Embedder session ready")
+        rerank_tok_dir=final_tokenizer_dir_for(MODEL_RERANKER_NAME)
+        if not rerank_tok_dir:
+            logger.error("Reranker tokenizer dir missing for %s",MODEL_RERANKER_NAME)
+            raise SystemExit(3)
+        logger.info("Loading reranker tokenizer from %s",rerank_tok_dir)
+        _RERANK_TOKENIZER=PreTrainedTokenizerFast.from_pretrained(rerank_tok_dir,local_files_only=True,trust_remote_code=True)
+        assert getattr(_RERANK_TOKENIZER,"is_fast",True),"Fast tokenizer not loaded"
+        logger.info("Reranker tokenizer loaded")
+        rerank_onnx=final_onnx_path_for("RERANKER_ONNX_PATH",RERANKER_ONNX_PATH,MODEL_RERANKER_NAME)
+        _RERANK_SESSION=make_session(rerank_onnx,intra_op_threads=RERANKER_OMP_NUM_THREADS)
+        logger.info("Reranker session ready")
+        _initialized=True
+        logger.info("Module-level initialization complete")
+    except Exception:
+        logger.exception("Initialization failed")
+        raise
+@serve.batch(max_batch_size=EMBEDDER_BATCH_MAX_SIZE,batch_wait_timeout_s=EMBEDDER_BATCH_WAIT_TIMEOUT_S)
+async def _embed_batch(requests:List[grpc_pb2.EmbedRequest]) -> List[grpc_pb2.EmbedResponse]:
+    ensure_initialized()
+    model_tag="embedder"
+    INFER_COUNTER.labels(model=model_tag).inc(len(requests))
+    with INFER_LATENCY.labels(model=model_tag).time():
+        all_texts=[t for req in requests for t in req.texts]
+        if not all_texts:
+            logger.info("Embed batch received empty texts list")
+            return [grpc_pb2.EmbedResponse(embeddings=[]) for _ in requests]
+        enc=_EMBED_TOKENIZER(all_texts,padding=True,truncation=True,return_tensors="np")
+        logger.info("Tokenized %d texts for embedder",len(all_texts))
+        outputs=_EMBED_SESSION.run(None,{"input_ids":enc["input_ids"],"attention_mask":enc["attention_mask"]})
+        embeddings_arr=np.array(outputs[0]).mean(axis=1)
+        responses=[]
+        idx=0
+        for req in requests:
+            n=len(req.texts)
+            if n==0:
+                responses.append(grpc_pb2.EmbedResponse(embeddings=[]))
+            else:
+                slice_arr=embeddings_arr[idx:idx+n]
+                flat=slice_arr.reshape(-1).astype(float).tolist()
+                responses.append(grpc_pb2.EmbedResponse(embeddings=flat))
+                idx+=n
+        logger.info("Returning %d embed responses",len(responses))
+        return responses
+@serve.batch(max_batch_size=RERANKER_BATCH_MAX_SIZE,batch_wait_timeout_s=RERANKER_BATCH_WAIT_TIMEOUT_S)
+async def _rerank_batch(requests:List[grpc_pb2.RerankRequest]) -> List[grpc_pb2.RerankResponse]:
+    ensure_initialized()
+    model_tag="reranker"
+    INFER_COUNTER.labels(model=model_tag).inc(len(requests))
+    with INFER_LATENCY.labels(model=model_tag).time():
+        all_pairs=[pair for req in requests for pair in req.pairs]
+        if not all_pairs:
+            logger.info("Rerank batch received no pairs")
+            return [grpc_pb2.RerankResponse(scores=[]) for _ in requests]
+        queries=[p.query for p in all_pairs]
+        docs=[p.doc for p in all_pairs]
+        enc=_RERANK_TOKENIZER(queries,docs,padding=True,truncation=True,return_tensors="np")
+        logger.info("Tokenized %d pairs for reranker",len(all_pairs))
+        outputs=_RERANK_SESSION.run(None,{"input_ids":enc["input_ids"],"attention_mask":enc["attention_mask"]})
+        scores_arr=np.array(outputs[0])
+        if scores_arr.ndim>1 and scores_arr.shape[1]==1:
+            scores_arr=scores_arr.squeeze(axis=1)
+        responses=[]
+        idx=0
+        for req in requests:
+            n=len(req.pairs)
+            if n==0:
+                responses.append(grpc_pb2.RerankResponse(scores=[]))
+            else:
+                slice_scores=scores_arr[idx:idx+n].astype(float).tolist()
+                responses.append(grpc_pb2.RerankResponse(scores=slice_scores))
+                idx+=n
+        logger.info("Returning %d rerank responses",len(responses))
+        return responses
 @serve.deployment(ray_actor_options={"num_cpus":float(get_env("EMBEDDER_NUM_CPUS","1"))})
 class EmbedderServicer(grpc_pb2_grpc.EmbedServiceServicer):
     def __init__(self):
         logger.info("Initializing EmbedderServicer for %s",MODEL_EMBEDDER_NAME)
-        tok_dir=final_tokenizer_dir_for(MODEL_EMBEDDER_NAME)
-        if not tok_dir:
-            logger.error("Tokenizer directory not found for embedder %s. Bake tokenizer into image or set HF_HOME with local files.",MODEL_EMBEDDER_NAME)
-            raise SystemExit(3)
-        logger.info("Loading embedder tokenizer from local dir %s cache_dir=%s",tok_dir,HF_HOME)
-        try:
-            self.tokenizer=PreTrainedTokenizerFast.from_pretrained(tok_dir,local_files_only=True,trust_remote_code=True)
-        except Exception as e:
-            logger.exception("Failed to load embedder tokenizer from %s: %s",tok_dir,e)
-            raise
-        assert getattr(self.tokenizer,"is_fast",True),"Fast tokenizer not loaded"
-        onnx_path=final_onnx_path_for("EMBEDDER_ONNX_PATH",EMBEDDER_ONNX_PATH,MODEL_EMBEDDER_NAME)
-        logger.info("Loading embedder ONNX from %s",onnx_path)
-        self.session=make_session(onnx_path,intra_op_threads=EMBEDDER_OMP_NUM_THREADS)
-    @serve.batch(max_batch_size=EMBEDDER_BATCH_MAX_SIZE,batch_wait_timeout_s=EMBEDDER_BATCH_WAIT_TIMEOUT_S)
-    async def Embed(self,requests:List[grpc_pb2.EmbedRequest])->grpc_pb2.EmbedResponse:
-        model_tag="embedder"
-        INFER_COUNTER.labels(model=model_tag).inc(len(requests))
-        with INFER_LATENCY.labels(model=model_tag).time():
-            all_texts=[t for req in requests for t in req.texts]
-            enc=self.tokenizer(all_texts,padding=True,truncation=True,return_tensors="np")
-            outputs=self.session.run(None,{"input_ids":enc["input_ids"],"attention_mask":enc["attention_mask"]})
-            embeddings=outputs[0].mean(axis=1).tolist()
-            return grpc_pb2.EmbedResponse(embeddings=embeddings)
+        ensure_initialized()
+    async def Embed(self,request:grpc_pb2.EmbedRequest)->grpc_pb2.EmbedResponse:
+        return await _embed_batch(request)
 @serve.deployment(ray_actor_options={"num_cpus":float(get_env("RERANKER_NUM_CPUS","1"))})
 class RerankerServicer(grpc_pb2_grpc.RerankServiceServicer):
     def __init__(self):
         logger.info("Initializing RerankerServicer for %s",MODEL_RERANKER_NAME)
-        tok_dir=final_tokenizer_dir_for(MODEL_RERANKER_NAME)
-        if not tok_dir:
-            logger.error("Tokenizer directory not found for reranker %s. Bake tokenizer into image or set HF_HOME with local files.",MODEL_RERANKER_NAME)
-            raise SystemExit(3)
-        logger.info("Loading reranker tokenizer from local dir %s cache_dir=%s",tok_dir,HF_HOME)
-        try:
-            self.tokenizer=PreTrainedTokenizerFast.from_pretrained(tok_dir,local_files_only=True,trust_remote_code=True)
-        except Exception as e:
-            logger.exception("Failed to load reranker tokenizer from %s: %s",tok_dir,e)
-            raise
-        assert getattr(self.tokenizer,"is_fast",True),"Fast tokenizer not loaded"
-        onnx_path=final_onnx_path_for("RERANKER_ONNX_PATH",RERANKER_ONNX_PATH,MODEL_RERANKER_NAME)
-        logger.info("Loading reranker ONNX from %s",onnx_path)
-        self.session=make_session(onnx_path,intra_op_threads=RERANKER_OMP_NUM_THREADS)
-    @serve.batch(max_batch_size=RERANKER_BATCH_MAX_SIZE,batch_wait_timeout_s=RERANKER_BATCH_WAIT_TIMEOUT_S)
-    async def Rerank(self,requests:List[grpc_pb2.RerankRequest])->grpc_pb2.RerankResponse:
-        model_tag="reranker"
-        INFER_COUNTER.labels(model=model_tag).inc(len(requests))
-        with INFER_LATENCY.labels(model=model_tag).time():
-            all_pairs=[pair for req in requests for pair in req.pairs]
-            queries=[p.query for p in all_pairs]
-            docs=[p.doc for p in all_pairs]
-            enc=self.tokenizer(queries,docs,padding=True,truncation=True,return_tensors="np")
-            outputs=self.session.run(None,{"input_ids":enc["input_ids"],"attention_mask":enc["attention_mask"]})
-            scores_arr=np.array(outputs[0])
-            if scores_arr.ndim>1 and scores_arr.shape[1]==1:
-                scores=scores_arr.squeeze(axis=1).tolist()
-            else:
-                scores=scores_arr.tolist()
-            return grpc_pb2.RerankResponse(scores=scores)
+        ensure_initialized()
+    async def Rerank(self,request:grpc_pb2.RerankRequest)->grpc_pb2.RerankResponse:
+        return await _rerank_batch(request)
 def warmup_models():
     try:
-        logger.info("Warming up models")
-        embedder_onnx=final_onnx_path_for("EMBEDDER_ONNX_PATH",EMBEDDER_ONNX_PATH,MODEL_EMBEDDER_NAME)
-        reranker_onnx=final_onnx_path_for("RERANKER_ONNX_PATH",RERANKER_ONNX_PATH,MODEL_RERANKER_NAME)
-        _=make_session(embedder_onnx,intra_op_threads=EMBEDDER_OMP_NUM_THREADS)
-        _=make_session(reranker_onnx,intra_op_threads=RERANKER_OMP_NUM_THREADS)
+        ensure_initialized()
         logger.info("Model warmup completed.")
     except Exception as e:
         logger.exception("Warmup failed: %s",e)

@@ -12,19 +12,19 @@ EMBED_NAME="gte-modernbert-base-onnx-int8"
 RERANK_NAME="gte-reranker-modernbert-base-onnx-int8"
 log(){ echo "$(date +'%Y-%m-%d %H:%M:%S') [INFO] $*"; }
 error(){ echo "$(date +'%Y-%m-%d %H:%M:%S') [ERROR] $*" >&2; }
-trap 'rm -rf "$TEMP_MODELS_DIR"; docker rm -f tmp_rag8s_test >/dev/null 2>&1 || true' EXIT
-log "Checking host models directory: $HOST_MODELS_DIR"
-if [ ! -d "$HOST_MODELS_DIR" ]; then error "Host models directory not found"; exit 1; fi
+trap 'rc=$?; rm -rf "$TEMP_MODELS_DIR"; docker rm -f tmp_rag8s_test >/dev/null 2>&1 || true; exit $rc' EXIT
+log "SYNC_STATUS: starting model sync check. HOST_MODELS_DIR=$HOST_MODELS_DIR"
+if [ ! -d "$HOST_MODELS_DIR" ]; then error "Host models directory not found: $HOST_MODELS_DIR"; exit 1; fi
 rm -rf "$TEMP_MODELS_DIR"
 mkdir -p "$TEMP_MODELS_DIR/onnx"
-find_model_and_copy(){ local name="$1"; local dest="$TEMP_MODELS_DIR/onnx/$name"; mkdir -p "$dest/onnx"; local onnx_src; onnx_src="$(find "$HOST_MODELS_DIR" -type f -iname "model_int8.onnx" -path "*$name*" -print -quit || true)"; if [ -z "$onnx_src" ]; then error "ONNX model missing for $name"; exit 1; fi; cp "$onnx_src" "$dest/onnx/model_int8.onnx"; local model_root; model_root="$(dirname "$(dirname "$onnx_src")")"; for f in tokenizer.json tokenizer_config.json config.json; do local src; src="$(find "$model_root" -maxdepth 3 -type f -iname "$f" -print -quit || true)"; if [ -n "$src" ]; then cp "$src" "$dest/$f"; else error "$f missing for $name"; exit 1; fi; done; log "Synced model $name completely"; }
+find_model_and_copy(){ local name="$1"; local dest="$TEMP_MODELS_DIR/onnx/$name"; mkdir -p "$dest/onnx"; local onnx_src; onnx_src="$(find "$HOST_MODELS_DIR" -type f -iname "model_int8.onnx" -path "*$name*" -print -quit || true)"; if [ -z "$onnx_src" ]; then error "ONNX model missing for $name"; exit 1; fi; cp "$onnx_src" "$dest/onnx/model_int8.onnx"; local model_root; model_root="$(dirname "$(dirname "$onnx_src")")"; for f in tokenizer.json tokenizer_config.json config.json; do local src; src="$(find "$model_root" -maxdepth 3 -type f -iname "$f" -print -quit || true)"; if [ -n "$src" ]; then cp "$src" "$dest/$f"; else error "$f missing for $name"; exit 1; fi; done; log "Synced model $name completely (from $onnx_src)"; }
 find_model_and_copy "$EMBED_NAME"
 find_model_and_copy "$RERANK_NAME"
-log "Building Docker image $DOCKER_REPO:$DOCKER_TAG"
+log "Building Docker image $DOCKER_REPO:$DOCKER_TAG (this may take a while)"
 docker build --pull --file "$IMAGE_DIR/Dockerfile" --tag "$DOCKER_REPO:$DOCKER_TAG" "$IMAGE_DIR"
 if [ -n "$DOCKER_PASSWORD" ]; then log "Logging into Docker"; echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin; fi
 if command -v trivy >/dev/null 2>&1; then log "Running Trivy security scan"; trivy image --exit-code 1 --severity HIGH,CRITICAL "$DOCKER_REPO:$DOCKER_TAG" || { error "Trivy scan failed"; exit 1; }; fi
-log "Pushing Docker image"
+log "Pushing Docker image $DOCKER_REPO:$DOCKER_TAG"
 docker push "$DOCKER_REPO:$DOCKER_TAG"
 log "Starting smoke test container"
 CID=$(docker run -d --name tmp_rag8s_test -p 8000:8000 "$DOCKER_REPO:$DOCKER_TAG")
@@ -37,7 +37,16 @@ while [ $ATTEMPTS -lt $MAX ]; do
   ATTEMPTS=$((ATTEMPTS+1))
   sleep $SLEEP
 done
-if [ $OK -ne 1 ]; then error "Smoke test failed. Dumping container logs and inspect:"; docker inspect "$CID" || true; docker logs "$CID" || true; docker stop "$CID" >/dev/null 2>&1 || true; [ -n "$DOCKER_PASSWORD" ] && docker.logout; exit 1; fi
-docker stop "$CID" >/dev/null 2>&1
+if [ $OK -ne 1 ]; then
+  error "Smoke test failed. Dumping container inspect and logs"
+  docker inspect "$CID" || true
+  docker logs "$CID" || true
+  docker ps -a --no-trunc | head -n 50 || true
+  docker stop "$CID" >/dev/null 2>&1 || true
+  [ -n "$DOCKER_PASSWORD" ] && docker logout
+  exit 1
+fi
+docker stop "$CID" >/dev/null 2>&1 || true
 [ -n "$DOCKER_PASSWORD" ] && docker logout
 log "Docker image $DOCKER_REPO:$DOCKER_TAG pushed and smoke test passed"
+log "SYNC_STATUS: completed successfully."
