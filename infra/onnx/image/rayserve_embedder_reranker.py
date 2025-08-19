@@ -1,4 +1,4 @@
-import os,gc,logging
+import os,gc,logging,shutil
 from typing import List,Optional
 import numpy as np
 import onnxruntime
@@ -6,6 +6,7 @@ from transformers import PreTrainedTokenizerFast
 import grpc_pb2,grpc_pb2_grpc
 from ray import serve
 from prometheus_client import Counter,Histogram,Gauge,start_http_server
+from pathlib import Path
 os.environ.setdefault("HF_HOME","/workspace/models/hf")
 os.environ.setdefault("MODEL_DIR","/workspace/models/onnx")
 os.environ.setdefault("EMBEDDER_OMP_NUM_THREADS","1")
@@ -39,6 +40,15 @@ MODEL_EMBEDDER_NAME=get_env("MODEL_EMBEDDER_NAME",None,required=True)
 MODEL_RERANKER_NAME=get_env("MODEL_RERANKER_NAME",None,required=True)
 EMBEDDER_ONNX_PATH=get_env("EMBEDDER_ONNX_PATH",None)
 RERANKER_ONNX_PATH=get_env("RERANKER_ONNX_PATH",None)
+# explicit tokenizer/config/env paths (optional)
+EMBEDDER_CONFIG_PATH=get_env("EMBEDDER_CONFIG_PATH",None)
+EMBEDDER_TOKENIZER_PATH=get_env("EMBEDDER_TOKENIZER_PATH",None)
+EMBEDDER_TOKENIZER_CONFIG_PATH=get_env("EMBEDDER_TOKENIZER_CONFIG_PATH",None)
+EMBEDDER_SPECIAL_TOKENS_MAP_PATH=get_env("EMBEDDER_SPECIAL_TOKENS_MAP_PATH",None)
+RERANKER_CONFIG_PATH=get_env("RERANKER_CONFIG_PATH",None)
+RERANKER_TOKENIZER_PATH=get_env("RERANKER_TOKENIZER_PATH",None)
+RERANKER_TOKENIZER_CONFIG_PATH=get_env("RERANKER_TOKENIZER_CONFIG_PATH",None)
+RERANKER_SPECIAL_TOKENS_MAP_PATH=get_env("RERANKER_SPECIAL_TOKENS_MAP_PATH",None)
 EMBEDDER_OMP_NUM_THREADS=int(get_env("EMBEDDER_OMP_NUM_THREADS","1"))
 RERANKER_OMP_NUM_THREADS=int(get_env("RERANKER_OMP_NUM_THREADS","1"))
 EMBEDDER_BATCH_MAX_SIZE=int(get_env("EMBEDDER_BATCH_MAX_SIZE","8"))
@@ -87,7 +97,46 @@ def _candidate_onnx_paths(repo_id:str):
     except Exception:
         logger.exception("Error scanning HF hub for onnx candidates")
     return [p for p in candidates if p]
+def _make_tokenizer_dir_from_files(name:str, tokenizer_path:Optional[str], tokenizer_config_path:Optional[str], special_tokens_path:Optional[str]) -> Optional[str]:
+    if not tokenizer_path and not tokenizer_config_path and not special_tokens_path:
+        return None
+    tmp_dir=Path("/tmp")/f"hf_tokenizer_{name}"
+    try:
+        tmp_dir.mkdir(parents=True,exist_ok=True)
+        copied=False
+        mapping=[(tokenizer_path,"tokenizer.json"),(tokenizer_config_path,"tokenizer_config.json"),(special_tokens_path,"special_tokens_map.json")]
+        for src, dst in mapping:
+            if src:
+                s=Path(src)
+                if s.is_file():
+                    shutil.copy(str(s), str(tmp_dir/dst))
+                    os.chmod(str(tmp_dir/dst),0o444)
+                    copied=True
+                else:
+                    logger.warning("Explicit tokenizer file %s for %s not found: %s", dst, name, src)
+        if copied:
+            return str(tmp_dir)
+        # nothing copied -> remove dir if empty
+        try:
+            if not any(tmp_dir.iterdir()):
+                tmp_dir.rmdir()
+        except Exception:
+            pass
+    except Exception:
+        logger.exception("Failed preparing tokenizer dir for %s",name)
+    return None
 def resolve_tokenizer_dir(repo_id:str)->Optional[str]:
+    # prefer explicit env-supplied tokenizers for known embedder/reranker
+    if repo_id==MODEL_EMBEDDER_NAME:
+        explicit=_make_tokenizer_dir_from_files("embedder",EMBEDDER_TOKENIZER_PATH,EMBEDDER_TOKENIZER_CONFIG_PATH,EMBEDDER_SPECIAL_TOKENS_MAP_PATH)
+        if explicit:
+            logger.info("Using explicit embedder tokenizer dir %s from env paths",explicit)
+            return explicit
+    if repo_id==MODEL_RERANKER_NAME:
+        explicit=_make_tokenizer_dir_from_files("reranker",RERANKER_TOKENIZER_PATH,RERANKER_TOKENIZER_CONFIG_PATH,RERANKER_SPECIAL_TOKENS_MAP_PATH)
+        if explicit:
+            logger.info("Using explicit reranker tokenizer dir %s from env paths",explicit)
+            return explicit
     for p in _candidate_tokenizer_dirs(repo_id):
         try:
             if os.path.isdir(p):
@@ -146,6 +195,8 @@ def final_onnx_path_for(repo_env_name:str,explicit_env_path:Optional[str],repo_i
         return p
     raise FileNotFoundError(f"ONNX model for {repo_id} not found under MODEL_DIR ({MODEL_DIR}) or HF_HOME ({HF_HOME}).")
 def final_tokenizer_dir_for(repo_id:str)->Optional[str]:
+    # If explicit tokenizer dir provided via env named TOKENIZER_DIR (not currently used), it could be checked here.
+    # Prefer explicit file-based dirs already handled in resolve_tokenizer_dir.
     return resolve_tokenizer_dir(repo_id)
 _EMBED_TOKENIZER=None
 _EMBED_SESSION=None
@@ -189,6 +240,8 @@ def ensure_initialized():
         _EMBED_TOKENIZER=PreTrainedTokenizerFast.from_pretrained(embed_tok_dir,local_files_only=True,trust_remote_code=True)
         assert getattr(_EMBED_TOKENIZER,"is_fast",True),"Fast tokenizer not loaded"
         logger.info("Embedder tokenizer loaded from %s",embed_tok_dir)
+        if EMBEDDER_CONFIG_PATH and not Path(EMBEDDER_CONFIG_PATH).is_file():
+            logger.warning("Embedder config path set but missing: %s",EMBEDDER_CONFIG_PATH)
         embed_onnx=final_onnx_path_for("EMBEDDER_ONNX_PATH",EMBEDDER_ONNX_PATH,MODEL_EMBEDDER_NAME)
         _EMBED_SESSION=make_session(embed_onnx,intra_op_threads=EMBEDDER_OMP_NUM_THREADS)
         logger.info("Embedder session ready")
@@ -199,6 +252,8 @@ def ensure_initialized():
         _RERANK_TOKENIZER=PreTrainedTokenizerFast.from_pretrained(rerank_tok_dir,local_files_only=True,trust_remote_code=True)
         assert getattr(_RERANK_TOKENIZER,"is_fast",True),"Fast tokenizer not loaded"
         logger.info("Reranker tokenizer loaded from %s",rerank_tok_dir)
+        if RERANKER_CONFIG_PATH and not Path(RERANKER_CONFIG_PATH).is_file():
+            logger.warning("Reranker config path set but missing: %s",RERANKER_CONFIG_PATH)
         rerank_onnx=final_onnx_path_for("RERANKER_ONNX_PATH",RERANKER_ONNX_PATH,MODEL_RERANKER_NAME)
         _RERANK_SESSION=make_session(rerank_onnx,intra_op_threads=RERANKER_OMP_NUM_THREADS)
         logger.info("Reranker session ready")

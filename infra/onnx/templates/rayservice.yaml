@@ -7,11 +7,8 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/name: onnx-embedder
 spec:
-  # Do not set serveConfigV2 here because the container image entrypoint registers Serve deployments.
-  # The RayCluster spec below will start head and worker pods where your entrypoint registers Serve.
   rayClusterSpec:
     rayVersion: "{{ .Values.rayVersion }}"
-    # Enable autoscaler in KubeRay by setting min/max on workerGroupSpecs
     headGroupSpec:
       serviceType: ClusterIP
       rayStartParams:
@@ -23,6 +20,15 @@ spec:
             ray.io/serve: "true"
             ray-node-type: head
         spec:
+{{- if or .Values.podSecurityContext.runAsUser .Values.podSecurityContext.fsGroup }}
+          securityContext:
+{{- if .Values.podSecurityContext.runAsUser }}
+            runAsUser: {{ .Values.podSecurityContext.runAsUser }}
+{{- end }}
+{{- if .Values.podSecurityContext.fsGroup }}
+            fsGroup: {{ .Values.podSecurityContext.fsGroup }}
+{{- end }}
+{{- end }}
           serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
           containers:
             - name: ray-head
@@ -55,7 +61,7 @@ spec:
                 - name: models
                   mountPath: /workspace/models
               resources:
-{{ toYaml .Values.head.resources | indent 16 }}
+{{ toYaml .Values.head.resources | indent 14 }}
           volumes:
             - name: models
               persistentVolumeClaim:
@@ -85,7 +91,6 @@ spec:
       - groupName: {{ .Values.worker.groupName }}
         minReplicas: {{ .Values.worker.minReplicas }}
         maxReplicas: {{ .Values.worker.maxReplicas }}
-        # Optionally set replicas to an initial value; KubeRay autoscaler will adjust.
         replicas: {{ .Values.worker.minReplicas }}
         rayStartParams:
           block: "true"
@@ -96,6 +101,15 @@ spec:
               ray.io/serve: "true"
               ray-node-type: worker
           spec:
+{{- if or .Values.podSecurityContext.runAsUser .Values.podSecurityContext.fsGroup }}
+            securityContext:
+{{- if .Values.podSecurityContext.runAsUser }}
+              runAsUser: {{ .Values.podSecurityContext.runAsUser }}
+{{- end }}
+{{- if .Values.podSecurityContext.fsGroup }}
+              fsGroup: {{ .Values.podSecurityContext.fsGroup }}
+{{- end }}
+{{- end }}
             serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
             initContainers:
               - name: init-model-check
@@ -104,10 +118,10 @@ spec:
                   - sh
                   - -c
                   - >
-                    if [ -f /workspace/models/onnx/gte-modernbert-base-onnx-int8/onnx/model_int8.onnx ] && [ -f /workspace/models/onnx/gte-reranker-modernbert-base-onnx-int8/onnx/model_int8.onnx ]; then
-                      echo ok; exit 0;
+                    if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_SPECIAL_TOKENS_MAP_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_TOKENIZER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_SPECIAL_TOKENS_MAP_PATH | quote }} ]; then
+                      exit 0;
                     else
-                      echo "Model files missing"; exit 1;
+                      echo "Required model/tokenizer/config files missing"; exit 1;
                     fi
                 volumeMounts:
                   - name: models
@@ -142,7 +156,7 @@ spec:
                   - name: models
                     mountPath: /workspace/models
                 resources:
-{{ toYaml .Values.worker.resources | indent 18 }}
+{{ toYaml .Values.worker.resources | indent 16 }}
             volumes:
               - name: models
                 persistentVolumeClaim:

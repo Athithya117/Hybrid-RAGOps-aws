@@ -5,7 +5,7 @@ metadata:
   name: {{ .Values.pvc.name }}
   namespace: {{ .Values.namespace }}
   labels:
-    app.kubernetes.io/name: onnx-embedder
+    app.kubernetes.io/name: onnx-embedder-reranker
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   accessModes: {{ toYaml .Values.pvc.accessModes | nindent 4 }}

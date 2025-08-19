@@ -3,10 +3,17 @@ from concurrent import futures
 import grpc
 import ray
 from ray import serve
-from fastapi import FastAPI,Request
+from fastapi import FastAPI,Request,Response
 from starlette.responses import JSONResponse
 import grpc_pb2,grpc_pb2_grpc
 from rayserve_embedder_reranker import EmbedderServicer,RerankerServicer,warmup_models,start_prometheus_if_enabled
+from prometheus_client import generate_latest,CONTENT_TYPE_LATEST
+os.environ.setdefault("LOG_LEVEL","INFO")
+os.environ.setdefault("HTTP_PORT","8000")
+os.environ.setdefault("GRPC_PORT","9000")
+os.environ.setdefault("RAY_ADDRESS","auto")
+os.environ.setdefault("EMBED_ROUTE","/rag8s_embedder_app")
+os.environ.setdefault("RERANK_ROUTE","/rag8s_reranker_app")
 LOG_LEVEL=os.getenv("LOG_LEVEL","INFO")
 logging.basicConfig(level=LOG_LEVEL,format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger=logging.getLogger("rag8s.entrypoint")
@@ -21,6 +28,14 @@ app=FastAPI()
 @app.get("/healthz")
 async def healthz():
     return JSONResponse({"ready":ready_event.is_set()},status_code=(200 if ready_event.is_set() else 503))
+@app.get("/metrics")
+async def http_metrics():
+    try:
+        data=generate_latest()
+        return Response(content=data,media_type=CONTENT_TYPE_LATEST)
+    except Exception:
+        logger.exception("HTTP metrics error")
+        return JSONResponse({"error":"metrics error"},status_code=500)
 @app.post("/embed")
 async def http_embed(req:Request):
     try:
@@ -51,19 +66,19 @@ class GrpcForwarderServicer(grpc_pb2_grpc.EmbedServiceServicer,grpc_pb2_grpc.Rer
         self._rerank_handle=None
     def _ensure_handles(self):
         if self._embed_handle is None:
-            for _ in range(20):
+            for _ in range(40):
                 try:
                     self._embed_handle=serve.get_app_handle("rag8s_embedder_app")
                     break
                 except Exception:
-                    time.sleep(0.5)
+                    time.sleep(0.25)
         if self._rerank_handle is None:
-            for _ in range(20):
+            for _ in range(40):
                 try:
                     self._rerank_handle=serve.get_app_handle("rag8s_reranker_app")
                     break
                 except Exception:
-                    time.sleep(0.5)
+                    time.sleep(0.25)
     def Embed(self,request,context):
         try:
             self._ensure_handles()
@@ -126,12 +141,12 @@ def deploy_services():
             rerank_dep=RerankerServicer.bind()
             serve.run(embed_dep,name="rag8s_embedder_app",route_prefix=EMBED_ROUTE,blocking=False)
             serve.run(rerank_dep,name="rag8s_reranker_app",route_prefix=RERANK_ROUTE,blocking=False)
+            Ingress=serve.deployment()(serve.ingress(app))
+            serve.run(Ingress.bind(),name="rag8s_http_gateway",route_prefix="/",blocking=False)
             try:
                 warmup_models()
             except Exception:
                 logger.exception("warmup_models failed (continuing)")
-            Ingress=serve.deployment(route_prefix="/")(serve.ingress(app))
-            serve.run(Ingress.bind(),name="rag8s_http_gateway",blocking=False)
             ready_event.set()
             logger.info("Deployments and HTTP gateway registered and ready")
             return
