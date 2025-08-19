@@ -355,8 +355,6 @@ export MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller th
 
 ```
 
-```sh 
-
 # Arango / vector index toggles
 export ARANGO_VECTOR_INDEX_ENABLE=true                # range: true|false; false to disable vector ops (read-only or minimal infra)
 export ARANGO_VECTOR_INDEX_TYPE="ivf"                 # range: 'hnsw'|'ivf'|'ivf+pq'; choose 'hnsw' (<100k docs), 'ivf' (>=100k), 'ivf+pq' for huge corpora
