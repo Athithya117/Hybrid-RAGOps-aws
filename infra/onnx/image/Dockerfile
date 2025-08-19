@@ -1,5 +1,9 @@
 FROM python:3.10-slim AS builder
 ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y locales && locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8 && rm -rf /var/lib/apt/lists/*
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential git curl ca-certificates gcc && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY requirements-cpu.txt .
