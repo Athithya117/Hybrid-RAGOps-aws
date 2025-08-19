@@ -1,0 +1,28 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-role
+  namespace: {{ .Values.namespace | quote }}
+rules:
+- apiGroups: [""]
+  resources: ["pods","services","endpoints","configmaps","secrets"]
+  verbs: ["get","list","watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments","statefulsets"]
+  verbs: ["get","list","watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-rolebinding
+  namespace: {{ .Values.namespace | quote }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
+  namespace: {{ .Values.namespace | quote }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-role
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

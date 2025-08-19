@@ -1,5 +1,6 @@
 # docker version 28.3.3 ubuntu-22.04 python3.10.12
 
+
 pip==25.2
 setuptools==80.9.0
 wheel==0.45.1
@@ -10,6 +11,6 @@ tokenizers==0.21.4
 grpcio==1.74.0
 grpcio-tools==1.74.0
 prometheus-client==0.22.1
-numpy==2.2.6
+numpy==1.26.4
 uvicorn==0.35.0
 fastapi==0.116.1

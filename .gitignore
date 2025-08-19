@@ -13,6 +13,7 @@ myenv/
 __pycache__/
 *.pyc
 repos
+production-stack/
 production-stack
 # Data directories
 data/

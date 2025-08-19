@@ -1,0 +1,149 @@
+apiVersion: ray.io/v1alpha1
+kind: RayService
+metadata:
+  name: {{ .Release.Name }}-ray
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/name: onnx-embedder
+spec:
+  # Do not set serveConfigV2 here because the container image entrypoint registers Serve deployments.
+  # The RayCluster spec below will start head and worker pods where your entrypoint registers Serve.
+  rayClusterSpec:
+    rayVersion: "{{ .Values.rayVersion }}"
+    # Enable autoscaler in KubeRay by setting min/max on workerGroupSpecs
+    headGroupSpec:
+      serviceType: ClusterIP
+      rayStartParams:
+        dashboard-host: "0.0.0.0"
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/instance: {{ .Release.Name }}
+            ray.io/serve: "true"
+            ray-node-type: head
+        spec:
+          serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
+          containers:
+            - name: ray-head
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              args: []
+              env:
+{{- range $k, $v := .Values.env }}
+                - name: {{ $k }}
+                  value: "{{ $v }}"
+{{- end }}
+                - name: HTTP_PORT
+                  value: "{{ .Values.service.httpPort }}"
+                - name: GRPC_PORT
+                  value: "{{ .Values.service.grpcPort }}"
+                - name: PROMETHEUS_METRICS_PORT
+                  value: "{{ .Values.service.metricsPort }}"
+              ports:
+                - name: gcs-server
+                  containerPort: 6379
+                - name: dashboard
+                  containerPort: 8265
+                - name: http
+                  containerPort: {{ .Values.service.httpPort }}
+                - name: grpc
+                  containerPort: {{ .Values.service.grpcPort }}
+                - name: metrics
+                  containerPort: {{ .Values.service.metricsPort }}
+              volumeMounts:
+                - name: models
+                  mountPath: /workspace/models
+              resources:
+{{ toYaml .Values.head.resources | indent 16 }}
+          volumes:
+            - name: models
+              persistentVolumeClaim:
+                claimName: {{ .Values.pvc.name }}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.service.httpPort }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.service.httpPort }}
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.service.httpPort }}
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+
+    workerGroupSpecs:
+      - groupName: {{ .Values.worker.groupName }}
+        minReplicas: {{ .Values.worker.minReplicas }}
+        maxReplicas: {{ .Values.worker.maxReplicas }}
+        # Optionally set replicas to an initial value; KubeRay autoscaler will adjust.
+        replicas: {{ .Values.worker.minReplicas }}
+        rayStartParams:
+          block: "true"
+        template:
+          metadata:
+            labels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              ray.io/serve: "true"
+              ray-node-type: worker
+          spec:
+            serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
+            initContainers:
+              - name: init-model-check
+                image: busybox
+                command:
+                  - sh
+                  - -c
+                  - >
+                    if [ -f /workspace/models/onnx/gte-modernbert-base-onnx-int8/onnx/model_int8.onnx ] && [ -f /workspace/models/onnx/gte-reranker-modernbert-base-onnx-int8/onnx/model_int8.onnx ]; then
+                      echo ok; exit 0;
+                    else
+                      echo "Model files missing"; exit 1;
+                    fi
+                volumeMounts:
+                  - name: models
+                    mountPath: /workspace/models
+                resources:
+                  requests:
+                    cpu: "10m"
+                    memory: "32Mi"
+            containers:
+              - name: ray-worker
+                image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+                imagePullPolicy: {{ .Values.image.pullPolicy }}
+                env:
+{{- range $k, $v := .Values.env }}
+                  - name: {{ $k }}
+                    value: "{{ $v }}"
+{{- end }}
+                  - name: HTTP_PORT
+                    value: "{{ .Values.service.httpPort }}"
+                  - name: GRPC_PORT
+                    value: "{{ .Values.service.grpcPort }}"
+                  - name: PROMETHEUS_METRICS_PORT
+                    value: "{{ .Values.service.metricsPort }}"
+                ports:
+                  - name: http
+                    containerPort: {{ .Values.service.httpPort }}
+                  - name: grpc
+                    containerPort: {{ .Values.service.grpcPort }}
+                  - name: metrics
+                    containerPort: {{ .Values.service.metricsPort }}
+                volumeMounts:
+                  - name: models
+                    mountPath: /workspace/models
+                resources:
+{{ toYaml .Values.worker.resources | indent 18 }}
+            volumes:
+              - name: models
+                persistentVolumeClaim:
+                  claimName: {{ .Values.pvc.name }}
