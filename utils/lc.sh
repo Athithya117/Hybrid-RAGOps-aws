@@ -39,30 +39,23 @@ install_kuberay_crds() {
   fi
 }
 
-install_kuberay_operator() {
-  helm repo add kuberay https://ray-project.github.io/kuberay-helm/ &>/dev/null || true
-  helm repo update &>/dev/null
-  helm upgrade --install kuberay-operator kuberay/kuberay-operator \
-    --version "${KUBERAY_VERSION}" \
-    --namespace "${NAMESPACE}" \
-    --create-namespace \
-    --skip-crds \
-    --set metrics.serviceMonitor.enabled=false
-
-  kubectl rollout status deployment/kuberay-operator \
-    -n "${NAMESPACE}" --timeout=180s
-}
-
 main() {
   install_kind
   create_cluster
   install_kuberay_crds
-  install_kuberay_operator
 
   CONTEXT=$(kind get clusters | grep "^${CLUSTER_NAME}$")
   kubectl cluster-info --context "kind-${CONTEXT}"
   kubectl get nodes --context "kind-${CONTEXT}"
-  kubectl get pods -n ray-system --context "kind-${CONTEXT}" || echo "No pods yet in ray-system."
 }
 
 main
+
+
+export RELEASE_NAME=release-name
+export NAMESPACE=onnx-serving
+export VALUES=values.yaml
+set -euo pipefail
+if [ -f charts/kube-prometheus-stack-76.4.0.tgz ]; then mkdir -p /tmp/kp && tar -xzf charts/kube-prometheus-stack-76.4.0.tgz -C /tmp/kp || true; if [ -d /tmp/kp/kube-prometheus-stack/crds ]; then kubectl apply -f /tmp/kp/kube-prometheus-stack/crds; fi; else helm pull prometheus-community/kube-prometheus-stack --version 76.4.0 --untar && kubectl apply -f kube-prometheus-stack/crds; fi
+if [ -f charts/kuberay-operator-1.4.2.tgz ]; then mkdir -p /tmp/kr && tar -xzf charts/kuberay-operator-1.4.2.tgz -C /tmp/kr || true; if [ -d /tmp/kr/kuberay-operator/crds ]; then kubectl apply -f /tmp/kr/kuberay-operator/crds; fi; fi
+helm template $RELEASE_NAME . -f $VALUES | kubectl apply -n $NAMESPACE -f -

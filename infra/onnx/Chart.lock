@@ -1,0 +1,9 @@
+dependencies:
+- name: kuberay-operator
+  repository: https://ray-project.github.io/kuberay-helm/
+  version: 1.4.2
+- name: kube-prometheus-stack
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 76.4.0
+digest: sha256:0e94a75ee286ca304b3d0fe2ede4cbfb60d0f8526115b27db82c546adf8fda2f
+generated: "2025-08-20T07:31:21.753492961+05:30"

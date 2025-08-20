@@ -4,6 +4,8 @@ image:
   pullPolicy: IfNotPresent
 rayVersion: "2.48.0"
 namespace: onnx-serving
+headServiceName: rag8s-onnx-ray-head-svc
+rayClientPort: 10001
 service:
   type: ClusterIP
   httpPort: 8000
@@ -87,7 +89,7 @@ env:
   RERANKER_NUM_CPUS: "1"
   PROMETHEUS_METRICS_PORT: "8080"
   PROMETHEUS_DISABLED: "0"
-  LOG_LEVEL: INFO
+  LOG_LEVEL: "INFO"
   OMP_NUM_THREADS: "1"
   MKL_NUM_THREADS: "1"
 labels:
@@ -101,5 +103,5 @@ nodeSelector: {}
 affinity: {}
 createNamespace: true
 podSecurityContext:
-  runAsUser: null
-  fsGroup: null
+  runAsUser: 1000
+  fsGroup: 1000

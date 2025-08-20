@@ -1,3 +1,78 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace | quote }}
+  labels:
+    app.kubernetes.io/name: onnx-embedder
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-netpol
+  namespace: {{ .Values.namespace | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.network.prometheusNamespace | default "monitoring" }}
+  egress:
+    - to:
+        - podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-head-pdb
+  namespace: {{ .Values.namespace | quote }}
+spec:
+  minAvailable: {{ .Values.pdb.headMinAvailable }}
+  selector:
+    matchLabels:
+      ray-node-type: head
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-worker-pdb
+  namespace: {{ .Values.namespace | quote }}
+spec:
+  minAvailable: {{ .Values.pdb.workerMinAvailable }}
+  selector:
+    matchLabels:
+      ray-node-type: worker
+---
+{{- if .Values.pvc.create }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.pvc.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: onnx-embedder-reranker
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  accessModes: {{ toYaml .Values.pvc.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.pvc.size }}
+  {{- if .Values.pvc.storageClassName }}
+  storageClassName: {{ .Values.pvc.storageClassName }}
+  {{- end }}
+{{- end }}
+---
 apiVersion: ray.io/v1alpha1
 kind: RayService
 metadata:
@@ -5,41 +80,45 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     app.kubernetes.io/instance: {{ .Release.Name }}
-    app.kubernetes.io/name: onnx-embedder
+    app.kubernetes.io/name: onnx-embedder-reranker
 spec:
   rayClusterSpec:
     rayVersion: "{{ .Values.rayVersion }}"
     headGroupSpec:
+      headService:
+        metadata:
+          name: {{ .Values.headServiceName | quote }}
       serviceType: ClusterIP
       rayStartParams:
         dashboard-host: "0.0.0.0"
+        ray-client-server-port: "{{ .Values.rayClientPort }}"
       template:
         metadata:
           labels:
             app.kubernetes.io/instance: {{ .Release.Name }}
             ray.io/serve: "true"
             ray-node-type: head
+          annotations:
+            ray.io/overwrite-container-cmd: "true"
         spec:
-{{- if or .Values.podSecurityContext.runAsUser .Values.podSecurityContext.fsGroup }}
-          securityContext:
-{{- if .Values.podSecurityContext.runAsUser }}
-            runAsUser: {{ .Values.podSecurityContext.runAsUser }}
-{{- end }}
-{{- if .Values.podSecurityContext.fsGroup }}
-            fsGroup: {{ .Values.podSecurityContext.fsGroup }}
-{{- end }}
-{{- end }}
           serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
+          securityContext:
+            runAsUser: {{ .Values.podSecurityContext.runAsUser }}
+            fsGroup: {{ .Values.podSecurityContext.fsGroup }}
           containers:
-            - name: ray-head
+            - name: ray-embedder-reranker-head
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
               imagePullPolicy: {{ .Values.image.pullPolicy }}
-              args: []
+              command: ["/bin/bash","-lc","--"]
+              args:
+                - "ulimit -n 65536; $KUBERAY_GEN_RAY_START_CMD; exec python /app/rayserve_entrypoint.py"
               env:
 {{- range $k, $v := .Values.env }}
                 - name: {{ $k }}
                   value: "{{ $v }}"
 {{- end }}
+                - name: RAY_ADDRESS
+                  value: "local"
                 - name: HTTP_PORT
                   value: "{{ .Values.service.httpPort }}"
                 - name: GRPC_PORT
@@ -57,9 +136,12 @@ spec:
                   containerPort: {{ .Values.service.grpcPort }}
                 - name: metrics
                   containerPort: {{ .Values.service.metricsPort }}
+                - name: ray-client
+                  containerPort: {{ .Values.rayClientPort }}
               volumeMounts:
                 - name: models
                   mountPath: /workspace/models
+                  readOnly: true
               resources:
 {{ toYaml .Values.head.resources | indent 14 }}
           volumes:
@@ -86,7 +168,6 @@ spec:
             initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
-
     workerGroupSpecs:
       - groupName: {{ .Values.worker.groupName }}
         minReplicas: {{ .Values.worker.minReplicas }}
@@ -101,16 +182,10 @@ spec:
               ray.io/serve: "true"
               ray-node-type: worker
           spec:
-{{- if or .Values.podSecurityContext.runAsUser .Values.podSecurityContext.fsGroup }}
-            securityContext:
-{{- if .Values.podSecurityContext.runAsUser }}
-              runAsUser: {{ .Values.podSecurityContext.runAsUser }}
-{{- end }}
-{{- if .Values.podSecurityContext.fsGroup }}
-              fsGroup: {{ .Values.podSecurityContext.fsGroup }}
-{{- end }}
-{{- end }}
             serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
+            securityContext:
+              runAsUser: {{ .Values.podSecurityContext.runAsUser }}
+              fsGroup: {{ .Values.podSecurityContext.fsGroup }}
             initContainers:
               - name: init-model-check
                 image: busybox
@@ -118,11 +193,7 @@ spec:
                   - sh
                   - -c
                   - >
-                    if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_SPECIAL_TOKENS_MAP_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_TOKENIZER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_SPECIAL_TOKENS_MAP_PATH | quote }} ]; then
-                      exit 0;
-                    else
-                      echo "Required model/tokenizer/config files missing"; exit 1;
-                    fi
+                    if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_SPECIAL_TOKENS_MAP_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_TOKENIZER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_SPECIAL_TOKENS_MAP_PATH | quote }} ]; then exit 0; else echo "Required model/tokenizer/config files missing"; exit 1; fi
                 volumeMounts:
                   - name: models
                     mountPath: /workspace/models
@@ -139,6 +210,8 @@ spec:
                   - name: {{ $k }}
                     value: "{{ $v }}"
 {{- end }}
+                  - name: RAY_ADDRESS
+                    value: "ray://{{ .Values.headServiceName }}.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.rayClientPort }}"
                   - name: HTTP_PORT
                     value: "{{ .Values.service.httpPort }}"
                   - name: GRPC_PORT
@@ -155,9 +228,95 @@ spec:
                 volumeMounts:
                   - name: models
                     mountPath: /workspace/models
+                    readOnly: true
                 resources:
 {{ toYaml .Values.worker.resources | indent 16 }}
             volumes:
               - name: models
                 persistentVolumeClaim:
                   claimName: {{ .Values.pvc.name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-svc
+  namespace: {{ .Values.namespace | quote }}
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/name: rag8s
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.httpPort }}
+      targetPort: http
+    - name: grpc
+      port: {{ .Values.service.grpcPort }}
+      targetPort: grpc
+    - name: metrics
+      port: {{ .Values.service.metricsPort }}
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    ray.io/serve: "true"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
+  namespace: {{ .Values.namespace | quote }}
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: rag8s
+{{- if .Values.serviceAccount.annotations }}
+  annotations:
+{{ toYaml .Values.serviceAccount.annotations | indent 4 }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-role
+  namespace: {{ .Values.namespace | quote }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods","services","endpoints","configmaps","secrets"]
+    verbs: ["get","list","watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments","statefulsets"]
+    verbs: ["get","list","watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-rolebinding
+  namespace: {{ .Values.namespace | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
+    namespace: {{ .Values.namespace | quote }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-role
+  apiGroup: rbac.authorization.k8s.io
+{{- if and (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") .Values.prometheus.enabled .Values.prometheus.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Release.Name }}-sm
+  namespace: {{ .Values.network.prometheusNamespace | quote }}
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.namespace | quote }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.prometheus.serviceMonitor.interval }}
+{{- end }}
