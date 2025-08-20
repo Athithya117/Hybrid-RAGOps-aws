@@ -21,7 +21,7 @@ pvc:
   name: rag8s-models-pvc
   storageClassName: ""
   accessModes:
-    - ReadOnlyMany
+    - ReadWriteOnce
   size: 50Gi
 serviceAccount:
   create: true
@@ -57,7 +57,7 @@ probes:
     periodSeconds: 10
     timeoutSeconds: 5
   startup:
-    failureThreshold: 36
+    failureThreshold: 120
     periodSeconds: 10
 pdb:
   headMinAvailable: 1
@@ -87,8 +87,8 @@ env:
   RERANKER_BATCH_WAIT_TIMEOUT_S: "0.1"
   EMBEDDER_NUM_CPUS: "1"
   RERANKER_NUM_CPUS: "1"
-  PROMETHEUS_METRICS_PORT: "8080"
   PROMETHEUS_DISABLED: "0"
+  PROMETHEUS_MULTIPROC_DIR: "/tmp/prometheus_multiproc"
   LOG_LEVEL: "INFO"
   OMP_NUM_THREADS: "1"
   MKL_NUM_THREADS: "1"
@@ -98,10 +98,57 @@ labels:
 rbac:
   create: true
 imagePullSecrets: []
-tolerations: []
-nodeSelector: {}
+tolerations:
+  - key: "workload-type"
+    operator: "Equal"
+    value: "cpu"
+    effect: "NoSchedule"
+nodeSelector:
+  workload-type: "cpu"
 affinity: {}
 createNamespace: true
 podSecurityContext:
   runAsUser: 1000
   fsGroup: 1000
+
+karpenter:
+  enabled: true
+  subnetDiscoveryTag: "<CLUSTER_NAME>"
+  instanceProfile: "<EC2_INSTANCE_PROFILE_NAME>"
+  tags:
+    team: rag8s
+    app: rag8s-onnx
+  kubelet:
+    podsPerCore: 2
+    maxPods: 110
+    systemReserved:
+      cpu: "100m"
+      memory: "100Mi"
+    kubeReserved:
+      cpu: "200m"
+      memory: "100Mi"
+  nodePool:
+    weight: 50
+    requirements:
+      - key: "kubernetes.io/arch"
+        operator: In
+        values: ["arm64"]
+      - key: "karpenter.k8s.aws/instance-family"
+        operator: In
+        values: ["c8g.medium"]
+      - key: "karpenter.sh/capacity-type"
+        operator: In
+        values: ["spot","on-demand"]
+    labels:
+      workload-type: "cpu"
+    taints:
+      - key: "workload-type"
+        value: "cpu"
+        effect: "NoSchedule"
+    limits:
+      resources:
+        cpu: "200"
+        memory: "800Gi"
+    ttlSecondsUntilExpired: 259200
+    consolidation:
+      enabled: true

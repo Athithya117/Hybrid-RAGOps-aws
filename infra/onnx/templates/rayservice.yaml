@@ -1,78 +1,3 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: {{ .Values.namespace | quote }}
-  labels:
-    app.kubernetes.io/name: onnx-embedder
-    app.kubernetes.io/managed-by: Helm
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: {{ .Release.Name }}-netpol
-  namespace: {{ .Values.namespace | quote }}
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/instance: {{ .Release.Name }}
-  policyTypes:
-    - Ingress
-    - Egress
-  ingress:
-    - from:
-        - podSelector: {}
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.network.prometheusNamespace | default "monitoring" }}
-  egress:
-    - to:
-        - podSelector: {}
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: {{ .Release.Name }}-head-pdb
-  namespace: {{ .Values.namespace | quote }}
-spec:
-  minAvailable: {{ .Values.pdb.headMinAvailable }}
-  selector:
-    matchLabels:
-      ray-node-type: head
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: {{ .Release.Name }}-worker-pdb
-  namespace: {{ .Values.namespace | quote }}
-spec:
-  minAvailable: {{ .Values.pdb.workerMinAvailable }}
-  selector:
-    matchLabels:
-      ray-node-type: worker
----
-{{- if .Values.pvc.create }}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ .Values.pvc.name }}
-  namespace: {{ .Values.namespace }}
-  labels:
-    app.kubernetes.io/name: onnx-embedder-reranker
-    app.kubernetes.io/instance: {{ .Release.Name }}
-spec:
-  accessModes: {{ toYaml .Values.pvc.accessModes | nindent 4 }}
-  resources:
-    requests:
-      storage: {{ .Values.pvc.size }}
-  {{- if .Values.pvc.storageClassName }}
-  storageClassName: {{ .Values.pvc.storageClassName }}
-  {{- end }}
-{{- end }}
----
 apiVersion: ray.io/v1alpha1
 kind: RayService
 metadata:
@@ -98,13 +23,25 @@ spec:
             app.kubernetes.io/instance: {{ .Release.Name }}
             ray.io/serve: "true"
             ray-node-type: head
-          annotations:
-            ray.io/overwrite-container-cmd: "true"
         spec:
           serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
           securityContext:
             runAsUser: {{ .Values.podSecurityContext.runAsUser }}
             fsGroup: {{ .Values.podSecurityContext.fsGroup }}
+          nodeSelector:
+{{ toYaml .Values.nodeSelector | indent 12 }}
+          tolerations:
+{{ toYaml .Values.tolerations | indent 12 }}
+          initContainers:
+            - name: prometheus-multiproc-clean
+              image: busybox
+              command:
+                - sh
+                - -c
+                - rm -rf /tmp/prometheus_multiproc/* || true && chmod 0777 /tmp/prometheus_multiproc || true
+              volumeMounts:
+                - name: prometheus-multiproc
+                  mountPath: /tmp/prometheus_multiproc
           containers:
             - name: ray-embedder-reranker-head
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -117,14 +54,14 @@ spec:
                 - name: {{ $k }}
                   value: "{{ $v }}"
 {{- end }}
+                - name: PROMETHEUS_MULTIPROC_DIR
+                  value: "/tmp/prometheus_multiproc"
                 - name: RAY_ADDRESS
                   value: "local"
                 - name: HTTP_PORT
                   value: "{{ .Values.service.httpPort }}"
                 - name: GRPC_PORT
                   value: "{{ .Values.service.grpcPort }}"
-                - name: PROMETHEUS_METRICS_PORT
-                  value: "{{ .Values.service.metricsPort }}"
               ports:
                 - name: gcs-server
                   containerPort: 6379
@@ -142,12 +79,17 @@ spec:
                 - name: models
                   mountPath: /workspace/models
                   readOnly: true
+                - name: prometheus-multiproc
+                  mountPath: /tmp/prometheus_multiproc
+                  readOnly: false
               resources:
 {{ toYaml .Values.head.resources | indent 14 }}
           volumes:
             - name: models
               persistentVolumeClaim:
                 claimName: {{ .Values.pvc.name }}
+            - name: prometheus-multiproc
+              emptyDir: {}
           startupProbe:
             httpGet:
               path: /healthz
@@ -186,7 +128,20 @@ spec:
             securityContext:
               runAsUser: {{ .Values.podSecurityContext.runAsUser }}
               fsGroup: {{ .Values.podSecurityContext.fsGroup }}
+            nodeSelector:
+{{ toYaml .Values.nodeSelector | indent 12 }}
+            tolerations:
+{{ toYaml .Values.tolerations | indent 12 }}
             initContainers:
+              - name: prometheus-multiproc-clean
+                image: busybox
+                command:
+                  - sh
+                  - -c
+                  - rm -rf /tmp/prometheus_multiproc/* || true && chmod 0777 /tmp/prometheus_multiproc || true
+                volumeMounts:
+                  - name: prometheus-multiproc
+                    mountPath: /tmp/prometheus_multiproc
               - name: init-model-check
                 image: busybox
                 command:
@@ -197,10 +152,8 @@ spec:
                 volumeMounts:
                   - name: models
                     mountPath: /workspace/models
-                resources:
-                  requests:
-                    cpu: "10m"
-                    memory: "32Mi"
+                  - name: prometheus-multiproc
+                    mountPath: /tmp/prometheus_multiproc
             containers:
               - name: ray-worker
                 image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -210,14 +163,14 @@ spec:
                   - name: {{ $k }}
                     value: "{{ $v }}"
 {{- end }}
+                  - name: PROMETHEUS_MULTIPROC_DIR
+                    value: "/tmp/prometheus_multiproc"
                   - name: RAY_ADDRESS
                     value: "ray://{{ .Values.headServiceName }}.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.rayClientPort }}"
                   - name: HTTP_PORT
                     value: "{{ .Values.service.httpPort }}"
                   - name: GRPC_PORT
                     value: "{{ .Values.service.grpcPort }}"
-                  - name: PROMETHEUS_METRICS_PORT
-                    value: "{{ .Values.service.metricsPort }}"
                 ports:
                   - name: http
                     containerPort: {{ .Values.service.httpPort }}
@@ -229,94 +182,14 @@ spec:
                   - name: models
                     mountPath: /workspace/models
                     readOnly: true
+                  - name: prometheus-multiproc
+                    mountPath: /tmp/prometheus_multiproc
+                    readOnly: false
                 resources:
 {{ toYaml .Values.worker.resources | indent 16 }}
             volumes:
               - name: models
                 persistentVolumeClaim:
                   claimName: {{ .Values.pvc.name }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ .Release.Name }}-svc
-  namespace: {{ .Values.namespace | quote }}
-  labels:
-    app.kubernetes.io/instance: {{ .Release.Name }}
-    app.kubernetes.io/name: rag8s
-spec:
-  type: {{ .Values.service.type }}
-  ports:
-    - name: http
-      port: {{ .Values.service.httpPort }}
-      targetPort: http
-    - name: grpc
-      port: {{ .Values.service.grpcPort }}
-      targetPort: grpc
-    - name: metrics
-      port: {{ .Values.service.metricsPort }}
-      targetPort: metrics
-  selector:
-    app.kubernetes.io/instance: {{ .Release.Name }}
-    ray.io/serve: "true"
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
-  namespace: {{ .Values.namespace | quote }}
-  labels:
-    app.kubernetes.io/instance: {{ .Release.Name }}
-    app.kubernetes.io/component: rag8s
-{{- if .Values.serviceAccount.annotations }}
-  annotations:
-{{ toYaml .Values.serviceAccount.annotations | indent 4 }}
-{{- end }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: {{ .Release.Name }}-role
-  namespace: {{ .Values.namespace | quote }}
-rules:
-  - apiGroups: [""]
-    resources: ["pods","services","endpoints","configmaps","secrets"]
-    verbs: ["get","list","watch"]
-  - apiGroups: ["apps"]
-    resources: ["deployments","statefulsets"]
-    verbs: ["get","list","watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ .Release.Name }}-rolebinding
-  namespace: {{ .Values.namespace | quote }}
-subjects:
-  - kind: ServiceAccount
-    name: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
-    namespace: {{ .Values.namespace | quote }}
-roleRef:
-  kind: Role
-  name: {{ .Release.Name }}-role
-  apiGroup: rbac.authorization.k8s.io
-{{- if and (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") .Values.prometheus.enabled .Values.prometheus.serviceMonitor.enabled }}
----
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: {{ .Release.Name }}-sm
-  namespace: {{ .Values.network.prometheusNamespace | quote }}
-  labels:
-    release: prometheus
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/instance: {{ .Release.Name }}
-  namespaceSelector:
-    matchNames:
-      - {{ .Values.namespace | quote }}
-  endpoints:
-    - port: metrics
-      path: /metrics
-      interval: {{ .Values.prometheus.serviceMonitor.interval }}
-{{- end }}
+              - name: prometheus-multiproc
+                emptyDir: {}

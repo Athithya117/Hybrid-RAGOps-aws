@@ -1,0 +1,21 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-head-pdb
+  namespace: {{ .Values.namespace | quote }}
+spec:
+  minAvailable: {{ .Values.pdb.headMinAvailable }}
+  selector:
+    matchLabels:
+      ray-node-type: head
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-worker-pdb
+  namespace: {{ .Values.namespace | quote }}
+spec:
+  minAvailable: {{ .Values.pdb.workerMinAvailable }}
+  selector:
+    matchLabels:
+      ray-node-type: worker

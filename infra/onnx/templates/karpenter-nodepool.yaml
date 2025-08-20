@@ -1,0 +1,32 @@
+{{- if .Values.karpenter.enabled }}
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: {{ .Release.Name }}-cpu-nodepool
+spec:
+  weight: {{ .Values.karpenter.nodePool.weight }}
+  template:
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: {{ .Release.Name }}-cpu-ec2class
+      requirements:
+{{- range .Values.karpenter.nodePool.requirements }}
+        - key: "{{ .key }}"
+          operator: {{ .operator }}
+          values:{{ toYaml .values | indent 12 }}
+{{- end }}
+      labels:
+{{ toYaml .Values.karpenter.nodePool.labels | indent 8 }}
+      taints:
+{{ toYaml .Values.karpenter.nodePool.taints | indent 8 }}
+      kubelet:
+        podsPerCore: {{ .Values.karpenter.kubelet.podsPerCore }}
+      limits:
+        resources:
+{{ toYaml .Values.karpenter.nodePool.limits.resources | indent 10 }}
+      ttlSecondsUntilExpired: {{ .Values.karpenter.nodePool.ttlSecondsUntilExpired }}
+      consolidation:
+        enabled: {{ .Values.karpenter.nodePool.consolidation.enabled }}
+{{- end }}
