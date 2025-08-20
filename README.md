@@ -450,25 +450,6 @@ FAISS handles “meaning in text,” GeAR handles “meaning in structure.” Bo
 ```
 
 
-# Models overview
-
----
-
-| Model                        | Language     | Params | Max Tokens              | Efficiency           | Triplet μ-F1 | size (FP32)  | size (INT8 / W4A16) | RAM needed (INT8) | VRAM needed (W4A16) |
-| ---------------------------- | ------------ | ------ | ----------------------- | -------------------- | ------------ | ------------ | ------------------- | ----------------- | ------------------- |
-| gte-modernbert-base          | English      | 149M   | 8,192                   | High (CPU/ONNX)      | —            | 596 MiB      | 149 MiB (INT8)      | 1.0 GiB           | —                   |
-| gte-reranker-modernbert-base | English      | 149M   | 8,192                   | Very high (CPU/ONNX) | —            | 598 MiB      | 149 MiB (INT8)      | 1.0 GiB           | —                   |
-| relik-cie-tiny               | English      | 174M   | \~3,000                 | High (CPU)           | 73.8%        | 663.8 MiB    | 165.9 MiB (INT8)    | 0.94 GiB          | —                   |
-| relik-cie-small              | English      | 216M   | \~3,000                 | high (CPU)           | 74.3%        | 824.0 MiB    | 206.0 MiB (INT8)    | 1.40 GiB          | —                   |
-| relik-cie-large              | English      | 467M   | \~3,000                 | low (CPU)       | 75.6%        | 1,781.5 MiB  | 445.4 MiB (INT8)    | 2.43 GiB          | —                   |
-| Qwen3-0.6B-quantized.w4a16   | Multilingual | 600M   | 32,768                  | High (W4A16 AWQ)     | —            | \~2.4 GiB\*  | 860 MiB (W4A16)     | —                 | \~1.1 GiB           |
-| Qwen3-1.7B-quantized.w4a16   | Multilingual | 1.7B   | 32,768                  | High (W4A16 AWQ)     | —            | \~6.8 GiB\*  | 2.0 GiB (W4A16)     | —                 | \~2.7 GiB           |
-| Qwen3-4B-quantized.w4a16     | Multilingual | 4B     | 32,768 (native)         | High (W4A16 AWQ)     | —            | \~16.0 GiB\* | 3.43 GiB (W4A16)    | —                 | \~5.6 GiB           |
-| Qwen3-8B-quantized.w4a16     | Multilingual | 8.2B   | 32,768 / 131,072 (YaRN) | High (W4A16 AWQ)     | —            | \~32.8 GiB\* | \~6.5 GiB (W4A16)†  | —                 | \~11 GiB            |
-| Qwen3-14B-quantized.w4a16    | Multilingual | 14.8B  | 32,768 / 131,072 (YaRN) | High (W4A16 AWQ)     | —            | \~59.2 GiB\* | \~10.9 GiB (W4A16)† | —                 | \~18 GiB            |
-
----
-
 ## 🔗 **References & specialties of the default models in RAG8s**
 
 ---
@@ -486,12 +467,12 @@ FAISS handles “meaning in text,” GeAR handles “meaning in structure.” Bo
 
 ---
 
-### 🔹 **\[2] gte-reranker-modernbert-base**
+### 🔹 **\[2] gte-reranker-modernbert-base(Optional)**
 
 * **Cross-encoder reranker** for re-ranking retrieved docs
 * High BEIR benchmark score (**nDCG\@10 ≈ 90.7%**)
 * Same architecture & size as embedding model (149M), supports **8192 tokens**
-* Extremely fast CPU inference with ONNX (FlashAttention 2)
+* Very fast CPU inference with ONNX (FlashAttention 2)
 
 🔗 [https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base)
 
@@ -507,24 +488,24 @@ A compact and efficient **entity + relation extraction** model designed for **Gr
 🔗 [relik-ie/relik-cie-tiny](https://huggingface.co/relik-ie/relik-cie-tiny)
 
 ---
+### 🔹 **\[4] Qwen/Qwen3-4B-AWQ**
 
-### 🔹 **Qwen3-4B-W4A16 (vLLM Deployment)**
-
-A compact, high-throughput **instruction-tuned LLM** quantized with **W4A16** (4-bit weights + FP16 activations). Built on **Qwen3-4B**, this variant supports **32,768-token context** natively and achieves performance comparable to models 10× its size (e.g., Qwen2.5-72B). Optimized for vLLM inference, it balances speed, memory efficiency, and accuracy, running efficiently on GPUs like A10G, L4, and L40S. **vLLM fully supports W4A16, awq and MoE models like Qwen3-30B-A3B, leveraging CUDA kernels for faster inference (sglang doesnt support these yet) and horizontal scaling**.
+A compact, high-throughput **instruction-tuned LLM** quantized using **AWQ**. Built on **Qwen3-4B**, this variant supports **32,768-token context** natively and achieves performance comparable to models 10× its size (e.g., Qwen2.5-72B). Optimized for **SGLang inference**, it balances **speed, memory efficiency, and accuracy**, running seamlessly on GPUs like A10G, L4, and L40S.
 
 * Architecture: **Transformer** (Qwen3 series, multilingual)
-* Context Length: **32k tokens** (vLLM-native)
-* Quantization: **W4A16 (AWQ)** — 4-bit weights, FP16 activations
-* VRAM Usage: **≈4.8–5.2 GiB** (fits on 24 GiB GPUs with headroom)
+* Context Length: **32k tokens**
+* Quantization: **AWQ** 
+* VRAM Usage: **\~4.8–5.2 GiB** (fits on 24 GiB GPUs with headroom)
 
-🔗 [RedHatAI Qwen3-4B-W4A16](https://huggingface.co/RedHatAI/Qwen3-4B-quantized.w4a16)
+🔗 [Qwen/Qwen3-4B-AWQ](https://huggingface.co/Qwen/Qwen3-4B-AWQ)
 
 > “Even a tiny model like Qwen3-4B can rival the performance of Qwen2.5-72B-Instruct.”
-— [Qwen3 Blog](https://qwenlm.github.io/blog/qwen3/#introduction) , [Thinking-mode](https://qwenlm.github.io/blog/qwen3/#key-features)
+> — [Qwen3 Blog](https://qwenlm.github.io/blog/qwen3/)
+> — [Thinking-mode](https://qwenlm.github.io/blog/qwen3/#key-features)
+
+> **Use case**: Smaller models (e.g., Qwen3-4B-AWQ or 8B) **fit on a single VM** , making them better suited for data-parallel engines like **SGLang**, rather than tensor-parallel systems like **vLLM**.
 
 ---
-
-
 
 <details>
  <summary>EC2 (Click the triangle)</summary>
