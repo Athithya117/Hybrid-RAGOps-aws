@@ -14,7 +14,7 @@ s3:
 	aws s3 ls "s3://$S3_BUCKET/" --recursive | head -n 100
 
 tree:
-	tree -a -I '.git|data|.venv|repos|raw_data|.venv2|aws|docs|utils|models|tmp|raw|chunked'
+	tree -a -I '.git|data|.venv|repos|production-stack|raw_data|.venv2|archive|docs|utils|models|tmp|raw|chunked'
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} + && find . -name "*.pyc" -delete

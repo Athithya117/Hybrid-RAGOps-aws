@@ -50,12 +50,3 @@ main() {
 }
 
 main
-
-
-export RELEASE_NAME=release-name
-export NAMESPACE=onnx-serving
-export VALUES=values.yaml
-set -euo pipefail
-if [ -f charts/kube-prometheus-stack-76.4.0.tgz ]; then mkdir -p /tmp/kp && tar -xzf charts/kube-prometheus-stack-76.4.0.tgz -C /tmp/kp || true; if [ -d /tmp/kp/kube-prometheus-stack/crds ]; then kubectl apply -f /tmp/kp/kube-prometheus-stack/crds; fi; else helm pull prometheus-community/kube-prometheus-stack --version 76.4.0 --untar && kubectl apply -f kube-prometheus-stack/crds; fi
-if [ -f charts/kuberay-operator-1.4.2.tgz ]; then mkdir -p /tmp/kr && tar -xzf charts/kuberay-operator-1.4.2.tgz -C /tmp/kr || true; if [ -d /tmp/kr/kuberay-operator/crds ]; then kubectl apply -f /tmp/kr/kuberay-operator/crds; fi; fi
-helm template $RELEASE_NAME . -f $VALUES | kubectl apply -n $NAMESPACE -f -

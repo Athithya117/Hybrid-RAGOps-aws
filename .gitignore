@@ -25,7 +25,6 @@ rag8s-dev/
 models/
 lid.176.bin
 backups/
-images/
 tmp/
 
 # Secrets and config

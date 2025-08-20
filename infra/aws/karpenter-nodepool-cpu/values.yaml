@@ -1,3 +1,4 @@
+# helm template rag8s-onnx . -f values.yaml --debug > rendered-kind.yaml
 image:
   repository: rag8s/rag8s-onnx-embedder-reranker-cpu-amd64
   tag: gte-modernbert
