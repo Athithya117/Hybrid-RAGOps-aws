@@ -488,7 +488,7 @@ A compact and efficient **entity + relation extraction** model designed for **Gr
 🔗 [relik-ie/relik-cie-tiny](https://huggingface.co/relik-ie/relik-cie-tiny)
 
 ---
-### 🔹 **\[4] Qwen/Qwen3-4B-AWQ**
+### 🔹 **\[4] Qwen3-4B-AWQ**
 
 A compact, high-throughput **instruction-tuned LLM** quantized using **AWQ**. Built on **Qwen3-4B**, this variant supports **32,768-token context** natively and achieves performance comparable to models 10× its size (e.g., Qwen2.5-72B). Optimized for **SGLang inference**, it balances **speed, memory efficiency, and accuracy**, running seamlessly on GPUs like A10G, L4, and L40S.
 
@@ -503,7 +503,7 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **AWQ**. Bu
 > — [Qwen3 Blog](https://qwenlm.github.io/blog/qwen3/)
 > — [Thinking-mode](https://qwenlm.github.io/blog/qwen3/#key-features)
 
-> **Use case**: Smaller models (e.g., Qwen3-4B-AWQ or 8B) **fit on a single VM** , making them better suited for data-parallel engines like **SGLang**, rather than tensor-parallel systems like **vLLM**.
+> **Use case**: Smaller models (e.g., Qwen3-4B-AWQ or 8B) **fit on a single VM** , making them better suited for data-parallel engines like **SGLang**, rather than tensor-parallel engine like **vLLM**.
 
 ---
 
