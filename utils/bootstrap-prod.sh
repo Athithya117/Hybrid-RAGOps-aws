@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ubuntu 22.04 custom AMI
+# Ubuntu 22.04 custom AMI for launching graviton based ec2s
 
 sudo apt-get update && sudo apt-get install -y python3 python3-venv python3-pip git curl ca-certificates
 python3 -m pip install --upgrade pip==25.2
