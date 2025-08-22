@@ -1,6 +1,6 @@
 apiVersion: v2
 name: onnx-embedder
-description: Helm chart for deploying the ONNX embedder-reranker RayService (CPU only) on EKS or Kind.
+description: Helm chart for deploying the ONNX embedder-reranker RayService and frontend (CPU only) on EKS or Kind.
 type: application
 version: 0.1.0
 appVersion: "2.48.0"

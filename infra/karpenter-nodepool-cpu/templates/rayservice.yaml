@@ -1,43 +1,3 @@
-{{- define "onnx.fullname" -}}
-{{- printf "%s" .Release.Name -}}
-{{- end -}}
-{{- define "onnx.labels" -}}
-app.kubernetes.io/name: onnx-embedder
-app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/managed-by: Helm
-{{- end -}}
-{{- if .Values.karpenter.enabled }}
-apiVersion: karpenter.sh/v1
-kind: NodePool
-metadata:
-  name: {{ .Release.Name }}-cpu-nodepool
-spec:
-  weight: {{ .Values.karpenter.nodePool.weight }}
-  template:
-    spec:
-      nodeClassRef:
-        group: karpenter.k8s.aws
-        kind: EC2NodeClass
-        name: {{ .Release.Name }}-cpu-ec2class
-      requirements:
-{{- range .Values.karpenter.nodePool.requirements }}
-        - key: "{{ .key }}"
-          operator: {{ .operator }}
-          values:{{ toYaml .values | indent 12 }}
-{{- end }}
-      labels:
-{{ toYaml .Values.karpenter.nodePool.labels | indent 8 }}
-      taints:
-{{ toYaml .Values.karpenter.nodePool.taints | indent 8 }}
-      kubelet:
-        podsPerCore: {{ .Values.karpenter.kubelet.podsPerCore }}
-      limits:
-        resources:
-{{ toYaml .Values.karpenter.nodePool.limits.resources | indent 10 }}
-      ttlSecondsUntilExpired: {{ .Values.karpenter.nodePool.ttlSecondsUntilExpired }}
-      consolidation:
-        enabled: {{ .Values.karpenter.nodePool.consolidation.enabled }}
-{{- end }}
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -45,71 +5,6 @@ metadata:
   labels:
     app.kubernetes.io/name: onnx-embedder
     app.kubernetes.io/managed-by: Helm
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: {{ .Release.Name }}-netpol
-  namespace: {{ .Values.namespace | quote }}
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/instance: {{ .Release.Name }}
-  policyTypes:
-    - Ingress
-    - Egress
-  ingress:
-    - from:
-        - podSelector: {}
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.network.prometheusNamespace | default "monitoring" }}
-  egress:
-    - to:
-        - podSelector: {}
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: {{ .Release.Name }}-head-pdb
-  namespace: {{ .Values.namespace | quote }}
-spec:
-  minAvailable: {{ .Values.pdb.headMinAvailable }}
-  selector:
-    matchLabels:
-      ray-node-type: head
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: {{ .Release.Name }}-worker-pdb
-  namespace: {{ .Values.namespace | quote }}
-spec:
-  minAvailable: {{ .Values.pdb.workerMinAvailable }}
-  selector:
-    matchLabels:
-      ray-node-type: worker
-{{- if .Values.pvc.create }}
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ .Values.pvc.name }}
-  namespace: {{ .Values.namespace | quote }}
-  labels:
-    app.kubernetes.io/name: onnx-embedder-reranker
-    app.kubernetes.io/instance: {{ .Release.Name }}
-spec:
-  accessModes: {{ toYaml .Values.pvc.accessModes | nindent 4 }}
-  resources:
-    requests:
-      storage: {{ .Values.pvc.size }}
-  {{- if .Values.pvc.storageClassName }}
-  storageClassName: {{ .Values.pvc.storageClassName }}
-  {{- end }}
-{{- end }}
 ---
 apiVersion: ray.io/v1alpha1
 kind: RayService
@@ -136,32 +31,33 @@ spec:
             app.kubernetes.io/instance: {{ .Release.Name }}
             ray.io/serve: "true"
             ray-node-type: head
-          annotations:
-            ray.io/overwrite-container-cmd: "true"
         spec:
           serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
           securityContext:
             runAsUser: {{ .Values.podSecurityContext.runAsUser }}
             fsGroup: {{ .Values.podSecurityContext.fsGroup }}
-{{- if .Values.nodeSelector }}
-          nodeSelector:
-{{ toYaml .Values.nodeSelector | indent 12 }}
-{{- end }}
-{{- if .Values.tolerations }}
-          tolerations:
-{{ toYaml .Values.tolerations | indent 12 }}
-{{- end }}
           initContainers:
-              - name: init-model-check
-                image: busybox
-                command:
-                  - sh
-                  - -c
-                  - >
-                    if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_SPECIAL_TOKENS_MAP_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_TOKENIZER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_SPECIAL_TOKENS_MAP_PATH | quote }} ]; then exit 0; else echo "Required model/tokenizer/config files missing"; exit 1; fi
-                volumeMounts:
-                  - name: models
-                    mountPath: /workspace/models
+            - name: prometheus-multiproc-clean
+              image: busybox
+              command:
+                - sh
+                - -c
+                - rm -rf /tmp/prometheus_multiproc/* || true && chmod 0777 /tmp/prometheus_multiproc || true
+              volumeMounts:
+                - name: prometheus-multiproc
+                  mountPath: /tmp/prometheus_multiproc
+            - name: init-model-check
+              image: busybox
+              command:
+                - sh
+                - -c
+                - >
+                  if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then exit 0; else echo "Required model/tokenizer/config files missing"; exit 1; fi
+              volumeMounts:
+                - name: models
+                  mountPath: /workspace/models
+                - name: prometheus-multiproc
+                  mountPath: /tmp/prometheus_multiproc
           containers:
             - name: ray-embedder-reranker-head
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -174,18 +70,18 @@ spec:
                 - name: {{ $k }}
                   value: "{{ $v }}"
 {{- end }}
-                - name: OTEL_EXPORTER_OTLP_ENDPOINT
-                  value: "{{ .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT }}"
-                - name: OTEL_SERVICE_NAME
-                  value: "{{ .Values.env.OTEL_SERVICE_NAME }}"
-                - name: OTEL_PYTHON_LOG_CORRELATION
-                  value: "{{ .Values.env.OTEL_PYTHON_LOG_CORRELATION }}"
+                - name: PROMETHEUS_MULTIPROC_DIR
+                  value: "/tmp/prometheus_multiproc"
                 - name: RAY_ADDRESS
                   value: "local"
                 - name: HTTP_PORT
                   value: "{{ .Values.service.httpPort }}"
                 - name: GRPC_PORT
                   value: "{{ .Values.service.grpcPort }}"
+                - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                  value: "http://{{ .Release.Name }}-otel-collector.{{ .Values.namespace }}.svc.cluster.local:4317"
+                - name: OTEL_SERVICE_NAME
+                  value: "{{ .Release.Name }}-onnx"
               ports:
                 - name: gcs-server
                   containerPort: 6379
@@ -203,32 +99,16 @@ spec:
                 - name: models
                   mountPath: /workspace/models
                   readOnly: true
+                - name: prometheus-multiproc
+                  mountPath: /tmp/prometheus_multiproc
               resources:
 {{ toYaml .Values.head.resources | indent 14 }}
           volumes:
             - name: models
               persistentVolumeClaim:
                 claimName: {{ .Values.pvc.name }}
-          startupProbe:
-            httpGet:
-              path: /healthz
-              port: {{ .Values.service.httpPort }}
-            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
-            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: {{ .Values.service.httpPort }}
-            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
-            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
-            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: {{ .Values.service.httpPort }}
-            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
-            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
-            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            - name: prometheus-multiproc
+              emptyDir: {}
     workerGroupSpecs:
       - groupName: {{ .Values.worker.groupName }}
         minReplicas: {{ .Values.worker.minReplicas }}
@@ -247,25 +127,28 @@ spec:
             securityContext:
               runAsUser: {{ .Values.podSecurityContext.runAsUser }}
               fsGroup: {{ .Values.podSecurityContext.fsGroup }}
-{{- if .Values.nodeSelector }}
-            nodeSelector:
-{{ toYaml .Values.nodeSelector | indent 12 }}
-{{- end }}
-{{- if .Values.tolerations }}
-            tolerations:
-{{ toYaml .Values.tolerations | indent 12 }}
-{{- end }}
             initContainers:
+              - name: prometheus-multiproc-clean
+                image: busybox
+                command:
+                  - sh
+                  - -c
+                  - rm -rf /tmp/prometheus_multiproc/* || true && chmod 0777 /tmp/prometheus_multiproc || true
+                volumeMounts:
+                  - name: prometheus-multiproc
+                    mountPath: /tmp/prometheus_multiproc
               - name: init-model-check
                 image: busybox
                 command:
                   - sh
                   - -c
                   - >
-                    if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_SPECIAL_TOKENS_MAP_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_TOKENIZER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_CONFIG_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_SPECIAL_TOKENS_MAP_PATH | quote }} ]; then exit 0; else echo "Required model/tokenizer/config files missing"; exit 1; fi
+                    if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then exit 0; else echo "Required model/tokenizer/config files missing"; exit 1; fi
                 volumeMounts:
                   - name: models
                     mountPath: /workspace/models
+                  - name: prometheus-multiproc
+                    mountPath: /tmp/prometheus_multiproc
             containers:
               - name: ray-worker
                 image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -275,18 +158,18 @@ spec:
                   - name: {{ $k }}
                     value: "{{ $v }}"
 {{- end }}
-                  - name: OTEL_EXPORTER_OTLP_ENDPOINT
-                    value: "{{ .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT }}"
-                  - name: OTEL_SERVICE_NAME
-                    value: "{{ .Values.env.OTEL_SERVICE_NAME }}"
-                  - name: OTEL_PYTHON_LOG_CORRELATION
-                    value: "{{ .Values.env.OTEL_PYTHON_LOG_CORRELATION }}"
+                  - name: PROMETHEUS_MULTIPROC_DIR
+                    value: "/tmp/prometheus_multiproc"
                   - name: RAY_ADDRESS
                     value: "ray://{{ .Values.headServiceName }}.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.rayClientPort }}"
                   - name: HTTP_PORT
                     value: "{{ .Values.service.httpPort }}"
                   - name: GRPC_PORT
                     value: "{{ .Values.service.grpcPort }}"
+                  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                    value: "http://{{ .Release.Name }}-otel-collector.{{ .Values.namespace }}.svc.cluster.local:4317"
+                  - name: OTEL_SERVICE_NAME
+                    value: "{{ .Release.Name }}-onnx"
                 ports:
                   - name: http
                     containerPort: {{ .Values.service.httpPort }}
@@ -298,9 +181,13 @@ spec:
                   - name: models
                     mountPath: /workspace/models
                     readOnly: true
+                  - name: prometheus-multiproc
+                    mountPath: /tmp/prometheus_multiproc
                 resources:
 {{ toYaml .Values.worker.resources | indent 16 }}
             volumes:
               - name: models
                 persistentVolumeClaim:
                   claimName: {{ .Values.pvc.name }}
+              - name: prometheus-multiproc
+                emptyDir: {}

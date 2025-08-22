@@ -31,7 +31,7 @@ data:
       prometheusremotewrite:
         endpoint: {{ .Values.network.prometheusRemoteWriteEndpoint | default "http://prometheus-receive.monitoring.svc:9090/api/v1/write" }}
       tempo:
-        endpoint: {{ .Values.network.tempoEndpoint | default "tempo.monitoring.svc:3200" }}
+        endpoint: {{ .Values.network.tempoEndpoint | default "http://tempo.monitoring.svc:3200" }}
     service:
       pipelines:
         traces:

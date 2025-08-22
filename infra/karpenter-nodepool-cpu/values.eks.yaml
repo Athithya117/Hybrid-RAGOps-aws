@@ -1,21 +1,39 @@
+# Production overrides (no Helm template tokens here)
 image:
   repository: rag8s/rag8s-onnx-embedder-reranker-cpu-amd64
   tag: gte-modernbert
   pullPolicy: IfNotPresent
+
+otelCollector:
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: 0.78.0
+    pullPolicy: IfNotPresent
+
+frontend:
+  image:
+    repository: rag8s/rag8s-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 2
+
 rayVersion: "2.48.0"
 namespace: onnx-serving
 headServiceName: rag8s-onnx-ray-head-svc
 rayClientPort: 10001
+
 service:
   type: ClusterIP
   httpPort: 8000
   grpcPort: 9000
   metricsPort: 8080
+
 prometheus:
   enabled: true
   serviceMonitor:
-    enabled: false
+    enabled: true
     interval: 15s
+
 pvc:
   create: true
   name: rag8s-models-pvc
@@ -23,9 +41,11 @@ pvc:
   accessModes:
     - ReadWriteOnce
   size: 50Gi
+
 serviceAccount:
   create: true
   name: rag8s-sa
+
 head:
   resources:
     requests:
@@ -35,10 +55,11 @@ head:
       cpu: "1000m"
       memory: "2Gi"
   replicas: 1
+
 worker:
   groupName: onnx-workers
   minReplicas: 1
-  maxReplicas: 4
+  maxReplicas: 8
   resources:
     requests:
       cpu: "500m"
@@ -46,6 +67,7 @@ worker:
     limits:
       cpu: "2000m"
       memory: "8Gi"
+
 probes:
   liveness:
     initialDelaySeconds: 60
@@ -58,46 +80,40 @@ probes:
   startup:
     failureThreshold: 120
     periodSeconds: 10
+
 pdb:
   headMinAvailable: 1
   workerMinAvailable: 1
+
 network:
   prometheusNamespace: monitoring
+  prometheusRemoteWriteEndpoint: "http://prometheus-receive.monitoring.svc:9090/api/v1/write"
+  tempoEndpoint: "http://tempo.monitoring.svc:3200"
+
 env:
   HF_HOME: /workspace/models/hf
   MODEL_DIR: /workspace/models/onnx
   MODEL_EMBEDDER_NAME: RAG8s/gte-modernbert-base-onnx-int8
   MODEL_RERANKER_NAME: RAG8s/gte-reranker-modernbert-base-onnx-int8
   EMBEDDER_ONNX_PATH: /workspace/models/onnx/gte-modernbert-base-onnx-int8/onnx/model_int8.onnx
-  EMBEDDER_CONFIG_PATH: /workspace/models/onnx/gte-modernbert-base-onnx-int8/config.json
-  EMBEDDER_TOKENIZER_PATH: /workspace/models/onnx/gte-modernbert-base-onnx-int8/tokenizer.json
-  EMBEDDER_TOKENIZER_CONFIG_PATH: /workspace/models/onnx/gte-modernbert-base-onnx-int8/tokenizer_config.json
-  EMBEDDER_SPECIAL_TOKENS_MAP_PATH: /workspace/models/onnx/gte-modernbert-base-onnx-int8/special_tokens_map.json
   RERANKER_ONNX_PATH: /workspace/models/onnx/gte-reranker-modernbert-base-onnx-int8/onnx/model_int8.onnx
-  RERANKER_CONFIG_PATH: /workspace/models/onnx/gte-reranker-modernbert-base-onnx-int8/config.json
-  RERANKER_TOKENIZER_PATH: /workspace/models/onnx/gte-reranker-modernbert-base-onnx-int8/tokenizer.json
-  RERANKER_TOKENIZER_CONFIG_PATH: /workspace/models/onnx/gte-reranker-modernbert-base-onnx-int8/tokenizer_config.json
-  RERANKER_SPECIAL_TOKENS_MAP_PATH: /workspace/models/onnx/gte-reranker-modernbert-base-onnx-int8/special_tokens_map.json
   EMBEDDER_OMP_NUM_THREADS: "1"
   RERANKER_OMP_NUM_THREADS: "1"
   EMBEDDER_BATCH_MAX_SIZE: "8"
   RERANKER_BATCH_MAX_SIZE: "4"
-  EMBEDDER_BATCH_WAIT_TIMEOUT_S: "0.05"
-  RERANKER_BATCH_WAIT_TIMEOUT_S: "0.1"
-  EMBEDDER_NUM_CPUS: "1"
-  RERANKER_NUM_CPUS: "1"
   PROMETHEUS_DISABLED: "1"
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.monitoring.svc.cluster.local:4317"
-  OTEL_SERVICE_NAME: "rag8s-onnx-embedder-reranker"
-  OTEL_PYTHON_LOG_CORRELATION: "true"
+  PROMETHEUS_MULTIPROC_DIR: "/tmp/prometheus_multiproc"
   LOG_LEVEL: "INFO"
   OMP_NUM_THREADS: "1"
   MKL_NUM_THREADS: "1"
+
 labels:
   app: rag8s
   component: rag8s-onnx
+
 rbac:
   create: true
+
 imagePullSecrets: []
 tolerations:
   - key: "workload-type"
@@ -111,44 +127,8 @@ createNamespace: true
 podSecurityContext:
   runAsUser: 1000
   fsGroup: 1000
+
 karpenter:
   enabled: true
   subnetDiscoveryTag: "<CLUSTER_NAME>"
   instanceProfile: "<EC2_INSTANCE_PROFILE_NAME>"
-  tags:
-    team: rag8s
-    app: rag8s-onnx
-  kubelet:
-    podsPerCore: 2
-    maxPods: 110
-    systemReserved:
-      cpu: "100m"
-      memory: "100Mi"
-    kubeReserved:
-      cpu: "200m"
-      memory: "100Mi"
-  nodePool:
-    weight: 50
-    requirements:
-      - key: "kubernetes.io/arch"
-        operator: In
-        values: ["arm64"]
-      - key: "karpenter.k8s.aws/instance-family"
-        operator: In
-        values: ["c8g.medium"]
-      - key: "karpenter.sh/capacity-type"
-        operator: In
-        values: ["spot","on-demand"]
-    labels:
-      workload-type: "cpu"
-    taints:
-      - key: "workload-type"
-        value: "cpu"
-        effect: "NoSchedule"
-    limits:
-      resources:
-        cpu: "200"
-        memory: "800Gi"
-    ttlSecondsUntilExpired: 259200
-    consolidation:
-      enabled: true

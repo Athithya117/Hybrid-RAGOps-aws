@@ -12,9 +12,9 @@ data:
       - name: Prometheus
         type: prometheus
         access: proxy
-        url: http://prometheus.monitoring.svc.cluster.local
+        url: http://prometheus.{{ .Values.network.prometheusNamespace }}.svc.cluster.local
         isDefault: true
       - name: Tempo
         type: tempo
         access: proxy
-        url: http://tempo.monitoring.svc.cluster.local
+        url: http://tempo.{{ .Values.network.prometheusNamespace }}.svc.cluster.local

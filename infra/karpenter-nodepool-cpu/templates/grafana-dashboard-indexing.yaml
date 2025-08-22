@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-grafana-dashboard-indexing
+  namespace: {{ .Values.namespace }}
+  labels:
+    grafana_dashboard: "1"
+data:
+  dashboard.json: |
+    {
+      "uid": "rag8s-indexing",
+      "title": "RAG8s Indexing & Inference Overview",
+      "panels": []
+    }

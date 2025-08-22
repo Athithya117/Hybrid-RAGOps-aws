@@ -3,6 +3,8 @@ kind: DaemonSet
 metadata:
   name: {{ .Release.Name }}-otel-collector
   namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Release.Name }}-otel-collector
 spec:
   selector:
     matchLabels:
@@ -12,15 +14,28 @@ spec:
       labels:
         app: {{ .Release.Name }}-otel-collector
     spec:
-      serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
-      hostNetwork: false
-      tolerations:
-        - key: node-role.kubernetes.io/master
-          operator: Exists
-          effect: NoSchedule
+      serviceAccountName: {{ .Release.Name }}-otel-collector-sa
+      hostPID: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-otel-collector-config
+        - name: hostproc
+          hostPath:
+            path: /proc
+            type: Directory
+        - name: hostcgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: dockersock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
       containers:
         - name: otel-collector
-          image: otel/opentelemetry-collector:0.78.0
+          image: "{{ .Values.otelCollector.image.repository }}:{{ .Values.otelCollector.image.tag }}"
+          imagePullPolicy: {{ .Values.otelCollector.image.pullPolicy }}
           args:
             - "--config=/conf/otel-collector-config.yaml"
           ports:
@@ -31,8 +46,14 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /conf
-            - name: host-root
-              mountPath: /hostfs
+            - name: hostproc
+              mountPath: /host/proc
+              readOnly: true
+            - name: hostcgroup
+              mountPath: /host/sys/fs/cgroup
+              readOnly: true
+            - name: dockersock
+              mountPath: /var/run/docker.sock
               readOnly: true
           resources:
             requests:
@@ -41,11 +62,5 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
-      volumes:
-        - name: config
-          configMap:
-            name: {{ .Release.Name }}-otel-collector-config
-        - name: host-root
-          hostPath:
-            path: /
-            type: Directory
+      tolerations:
+        - operator: "Exists"

@@ -1,20 +1,39 @@
+# NOTE: values.yaml must NOT contain Helm template tokens like {{ .Release.Name }}.
 image:
   repository: rag8s/rag8s-onnx-embedder-reranker-cpu-amd64
   tag: gte-modernbert
   pullPolicy: IfNotPresent
+
+otelCollector:
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: 0.78.0
+    pullPolicy: IfNotPresent
+
+frontend:
+  image:
+    repository: rag8s/rag8s-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+
 rayVersion: "2.48.0"
 namespace: onnx-serving
 headServiceName: rag8s-onnx-ray-head-svc
 rayClientPort: 10001
+
 service:
   type: ClusterIP
   httpPort: 8000
   grpcPort: 9000
   metricsPort: 8080
+
 prometheus:
   enabled: false
   serviceMonitor:
     enabled: false
+    interval: 15s
+
 pvc:
   create: true
   name: rag8s-models-pvc
@@ -22,9 +41,11 @@ pvc:
   accessModes:
     - ReadWriteOnce
   size: 50Gi
+
 serviceAccount:
   create: true
   name: rag8s-sa
+
 head:
   resources:
     requests:
@@ -34,6 +55,7 @@ head:
       cpu: "1000m"
       memory: "2Gi"
   replicas: 1
+
 worker:
   groupName: onnx-workers
   minReplicas: 1
@@ -45,6 +67,7 @@ worker:
     limits:
       cpu: "2000m"
       memory: "8Gi"
+
 probes:
   liveness:
     initialDelaySeconds: 60
@@ -57,11 +80,16 @@ probes:
   startup:
     failureThreshold: 120
     periodSeconds: 10
+
 pdb:
   headMinAvailable: 1
   workerMinAvailable: 1
+
 network:
   prometheusNamespace: monitoring
+  prometheusRemoteWriteEndpoint: "http://prometheus-receive.monitoring.svc:9090/api/v1/write"
+  tempoEndpoint: "http://tempo.monitoring.svc:3200"
+
 env:
   HF_HOME: /workspace/models/hf
   MODEL_DIR: /workspace/models/onnx
@@ -86,17 +114,18 @@ env:
   EMBEDDER_NUM_CPUS: "1"
   RERANKER_NUM_CPUS: "1"
   PROMETHEUS_DISABLED: "1"
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.monitoring.svc.cluster.local:4317"
-  OTEL_SERVICE_NAME: "rag8s-onnx-embedder-reranker"
-  OTEL_PYTHON_LOG_CORRELATION: "true"
+  PROMETHEUS_MULTIPROC_DIR: "/tmp/prometheus_multiproc"
   LOG_LEVEL: "INFO"
   OMP_NUM_THREADS: "1"
   MKL_NUM_THREADS: "1"
+
 labels:
   app: rag8s
   component: rag8s-onnx
+
 rbac:
-  create: false
+  create: true
+
 imagePullSecrets: []
 tolerations: []
 nodeSelector: {}
@@ -105,5 +134,3 @@ createNamespace: true
 podSecurityContext:
   runAsUser: 1000
   fsGroup: 1000
-karpenter:
-  enabled: false
