@@ -1,4 +1,4 @@
-## **RAG8s** is a **production-ready** e2e RAG system with hybrid retrieval (vectors + keyword + graph), GeAR multihop reasoning engineered for high throughput, low-latency retrieval, and adaptive scaling. It is organized into **three main components**—`infra/`, `indexing_pipeline/`, and `inference_pipeline/`—each responsible for a distinct set of concerns (platform, data ingestion/indexing, and online query serving + evaluation).
+## **RAG8s** is a **production-ready** e2e RAG system with hybrid retrieval (vector + keyword + graph), GeAR multihop reasoning engineered for high throughput, low-latency retrieval, and adaptive scaling. It is organized into **three main components**—`infra/`, `indexing_pipeline/`, and `inference_pipeline/`—each responsible for a distinct set of concerns (platform, data ingestion/indexing, and online query serving + evaluation).
 
 ---
 
@@ -21,7 +21,7 @@
 * **Prometheus** + **Alertmanager** → metrics, recording rules, alerting.  
 * **Grafana** → dashboards and SLO/SLA visualization.  
 * **OpenTelemetry Collector** (DaemonSet) → unified pipeline for metrics, logs, traces.  
-* **RAGAI-Catalyst** → online + offline evaluation, tracing, guardrails, experiment management (self-hosted in cluster).  
+* **OpenLLMetry** → online + offline evaluation, tracing, guardrails, experiment management (self-hosted in cluster).  
 
 **CI/CD**
 * **GitHub Actions** → lint, tests, Docker builds, Helm validation.  
@@ -157,33 +157,20 @@ Serves queries end-to-end: retrieval (vector + keyword + graph), multi-hop reaso
 * Returns (a) **Structured JSON** (chunks, triplets, graph paths, provenance) and (b) **Concise deterministic text** using templates that cite `(filename.pdf, p.N)`.  
 * Ensures graceful degradation and deterministic reproducibility when generation is unavailable.
 
-**Outputs**
-* JSON evidence objects (canonical schema), template-based human summary, and optional LLM-generated text when available.  
-* Metrics to emit: `retrieval_latency_ms`, `faiss_hits`, `arangosearch_hits`, `graph_hits`, `merge_time_ms`, `reranker_time_ms`, `cache_hit_rate`.
 
----
-
-## Operational notes & quick checklist
-
-* Ensure indexing stores `chunk_id`, `filename`, `page`, `s3_path`, `embedding` for every chunk.  
-* Populate `triplets` and `entity_graph` at index time for GeAR multihop effectiveness.  
-* Add OTel SDK hooks in `frontend`, `inference_pipeline`, and indexing workers to stream traces and eval artifacts to Catalyst.  
-* Expose evaluation aggregates (e.g., `hallucination_rate`) from Catalyst to Prometheus via a small bridge job if you want SLOs in Grafana.  
-* Protect presigned S3 URLs and enforce auth checks before serving them.
 
 ---
 
 <details>
-<summary> RAG8s codebase/tree structure for quick overview </summary>
+<summary> RAG8s tree structure for quick overview </summary>
 
 ```sh
 RAG8s/
 ├── data/                                 # Local directory that syncs with s3://<bucket_name>/data
-│   ├── raw/                              # Raw data files
+│   ├── raw/                              # Raw document files 
 │   └── chunked/                          # Chunks in json/jsonl format
 │
 ├── indexing_pipeline/
-│   ├── Dockerfile                        # Docker image for indexing workers
 │   ├── index/
 │   │   ├── __main__.py                   # CLI entrypoint for indexing jobs  # observe: logs, metrics, traces
 │   │   ├── arrangodb_indexer.py          # Indexer: writes chunks/entities into ArangoDB with FAISS integration  # observe: logs, metrics
@@ -205,75 +192,77 @@ RAG8s/
 │   │   │   ├── spreadsheets.py           # Spreadsheet row/column chunking logic
 │   │   │   └── txt.py                    # Plaintext chunkers (paragraph/sentence/window)
 │   │   └── router.py                     # Dispatcher to select parser based on MIME/extension
-│   ├── relik.sh                          # Helper script to run ReLiK entity/triplet extraction
-│   └── requirements-cpu.txt              # Indexing pipeline runtime dependencies (CPU)
+│   └── relik.sh                          # Helper script to run ReLiK entity/triplet extraction
 │
 ├── inference_pipeline/
-│   ├── Dockerfile                        # Dockerfile for inference server image
-│   ├── auth_control.py                   # Authentication, authorization middleware and rate limiting for APIs  # observe: logs, metrics
-│   ├── eval.py                           # RAGAI-Catalyst coherence checks, hit@K monitoring, hallucination detection  # observe: logs, metrics
-│   ├── frontend/
-│   │   ├── Dockerfile                    # Frontend container build file
-│   │   ├── main.py                       # Frontend app entry (UI endpoints / static server)  # observe: logs, metrics
-│   │   ├── modules                        # Modular UI components / assets
-│   │   └── requirements-cpu.txt          # Frontend Python dependencies
+│   ├── auth_control.py                   # Auth 2.0, authorization middleware and rate limiting for APIs  # observe: logs, metrics
+│   ├── eval.py                           # OpenLLMetry coherence checks, hit@K monitoring, hallucination detection  # observe: logs, metrics
 │   ├── main.py                           # Inference service entrypoint (REST/gRPC server)  # observe: logs, metrics, traces
-│   ├── llm_retrieval.py                  # Retrieval orchestration (hybrid BM25 + vector + graph + GeAR lightweight multihop)  # observe: logs, metrics
-│   ├── llmless_retrieval.py              # Returns only raw chunks/triplets and source urls from arangodb if rate limit exceeded
-│   └── trace_file.py                     # View or download Presigned urls for the raw docs as source link s3://<bucket_name>data/raw/<file_name>.<format>
+│   ├── llm_retrieval.py        # Retrieval orchestration (hybrid BM25 + vector + graph + GeAR lightweight multihop)  # observe: logs, metrics
+│   ├── llmless_retrieval.py              # Returns only raw chunks/triplets and source urls from arangodb when rate limit exceeded
+│   └── trace_file.py             # View or download Presigned urls for the raw docs as source link s3://<bucket_name>data/raw/<file_name>.<format>
 |
 ├── infra/
-│   ├── eks-manifests/                        
-│   │   ├── Chart.yaml                    # Helm chart metadata: name, version
+│   ├── karpenter-nodepool-cpu/                         
+│   │   ├── Chart.lock                        # Helm lockfile: pins exact versions of dependencies (auto-generated)
+│   │   ├── Chart.yaml                        # Helm chart metadata & dependencies (kuberay, kube-prometheus-stack)
+│   │   ├── charts/
+│   │   │   ├── kube-prometheus-stack-76.4.0.tgz   # Vendored Helm chart for monitoring stack (Prometheus, Grafana, Alertmanager)
+│   │   │   └── kuberay-operator-1.4.2.tgz         # Vendored Helm chart for Ray cluster/operator
+│   │   ├── images/
+│   │   │   ├── frontend/
+│   │   │   │   ├── Dockerfile                 # Build recipe for RAG frontend container
+│   │   │   │   ├── main.py                    # Python app entrypoint for UI; imports deps from requirements-cpu.txt
+│   │   │   │   └── cpu-requirements-cpu.txt       # Frontend Python dependencies; installed inside Dockerfile
+│   │   │   ├── indexing_rayjob/
+│   │   │   │   ├── Dockerfile                 # Build recipe for Ray indexing job container
+│   │   │   │   └── cpu-requirements.txt       # Python dependencies for indexing Ray job
+│   │   │   └── onnx-embedder-reranker/
+│   │   │       ├── Dockerfile                 # Build recipe for ONNX embedder+reranker model server
+│   │   │       ├── download_hf.py             # Script to pull HuggingFace models at build/runtime
+│   │   │       ├── grpc.proto                 # Protobuf service definition for embedder/reranker API
+│   │   │       ├── rayserve_embedder_reranker.py  # RayServe deployment code for ONNX embedder & reranker
+│   │   │       ├── rayserve_entrypoint.py     # Entrypoint to launch RayServe app; imports above module
+│   │   │       ├── cpu-requirements.txt       # Python dependencies for embedder/reranker service
+│   │   │       └── run_and_test_local.sh      # Local test script to validate container works pre-deploy
+│   │   ├── rendered-kind.yaml                 # Rendered manifest snapshot for local testing (kind cluster)
 │   │   ├── templates/
-│   │   │   ├── argocd.yaml               # ArgoCD app controller for orchestrating workloads
-│   │   │   ├── core/
-│   │   │   │   ├── namespaces.yaml       # Define dev/prod namespaces
-│   │   │   │   ├── quotas_pdbs.yaml      # ResourceQuotas & PodDisruptionBudgets per namespace
-│   │   │   │   ├── serviceaccounts.yaml  # Core service accounts for workloads & operators
-│   │   │   │   ├── rbac.yaml             # ClusterRole, Role, and bindings for access control
-│   │   │   │   └── network.yaml          # Traefik ingress, NetworkPolicies, security rules
-│   │   │   ├── dbs/
-│   │   │   │   ├── arangodb.yaml         # ArangoDB StatefulSet, persistence, and resources
-│   │   │   ├── observability/
-│   │   │   │   ├── prometheus.yaml       # Prometheus deployment: metrics scraping + rules
-│   │   │   │   ├── alertmanager.yaml     # Prometheus Alertmanager (alerting engine)
-│   │   │   │   ├── grafana.yaml          # Grafana: dashboards, persistence, data sources
-│   │   │   │   ├── otel-collector.yaml   # OTel Collector (unified logs, metrics, and traces pipelines)
-│   │   │   │   └── catalyst.yaml         # RAGAI-Catalyst service (evals, tracing, guardrails, experiments)
-│   │   │   └── workloads/
-│   │   │       ├── rayjob_cronjob.yaml   # CronJobs: DB backup, Ray indexing, etc.
-│   │   │       ├── rayservice.yaml       # RayService workloads: frontend, VLLM, reranker, ValKeye
-│   │   │       └── karpenter-nodepools.yaml # Karpenter provisioners for CPU/GPU autoscaling
-│   │   ├── values.kind.yaml              # Helm values for local Kind cluster
-│   │   └── values.eks.yaml               # Helm values for production EKS cluster
+│   │   │   ├── _helpers.tpl                   # Helm template helpers (common labels, naming functions)
+│   │   │   ├── graphana-datasource.yaml       # Configures Grafana datasource (Prometheus + OTEL); depends on values.yaml
+│   │   │   ├── karpenter-nodepool.yaml        # Defines Karpenter NodePool/Provisioner for autoscaling CPU nodes
+│   │   │   ├── namespace.yaml                 # Creates namespace for this chart; all resources scoped here
+│   │   │   ├── networkpolicy.yaml             # NetworkPolicies: secure traffic between frontend, Ray, DB
+│   │   │   ├── otel-collector-configmap.yaml  # ConfigMap for OpenTelemetry Collector pipelines (logs, metrics, traces)
+│   │   │   ├── otel-collector-daemonset.yaml  # DaemonSet: deploys OTEL Collector agent to all nodes
+│   │   │   ├── otel-collector-service.yaml    # Service exposing OTEL Collector for scraping/export
+│   │   │   ├── pdbs.yaml                      # PodDisruptionBudgets to ensure availability during upgrades
+│   │   │   ├── prometheus-pvc.yaml            # PersistentVolumeClaim for Prometheus TSDB; depends on values.eks.yaml
+│   │   │   ├── pvc.yaml                       # PVCs for stateful workloads (embedding/reranker cache, frontend state)
+│   │   │   ├── rayservice.yaml                # RayService definition for embedding + reranker workloads
+│   │   │   ├── role.yaml                      # RBAC Role for workloads needing cluster-scoped API access
+│   │   │   ├── rolebinding.yaml               # RoleBinding linking Role to service account
+│   │   │   ├── service-monitor.yaml           # ServiceMonitor CRD for Prometheus to scrape this app’s metrics
+│   │   │   ├── service.yaml                   # Kubernetes Services exposing frontend & model containers
+│   │   │   ├── serviceaccount.yaml            # ServiceAccount for pods; referenced in RoleBinding and workloads
+│   │   │   └── templates/
+│   │   │       └── grafana-dashboard-indexing.json  # JSON Grafana dashboard for indexing/embedding job metrics
+│   │   ├── values.eks.yaml                    # Helm values for production EKS deployment (CPU/GPU node config, storage)
+│   │   └── values.yaml                        # Default Helm values (resource requests, OTEL config, monitoring toggles)
 │   │
-│   ├── pulumi-aws/                            
-│   │   ├── config.py                 # Global variables & Pulumi config
-│   │   ├── vpc.py                    # Networking must exist before cluster
-│   │   ├── iam_roles_pre_eks.py      # IAM roles required to create EKS
-│   │   ├── eks_cluster.py            # EKS cluster depends on VPC + pre-EKS IAM
-│   │   ├── nodegroups.py             # Nodegroups depend on cluster + IAM
-│   │   ├── iam_roles_post_eks.py     # IAM roles for workloads (Ray, Karpenter, Valkeye)
-│   │   ├── karpenter.py              # Karpenter provisioning depends on cluster + nodegroups + IAM
-│   │   ├── cloudflare.py             # DNS records, depends on cluster endpoint
-│   │   ├── indexing_ami.py           # Indexing AMIs, depends on cluster/nodegroups
-│   │   ├── inference_ami.py          # Inference/GPU AMIs, depends on cluster/nodegroups
-│   │   ├── db_backup.py              # CronJobs or backup jobs, depends on DB running in cluster
-│   │   ├── ___main__.py                  # Orchestrates imports & execution
-│   │   └── pulumi.yaml                   # Pulumi project manifest for infra code
-│   │
-│   ├── onnx/
-│   │   ├── Dockerfile                    # ONNX runtime image for CPU inference services
-│   │   ├── grpc.proto                    # gRPC proto definition for ONNX service
-│   │   ├── rayserve-embedder-reranker.py # Ray Serve wrapper to run embedder + reranker  # observe: logs, metrics
-│   │   └── requirements-cpu.txt          # ONNX service dependencies
-│   │
-│   └── vllm/
-│       ├── Dockerfile                    # GPU-enabled image for vllm serving
-│       ├── grpc.proto                    # gRPC proto definition for vllm service
-│       ├── rayserve-vllm.py              # Ray Serve wrapper for vllm inference  # observe: logs, metrics
-│       └── requirements-gpu.txt          # GPU runtime dependencies (CUDA/pytorch/etc.)
+│   └── pulumi-aws/                            
+│       ├── config.py                 # Global variables & Pulumi config
+│       ├── vpc.py                    # Networking must exist before cluster
+│       ├── iam_roles_pre_eks.py      # IAM roles required to create EKS
+│       ├── eks_cluster.py            # EKS cluster depends on VPC + pre-EKS IAM
+│       ├── nodegroups.py             # Nodegroups depend on cluster + IAM
+│       ├── iam_roles_post_eks.py     # IAM roles for workloads (Ray, Karpenter, Valkeye)
+│       ├── karpenter.py              # Karpenter provisioning depends on cluster + nodegroups + IAM
+│       ├── cloudflare.py             # DNS records, depends on cluster endpoint
+│       ├── indexing_ami.py           # Indexing AMIs, depends on cluster/nodegroups
+│       ├── inference_ami.py          # Inference/GPU AMIs, depends on cluster/nodegroups
+│       ├── db_backup.py              # CronJobs or backup jobs, depends on DB running in cluster
+│       ├── ___main__.py                  # Orchestrates imports & execution
+│       └── pulumi.yaml                   # Pulumi project manifest for infra code
 |
 └── utils/                                   
 |    ├── archive/                           # Files no longer maintained
@@ -292,10 +281,8 @@ RAG8s/
 │
 ├── .devcontainer/
 │   ├── Dockerfile                          # Devcontainer image build for local development environment
-│   ├── devcontainer.json                   # VS Code devcontainer configuration (mounts, settings)
-│   └── scripts
-│       └── fix-docker-group.sh             # Script to fix Docker group permissions inside devcontainer
-│
+│   └── devcontainer.json                   # VS Code devcontainer configuration (mounts, settings)
+|
 ├── .dockerignore                           # Files/dirs excluded from Docker build context
 ├── .gitignore                              # Git ignore rules
 ├── Makefile                                # Convenience targets for build/test/deploy tasks
@@ -411,17 +398,6 @@ export MAX_CONCURRENT_QUERIES=32                      # throttle to protect DBs;
 # Arango general performance / logging
 export ARANGO_STORAGE_CACHE_SIZE=2048                 # set ~20-30% host RAM for read-heavy nodes
 export ARANGO_QUERY_MEMORY_LIMIT=1024                 # raise if AQL traversals need more memory
-export ARANGO_LOG_LEVEL="info"                        # 'debug' only for troubleshooting
-export ARANGO_URL="http://arangodb:8529"              # Arango endpoint (use in-cluster svc in prod)
-export ARANGO_DB="rag8s"                              # DB name
-export ARANGO_USER="root"                             # use non-root least-priv user in prod
-export ARANGO_PASS=""                                 # SECRET: inject from Vault/K8s Secret
-
-
-# Ray / orchestration (node-level)
-export RAY_DASHBOARD_PORT=8265                        # Ray dashboard port (change to avoid conflicts)
-export RAY_NUM_CPUS=4                                 # set per node; increase for heavier parallel indexing/inference
-export RAY_NUM_GPUS=0                                 # set >0 on GPU nodes for model serving/training
 
 # Observability / app logging
 export APP_LOG_LEVEL="info"                           # 'debug' only temporarily for troubleshooting
