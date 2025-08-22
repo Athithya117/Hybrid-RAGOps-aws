@@ -6,8 +6,6 @@ metadata:
   labels:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/name: rag8s
-  annotations:
-    prometheus.io/scrape: "false"
 spec:
   type: {{ .Values.service.type }}
   ports:

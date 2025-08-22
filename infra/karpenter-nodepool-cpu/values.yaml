@@ -1,4 +1,22 @@
-# NOTE: values.yaml must NOT contain Helm template tokens like {{ .Release.Name }}.
+karpenter:
+  enabled: true
+  ttlSecondsUntilExpired: 259200
+  nodePool:
+    weight: 50
+    requirements: []
+    labels:
+      workload-type: cpu
+    taints: []
+    consolidation:
+      enabled: true
+  kubelet:
+    podsPerCore: 2
+    maxPods: 110
+  limits:
+    resources:
+      cpu: "200"
+      memory: "800Gi"
+
 image:
   repository: rag8s/rag8s-onnx-embedder-reranker-cpu-amd64
   tag: gte-modernbert
@@ -29,9 +47,9 @@ service:
   metricsPort: 8080
 
 prometheus:
-  enabled: false
+  enabled: true
   serviceMonitor:
-    enabled: false
+    enabled: true
     interval: 15s
 
 pvc:
@@ -49,24 +67,24 @@ serviceAccount:
 head:
   resources:
     requests:
-      cpu: "500m"
-      memory: "1Gi"
+      cpu: 500m
+      memory: 1Gi
     limits:
-      cpu: "1000m"
-      memory: "2Gi"
+      cpu: 1000m
+      memory: 2Gi
   replicas: 1
 
 worker:
   groupName: onnx-workers
   minReplicas: 1
-  maxReplicas: 4
+  maxReplicas: 8
   resources:
     requests:
-      cpu: "500m"
-      memory: "2Gi"
+      cpu: 500m
+      memory: 2Gi
     limits:
-      cpu: "2000m"
-      memory: "8Gi"
+      cpu: 2000m
+      memory: 8Gi
 
 probes:
   liveness:
@@ -113,7 +131,7 @@ env:
   RERANKER_BATCH_WAIT_TIMEOUT_S: "0.1"
   EMBEDDER_NUM_CPUS: "1"
   RERANKER_NUM_CPUS: "1"
-  PROMETHEUS_DISABLED: "1"
+  PROMETHEUS_DISABLED: "0"
   PROMETHEUS_MULTIPROC_DIR: "/tmp/prometheus_multiproc"
   LOG_LEVEL: "INFO"
   OMP_NUM_THREADS: "1"
@@ -131,6 +149,7 @@ tolerations: []
 nodeSelector: {}
 affinity: {}
 createNamespace: true
+
 podSecurityContext:
   runAsUser: 1000
   fsGroup: 1000

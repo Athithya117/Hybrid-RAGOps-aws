@@ -11,8 +11,6 @@ dependencies:
     repository: "https://ray-project.github.io/kuberay-helm/"
     condition: kuberay-operator.enabled
   - name: kube-prometheus-stack
-    version: ">=76.0.0"
+    version: "76.0.0"
     repository: "https://prometheus-community.github.io/helm-charts"
-    condition: monitoring.enabled
-
-
+    condition: prometheus.enabled

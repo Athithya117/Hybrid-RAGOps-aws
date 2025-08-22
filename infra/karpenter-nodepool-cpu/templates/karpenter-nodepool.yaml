@@ -1,32 +1,30 @@
-{{- if .Values.karpenter.enabled }}
-apiVersion: karpenter.sh/v1
-kind: NodePool
+{{- $kar := default (dict) .Values.karpenter -}}
+{{- $np  := default (dict) (index $kar "nodePool") -}}
+{{- $con := default (dict) (index $np "consolidation") -}}
+{{- $enabled := default false (index $con "enabled") -}}
+
+{{- if $enabled }}
+apiVersion: karpenter.k8s.aws/v1alpha5
+kind: Provisioner
 metadata:
-  name: {{ .Release.Name }}-cpu-nodepool
+  name: {{ .Release.Name }}-cpu-provisioner
 spec:
-  weight: {{ .Values.karpenter.nodePool.weight }}
-  template:
-    spec:
-      nodeClassRef:
-        group: karpenter.k8s.aws
-        kind: EC2NodeClass
-        name: {{ .Release.Name }}-cpu-ec2class
-      requirements:
-{{- range .Values.karpenter.nodePool.requirements }}
-        - key: "{{ .key }}"
-          operator: {{ .operator }}
-          values:{{ toYaml .values | indent 12 }}
+  ttlSecondsUntilExpired: {{ default 259200 (index $kar "ttlSecondsUntilExpired") }}
+  consolidation:
+    enabled: {{ default true (index $con "enabled") }}
+  labels:
+{{- if (index $np "labels") }}
+{{ toYaml (index $np "labels") | indent 4 }}
+{{- else }}
+    workload-type: cpu
 {{- end }}
-      labels:
-{{ toYaml .Values.karpenter.nodePool.labels | indent 8 }}
-      taints:
-{{ toYaml .Values.karpenter.nodePool.taints | indent 8 }}
-      kubelet:
-        podsPerCore: {{ .Values.karpenter.kubelet.podsPerCore }}
-      limits:
-        resources:
-{{ toYaml .Values.karpenter.nodePool.limits.resources | indent 10 }}
-      ttlSecondsUntilExpired: {{ .Values.karpenter.nodePool.ttlSecondsUntilExpired }}
-      consolidation:
-        enabled: {{ .Values.karpenter.nodePool.consolidation.enabled }}
+  taints:
+{{- if (index $np "taints") }}
+{{ toYaml (index $np "taints") | indent 4 }}
+{{- else }}
+    # no taints configured
+{{- end }}
+  limits:
+    resources:
+{{ toYaml (index (default (dict "resources" (dict "cpu" "200" "memory" "800Gi"))) "resources") | indent 6 }}
 {{- end }}

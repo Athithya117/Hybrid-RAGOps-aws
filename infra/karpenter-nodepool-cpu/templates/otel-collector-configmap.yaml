@@ -18,10 +18,8 @@ data:
           cpu: {}
           load: {}
           memory: {}
-          disk: {}
           filesystem: {}
           network: {}
-          paging: {}
           processes: {}
     processors:
       batch: {}
