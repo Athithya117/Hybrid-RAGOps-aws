@@ -1,4 +1,3 @@
-# helm template rag8s-onnx . -f values.yaml --debug > rendered-kind.yaml
 image:
   repository: rag8s/rag8s-onnx-embedder-reranker-cpu-amd64
   tag: gte-modernbert
@@ -87,7 +86,9 @@ env:
   EMBEDDER_NUM_CPUS: "1"
   RERANKER_NUM_CPUS: "1"
   PROMETHEUS_DISABLED: "1"
-  PROMETHEUS_MULTIPROC_DIR: "/tmp/prometheus_multiproc"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.monitoring.svc.cluster.local:4317"
+  OTEL_SERVICE_NAME: "rag8s-onnx-embedder-reranker"
+  OTEL_PYTHON_LOG_CORRELATION: "true"
   LOG_LEVEL: "INFO"
   OMP_NUM_THREADS: "1"
   MKL_NUM_THREADS: "1"

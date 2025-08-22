@@ -14,7 +14,7 @@ service:
 prometheus:
   enabled: true
   serviceMonitor:
-    enabled: true
+    enabled: false
     interval: 15s
 pvc:
   create: true
@@ -26,7 +26,6 @@ pvc:
 serviceAccount:
   create: true
   name: rag8s-sa
-  annotations: {}
 head:
   resources:
     requests:
@@ -87,8 +86,10 @@ env:
   RERANKER_BATCH_WAIT_TIMEOUT_S: "0.1"
   EMBEDDER_NUM_CPUS: "1"
   RERANKER_NUM_CPUS: "1"
-  PROMETHEUS_DISABLED: "0"
-  PROMETHEUS_MULTIPROC_DIR: "/tmp/prometheus_multiproc"
+  PROMETHEUS_DISABLED: "1"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.monitoring.svc.cluster.local:4317"
+  OTEL_SERVICE_NAME: "rag8s-onnx-embedder-reranker"
+  OTEL_PYTHON_LOG_CORRELATION: "true"
   LOG_LEVEL: "INFO"
   OMP_NUM_THREADS: "1"
   MKL_NUM_THREADS: "1"
@@ -110,7 +111,6 @@ createNamespace: true
 podSecurityContext:
   runAsUser: 1000
   fsGroup: 1000
-
 karpenter:
   enabled: true
   subnetDiscoveryTag: "<CLUSTER_NAME>"

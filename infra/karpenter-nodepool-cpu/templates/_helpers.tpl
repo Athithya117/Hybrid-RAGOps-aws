@@ -1,7 +1,6 @@
 {{- define "onnx.fullname" -}}
 {{- printf "%s" .Release.Name -}}
 {{- end -}}
-
 {{- define "onnx.labels" -}}
 app.kubernetes.io/name: onnx-embedder
 app.kubernetes.io/instance: {{ .Release.Name }}
