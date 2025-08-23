@@ -1,12 +1,13 @@
-{{ $rayEnabled := .Values.ray.enabled }}
-{{ $hasRayV1 := .Capabilities.APIVersions.Has "ray.io/v1" }}
-{{ $hasRayV1alpha1 := .Capabilities.APIVersions.Has "ray.io/v1alpha1" }}
-{{ if and $rayEnabled (or $hasRayV1 $hasRayV1alpha1) }}
-{{ if $hasRayV1 }}
+{{/* Capture Ray flags */}}
+{{- $rayEnabled := .Values.ray.enabled -}}
+{{- $hasRayV1 := .Capabilities.APIVersions.Has "ray.io/v1" -}}
+{{- $hasRayV1alpha1 := .Capabilities.APIVersions.Has "ray.io/v1alpha1" -}}
+{{- if and $rayEnabled (or $hasRayV1 $hasRayV1alpha1) }}
+{{- if $hasRayV1 }}
 apiVersion: ray.io/v1
-{{ else }}
+{{- else }}
 apiVersion: ray.io/v1alpha1
-{{ end }}
+{{- end }}
 kind: RayService
 metadata:
   name: {{ .Release.Name }}-ray
@@ -42,10 +43,7 @@ spec:
           initContainers:
             - name: prometheus-multiproc-clean
               image: busybox
-              command:
-                - sh
-                - -c
-                - "rm -rf /tmp/prometheus_multiproc/* || true && chmod 0777 /tmp/prometheus_multiproc || true"
+              command: ["sh","-c","rm -rf /tmp/prometheus_multiproc/* || true && chmod 0777 /tmp/prometheus_multiproc || true"]
               volumeMounts:
                 - name: prometheus-multiproc
                   mountPath: /tmp/prometheus_multiproc
@@ -70,17 +68,13 @@ spec:
             - name: ray-embedder-reranker-head
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
               imagePullPolicy: {{ .Values.image.pullPolicy }}
-              command:
-                - "/bin/bash"
-                - "-lc"
-                - "--"
-              args:
-                - "ulimit -n 65536; $KUBERAY_GEN_RAY_START_CMD; exec python /app/rayserve_entrypoint.py"
+              command: ["/bin/bash","-lc","--"]
+              args: ["ulimit -n 65536; $KUBERAY_GEN_RAY_START_CMD; exec python /app/rayserve_entrypoint.py"]
               env:
-{{ range $k, $v := .Values.env }}
+{{- range $k, $v := .Values.env }}
                 - name: {{ $k }}
                   value: "{{ $v }}"
-{{ end }}
+{{- end }}
                 - name: PROMETHEUS_MULTIPROC_DIR
                   value: "/tmp/prometheus_multiproc"
                 - name: RAY_ADDRESS
@@ -142,10 +136,7 @@ spec:
             initContainers:
               - name: prometheus-multiproc-clean
                 image: busybox
-                command:
-                  - sh
-                  - -c
-                  - "rm -rf /tmp/prometheus_multiproc/* || true && chmod 0777 /tmp/prometheus_multiproc || true"
+                command: ["sh","-c","rm -rf /tmp/prometheus_multiproc/* || true && chmod 0777 /tmp/prometheus_multiproc || true"]
                 volumeMounts:
                   - name: prometheus-multiproc
                     mountPath: /tmp/prometheus_multiproc
@@ -171,10 +162,10 @@ spec:
                 image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
                 imagePullPolicy: {{ .Values.image.pullPolicy }}
                 env:
-{{ range $k, $v := .Values.env }}
+{{- range $k, $v := .Values.env }}
                   - name: {{ $k }}
                     value: "{{ $v }}"
-{{ end }}
+{{- end }}
                   - name: PROMETHEUS_MULTIPROC_DIR
                     value: "/tmp/prometheus_multiproc"
                   - name: RAY_ADDRESS
@@ -261,4 +252,4 @@ spec:
       name: http
   selector:
     app: {{ printf "%s-frontend" .Release.Name }}
-{{ end }}
+{{- end }}

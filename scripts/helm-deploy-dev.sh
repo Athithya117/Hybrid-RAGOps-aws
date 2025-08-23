@@ -16,8 +16,6 @@ helm install rag8s . -n onnx-serving -f values.yaml --create-namespace --dry-run
 helm template rag8s . -n onnx-serving -f values.yaml > tmp.yaml
 kubectl create namespace onnx-serving --dry-run=client -o yaml | kubectl apply -f -
 
-
-
 kubectl apply --dry-run=client -f tmp.yaml
 kubectl apply --dry-run=server -f tmp.yaml
 kubectl apply -n onnx-serving -f tmp.yaml
