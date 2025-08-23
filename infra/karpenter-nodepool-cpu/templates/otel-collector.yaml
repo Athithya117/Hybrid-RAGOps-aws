@@ -1,4 +1,5 @@
-{{- $otel := index .Values "opentelemetry-collector" -}}{{- if $otel.enabled }}
+{{- $otel := index .Values "opentelemetry-collector" -}}
+{{- if $otel.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -90,7 +91,8 @@ spec:
       port: 4318
       targetPort: 4318
 ---
-{{- $mode := default "deployment" $otel.mode }}{{- if eq $mode "deployment" }}
+{{- $mode := default "deployment" $otel.mode }}
+{{- if eq $mode "deployment" }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -203,4 +205,5 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
-{{- end }}{{- end }}
+{{- end }}
+{{- end }}

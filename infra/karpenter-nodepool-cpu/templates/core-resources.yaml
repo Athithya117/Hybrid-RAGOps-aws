@@ -130,7 +130,6 @@ data:
         type: tempo
         access: proxy
         url: http://tempo.{{ .Values.network.prometheusNamespace | default "monitoring" }}.svc.cluster.local
-        isDefault: false
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -142,21 +141,3 @@ metadata:
 data:
   dashboard.json: |
     {"uid":"rag8s-indexing","title":"RAG8s Indexing & Inference Overview","panels":[]}
----
-{{- if and .Values.karpenter.enabled (.Capabilities.APIVersions.Has "karpenter.k8s.aws/v1alpha5") }}
-apiVersion: karpenter.k8s.aws/v1alpha5
-kind: Provisioner
-metadata:
-  name: {{ .Release.Name }}-cpu-provisioner
-spec:
-  ttlSecondsUntilExpired: {{ default 259200 .Values.karpenter.ttlSecondsUntilExpired }}
-  consolidation:
-    enabled: {{ default true (index .Values.karpenter.nodePool "consolidation" "enabled") }}
-  labels:
-{{ toYaml (index .Values.karpenter.nodePool "labels" | default (dict "workload-type" "cpu")) | nindent 4 }}
-  taints:
-{{ toYaml (index .Values.karpenter.nodePool "taints" | default (list (dict "key" "workload-type" "value" "cpu" "effect" "NoSchedule"))) | nindent 4 }}
-  limits:
-    resources:
-{{ toYaml (index .Values.karpenter "limits" "resources" | default (dict "cpu" "200" "memory" "800Gi")) | nindent 6 }}
-{{- end }}

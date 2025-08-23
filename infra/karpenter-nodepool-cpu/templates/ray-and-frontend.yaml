@@ -1,8 +1,9 @@
-{{/* Capture Ray flags */}}
-{{- $rayEnabled := .Values.ray.enabled -}}
-{{- $hasRayV1 := .Capabilities.APIVersions.Has "ray.io/v1" -}}
-{{- $hasRayV1alpha1 := .Capabilities.APIVersions.Has "ray.io/v1alpha1" -}}
-{{- if and $rayEnabled (or $hasRayV1 $hasRayV1alpha1) }}
+{{ $rayEnabled := .Values.ray.enabled }}
+{{ $hasRayV1 := .Capabilities.APIVersions.Has "ray.io/v1" }}
+{{ $hasRayV1alpha1 := .Capabilities.APIVersions.Has "ray.io/v1alpha1" }}
+
+{{- /* Render RayService only when ray is enabled and cluster supports ray CRD */ -}}
+{{ if and $rayEnabled (or $hasRayV1 $hasRayV1alpha1) }}
 {{- if $hasRayV1 }}
 apiVersion: ray.io/v1
 {{- else }}
