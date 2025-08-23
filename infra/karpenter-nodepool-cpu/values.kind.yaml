@@ -1,58 +1,31 @@
-namespace: onnx-serving
-releaseName: rag8s
-replicaCount: 1
+karpenter:
+  enabled: false
+
 kuberay-operator:
-  enabled: true
+  enabled: false
+
 prometheus:
-  enabled: true
+  enabled: false
   serviceMonitor:
-    enabled: true
-    interval: "15s"
-  storageClassName: ""
-  pvcSize: "200Gi"
+    enabled: false
+
 opentelemetry-collector:
-  enabled: true
-  mode: "deployment"
-  image:
-    repository: "otel/opentelemetry-collector-contrib"
-    tag: "0.78.0"
-    pullPolicy: IfNotPresent
-  replicaCount: 1
+  enabled: false
+
 aws-load-balancer-controller:
   enabled: false
-  clusterName: ""
+
 traefik:
-  enabled: true
-cert-manager:
-  enabled: true
-karpenter:
-  enabled: true
-  ttlSecondsUntilExpired: 259200
-  nodePool:
-    consolidation:
-      enabled: true
-    labels:
-      workload-type: "cpu"
-    taints:
-      - key: "workload-type"
-        value: "cpu"
-        effect: "NoSchedule"
-  limits:
-    resources:
-      cpu: "200"
-      memory: "800Gi"
-global:
-  nodeSelector:
-    workload-type: "cpu"
-  tolerations:
-    - key: "workload-type"
-      operator: "Equal"
-      value: "cpu"
-      effect: "NoSchedule"
+  enabled: false
+
+certManager:
+  enabled: false
+
 image:
   repository: rag8s/rag8s-onnx-embedder-reranker-cpu-amd64
   tag: gte-modernbert
   pullPolicy: IfNotPresent
+
 frontend:
   servicePort: 80
   image:
@@ -60,65 +33,72 @@ frontend:
     tag: latest
     pullPolicy: IfNotPresent
   replicas: 1
-ray:
-  enabled: true
+
 rayVersion: "2.48.0"
+namespace: onnx-serving
 headServiceName: rag8s-onnx-ray-head-svc
 rayClientPort: 10001
+
 service:
   type: ClusterIP
   httpPort: 8000
   grpcPort: 9000
   metricsPort: 8080
+
 pvc:
   create: true
   name: rag8s-models-pvc
   storageClassName: ""
   accessModes:
     - ReadWriteOnce
-  size: "50Gi"
+  size: 50Gi
+
 serviceAccount:
   create: true
   name: rag8s-sa
+
 head:
   resources:
     requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
       cpu: "500m"
       memory: "1Gi"
-    limits:
-      cpu: "1000m"
-      memory: "2Gi"
   replicas: 1
+
 worker:
   groupName: onnx-workers
   minReplicas: 1
-  maxReplicas: 8
+  maxReplicas: 2
   resources:
     requests:
-      cpu: "500m"
-      memory: "2Gi"
+      cpu: "250m"
+      memory: "512Mi"
     limits:
-      cpu: "2000m"
-      memory: "8Gi"
+      cpu: "1000m"
+      memory: "2Gi"
+
 probes:
   liveness:
-    initialDelaySeconds: 60
+    initialDelaySeconds: 30
     periodSeconds: 20
     timeoutSeconds: 5
   readiness:
-    initialDelaySeconds: 10
+    initialDelaySeconds: 5
     periodSeconds: 10
     timeoutSeconds: 5
   startup:
-    failureThreshold: 120
+    failureThreshold: 60
     periodSeconds: 10
+
 pdb:
   headMinAvailable: 1
   workerMinAvailable: 1
+
 network:
   prometheusNamespace: monitoring
-  prometheusRemoteWriteEndpoint: "http://prometheus-receive.monitoring.svc:9090/api/v1/write"
-  tempoEndpoint: "http://tempo.monitoring.svc:3200"
+
 env:
   HF_HOME: /workspace/models/hf
   MODEL_DIR: /workspace/models/onnx
@@ -142,46 +122,35 @@ env:
   RERANKER_BATCH_WAIT_TIMEOUT_S: "0.1"
   EMBEDDER_NUM_CPUS: "1"
   RERANKER_NUM_CPUS: "1"
-  PROMETHEUS_DISABLED: "0"
+  PROMETHEUS_DISABLED: "1"
   PROMETHEUS_MULTIPROC_DIR: "/tmp/prometheus_multiproc"
   LOG_LEVEL: "INFO"
   OMP_NUM_THREADS: "1"
   MKL_NUM_THREADS: "1"
+
 labels:
   app: rag8s
   component: rag8s-onnx
+
 rbac:
-  create: true
+  create: false
+
 imagePullSecrets: []
-tolerations:
-  - key: "workload-type"
-    operator: "Equal"
-    value: "cpu"
-    effect: "NoSchedule"
-nodeSelector:
-  workload-type: "cpu"
+tolerations: []
+nodeSelector: {}
 affinity: {}
 createNamespace: true
 podSecurityContext:
   runAsUser: 1000
   fsGroup: 1000
+
 ingress:
-  enabled: true
-  controller:
-    traefik:
-      enabled: true
-    alb:
-      enabled: true
+  enabled: false
+  controller: "traefik"
   className: ""
   annotations: {}
-  hosts:
-    - host: "app.example.com"
-      path: "/"
-      pathType: "Prefix"
-  tls:
-    - secretName: "app-tls-secret"
-      hosts:
-        - "app.example.com"
+  hosts: []
+  tls: []
   alb:
     scheme: "internet-facing"
     targetType: "ip"
@@ -195,6 +164,3 @@ ingress:
     entryPoints:
       - "web"
       - "websecure"
-otelExtra:
-  hostPath:
-    enabled: true

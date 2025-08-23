@@ -18,7 +18,7 @@
 * **jsonlines / .jsonl** for stage logs/audits and replay.
 
 **Observability & evaluation**
-* **Prometheus** + **Alertmanager** → metrics, recording rules, alerting.  
+* **Prometheus** + **Alertmanager** → TSDB, alerting.  
 * **Grafana** → dashboards and SLO/SLA visualization.  
 * **OpenTelemetry Collector** (DaemonSet) → unified pipeline for metrics, logs, traces.  
 * **OpenLLMetry** → online + offline evaluation, tracing, guardrails, experiment management (self-hosted in cluster).  
@@ -248,7 +248,8 @@ RAG8s/
 │   │   │       └── grafana-dashboard-indexing.json  # JSON Grafana dashboard for indexing/embedding job metrics
 │   │   ├── values.eks.yaml                    # Helm values for production EKS deployment (CPU/GPU node config, storage)
 │   │   └── values.yaml                        # Default Helm values (resource requests, OTEL config, monitoring toggles)
-│   │
+│   ├── karpenter-nodepool-gpu/                # Sglang GPU based similar deployment
+│   ├── statefulset-nodegroup/                 # EKS nodegroup for stable statefulsets like arangodb , valkey
 │   └── pulumi-aws/                            
 │       ├── config.py                 # Global variables & Pulumi config
 │       ├── vpc.py                    # Networking must exist before cluster

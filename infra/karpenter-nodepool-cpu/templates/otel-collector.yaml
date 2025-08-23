@@ -1,0 +1,206 @@
+{{- $otel := index .Values "opentelemetry-collector" -}}{{- if $otel.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-otel-collector-config
+  namespace: {{ .Values.namespace }}
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      hostmetrics:
+        collection_interval: 10s
+        scrapers:
+          cpu: {}
+          load: {}
+          memory: {}
+          filesystem: {}
+          network: {}
+          processes: {}
+    processors:
+      batch: {}
+      resourcedetection:
+        detectors: [k8s]
+    exporters:
+      prometheusremotewrite:
+        endpoint: {{ .Values.network.prometheusRemoteWriteEndpoint | default "http://prometheus-receive.monitoring.svc:9090/api/v1/write" | quote }}
+      tempo:
+        endpoint: {{ .Values.network.tempoEndpoint | default "http://tempo.monitoring.svc:3200" | quote }}
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch, resourcedetection]
+          exporters: [tempo]
+        metrics:
+          receivers: [otlp, hostmetrics]
+          processors: [batch, resourcedetection]
+          exporters: [prometheusremotewrite]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-otel-collector-sa
+  namespace: {{ .Values.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-otel-collector-role
+rules:
+  - apiGroups: [""]
+    resources: ["nodes","pods","services","endpoints"]
+    verbs: ["get","list","watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods","nodes"]
+    verbs: ["get","list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-otel-collector-crb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-otel-collector-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-otel-collector-sa
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-otel-collector
+  namespace: {{ .Values.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Release.Name }}-otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+---
+{{- $mode := default "deployment" $otel.mode }}{{- if eq $mode "deployment" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-otel-collector
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Release.Name }}-otel-collector
+spec:
+  replicas: {{ default 1 $otel.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-otel-collector
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-otel-collector
+    spec:
+      serviceAccountName: {{ .Release.Name }}-otel-collector-sa
+      nodeSelector: {{ toYaml (.Values.nodeSelector | default .Values.global.nodeSelector) | nindent 6 }}
+      tolerations: {{ toYaml (.Values.tolerations | default .Values.global.tolerations) | nindent 6 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-otel-collector-config
+      containers:
+        - name: otel-collector
+          image: "{{ $otel.image.repository }}:{{ $otel.image.tag }}"
+          imagePullPolicy: {{ $otel.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--config=/conf/otel-collector-config.yaml"
+          ports:
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 4318
+              name: otlp-http
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+{{- else }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Release.Name }}-otel-collector
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Release.Name }}-otel-collector
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-otel-collector
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-otel-collector
+    spec:
+      serviceAccountName: {{ .Release.Name }}-otel-collector-sa
+      hostPID: true
+      nodeSelector: {{ toYaml (.Values.nodeSelector | default .Values.global.nodeSelector) | nindent 6 }}
+      tolerations: {{ toYaml (.Values.tolerations | default .Values.global.tolerations) | nindent 6 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-otel-collector-config
+        - name: hostproc
+          hostPath:
+            path: /proc
+            type: Directory
+        - name: hostcgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: dockersock
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+      containers:
+        - name: otel-collector
+          image: "{{ $otel.image.repository }}:{{ $otel.image.tag }}"
+          imagePullPolicy: {{ $otel.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--config=/conf/otel-collector-config.yaml"
+          ports:
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 4318
+              name: otlp-http
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+            - name: hostproc
+              mountPath: /host/proc
+              readOnly: true
+            - name: hostcgroup
+              mountPath: /host/sys/fs/cgroup
+              readOnly: true
+            - name: dockersock
+              mountPath: /var/run/docker.sock
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+{{- end }}{{- end }}

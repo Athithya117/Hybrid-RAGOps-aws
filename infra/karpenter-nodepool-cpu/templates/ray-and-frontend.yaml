@@ -1,4 +1,12 @@
+{{ $rayEnabled := .Values.ray.enabled }}
+{{ $hasRayV1 := .Capabilities.APIVersions.Has "ray.io/v1" }}
+{{ $hasRayV1alpha1 := .Capabilities.APIVersions.Has "ray.io/v1alpha1" }}
+{{ if and $rayEnabled (or $hasRayV1 $hasRayV1alpha1) }}
+{{ if $hasRayV1 }}
+apiVersion: ray.io/v1
+{{ else }}
 apiVersion: ray.io/v1alpha1
+{{ end }}
 kind: RayService
 metadata:
   name: {{ .Release.Name }}-ray
@@ -28,13 +36,16 @@ spec:
           securityContext:
             runAsUser: {{ .Values.podSecurityContext.runAsUser }}
             fsGroup: {{ .Values.podSecurityContext.fsGroup }}
+          nodeSelector: {{ toYaml (.Values.nodeSelector | default .Values.global.nodeSelector) | nindent 10 }}
+          tolerations: {{ toYaml (.Values.tolerations | default .Values.global.tolerations) | nindent 10 }}
+          affinity: {{ toYaml .Values.affinity | nindent 10 }}
           initContainers:
             - name: prometheus-multiproc-clean
               image: busybox
               command:
                 - sh
                 - -c
-                - rm -rf /tmp/prometheus_multiproc/* || true && chmod 0777 /tmp/prometheus_multiproc || true
+                - "rm -rf /tmp/prometheus_multiproc/* || true && chmod 0777 /tmp/prometheus_multiproc || true"
               volumeMounts:
                 - name: prometheus-multiproc
                   mountPath: /tmp/prometheus_multiproc
@@ -43,8 +54,13 @@ spec:
               command:
                 - sh
                 - -c
-                - >
-                  if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then exit 0; else echo "Required model/tokenizer/config files missing"; exit 1; fi
+                - |
+                  if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then
+                    exit 0
+                  else
+                    echo 'Required model/tokenizer/config files missing' 1>&2
+                    exit 1
+                  fi
               volumeMounts:
                 - name: models
                   mountPath: /workspace/models
@@ -54,14 +70,17 @@ spec:
             - name: ray-embedder-reranker-head
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
               imagePullPolicy: {{ .Values.image.pullPolicy }}
-              command: ["/bin/bash","-lc","--"]
+              command:
+                - "/bin/bash"
+                - "-lc"
+                - "--"
               args:
                 - "ulimit -n 65536; $KUBERAY_GEN_RAY_START_CMD; exec python /app/rayserve_entrypoint.py"
               env:
-{{- range $k, $v := .Values.env }}
+{{ range $k, $v := .Values.env }}
                 - name: {{ $k }}
                   value: "{{ $v }}"
-{{- end }}
+{{ end }}
                 - name: PROMETHEUS_MULTIPROC_DIR
                   value: "/tmp/prometheus_multiproc"
                 - name: RAY_ADDRESS
@@ -85,8 +104,6 @@ spec:
                   containerPort: {{ .Values.service.grpcPort }}
                 - name: metrics
                   containerPort: {{ .Values.service.metricsPort }}
-                - name: ray-client
-                  containerPort: {{ .Values.rayClientPort }}
               volumeMounts:
                 - name: models
                   mountPath: /workspace/models
@@ -119,13 +136,16 @@ spec:
             securityContext:
               runAsUser: {{ .Values.podSecurityContext.runAsUser }}
               fsGroup: {{ .Values.podSecurityContext.fsGroup }}
+            nodeSelector: {{ toYaml (.Values.nodeSelector | default .Values.global.nodeSelector) | nindent 12 }}
+            tolerations: {{ toYaml (.Values.tolerations | default .Values.global.tolerations) | nindent 12 }}
+            affinity: {{ toYaml .Values.affinity | nindent 12 }}
             initContainers:
               - name: prometheus-multiproc-clean
                 image: busybox
                 command:
                   - sh
                   - -c
-                  - rm -rf /tmp/prometheus_multiproc/* || true && chmod 0777 /tmp/prometheus_multiproc || true
+                  - "rm -rf /tmp/prometheus_multiproc/* || true && chmod 0777 /tmp/prometheus_multiproc || true"
                 volumeMounts:
                   - name: prometheus-multiproc
                     mountPath: /tmp/prometheus_multiproc
@@ -134,8 +154,13 @@ spec:
                 command:
                   - sh
                   - -c
-                  - >
-                    if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then exit 0; else echo "Required model/tokenizer/config files missing"; exit 1; fi
+                  - |
+                    if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then
+                      exit 0
+                    else
+                      echo 'Required model/tokenizer/config files missing' 1>&2
+                      exit 1
+                    fi
                 volumeMounts:
                   - name: models
                     mountPath: /workspace/models
@@ -146,10 +171,10 @@ spec:
                 image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
                 imagePullPolicy: {{ .Values.image.pullPolicy }}
                 env:
-{{- range $k, $v := .Values.env }}
+{{ range $k, $v := .Values.env }}
                   - name: {{ $k }}
                     value: "{{ $v }}"
-{{- end }}
+{{ end }}
                   - name: PROMETHEUS_MULTIPROC_DIR
                     value: "/tmp/prometheus_multiproc"
                   - name: RAY_ADDRESS
@@ -183,3 +208,57 @@ spec:
                   claimName: {{ .Values.pvc.name }}
               - name: prometheus-multiproc
                 emptyDir: {}
+      - groupName: frontend
+        minReplicas: {{ .Values.frontend.replicas | default 1 }}
+        maxReplicas: {{ .Values.frontend.replicas | default 1 }}
+        replicas: {{ .Values.frontend.replicas | default 1 }}
+        rayStartParams:
+          block: "true"
+        template:
+          metadata:
+            labels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app: {{ printf "%s-frontend" .Release.Name }}
+              ray.io/serve: "true"
+              ray-node-type: frontend
+          spec:
+            serviceAccountName: {{ .Values.serviceAccount.name | default (printf "%s-sa" .Release.Name) }}
+            securityContext:
+              runAsUser: {{ .Values.podSecurityContext.runAsUser }}
+              fsGroup: {{ .Values.podSecurityContext.fsGroup }}
+            nodeSelector: {{ toYaml (.Values.nodeSelector | default .Values.global.nodeSelector) | nindent 12 }}
+            tolerations: {{ toYaml (.Values.tolerations | default .Values.global.tolerations) | nindent 12 }}
+            affinity: {{ toYaml .Values.affinity | nindent 12 }}
+            containers:
+              - name: frontend
+                image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+                imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+                ports:
+                  - name: http
+                    containerPort: 3000
+                resources:
+                  requests:
+                    cpu: "50m"
+                    memory: "128Mi"
+                  limits:
+                    cpu: "500m"
+                    memory: "512Mi"
+          volumes:
+            - name: prometheus-multiproc
+              emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-frontend-svc
+  namespace: {{ .Values.namespace }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.frontend.servicePort }}
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ printf "%s-frontend" .Release.Name }}
+{{ end }}

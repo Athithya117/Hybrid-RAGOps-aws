@@ -1,7 +1,17 @@
+{{- $ns := .Values.namespace | default .Release.Namespace -}}
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ .Values.namespace | quote }}
+  name: {{ $ns | quote }}
   labels:
     app.kubernetes.io/name: onnx-embedder
     app.kubernetes.io/managed-by: Helm
+---
+{{- if and .Values.prometheus.enabled (ne ($.Values.network.prometheusNamespace | default "monitoring") $ns) }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.network.prometheusNamespace | default "monitoring" | quote }}
+  labels:
+    monitoring: "true"
+{{- end }}

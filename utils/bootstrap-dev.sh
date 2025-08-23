@@ -37,8 +37,8 @@ if ! grep -q "^deb .\+ppa.launchpadcontent.net/alex-p/tesseract-ocr5" /etc/apt/s
    add-apt-repository -y ppa:alex-p/tesseract-ocr5
 fi
 sudo apt-get update -y
-sudo apt-get install -y tesseract-ocr libtesseract-dev libleptonica-dev
-
+sudo apt-get install -y yamllint tesseract-ocr libtesseract-dev libleptonica-dev
+sudo snap install yq
 
 sudo add-apt-repository ppa:libreoffice/ppa -y && \
 sudo apt-get update && \
