@@ -1,9 +1,9 @@
-{{ $rayEnabled := .Values.ray.enabled }}
-{{ $hasRayV1 := .Capabilities.APIVersions.Has "ray.io/v1" }}
-{{ $hasRayV1alpha1 := .Capabilities.APIVersions.Has "ray.io/v1alpha1" }}
+{{- $rayEnabled := .Values.ray.enabled }}
+{{- $hasRayV1 := .Capabilities.APIVersions.Has "ray.io/v1" }}
+{{- $hasRayV1alpha1 := .Capabilities.APIVersions.Has "ray.io/v1alpha1" }}
 
 {{- /* Render RayService only when ray is enabled and cluster supports ray CRD */ -}}
-{{ if and $rayEnabled (or $hasRayV1 $hasRayV1alpha1) }}
+{{- if and $rayEnabled (or $hasRayV1 $hasRayV1alpha1) }}
 {{- if $hasRayV1 }}
 apiVersion: ray.io/v1
 {{- else }}
@@ -38,9 +38,12 @@ spec:
           securityContext:
             runAsUser: {{ .Values.podSecurityContext.runAsUser }}
             fsGroup: {{ .Values.podSecurityContext.fsGroup }}
-          nodeSelector: {{ toYaml (.Values.nodeSelector | default .Values.global.nodeSelector) | nindent 10 }}
-          tolerations: {{ toYaml (.Values.tolerations | default .Values.global.tolerations) | nindent 10 }}
-          affinity: {{ toYaml .Values.affinity | nindent 10 }}
+          nodeSelector:
+{{ toYaml (.Values.nodeSelector | default .Values.global.nodeSelector) | indent 12 }}
+          tolerations:
+{{ toYaml (.Values.tolerations | default .Values.global.tolerations) | indent 12 }}
+          affinity:
+{{ toYaml .Values.affinity | indent 12 }}
           initContainers:
             - name: prometheus-multiproc-clean
               image: busybox
@@ -106,7 +109,7 @@ spec:
                 - name: prometheus-multiproc
                   mountPath: /tmp/prometheus_multiproc
               resources:
-{{ toYaml .Values.head.resources | indent 14 }}
+{{ toYaml .Values.head.resources | indent 16 }}
           volumes:
             - name: models
               persistentVolumeClaim:
@@ -131,9 +134,12 @@ spec:
             securityContext:
               runAsUser: {{ .Values.podSecurityContext.runAsUser }}
               fsGroup: {{ .Values.podSecurityContext.fsGroup }}
-            nodeSelector: {{ toYaml (.Values.nodeSelector | default .Values.global.nodeSelector) | nindent 12 }}
-            tolerations: {{ toYaml (.Values.tolerations | default .Values.global.tolerations) | nindent 12 }}
-            affinity: {{ toYaml .Values.affinity | nindent 12 }}
+            nodeSelector:
+{{ toYaml (.Values.nodeSelector | default .Values.global.nodeSelector) | indent 14 }}
+            tolerations:
+{{ toYaml (.Values.tolerations | default .Values.global.tolerations) | indent 14 }}
+            affinity:
+{{ toYaml .Values.affinity | indent 14 }}
             initContainers:
               - name: prometheus-multiproc-clean
                 image: busybox
@@ -193,7 +199,7 @@ spec:
                   - name: prometheus-multiproc
                     mountPath: /tmp/prometheus_multiproc
                 resources:
-{{ toYaml .Values.worker.resources | indent 16 }}
+{{ toYaml .Values.worker.resources | indent 18 }}
             volumes:
               - name: models
                 persistentVolumeClaim:
@@ -218,9 +224,12 @@ spec:
             securityContext:
               runAsUser: {{ .Values.podSecurityContext.runAsUser }}
               fsGroup: {{ .Values.podSecurityContext.fsGroup }}
-            nodeSelector: {{ toYaml (.Values.nodeSelector | default .Values.global.nodeSelector) | nindent 12 }}
-            tolerations: {{ toYaml (.Values.tolerations | default .Values.global.tolerations) | nindent 12 }}
-            affinity: {{ toYaml .Values.affinity | nindent 12 }}
+            nodeSelector:
+{{ toYaml (.Values.nodeSelector | default .Values.global.nodeSelector) | indent 14 }}
+            tolerations:
+{{ toYaml (.Values.tolerations | default .Values.global.tolerations) | indent 14 }}
+            affinity:
+{{ toYaml .Values.affinity | indent 14 }}
             containers:
               - name: frontend
                 image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
@@ -235,9 +244,9 @@ spec:
                   limits:
                     cpu: "500m"
                     memory: "512Mi"
-          volumes:
-            - name: prometheus-multiproc
-              emptyDir: {}
+            volumes:
+              - name: prometheus-multiproc
+                emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

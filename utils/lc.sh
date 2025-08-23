@@ -35,8 +35,7 @@ EOF
 
 install_kuberay_crds() {
   if ! kubectl get crds | grep -q "rayclusters.ray.io"; then
-    kubectl create -k "github.com/ray-project/kuberay/ray-operator/config/crd?ref=v${KUBERAY_VERSION}&timeout=90s"
-  fi
+    kubectl create -k "github.com/ray-project/kuberay/ray-operator/config/crd?ref=v${KUBERAY_VERSION}"
 }
 
 main() {
@@ -46,7 +45,10 @@ main() {
 
   CONTEXT=$(kind get clusters | grep "^${CLUSTER_NAME}$")
   kubectl cluster-info --context "kind-${CONTEXT}"
+  echo "Waiting for cluster to settle..."
+  sleep 20
   kubectl get nodes --context "kind-${CONTEXT}"
 }
 
 main
+kubectl config use-context kind-rag8s-local

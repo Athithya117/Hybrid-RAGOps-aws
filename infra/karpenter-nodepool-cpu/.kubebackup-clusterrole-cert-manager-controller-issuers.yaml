@@ -1,0 +1,53 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  annotations:
+    meta.helm.sh/release-name: cert-manager
+    meta.helm.sh/release-namespace: onnx-serving
+  creationTimestamp: "2025-08-23T12:09:48Z"
+  labels:
+    app: cert-manager
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: cert-manager
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: cert-manager
+    app.kubernetes.io/version: v1.18.2
+    helm.sh/chart: cert-manager-v1.18.2
+  name: cert-manager-controller-issuers
+  resourceVersion: "1443"
+  uid: c7056889-02fd-40e9-8800-d89238117d2c
+rules:
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - issuers
+  - issuers/status
+  verbs:
+  - update
+  - patch
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - issuers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch

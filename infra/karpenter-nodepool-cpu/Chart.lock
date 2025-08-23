@@ -4,21 +4,15 @@ dependencies:
   version: 1.4.2
 - name: kube-prometheus-stack
   repository: https://prometheus-community.github.io/helm-charts
-  version: 76.0.0
+  version: 76.4.1
 - name: opentelemetry-collector
   repository: https://open-telemetry.github.io/opentelemetry-helm-charts
   version: 0.131.0
 - name: traefik
   repository: https://traefik.github.io/charts
   version: 37.0.0
-- name: aws-load-balancer-controller
-  repository: https://aws.github.io/eks-charts
-  version: 1.13.0
-- name: karpenter
-  repository: https://charts.karpenter.sh/
-  version: 0.16.3
 - name: cert-manager
   repository: https://charts.jetstack.io
   version: v1.18.2
-digest: sha256:477f470ff4e31f7ead5cf38562efeb9ed99d6b4ef2b462e10ea13f6d928f8bc5
-generated: "2025-08-23T15:04:34.377444693+05:30"
+digest: sha256:049e690efbddd3f9d3cfd00e65191c3b5d9e31491492c35f8710987fcad9e2b7
+generated: "2025-08-23T18:25:25.604486357+05:30"

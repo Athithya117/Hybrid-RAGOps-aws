@@ -2,34 +2,43 @@ apiVersion: v2
 name: onnx-embedder
 description: Helm chart for deploying the ONNX embedder-reranker RayService + frontend (CPU only).
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "2.48.0"
+
 dependencies:
   - name: kuberay-operator
     version: "1.4.2"
     repository: "https://ray-project.github.io/kuberay-helm/"
     condition: kuberay-operator.enabled
+
   - name: kube-prometheus-stack
-    version: "76.0.0"
+    version: "76.4.1"
     repository: "https://prometheus-community.github.io/helm-charts"
     condition: prometheus.enabled
+
   - name: opentelemetry-collector
     version: "0.131.0"
     repository: "https://open-telemetry.github.io/opentelemetry-helm-charts"
     condition: opentelemetry-collector.enabled
+
   - name: traefik
     version: "37.0.0"
     repository: "https://traefik.github.io/charts"
     condition: ingress.controller.traefik.enabled
-  - name: karpenter
-    version: "1.0.4"
-    repository: "https://charts.karpenter.sh/"
-    condition: karpenter.enabled
+
   - name: cert-manager
-    version: "v1.16.2"
+    version: "v1.18.2"
     repository: "https://charts.jetstack.io"
     condition: cert-manager.enabled
-  #- name: aws-load-balancer-controller
-  #  version: "1.11.0"
-  #  repository: "https://aws.github.io/eks-charts"
-  #  condition: ingress.controller.alb.enabled
+
+  # Optional / uncomment if you want Karpenter and you ensure the version is available in the repo:
+  # - name: karpenter
+  #   version: "0.16.3"
+  #   repository: "https://charts.karpenter.sh/"
+  #   condition: karpenter.enabled
+
+  # Optional ALB controller (keep disabled unless you need it):
+  # - name: aws-load-balancer-controller
+  #   version: "1.11.0"
+  #   repository: "https://aws.github.io/eks-charts"
+  #   condition: ingress.controller.alb.enabled
