@@ -1,171 +1,193 @@
 #!/usr/bin/env bash
-# set -euo pipefail
+set -euo pipefail
+
+# ---------- pinned chart versions (keep in sync with Chart.yaml) ----------
+KUBERAY_OPERATOR_CHART_VERSION="1.4.2"
+KUBE_PROM_STACK_CHART_VERSION="77.0.0"
+OTEL_COLLECTOR_CHART_VERSION="0.131.0"
+TRAEFIK_CHART_VERSION="37.0.0"
+CERT_MANAGER_CHART_VERSION="v1.18.2"
+
+# Optional: separate CRDs for Prometheus Operator (recommended by project)
+# This version aligns with Operator v0.85.0 commonly paired with recent stacks.
+PROM_OPERATOR_CRDS_CHART="prometheus-community/prometheus-operator-crds"
+PROM_OPERATOR_CRDS_VERSION="23.0.0"
+
+# ---------- optional Karpenter (EKS only) ----------
+: "${ENABLE_KARPENTER:=false}"
+# OCI chart since the legacy repo is deprecated.
+KARPENTER_OCI_CHART="oci://ghcr.io/karpenter/karpenter"
+KARPENTER_VERSION="${KARPENTER_VERSION:-v1.4.0}"
+
+# For EKS use: export these before running (only used when ENABLE_KARPENTER=true)
+: "${CLUSTER_NAME:=}"
+: "${KARPENTER_CONTROLLER_ROLE_ARN:=}"
+: "${INTERRUPTION_QUEUE:=}"   # e.g. karpenter-events
+: "${AWS_REGION:=}"
+
+# ---------- other knobs ----------
+NAMESPACE="onnx-serving"
+CM_NAMESPACE="cert-manager"
+MON_NS="monitoring"
+KARP_NS="karpenter"
+HELM_TIMEOUT="15m0s"
+
 retry() {
-  local retries=6 delay=8
-  for i in $(seq 1 "$retries"); do
-    "$@" && return 0
-    echo "[$i/$retries] Command failed; retrying in ${delay}s..."
-    sleep "$delay"
+  local retries="${2:-6}" delay="${3:-8}" i=1
+  while true; do
+    if eval "$1"; then return 0; fi
+    if (( i >= retries )); then
+      echo "command failed after $retries attempts: $1" >&2
+      return 1
+    fi
+    echo "retry $i/$retries failed; sleeping $delay"
+    sleep "$delay"; i=$((i+1))
   done
-  echo "Command failed after $retries attempts: $*" >&2
-  return 1
 }
+
+need() { command -v "$1" >/dev/null 2>&1 || { echo "missing binary: $1" >&2; exit 1; }; }
+
 add_repo() {
   local name="$1" url="$2"
-  local found_by_url found_by_name
-  found_by_url=$(helm repo list -o yaml 2>/dev/null | yq -r '.[].url' 2>/dev/null || true | grep -xF "$url" || true)
-  found_by_name=$(helm repo list -o yaml 2>/dev/null | yq -r '.[].name' 2>/dev/null || true | grep -xF "$name" || true)
-  if [ -n "$found_by_url" ]; then
-    echo "repo URL already present for $url"
-    retry helm repo update
-    return 0
+  if helm repo list -o yaml 2>/dev/null | yq -r '.[].url' 2>/dev/null | grep -qxF "$url"; then
+    retry "helm repo update"
+    return
   fi
-  if [ -n "$found_by_name" ]; then
-    local current_url
-    current_url=$(helm repo list -o yaml | yq -r ".[] | select(.name==\"$name\") | .url" || true)
-    if [ "$current_url" != "$url" ]; then
-      retry helm repo remove "$name"
-      retry helm repo add "$name" "$url"
+  if helm repo list -o yaml 2>/dev/null | yq -r '.[].name' 2>/dev/null | grep -qxF "$name"; then
+    local cur
+    cur="$(helm repo list -o yaml | yq -r ".[] | select(.name==\"$name\") | .url")"
+    if [[ "$cur" != "$url" ]]; then
+      retry "helm repo remove $name"
+      retry "helm repo add $name $url"
     else
-      retry helm repo update
+      retry "helm repo update"
     fi
-    return 0
-  fi
-  retry helm repo add "$name" "$url"
-}
-
-ensure_bin() {
-  command -v "$1" >/dev/null 2>&1 || { echo "Required binary '$1' not found. Install it and re-run."; exit 1; }
-}
-
-backup_resource() {
-  local kind_name="$1" file
-  file="/tmp/kubebackup-$(echo "$kind_name" | sed 's#[/:]#_#g').yaml"
-  kubectl get "$kind_name" -o yaml > "$file" 2>/dev/null || true
-}
-
-annotate_and_label() {
-  local kind_name="$1" release_name="$2" release_ns="$3"
-  backup_resource "$kind_name"
-  kubectl annotate "$kind_name" "meta.helm.sh/release-name=${release_name}" --overwrite >/dev/null 2>&1 || true
-  kubectl annotate "$kind_name" "meta.helm.sh/release-namespace=${release_ns}" --overwrite >/dev/null 2>&1 || true
-  kubectl label "$kind_name" "app.kubernetes.io/managed-by=Helm" --overwrite >/dev/null 2>&1 || true
-}
-
-adopt_cert_manager() {
-  local release="cert-manager" ns="cert-manager"
-  local crds clusterroles crbindings
-  crds=$(kubectl get crd -o name 2>/dev/null | grep -E 'certificates\.cert-manager\.io|certificaterequests\.cert-manager\.io|challenges\.acme\.cert-manager\.io|clusterissuers\.cert-manager\.io|issuers\.cert-manager\.io|orders\.acme\.cert-manager\.io' || true)
-  clusterroles=$(kubectl get clusterrole -o name 2>/dev/null | grep -E 'cert-manager|cainjector|cert-manager-webhook' || true)
-  crbindings=$(kubectl get clusterrolebinding -o name 2>/dev/null | grep -E 'cert-manager|cainjector|cert-manager-webhook' || true)
-  if [ -n "$crds" ] || [ -n "$clusterroles" ] || [ -n "$crbindings" ]; then
-    echo "Adopting existing cert-manager resources (will backup to /tmp)..."
-    for r in $crds; do
-      annotate_and_label "$r" "$release" "$ns"
-    done
-    for r in $clusterroles; do
-      annotate_and_label "$r" "$release" "$ns"
-    done
-    for r in $crbindings; do
-      annotate_and_label "$r" "$release" "$ns"
-    done
-    echo "Adoption annotations/labels applied (CRD/ClusterRole/ClusterRoleBinding)."
   else
-    echo "No cert-manager-related cluster-scoped resources found to adopt."
+    retry "helm repo add $name $url"
   fi
 }
 
-adopt_prometheus_crds_if_any() {
-  local release="prometheus-operator-crds" ns="monitoring"
-  if kubectl get crd prometheuses.monitoring.coreos.com >/dev/null 2>&1; then
-    echo "Prometheus CRD exists; ensure Helm metadata for prometheus-operator-crds (backup to /tmp)..."
-    for c in $(kubectl get crd -o name | grep -E 'prometheuses|alertmanagers|prometheusrules|servicemonitors|podmonitors|probes' || true); do
-      annotate_and_label "$c" "$release" "$ns"
-    done
-  fi
-}
+is_kind() { kubectl get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null | grep -qi 'kind'; }
 
 main() {
-  ensure_bin helm
-  ensure_bin kubectl
-  ensure_bin yq
-  ensure_bin dos2unix
-  dos2unix templates/otel-collector.yaml 2>/dev/null || true
-
-  cd "${HOME}/RAG8s/infra/karpenter-nodepool-cpu" || { echo "cannot cd to chart dir"; exit 1; }
-
+  cd "${HOME}/RAG8s/infra/karpenter-nodepool-cpu" || { echo "cannot cd to chart dir" >&2; exit 1; }
+  need helm; need kubectl; need yq
+  # Avoid stale locks from dev edits
   rm -f Chart.lock || true
   [ -f values.schema.json ] && mv values.schema.json values.schema.json.broken || true
 
+  echo "==> adding/pinning Helm repos"
   add_repo jetstack https://charts.jetstack.io
   add_repo kuberay https://ray-project.github.io/kuberay-helm/
   add_repo traefik https://traefik.github.io/charts
   add_repo prometheus-community https://prometheus-community.github.io/helm-charts
   add_repo open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
-  add_repo karpenter https://charts.karpenter.sh/ || true
+  retry "helm repo update"
 
-  retry helm repo update
+  echo "==> namespaces"
+  kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - || true
+  kubectl create namespace "$CM_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - || true
+  kubectl create namespace "$MON_NS" --dry-run=client -o yaml | kubectl apply -f - || true
 
-  set +e
-  retry helm dependency update . || true
-  retry helm dependency build . || true
-  set -e
+  echo "==> cert-manager (pinned ${CERT_MANAGER_CHART_VERSION})"
+  retry "helm upgrade --install cert-manager jetstack/cert-manager \
+    --namespace ${CM_NAMESPACE} \
+    --version ${CERT_MANAGER_CHART_VERSION} \
+    --set installCRDs=true \
+    --timeout ${HELM_TIMEOUT} \
+    --wait"
 
+  echo "==> prometheus-operator CRDs (pinned ${PROM_OPERATOR_CRDS_VERSION})"
+  retry "helm upgrade --install prometheus-operator-crds ${PROM_OPERATOR_CRDS_CHART} \
+    --namespace ${MON_NS} \
+    --version ${PROM_OPERATOR_CRDS_VERSION} \
+    --timeout ${HELM_TIMEOUT} \
+    --wait"
+
+  echo "==> KubeRay operator (pinned ${KUBERAY_OPERATOR_CHART_VERSION})"
+  retry "helm upgrade --install kuberay-operator kuberay/kuberay-operator \
+    --namespace ${NAMESPACE} \
+    --version ${KUBERAY_OPERATOR_CHART_VERSION} \
+    --timeout ${HELM_TIMEOUT} \
+    --wait"
+
+  echo "==> Traefik (pinned ${TRAEFIK_CHART_VERSION})"
+  TRAEFIK_EXTRA=""
+  if is_kind; then
+    # Avoid LoadBalancer pending on kind
+    TRAEFIK_EXTRA="--set service.type=NodePort"
+  fi
+  retry "helm upgrade --install traefik traefik/traefik \
+    --namespace ${NAMESPACE} \
+    --version ${TRAEFIK_CHART_VERSION} \
+    ${TRAEFIK_EXTRA} \
+    --timeout ${HELM_TIMEOUT} \
+    --wait || true"  # don't hard fail if waiting on LB
+
+  echo "==> kube-prometheus-stack (pinned ${KUBE_PROM_STACK_CHART_VERSION})"
+  retry "helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+    --namespace ${MON_NS} \
+    --version ${KUBE_PROM_STACK_CHART_VERSION} \
+    --timeout ${HELM_TIMEOUT} \
+    --wait"
+
+  echo "==> (optional) OpenTelemetry Collector (pinned ${OTEL_COLLECTOR_CHART_VERSION})"
+  # If you enable this in your values, the umbrella chart can also manage it. Here we keep it as a separate release.
+  if [[ "${ENABLE_OTEL_COLLECTOR:-false}" == "true" ]]; then
+    retry "helm upgrade --install otel-collector open-telemetry/opentelemetry-collector \
+      --namespace ${MON_NS} \
+      --version ${OTEL_COLLECTOR_CHART_VERSION} \
+      --set mode=deployment \
+      --timeout ${HELM_TIMEOUT} \
+      --wait"
+  fi
+
+  if [[ "${ENABLE_KARPENTER}" == "true" ]]; then
+    echo "==> Karpenter (EKS only) via OCI (pinned ${KARPENTER_VERSION})"
+    if [[ -z "${CLUSTER_NAME}" || -z "${KARPENTER_CONTROLLER_ROLE_ARN}" || -z "${INTERRUPTION_QUEUE}" || -z "${AWS_REGION}" ]]; then
+      echo "Missing one of: CLUSTER_NAME, KARPENTER_CONTROLLER_ROLE_ARN, INTERRUPTION_QUEUE, AWS_REGION" >&2
+      exit 1
+    fi
+    kubectl create namespace "${KARP_NS}" --dry-run=client -o yaml | kubectl apply -f - || true
+    retry "helm upgrade --install karpenter ${KARPENTER_OCI_CHART} \
+      --namespace ${KARP_NS} \
+      --version ${KARPENTER_VERSION} \
+      --set serviceAccount.annotations.\"eks\.amazonaws\.com/role-arn\"=${KARPENTER_CONTROLLER_ROLE_ARN} \
+      --set settings.clusterName=${CLUSTER_NAME} \
+      --set settings.interruptionQueueName=${INTERRUPTION_QUEUE} \
+      --set settings.aws.defaultInstanceProfile=KarpenterNodeInstanceProfile-${CLUSTER_NAME} \
+      --timeout ${HELM_TIMEOUT} \
+      --wait"
+    # Your NodePool/EC2NodeClass manifests should be applied separately once IAM/IAM Roles for Service Accounts are in place.
+  fi
+
+  echo "==> lint, template, and install the umbrella chart (with deps disabled to avoid double install)"
   helm lint --debug . -f values.yaml || true
 
-  kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
-  kubectl create namespace onnx-serving --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
-  kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+  # Disable subcharts (managed as standalone releases above)
+  EXTRA_SET="--set kuberay-operator.enabled=false \
+             --set prometheus.enabled=false \
+             --set opentelemetry-collector.enabled=${ENABLE_OTEL_COLLECTOR:-false} \
+             --set ingress.controller.traefik.enabled=false \
+             --set cert-manager.enabled=false"
 
-  if ! kubectl get crd prometheuses.monitoring.coreos.com >/dev/null 2>&1; then
-    retry helm upgrade --install prometheus-operator-crds prometheus-community/prometheus-operator-crds -n monitoring --wait || true
-  else
-    echo "Prometheus CRDs already present; skipping install."
-    adopt_prometheus_crds_if_any
-  fi
+  retry "helm upgrade --install rag8s . \
+    --namespace ${NAMESPACE} \
+    --values values.yaml \
+    ${EXTRA_SET} \
+    --timeout ${HELM_TIMEOUT} \
+    --atomic"
 
-  if kubectl get crd certificaterequests.cert-manager.io >/dev/null 2>&1; then
-    echo "Detected existing cert-manager CRDs; adopting annotations/labels for Helm release cert-manager/cert-manager"
-    adopt_cert_manager
-  fi
+  echo "==> waits and quick status"
+  kubectl wait --for=condition=Available --timeout=300s -n ${CM_NAMESPACE} deployment/cert-manager || true
+  kubectl wait --for=condition=Available --timeout=300s -n ${NAMESPACE} deployment/kuberay-operator || true
+  kubectl wait --for=condition=Available --timeout=300s -n ${NAMESPACE} deployment/traefik || true
+  kubectl wait --for=condition=Available --timeout=300s -n ${MON_NS} deployment/kube-prometheus-stack-operator || true
 
-  retry helm upgrade --install cert-manager jetstack/cert-manager -n cert-manager --set installCRDs=true --wait || true
-
-  retry helm upgrade --install kuberay-operator kuberay/kuberay-operator -n onnx-serving --wait || true
-  retry helm upgrade --install traefik traefik/traefik -n onnx-serving --wait || true
-
-  retry helm upgrade --install rag8s . -n onnx-serving -f values.yaml --create-namespace --wait || {
-    echo "Primary rag8s install failed; trying again with --force"
-    retry helm upgrade --install rag8s . -n onnx-serving -f values.yaml --create-namespace --wait --force
-  }
-
-  retry helm template rag8s . -n onnx-serving -f values.yaml \
-    --set opentelemetry-collector.image.repository=otel/opentelemetry-collector-contrib \
-    --set opentelemetry-collector.mode=deployment > tmp.yaml
-
-  python3 - <<'PY' 2>/dev/null
-import yaml,sys
-try:
-    docs=list(yaml.safe_load_all(open('tmp.yaml')))
-    print('parsed_docs=',len(docs))
-except Exception as e:
-    print('YAML_PARSE_ERROR:',e)
-    sys.exit(1)
-PY
-  kubectl apply --dry-run=client -f tmp.yaml || true
-  kubectl apply --dry-run=server -f tmp.yaml || true
-  kubectl apply -n onnx-serving -f tmp.yaml || true
-
-  kubectl wait --for=condition=Available --timeout=300s deployment/cert-manager -n cert-manager || true
-  kubectl wait --for=condition=Available --timeout=300s deployment/kuberay-operator -n onnx-serving || true
-  kubectl wait --for=condition=Available --timeout=300s deployment/traefik -n onnx-serving || true
-
-  kubectl get pods -n cert-manager || true
-  kubectl get pods -n onnx-serving || true
-
-  kubectl logs -n onnx-serving deploy/kuberay-operator --tail=100 || true
-  echo "run.sh finished"
+  echo "==> installed components"
+  helm list -A
+  kubectl get pods -A -o wide
+  echo "run.sh finished ✓"
 }
+
 main "$@"
-
-

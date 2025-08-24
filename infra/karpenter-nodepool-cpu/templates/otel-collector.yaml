@@ -90,9 +90,9 @@ spec:
     - name: otlp-http
       port: 4318
       targetPort: 4318
----
 {{- $mode := default "deployment" $otel.mode }}
 {{- if eq $mode "deployment" }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -139,6 +139,7 @@ spec:
               cpu: 500m
               memory: 512Mi
 {{- else }}
+---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:

@@ -2,43 +2,43 @@ apiVersion: v2
 name: onnx-embedder
 description: Helm chart for deploying the ONNX embedder-reranker RayService + frontend (CPU only).
 type: application
-version: 0.2.0
+
+# Chart (this chart) version — bump on any template/value change
+version: 0.2.1
+# Your app version (set to whatever you ship)
 appVersion: "2.48.0"
 
+# Pinned dependencies. These are DISABLED by default via .Values
+# so the umbrella chart doesn't try to manage them unless you opt-in.
 dependencies:
   - name: kuberay-operator
-    version: "1.4.2"
+    version: "1.4.2" # pinned
     repository: "https://ray-project.github.io/kuberay-helm/"
     condition: kuberay-operator.enabled
 
   - name: kube-prometheus-stack
-    version: "76.4.1"
+    version: "77.0.0" # pinned
     repository: "https://prometheus-community.github.io/helm-charts"
     condition: prometheus.enabled
 
   - name: opentelemetry-collector
-    version: "0.131.0"
+    version: "0.131.0" # pinned
     repository: "https://open-telemetry.github.io/opentelemetry-helm-charts"
     condition: opentelemetry-collector.enabled
 
   - name: traefik
-    version: "37.0.0"
+    version: "37.0.0" # pinned (Traefik v3)
     repository: "https://traefik.github.io/charts"
     condition: ingress.controller.traefik.enabled
 
   - name: cert-manager
-    version: "v1.18.2"
+    version: "v1.18.2" # pinned
     repository: "https://charts.jetstack.io"
     condition: cert-manager.enabled
 
-  # Optional / uncomment if you want Karpenter and you ensure the version is available in the repo:
-  # - name: karpenter
-  #   version: "0.16.3"
-  #   repository: "https://charts.karpenter.sh/"
-  #   condition: karpenter.enabled
-
-  # Optional ALB controller (keep disabled unless you need it):
-  # - name: aws-load-balancer-controller
-  #   version: "1.11.0"
-  #   repository: "https://aws.github.io/eks-charts"
-  #   condition: ingress.controller.alb.enabled
+# Karpenter is no longer distributed on charts.karpenter.sh.
+# Install from OCI via the script (optional, for EKS).
+# - name: karpenter
+#   version: "v1.4.0"
+#   repository: "oci://ghcr.io/karpenter/karpenter"
+#   condition: karpenter.enabled

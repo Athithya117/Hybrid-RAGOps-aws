@@ -1,8 +1,6 @@
 {{- $rayEnabled := .Values.ray.enabled }}
 {{- $hasRayV1 := .Capabilities.APIVersions.Has "ray.io/v1" }}
 {{- $hasRayV1alpha1 := .Capabilities.APIVersions.Has "ray.io/v1alpha1" }}
-
-{{- /* Render RayService only when ray is enabled and cluster supports ray CRD */ -}}
 {{- if and $rayEnabled (or $hasRayV1 $hasRayV1alpha1) }}
 {{- if $hasRayV1 }}
 apiVersion: ray.io/v1
@@ -15,7 +13,7 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     app.kubernetes.io/instance: {{ .Release.Name }}
-    app.kubernetes.io/name: onnx-embedder-reranker
+    app.kubernetes.io:name: onnx-embedder-reranker
 spec:
   rayClusterConfig:
     rayVersion: "{{ .Values.rayVersion }}"
@@ -57,12 +55,27 @@ spec:
                 - sh
                 - -c
                 - |
-                  if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then
-                    exit 0
-                  else
-                    echo 'Required model/tokenizer/config files missing' 1>&2
-                    exit 1
+                  TIMEOUT={{ .Values.modelCheck.timeoutSeconds }}
+                  INTERVAL={{ .Values.modelCheck.intervalSeconds }}
+                  DEADLINE=$((SECONDS+TIMEOUT))
+                  echo "waiting up to ${TIMEOUT}s for model files"
+                  while [ $SECONDS -lt $DEADLINE ]; do
+                    if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then
+                      echo "model files present"
+                      exit 0
+                    fi
+                    sleep $INTERVAL
+                  done
+                  echo "required model files missing after ${TIMEOUT}s" 1>&2
+                  if command -v python3 >/dev/null 2>&1 && [ -f /app/download_hf.py ]; then
+                    echo "attempting model download fallback"
+                    python3 /app/download_hf.py || true
+                    if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then
+                      echo "model download succeeded"
+                      exit 0
+                    fi
                   fi
+                  exit 1
               volumeMounts:
                 - name: models
                   mountPath: /workspace/models
@@ -102,6 +115,27 @@ spec:
                   containerPort: {{ .Values.service.grpcPort }}
                 - name: metrics
                   containerPort: {{ .Values.service.metricsPort }}
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: {{ .Values.service.httpPort }}
+                initialDelaySeconds: 30
+                periodSeconds: 10
+                failureThreshold: 3
+              readinessProbe:
+                httpGet:
+                  path: /healthz
+                  port: {{ .Values.service.httpPort }}
+                initialDelaySeconds: 10
+                periodSeconds: 5
+                failureThreshold: 3
+              startupProbe:
+                httpGet:
+                  path: /healthz
+                  port: {{ .Values.service.httpPort }}
+                initialDelaySeconds: 60
+                periodSeconds: 5
+                failureThreshold: 60
               volumeMounts:
                 - name: models
                   mountPath: /workspace/models
@@ -112,8 +146,19 @@ spec:
 {{ toYaml .Values.head.resources | indent 16 }}
           volumes:
             - name: models
+              {{- if .Values.models.hostPath.enabled }}
+              hostPath:
+                path: {{ .Values.models.hostPath.path | quote }}
+                type: Directory
+              {{- else if and .Values.pvc.existingClaim (ne .Values.pvc.existingClaim "") }}
               persistentVolumeClaim:
-                claimName: {{ .Values.pvc.name }}
+                claimName: {{ .Values.pvc.existingClaim | quote }}
+              {{- else if .Values.pvc.create }}
+              persistentVolumeClaim:
+                claimName: {{ .Values.pvc.name | quote }}
+              {{- else }}
+              emptyDir: {}
+              {{- end }}
             - name: prometheus-multiproc
               emptyDir: {}
     workerGroupSpecs:
@@ -153,12 +198,27 @@ spec:
                   - sh
                   - -c
                   - |
-                    if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then
-                      exit 0
-                    else
-                      echo 'Required model/tokenizer/config files missing' 1>&2
-                      exit 1
+                    TIMEOUT={{ .Values.modelCheck.timeoutSeconds }}
+                    INTERVAL={{ .Values.modelCheck.intervalSeconds }}
+                    DEADLINE=$((SECONDS+TIMEOUT))
+                    echo "waiting up to ${TIMEOUT}s for model files"
+                    while [ $SECONDS -lt $DEADLINE ]; do
+                      if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then
+                        echo "model files present"
+                        exit 0
+                      fi
+                      sleep $INTERVAL
+                    done
+                    echo "required model files missing after ${TIMEOUT}s" 1>&2
+                    if command -v python3 >/dev/null 2>&1 && [ -f /app/download_hf.py ]; then
+                      echo "attempting model download fallback"
+                      python3 /app/download_hf.py || true
+                      if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then
+                        echo "model download succeeded"
+                        exit 0
+                      fi
                     fi
+                    exit 1
                 volumeMounts:
                   - name: models
                     mountPath: /workspace/models
@@ -192,6 +252,27 @@ spec:
                     containerPort: {{ .Values.service.grpcPort }}
                   - name: metrics
                     containerPort: {{ .Values.service.metricsPort }}
+                livenessProbe:
+                  httpGet:
+                    path: /healthz
+                    port: {{ .Values.service.httpPort }}
+                  initialDelaySeconds: 30
+                  periodSeconds: 10
+                  failureThreshold: 3
+                readinessProbe:
+                  httpGet:
+                    path: /healthz
+                    port: {{ .Values.service.httpPort }}
+                  initialDelaySeconds: 10
+                  periodSeconds: 5
+                  failureThreshold: 3
+                startupProbe:
+                  httpGet:
+                    path: /healthz
+                    port: {{ .Values.service.httpPort }}
+                  initialDelaySeconds: 60
+                  periodSeconds: 5
+                  failureThreshold: 60
                 volumeMounts:
                   - name: models
                     mountPath: /workspace/models
@@ -202,8 +283,19 @@ spec:
 {{ toYaml .Values.worker.resources | indent 18 }}
             volumes:
               - name: models
+                {{- if .Values.models.hostPath.enabled }}
+                hostPath:
+                  path: {{ .Values.models.hostPath.path | quote }}
+                  type: Directory
+                {{- else if and .Values.pvc.existingClaim (ne .Values.pvc.existingClaim "") }}
                 persistentVolumeClaim:
-                  claimName: {{ .Values.pvc.name }}
+                  claimName: {{ .Values.pvc.existingClaim | quote }}
+                {{- else if .Values.pvc.create }}
+                persistentVolumeClaim:
+                  claimName: {{ .Values.pvc.name | quote }}
+                {{- else }}
+                emptyDir: {}
+                {{- end }}
               - name: prometheus-multiproc
                 emptyDir: {}
       - groupName: frontend
@@ -237,6 +329,20 @@ spec:
                 ports:
                   - name: http
                     containerPort: 3000
+                livenessProbe:
+                  httpGet:
+                    path: /healthz
+                    port: 3000
+                  initialDelaySeconds: 10
+                  periodSeconds: 15
+                  failureThreshold: 3
+                readinessProbe:
+                  httpGet:
+                    path: /healthz
+                    port: 3000
+                  initialDelaySeconds: 5
+                  periodSeconds: 5
+                  failureThreshold: 3
                 resources:
                   requests:
                     cpu: "50m"

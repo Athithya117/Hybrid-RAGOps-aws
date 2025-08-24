@@ -1,12 +1,9 @@
-clusterName: "" # set this for aws-load-balancer-controller if you enable ALB
-
+clusterName: ""
 namespace: onnx-serving
 releaseName: rag8s
 replicaCount: 1
-
 kuberay-operator:
   enabled: true
-
 prometheus:
   enabled: true
   serviceMonitor:
@@ -14,7 +11,6 @@ prometheus:
     interval: "15s"
   storageClassName: ""
   pvcSize: "200Gi"
-
 opentelemetry-collector:
   enabled: true
   mode: "deployment"
@@ -23,34 +19,62 @@ opentelemetry-collector:
     tag: "0.78.0"
     pullPolicy: IfNotPresent
   replicaCount: 1
-
 aws-load-balancer-controller:
   enabled: false
   clusterName: ""
-
 traefik:
   enabled: true
-
 cert-manager:
   enabled: true
-
 karpenter:
-  enabled: false
-  ttlSecondsUntilExpired: 259200
-  nodePool:
-    consolidation:
-      enabled: true
+  enabled: true
+  namespace: karpenter-cpu
+  clusterName: your-eks-cluster-name
+  ec2NodeClass:
+    name: rag8s-c8g
+    amiFamily: AL2
+    amiSelector:
+      tags:
+        rag8s-model-tag: rag8s-models-v1
+    subnetSelector:
+      karpenter.sh/discovery: "{{ .Values.karpenter.clusterName }}"
+    securityGroupSelector:
+      karpenter.sh/discovery: "{{ .Values.karpenter.clusterName }}"
+    instanceProfile: KarpenterNodeInstanceProfile
+    blockDeviceMappings: []
+    tags:
+      karpenter.sh/discovery: "{{ .Values.karpenter.clusterName }}"
+      workload: rag8s-cpu
+      owner: platform
+  common:
     labels:
       workload-type: "cpu"
+      rag8s-models: "true"
     taints:
       - key: "workload-type"
         value: "cpu"
         effect: "NoSchedule"
-  limits:
-    resources:
-      cpu: "200"
-      memory: "800Gi"
-
+      - key: "model-node"
+        value: "true"
+        effect: "NoSchedule"
+    disruption:
+      consolidationPolicy: WhenEmptyOrUnderutilized
+      consolidateAfter: 60s
+      expireAfter: 72h
+    limits:
+      resources:
+        cpu: "200"
+        memory: "800Gi"
+    requirements:
+      instanceFamilies: ["c8g"]
+      instanceSizes: ["large","xlarge","2xlarge","4xlarge","8xlarge","12xlarge","16xlarge","24xlarge","48xlarge"]
+      architectures: ["arm64"]
+      zones: []
+  nodePools:
+    - name: rag8s-c8g-spot
+      capacityType: spot
+    - name: rag8s-c8g-ondemand
+      capacityType: on-demand
 global:
   nodeSelector:
     workload-type: "cpu"
@@ -59,12 +83,10 @@ global:
       operator: "Equal"
       value: "cpu"
       effect: "NoSchedule"
-
 image:
-  repository: rag8s/rag8s-onnx-embedder-reranker-cpu-amd64
+  repository: rag8s/rag8s-onnx-embedder-reranker
   tag: gte-modernbert
   pullPolicy: IfNotPresent
-
 frontend:
   servicePort: 80
   image:
@@ -72,32 +94,19 @@ frontend:
     tag: latest
     pullPolicy: IfNotPresent
   replicas: 1
-
 ray:
   enabled: true
-
 rayVersion: "2.48.0"
 headServiceName: rag8s-onnx-ray-head-svc
 rayClientPort: 10001
-
 service:
   type: ClusterIP
   httpPort: 8000
   grpcPort: 9000
   metricsPort: 8080
-
-pvc:
-  create: true
-  name: rag8s-models-pvc
-  storageClassName: ""
-  accessModes:
-    - ReadWriteOnce
-  size: "50Gi"
-
 serviceAccount:
   create: true
   name: rag8s-sa
-
 head:
   resources:
     requests:
@@ -107,7 +116,6 @@ head:
       cpu: "1000m"
       memory: "2Gi"
   replicas: 1
-
 worker:
   groupName: onnx-workers
   minReplicas: 1
@@ -119,7 +127,6 @@ worker:
     limits:
       cpu: "2000m"
       memory: "8Gi"
-
 probes:
   liveness:
     initialDelaySeconds: 60
@@ -132,16 +139,13 @@ probes:
   startup:
     failureThreshold: 120
     periodSeconds: 10
-
 pdb:
   headMinAvailable: 1
   workerMinAvailable: 1
-
 network:
   prometheusNamespace: monitoring
   prometheusRemoteWriteEndpoint: "http://prometheus-receive.monitoring.svc:9090/api/v1/write"
   tempoEndpoint: "http://tempo.monitoring.svc:3200"
-
 env:
   HF_HOME: /workspace/models/hf
   MODEL_DIR: /workspace/models/onnx
@@ -170,33 +174,29 @@ env:
   LOG_LEVEL: "INFO"
   OMP_NUM_THREADS: "1"
   MKL_NUM_THREADS: "1"
-
 labels:
   app: rag8s
   component: rag8s-onnx
-
 rbac:
   create: true
-
 imagePullSecrets: []
-
 tolerations:
   - key: "workload-type"
     operator: "Equal"
     value: "cpu"
     effect: "NoSchedule"
-
+  - key: "model-node"
+    operator: "Equal"
+    value: "true"
+    effect: "NoSchedule"
 nodeSelector:
   workload-type: "cpu"
-
+  rag8s-models: "true"
 affinity: {}
-
 createNamespace: true
-
 podSecurityContext:
   runAsUser: 1000
   fsGroup: 1000
-
 ingress:
   enabled: true
   controller:
@@ -227,7 +227,25 @@ ingress:
     entryPoints:
       - "web"
       - "websecure"
-
 otelExtra:
   hostPath:
     enabled: true
+pvc:
+  create: false
+  existingClaim: ""
+  name: rag8s-models-pvc
+  storageClassName: ""
+  accessModes:
+    - ReadWriteMany
+  size: 200Gi
+models:
+  hostPath:
+    enabled: true
+    path: /workspace/models
+    readOnly: true
+modelCheck:
+  timeoutSeconds: 300
+  intervalSeconds: 2
+nodeLabel:
+  modelNodeLabel: rag8s-models
+  modelNodeValue: "true"

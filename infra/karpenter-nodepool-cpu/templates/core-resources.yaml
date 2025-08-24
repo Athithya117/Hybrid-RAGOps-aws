@@ -100,15 +100,15 @@ spec:
     - from:
         - podSelector: {}
         - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.network.prometheusNamespace | default "monitoring" }}
+            matchNames:
+              - {{ .Values.network.prometheusNamespace | default "monitoring" | quote }}
   egress:
     - to:
         - podSelector: {}
     - to:
         - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
+            matchNames:
+              - kube-system
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -130,6 +130,7 @@ data:
         type: tempo
         access: proxy
         url: http://tempo.{{ .Values.network.prometheusNamespace | default "monitoring" }}.svc.cluster.local
+        isDefault: false
 ---
 apiVersion: v1
 kind: ConfigMap
