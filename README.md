@@ -295,17 +295,23 @@ RAG8s/
 ```
 </details>
 
-
-
 ---
 
+# Get started with RAG8
 
+#### Prerequesities
+ 1. Docker enabled on boot and is running
+ 2. Vscode with `Dev Containers` extension installed
+ 3. AWS root account or IAM user with admin access for S3, EKS, and IAM role management(free tier sufficient if trying RAG8s locally)
 
-# Get started with RAG8s
 ### STEP 0/3 environment setup
-git config --global user.name "Your Name" && git config --global user.email you@example.com
+# This will take 20-30 minutes 
+```sh 
+git clone https://github.com/Athithya-Sakthivel/RAG8s.git && cd RAG8s && code .
+ctrl + shift + P -> paste `Dev containers: Rebuild Container` and enter
+```
 
-```sh
+root ➜ /workspace (main) $ git config --global user.name "Your Name" && git config --global user.email you@example.com
 root ➜ /workspace (main) $ gh auth login
 
 ? What account do you want to log into? GitHub.com
@@ -452,7 +458,7 @@ FAISS handles “meaning in text,” GeAR handles “meaning in structure.” Bo
 
 ### 🔹 **\[3] ReLiK-CIE-small(For precomputing triplets, not deployed)**
 
-A compact and efficient **entity + relation extraction** model designed for **Graph-RAG pipelines**. Unlike fast entity-only models (e.g., SpEL, ReFinED), `relik-cie-tiny` can extract both **named entities** and **semantic triplets** (`(head, relation, tail)`), enabling direct construction of **knowledge subgraphs** from raw text.
+A compact and efficient **entity + relation extraction** model designed for **Graph-RAG pipelines**. Unlike fast entity-only models (e.g., SpEL, ReFinED), `relik-cie-small` can extract both **named entities** and **semantic triplets** (`(head, relation, tail)`), enabling direct construction of **knowledge subgraphs** from raw text.
 
 * Extracts **entities and triplets** in a single pass
 * Balanced for **accuracy and runtime performance**
