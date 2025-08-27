@@ -162,7 +162,7 @@ Serves queries end-to-end: retrieval (vector + keyword + graph), multi-hop reaso
 ---
 
 <details>
-<summary> RAG8s tree structure for quick overview </summary>
+<summary> RAG8s tree structure/codebase layout for quick overview </summary>
 
 ```sh
 RAG8s/
@@ -306,6 +306,7 @@ RAG8s/
 
 ### STEP 0/3 environment setup
 
+#### Clone the repo and build the devcontainer
 ```sh 
 git clone https://github.com/Athithya-Sakthivel/RAG8s.git && cd RAG8s && code .
 ctrl + shift + P -> paste `Dev containers: Rebuild Container` and enter
@@ -316,8 +317,8 @@ ctrl + shift + P -> paste `Dev containers: Rebuild Container` and enter
 
 #### Open a new terminal and login to your gh account
 ```sh
-root ➜ /workspace (main) $ git config --global user.name "Your Name" && git config --global user.email you@example.com
-root ➜ /workspace (main) $ gh auth login
+git config --global user.name "Your Name" && git config --global user.email you@example.com
+gh auth login
 
 ? What account do you want to log into? GitHub.com
 ? What is your preferred protocol for Git operations? SSH
