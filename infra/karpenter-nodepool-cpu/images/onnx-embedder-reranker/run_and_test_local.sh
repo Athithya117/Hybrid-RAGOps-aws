@@ -5,52 +5,23 @@ HOST_MODELS_DIR="${HOST_MODELS_DIR:-/workspace/models}"
 WORKDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CPUS="${CPUS:-2}"
 MEM="${MEM:-8g}"
-SHM="${SHM:-4g}"
+SHM="${SHM:-2g}"
 HTTP_PORT_CONTAINER="${HTTP_PORT_CONTAINER:-8000}"
 HOST_PORT="${HOST_PORT:-8001}"
 GRPC_PORT="${GRPC_PORT:-9000}"
 EMBEDDER_NAME="${EMBEDDER_NAME:-gte-modernbert-base-onnx-int8}"
 RERANK_NAME="${RERANK_NAME:-gte-reranker-modernbert-base-onnx-int8}"
 DO_BUILD="${DO_BUILD:-0}"
-
-req=(
-  "$HOST_MODELS_DIR/onnx/$EMBEDDER_NAME/onnx/model_int8.onnx"
-  "$HOST_MODELS_DIR/onnx/$EMBEDDER_NAME/tokenizer.json"
-  "$HOST_MODELS_DIR/onnx/$EMBEDDER_NAME/tokenizer_config.json"
-  "$HOST_MODELS_DIR/onnx/$EMBEDDER_NAME/config.json"
-  "$HOST_MODELS_DIR/onnx/$RERANK_NAME/onnx/model_int8.onnx"
-  "$HOST_MODELS_DIR/onnx/$RERANK_NAME/tokenizer.json"
-  "$HOST_MODELS_DIR/onnx/$RERANK_NAME/tokenizer_config.json"
-  "$HOST_MODELS_DIR/onnx/$RERANK_NAME/config.json"
-)
+req=("$HOST_MODELS_DIR/onnx/$EMBEDDER_NAME/onnx/model_int8.onnx" "$HOST_MODELS_DIR/onnx/$EMBEDDER_NAME/tokenizer.json" "$HOST_MODELS_DIR/onnx/$EMBEDDER_NAME/tokenizer_config.json" "$HOST_MODELS_DIR/onnx/$EMBEDDER_NAME/config.json" "$HOST_MODELS_DIR/onnx/$RERANK_NAME/onnx/model_int8.onnx" "$HOST_MODELS_DIR/onnx/$RERANK_NAME/tokenizer.json" "$HOST_MODELS_DIR/onnx/$RERANK_NAME/tokenizer_config.json" "$HOST_MODELS_DIR/onnx/$RERANK_NAME/config.json")
 for f in "${req[@]}"; do
   [[ -f "$f" ]] || { echo "ERROR: missing $f"; exit 1; }
 done
-
 if [ "$DO_BUILD" = "1" ] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   docker build -t "$IMAGE" "$WORKDIR"
 fi
-
 docker rm -f rag8s_local_test >/dev/null 2>&1 || true
-CID=$(docker run -d --name rag8s_local_test \
-  --cpus="$CPUS" --memory="$MEM" --shm-size="$SHM" \
-  -v "$HOST_MODELS_DIR":/workspace/models:ro \
-  -e HF_HOME=/workspace/models/hf \
-  -e MODEL_DIR=/workspace/models/onnx \
-  -e MODEL_EMBEDDER_NAME="RAG8s/$EMBEDDER_NAME" \
-  -e MODEL_RERANKER_NAME="RAG8s/$RERANK_NAME" \
-  -e EMBEDDER_ONNX_PATH="/workspace/models/onnx/$EMBEDDER_NAME/onnx/model_int8.onnx" \
-  -e RERANKER_ONNX_PATH="/workspace/models/onnx/$RERANK_NAME/onnx/model_int8.onnx" \
-  -e OMP_NUM_THREADS=1 -e MKL_NUM_THREADS=1 \
-  -e EMBEDDER_OMP_NUM_THREADS=1 -e RERANKER_OMP_NUM_THREADS=1 \
-  -e EMBEDDER_NUM_CPUS=1 -e RERANKER_NUM_CPUS=1 \
-  -e EMBEDDER_BATCH_MAX_SIZE=4 -e RERANKER_BATCH_MAX_SIZE=2 \
-  --health-interval=30s --health-timeout=10s --health-retries=5 --health-start-period=120s \
-  -p "$HOST_PORT":"$HTTP_PORT_CONTAINER" -p "$GRPC_PORT":"$GRPC_PORT" \
-  "$IMAGE")
+CID=$(docker run -d --name rag8s_local_test --cpus="$CPUS" --memory="$MEM" --shm-size="$SHM" -v "$HOST_MODELS_DIR":/workspace/models:ro -e HF_HOME=/workspace/models/hf -e MODEL_DIR=/workspace/models/onnx -e MODEL_EMBEDDER_NAME="RAG8s/$EMBEDDER_NAME" -e MODEL_RERANKER_NAME="RAG8s/$RERANK_NAME" -e EMBEDDER_ONNX_PATH="/workspace/models/onnx/$EMBEDDER_NAME/onnx/model_int8.onnx" -e RERANKER_ONNX_PATH="/workspace/models/onnx/$RERANK_NAME/onnx/model_int8.onnx" -e OMP_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e EMBEDDER_OMP_NUM_THREADS=1 -e RERANKER_OMP_NUM_THREADS=1 -e EMBEDDER_NUM_CPUS=1 -e RERANKER_NUM_CPUS=1 -e EMBEDDER_BATCH_MAX_SIZE=4 -e RERANKER_BATCH_MAX_SIZE=2 --health-interval=30s --health-timeout=10s --health-retries=5 --health-start-period=120s -p "$HOST_PORT":"$HTTP_PORT_CONTAINER" -p "$GRPC_PORT":"$GRPC_PORT" "$IMAGE")
 echo "$CID"
-
-# wait health
 TIMEOUT=300; elapsed=0
 until curl -fsS "http://127.0.0.1:$HOST_PORT/healthz" >/dev/null 2>&1; do
   sleep 1; elapsed=$((elapsed+1))

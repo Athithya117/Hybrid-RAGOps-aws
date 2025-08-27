@@ -24,7 +24,7 @@ spec:
     {{- toYaml .Values.karpenter.ec2NodeClass.securityGroupSelector | nindent 4 }}
   role: {{ .Values.karpenter.ec2NodeClass.instanceProfile | quote }}
   blockDeviceMappings:
-    {{- toYaml .Values.karpenter.ec2NodeClass.blockDeviceMappings | nindent 2 }}
+    {{- toYaml .Values.karpenter.ec2NodeClass.blockDeviceMappings | nindent 4 }}
   tags:
     {{- toYaml .Values.karpenter.ec2NodeClass.tags | nindent 4 }}
 ---

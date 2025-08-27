@@ -242,7 +242,7 @@ models:
   hostPath:
     enabled: true
     path: /workspace/models
-    readOnly: true
+    readOnly: false
 modelCheck:
   timeoutSeconds: 300
   intervalSeconds: 2

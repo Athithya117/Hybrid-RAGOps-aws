@@ -3,4 +3,4 @@
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: Helm
 {{- end -}}
-{{- define "onnx.namespace" -}}{{- default .Values.namespace .Values.namespace -}}{{- end -}}
+{{- define "onnx.namespace" -}}{{- .Values.namespace | default .Release.Namespace -}}{{- end -}}

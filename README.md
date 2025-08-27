@@ -160,7 +160,7 @@ Serves queries end-to-end: retrieval (vector + keyword + graph), multi-hop reaso
 
 
 ---
-
+---
 <details>
 <summary> RAG8s tree structure/codebase layout for quick overview </summary>
 
@@ -296,8 +296,8 @@ RAG8s/
 </details>
 
 ---
-
-# Get started with RAG8
+---
+# Get started with RAG8s
 
 ## Prerequesities
  1. Docker enabled on boot and is running
@@ -313,7 +313,7 @@ ctrl + shift + P -> paste `Dev containers: Rebuild Container` and enter
 ```
 
 #### This will take 20-30 minutes. If the image matches your system, you are ready to proceed.
-![alt text](.devcontainer/dev_setup_success.png)
+![alt text](.devcontainer/env_setup_success.png)
 
 #### Open a new terminal and login to your gh account
 ```sh
@@ -346,6 +346,7 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 
 ```
 
+---
 
 ## STEP 2/3 - indexing_pipeline
 
@@ -359,14 +360,14 @@ export S3_BUCKET=e2e-rag-system                      # set per-env/tenant (uniqu
 export S3_RAW_PREFIX=data/raw/                        # raw ingest prefix (change to isolate datasets)
 export S3_CHUNKED_PREFIX=data/chunked/                # chunked output prefix (change to separate processed data)
 export CHUNK_FORMAT=json                              # 'json' (readable) or 'jsonl' (stream/space efficient)
-export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to replace docx with PDF, false to keep originals
+export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to delete and replace docx with PDF, false to keep originals
 
 # OCR & image extraction
 export DISABLE_OCR=false                              # true to skip OCR (faster) | false to extract text from images
 export OCR_ENGINE=tesseract                           # 'tesseract' (fast/common) or 'rapidocr' (higher accuracy, slower)
 export FORCE_OCR=false                                # true to always OCR (use if source text unreliable)
-export OCR_RENDER_DPI=300                             # increase for tiny text; lower for speed
-export MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller than this (reduce noise)
+export OCR_RENDER_DPI=300                             # increase for detecting tiny text; lower for speed/cost
+export MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller than this (often unneccessary black images)
 
 # Arango / vector index toggles
 export ARANGO_VECTOR_INDEX_ENABLE=true                # range: true|false; false to disable vector ops (read-only or minimal infra)

@@ -38,10 +38,8 @@ spec:
             fsGroup: {{ .Values.podSecurityContext.fsGroup }}
           nodeSelector:
 {{ toYaml (.Values.nodeSelector | default .Values.global.nodeSelector) | indent 12 }}
-          tolerations:
-{{ toYaml (.Values.tolerations | default .Values.global.tolerations) | indent 12 }}
-          affinity:
-{{ toYaml .Values.affinity | indent 12 }}
+          tolerations: {{ toYaml (.Values.tolerations | default .Values.global.tolerations) | indent 10 }}
+          affinity: {{ toYaml .Values.affinity | indent 10 }}
           initContainers:
             - name: prometheus-multiproc-clean
               image: busybox
@@ -50,7 +48,7 @@ spec:
                 - name: prometheus-multiproc
                   mountPath: /tmp/prometheus_multiproc
             - name: init-model-check
-              image: busybox
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
               command:
                 - sh
                 - -c
@@ -67,13 +65,11 @@ spec:
                     sleep $INTERVAL
                   done
                   echo "required model files missing after ${TIMEOUT}s" 1>&2
-                  if command -v python3 >/dev/null 2>&1 && [ -f /app/download_hf.py ]; then
-                    echo "attempting model download fallback"
-                    python3 /app/download_hf.py || true
-                    if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then
-                      echo "model download succeeded"
-                      exit 0
-                    fi
+                  echo "attempting model download fallback"
+                  if [ -f /app/download_hf.py ]; then python3 /app/download_hf.py || true; fi
+                  if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then
+                    echo "model download succeeded"
+                    exit 0
                   fi
                   exit 1
               volumeMounts:
@@ -139,7 +135,7 @@ spec:
               volumeMounts:
                 - name: models
                   mountPath: /workspace/models
-                  readOnly: true
+                  readOnly: {{ .Values.models.hostPath.readOnly | default true }}
                 - name: prometheus-multiproc
                   mountPath: /tmp/prometheus_multiproc
               resources:
@@ -181,10 +177,8 @@ spec:
               fsGroup: {{ .Values.podSecurityContext.fsGroup }}
             nodeSelector:
 {{ toYaml (.Values.nodeSelector | default .Values.global.nodeSelector) | indent 14 }}
-            tolerations:
-{{ toYaml (.Values.tolerations | default .Values.global.tolerations) | indent 14 }}
-            affinity:
-{{ toYaml .Values.affinity | indent 14 }}
+            tolerations: {{ toYaml (.Values.tolerations | default .Values.global.tolerations) | indent 12 }}
+            affinity: {{ toYaml .Values.affinity | indent 12 }}
             initContainers:
               - name: prometheus-multiproc-clean
                 image: busybox
@@ -193,7 +187,7 @@ spec:
                   - name: prometheus-multiproc
                     mountPath: /tmp/prometheus_multiproc
               - name: init-model-check
-                image: busybox
+                image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
                 command:
                   - sh
                   - -c
@@ -210,13 +204,11 @@ spec:
                       sleep $INTERVAL
                     done
                     echo "required model files missing after ${TIMEOUT}s" 1>&2
-                    if command -v python3 >/dev/null 2>&1 && [ -f /app/download_hf.py ]; then
-                      echo "attempting model download fallback"
-                      python3 /app/download_hf.py || true
-                      if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then
-                        echo "model download succeeded"
-                        exit 0
-                      fi
+                    echo "attempting model download fallback"
+                    if [ -f /app/download_hf.py ]; then python3 /app/download_hf.py || true; fi
+                    if [ -f {{ .Values.env.EMBEDDER_ONNX_PATH | quote }} ] && [ -f {{ .Values.env.EMBEDDER_TOKENIZER_PATH | quote }} ] && [ -f {{ .Values.env.RERANKER_ONNX_PATH | quote }} ]; then
+                      echo "model download succeeded"
+                      exit 0
                     fi
                     exit 1
                 volumeMounts:
@@ -276,7 +268,7 @@ spec:
                 volumeMounts:
                   - name: models
                     mountPath: /workspace/models
-                    readOnly: true
+                    readOnly: {{ .Values.models.hostPath.readOnly | default true }}
                   - name: prometheus-multiproc
                     mountPath: /tmp/prometheus_multiproc
                 resources:
@@ -318,10 +310,8 @@ spec:
               fsGroup: {{ .Values.podSecurityContext.fsGroup }}
             nodeSelector:
 {{ toYaml (.Values.nodeSelector | default .Values.global.nodeSelector) | indent 14 }}
-            tolerations:
-{{ toYaml (.Values.tolerations | default .Values.global.tolerations) | indent 14 }}
-            affinity:
-{{ toYaml .Values.affinity | indent 14 }}
+            tolerations: {{ toYaml (.Values.tolerations | default .Values.global.tolerations) | indent 12 }}
+            affinity: {{ toYaml .Values.affinity | indent 12 }}
             containers:
               - name: frontend
                 image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
@@ -353,19 +343,4 @@ spec:
             volumes:
               - name: prometheus-multiproc
                 emptyDir: {}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ .Release.Name }}-frontend-svc
-  namespace: {{ .Values.namespace }}
-spec:
-  type: ClusterIP
-  ports:
-    - port: {{ .Values.frontend.servicePort }}
-      targetPort: 3000
-      protocol: TCP
-      name: http
-  selector:
-    app: {{ printf "%s-frontend" .Release.Name }}
 {{- end }}

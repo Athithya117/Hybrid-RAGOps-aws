@@ -27,6 +27,11 @@ require_sudo() {
   fi
 }
 
+sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
+sudo chmod +x /usr/local/bin/yq
+yq --version
+
+
 echo "Installing latest Tesseract 5.x from alex-p PPA..."
 sudo apt-get update -y
 if ! grep -q "^deb .\+ppa.launchpadcontent.net/alex-p/tesseract-ocr5" /etc/apt/sources.list*; then
@@ -215,5 +220,9 @@ for cmd in aws kubectl eksctl argocd helm pulumi k3d; do
     printf '  %-8s -> not installed\n' "${cmd}"
   fi
 done
+
+
+pip install huggingface_hub==0.34.4
+sudo python3 utils/archive/download_hf.py
 
 log "Bootstrap completed. Restart your shell or run: source ~/.bashrc"
