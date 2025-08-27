@@ -299,12 +299,12 @@ RAG8s/
 
 # Get started with RAG8
 
-### Prerequesities
+## Prerequesities
  1. Docker enabled on boot and is running
  2. Vscode with `Dev Containers` extension installed
  3. AWS root account or IAM user with admin access for S3, EKS, and IAM role management(free tier sufficient if trying RAG8s locally)
 
-### STEP 0/3 environment setup
+## STEP 0/3 environment setup
 
 #### Clone the repo and build the devcontainer
 ```sh 
@@ -330,7 +330,7 @@ gh auth login
 ✓ Authentication complete. Press Enter to continue...
 
 ```
-### Create a private repo in your gh account
+#### Create a private repo in your gh account
 ```sh
 export REPO_NAME="rag8s"
 
