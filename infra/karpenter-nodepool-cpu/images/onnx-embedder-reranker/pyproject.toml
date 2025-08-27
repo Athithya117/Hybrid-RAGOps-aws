@@ -24,7 +24,6 @@ opentelemetry-instrumentation-fastapi = "0.57b0"
 opentelemetry-instrumentation-grpc = "0.57b0"
 opentelemetry-instrumentation-requests = "0.57b0"
 prometheus-client = "0.22.1"
-huggingface_hub = "^0.18.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
