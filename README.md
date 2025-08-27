@@ -1,4 +1,4 @@
-## **RAG8s** is a **production-ready** e2e RAG system with hybrid retrieval (vector + keyword + graph), GeAR multihop reasoning engineered for high throughput, low-latency retrieval, and adaptive scaling. It is organized into **three main components**—`infra/`, `indexing_pipeline/`, and `inference_pipeline/`—each responsible for a distinct set of concerns (platform, data ingestion/indexing, and online query serving + evaluation).
+## **RAG8s** is a **production-ready** e2e RAG platform with hybrid retrieval (vector + keyword + graph), GeAR multihop reasoning engineered for high throughput, low-latency retrieval, and adaptive scaling. It is organized into **three main components**—`infra/`, `indexing_pipeline/`, and `inference_pipeline/`—each responsible for a distinct set of concerns (platform, data ingestion/indexing, and online query serving + evaluation).
 
 ---
 
@@ -7,9 +7,9 @@
 **Provides the cloud-native foundation that runs and scales the system. **It's currently aws native** but is extensible to other cloud like Azure and GCP**
 
 **Core responsibilities**
-* Cluster & compute: **EKS (Kubernetes)**, **Karpenter** for CPU/GPU/spot node pools, autoscaling.  
-* Distributed serving & batch: **Ray / KubeRay** (RayService, RayJob).  
-* IaC & provisioning: **Pulumi**, **AWS Image Builder**, **SSM Parameter Store** (model paths, AMI IDs).  
+* Fully self hosted infra: **EKS (Kubernetes)**, **Karpenter** for CPU/GPU/spot node pools, autoscaling.  
+* Distributed serving & batch: **KubeRay** (RayService, RayJob).  
+* IaC & provisioning: **Pulumi**, **AWS Image Builder** (model paths, AMI IDs).  
 * GitOps & packaging: **ArgoCD**, **Helm** charts (per-env `values.kind.yaml` / `values.eks.yaml`).  
 * Networking & access: **Traefik** ingress, **Cloudflare** DNS, optional **OIDC/Keycloak** for federated auth, **gRPC + rayserve** endpoints.
 
@@ -24,7 +24,7 @@
 * **OpenLLMetry** → online + offline evaluation, tracing, guardrails, experiment management (self-hosted in cluster).  
 
 **CI/CD**
-* **GitHub Actions** → lint, tests, Docker builds, Helm validation.  
+* **Makefile** → lint, tests, Docker builds, Helm validation.  
 * **ArgoCD** → declarative sync of manifests into cluster.
 
 ---

@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-
-
-
 IFS=$'\n\t'
 
 # --- Predefined env (user requested)
@@ -19,7 +16,6 @@ KUBECTL_VERSION="v1.33.3"
 EKSCTL_VERSION="v0.212.0"
 HELM_VERSION="v3.17.2"
 PULUMI_VERSION="3.186.0"
-NODE_VERSION="22.x"         # Node setup script will install Node.js v22 LTS (22.15.x)
 SOPS_VERSION="v3.10.2"
 K3D_TAG="v5.7.5"            # default k3d tag; installer supports TAG override
 
@@ -38,7 +34,6 @@ if ! grep -q "^deb .\+ppa.launchpadcontent.net/alex-p/tesseract-ocr5" /etc/apt/s
 fi
 sudo apt-get update -y
 sudo apt-get install -y dos2unix yamllint tesseract-ocr libtesseract-dev libleptonica-dev
-sudo snap install yq
 
 sudo add-apt-repository ppa:libreoffice/ppa -y && \
 sudo apt-get update && \
