@@ -299,18 +299,23 @@ RAG8s/
 
 # Get started with RAG8
 
-#### Prerequesities
+### Prerequesities
  1. Docker enabled on boot and is running
  2. Vscode with `Dev Containers` extension installed
  3. AWS root account or IAM user with admin access for S3, EKS, and IAM role management(free tier sufficient if trying RAG8s locally)
 
 ### STEP 0/3 environment setup
-# This will take 20-30 minutes 
+
 ```sh 
 git clone https://github.com/Athithya-Sakthivel/RAG8s.git && cd RAG8s && code .
 ctrl + shift + P -> paste `Dev containers: Rebuild Container` and enter
 ```
 
+#### This will take 20-30 minutes. If the image matches your system, you are ready to proceed.
+![alt text](.devcontainer/dev_setup_success.png)
+
+#### Open a new terminal and login to your gh account
+```sh
 root ➜ /workspace (main) $ git config --global user.name "Your Name" && git config --global user.email you@example.com
 root ➜ /workspace (main) $ gh auth login
 
@@ -324,6 +329,22 @@ root ➜ /workspace (main) $ gh auth login
 ✓ Authentication complete. Press Enter to continue...
 
 ```
+### Create a private repo in your gh account
+```sh
+export REPO_NAME="rag8s"
+
+git remote remove origin 2>/dev/null || true
+gh repo create "$REPO_NAME" --private >/dev/null 2>&1
+REMOTE_URL="https://github.com/$(gh api user | jq -r .login)/$REPO_NAME.git"
+git remote add origin "$REMOTE_URL" 2>/dev/null || true
+git branch -M main 2>/dev/null || true
+git push -u origin main
+git pull
+git remote -v
+echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from your account."
+
+```
+
 
 ## STEP 2/3 - indexing_pipeline
 
