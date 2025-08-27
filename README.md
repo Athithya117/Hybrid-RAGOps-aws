@@ -340,9 +340,6 @@ export FORCE_OCR=false                                # true to always OCR (use 
 export OCR_RENDER_DPI=300                             # increase for tiny text; lower for speed
 export MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller than this (reduce noise)
 
-
-```
-
 # Arango / vector index toggles
 export ARANGO_VECTOR_INDEX_ENABLE=true                # range: true|false; false to disable vector ops (read-only or minimal infra)
 export ARANGO_VECTOR_INDEX_TYPE="ivf"                 # range: 'hnsw'|'ivf'|'ivf+pq'; choose 'hnsw' (<100k docs), 'ivf' (>=100k), 'ivf+pq' for huge corpora
@@ -389,8 +386,6 @@ export USE_RERANKER=true                              # range: true|false; enabl
 export RERANK_BATCH_SIZE=16                           # range: 4-64; increase to amortize GPU/CPU when latency allows
 export META_BOOST_FIELD="timestamp"                   # range: metadata key name; metadata key to bias ranking (e.g., timestamp, source_score)
 export META_BOOST_WEIGHT=0.20                         # range: 0.0-1.0; raise if metadata should strongly affect ranking
-
-```
 
 # Timeouts / concurrency / performance
 export RETRIEVAL_TIMEOUT=5                            # seconds; increase if backing systems are slower
@@ -455,16 +450,17 @@ FAISS handles “meaning in text,” GeAR handles “meaning in structure.” Bo
 
 ---
 
-### 🔹 **\[3] ReLiK-CIE-tiny(For precomputing triplets, not deployed)**
+### 🔹 **\[3] ReLiK-CIE-small(For precomputing triplets, not deployed)**
 
 A compact and efficient **entity + relation extraction** model designed for **Graph-RAG pipelines**. Unlike fast entity-only models (e.g., SpEL, ReFinED), `relik-cie-tiny` can extract both **named entities** and **semantic triplets** (`(head, relation, tail)`), enabling direct construction of **knowledge subgraphs** from raw text.
 
 * Extracts **entities and triplets** in a single pass
 * Balanced for **accuracy and runtime performance**
 
-🔗 [relik-ie/relik-cie-tiny](https://huggingface.co/relik-ie/relik-cie-tiny)
+🔗 [relik-ie/relik-cie-small](https://hub.docker.com/r/sapienzanlp/relik#docker-images)
 
 ---
+
 ### 🔹 **\[4] Qwen3-4B-AWQ**
 
 A compact, high-throughput **instruction-tuned LLM** quantized using **AWQ**. Built on **Qwen3-4B**, this variant supports **32,768-token context** natively and achieves performance comparable to models 10× its size (e.g., Qwen2.5-72B). Optimized for **SGLang inference**, it balances **speed, memory efficiency, and accuracy**, running seamlessly on GPUs like A10G, L4, and L40S.
