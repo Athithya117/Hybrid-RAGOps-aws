@@ -1,14 +1,3 @@
-pull:
-	git add .
-	git commit -m "new"
-	git config pull.rebase false
-	git pull
-
-push:
-	git add .
-	git commit -m "new"
-	git push origin main --force
-
 s3:
 	python3 utils/create_s3.py
 	aws s3 ls "s3://$S3_BUCKET/" --recursive | head -n 100

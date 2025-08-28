@@ -1,0 +1,209 @@
+namespace: onnx-serving
+kubeVersion: "1.27.0"
+
+image:
+  repository: rag8s/rag8s-onnx-embedder-reranker
+  tag: gte-modernbert
+  pullPolicy: IfNotPresent
+
+frontend:
+  image:
+    repository: rag8s/rag8s-frontend
+    tag: v1
+    pullPolicy: IfNotPresent
+  replicas: 1
+
+ray:
+  enabled: true
+  rayVersion: "2.49.0"
+  headServiceName: rag8s-onnx-ray-head-svc
+  rayClientPort: 10001
+
+service:
+  type: ClusterIP
+  httpPort: 8000
+  grpcPort: 9000
+  metricsPort: 8080
+
+serviceAccount:
+  create: true
+  name: rag8s-sa
+
+head:
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+
+worker:
+  groupName: onnx-workers
+  minReplicas: 1
+  maxReplicas: 8
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "2Gi"
+    limits:
+      cpu: "2000m"
+      memory: "8Gi"
+
+probes:
+  liveness:
+    initialDelaySeconds: 30
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  startup:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 120
+
+# Models storage config - for dev/kind we enable hostPath by default
+models:
+  hostPath:
+    enabled: true
+    path: /workspace/models
+    readOnly: true
+
+pvc:
+  create: false
+  existingClaim: ""
+  name: rag8s-models-pvc
+  accessModes:
+    - ReadWriteMany
+  size: 20Gi
+  storageClassName: ""
+
+modelCheck:
+  timeoutSeconds: 300
+  intervalSeconds: 2
+
+# Model artifact signed download location (optional)
+modelDownload:
+  embedder:
+    url: ""
+    sha256: ""
+    tokenizer_url: ""
+    tokenizer_sha256: ""
+  reranker:
+    url: ""
+    sha256: ""
+
+env:
+  HF_HOME: /workspace/models/hf
+  MODEL_DIR: /workspace/models/onnx
+  MODEL_EMBEDDER_NAME: RAG8s/gte-modernbert-base-onnx-int8
+  MODEL_RERANKER_NAME: RAG8s/gte-reranker-modernbert-base-onnx-int8
+  EMBEDDER_ONNX_PATH: /workspace/models/onnx/gte-modernbert-base-onnx-int8/onnx/model_int8.onnx
+  EMBEDDER_CONFIG_PATH: /workspace/models/onnx/gte-modernbert-base-onnx-int8/config.json
+  EMBEDDER_TOKENIZER_PATH: /workspace/models/onnx/gte-modernbert-base-onnx-int8/tokenizer.json
+  EMBEDDER_TOKENIZER_CONFIG_PATH: /workspace/models/onnx/gte-modernbert-base-onnx-int8/tokenizer_config.json
+  EMBEDDER_SPECIAL_TOKENS_PATH: /workspace/models/onnx/gte-modernbert-base-onnx-int8/special_tokens_map.json
+  RERANKER_ONNX_PATH: /workspace/models/onnx/gte-reranker-modernbert-base-onnx-int8/onnx/model_int8.onnx
+  RERANKER_CONFIG_PATH: /workspace/models/onnx/gte-reranker-modernbert-base-onnx-int8/config.json
+  RERANKER_TOKENIZER_PATH: /workspace/models/onnx/gte-reranker-modernbert-base-onnx-int8/tokenizer.json
+  RERANKER_TOKENIZER_CONFIG_PATH: /workspace/models/onnx/gte-reranker-modernbert-base-onnx-int8/tokenizer_config.json
+  RERANKER_SPECIAL_TOKENS_PATH: /workspace/models/onnx/gte-reranker-modernbert-base-onnx-int8/special_tokens_map.json
+  EMBEDDER_OMP_NUM_THREADS: "1"
+  RERANKER_OMP_NUM_THREADS: "1"
+  EMBEDDER_BATCH_MAX_SIZE: "8"
+  RERANKER_BATCH_MAX_SIZE: "4"
+  EMBEDDER_BATCH_WAIT_TIMEOUT_S: "0.05"
+  RERANKER_BATCH_WAIT_TIMEOUT_S: "0.1"
+  EMBEDDER_NUM_CPUS: "1"
+  RERANKER_NUM_CPUS: "1"
+  PROMETHEUS_MULTIPROC_DIR: "/tmp/prometheus_multiproc"
+  LOG_LEVEL: "INFO"
+  OMP_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+
+# Karpenter disabled for dev/kind
+karpenter:
+  enabled: false
+  namespace: karpenter-cpu
+  clusterName: ""
+  ec2NodeClass:
+    name: rag8s-c8g
+    amiFamily: AL2
+    amiSelector:
+      tags:
+        rag8s-model-tag: rag8s-models-v1
+    subnetSelector:
+      karpenter.sh/discovery: ""
+    securityGroupSelector:
+      karpenter.sh/discovery: ""
+    instanceProfile: KarpenterNodeInstanceProfile
+    tags:
+      rag8s-model-tag: rag8s-models-v1
+  common:
+    labels:
+      workload-type: "cpu"
+      rag8s-models: "true"
+    taints: []
+    disruption:
+      consolidationPolicy: WhenEmptyOrUnderutilized
+      consolidateAfter: 60s
+      expireAfter: 72h
+    limits:
+      resources:
+        cpu: "200"
+        memory: "800Gi"
+    requirements:
+      instanceFamilies: ["c8g"]
+      instanceSizes: ["large","xlarge","2xlarge","4xlarge","8xlarge"]
+      architectures: ["arm64"]
+      zones: []
+  nodePools:
+    - name: rag8s-c8g-spot
+      capacityType: spot
+    - name: rag8s-c8g-ondemand
+      capacityType: on-demand
+
+prometheus:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: "15s"
+  storageClassName: ""
+  pvcSize: "200Gi"
+
+opentelemetry-collector:
+  enabled: false
+  mode: deployment
+  image:
+    repository: "otel/opentelemetry-collector-contrib"
+    tag: "0.78.0"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+
+# global placeholders used by templates
+global:
+  nodeSelector:
+    kubernetes.io/os: linux
+  tolerations: []
+  affinity: {}
+
+# Default nodeSelector for dev/kind clusters: prefer linux nodes (no tight binding)
+nodeSelector:
+  kubernetes.io/os: linux
+
+tolerations: []
+affinity: {}
+
+podSecurityContext:
+  runAsUser: 1000
+  fsGroup: 1000
+
+network:
+  prometheusNamespace: monitoring
+  prometheusRemoteWriteEndpoint: "http://prometheus-receive.monitoring.svc:9090/api/v1/write"
+  tempoEndpoint: "http://tempo.monitoring.svc:3200"

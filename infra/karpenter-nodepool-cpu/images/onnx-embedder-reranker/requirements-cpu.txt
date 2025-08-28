@@ -1,0 +1,20 @@
+# base docker version 28.3.3 , python3.10.12
+ray==2.49.0
+fastapi==0.110.3
+starlette==0.37.2
+onnxruntime==1.22.1
+transformers==4.55.2
+tokenizers==0.21.4
+huggingface-hub==0.34.4
+safetensors==0.6.2
+numpy==1.26.4
+opentelemetry-api==1.36.0
+opentelemetry-sdk==1.36.0
+opentelemetry-proto==1.36.0
+opentelemetry-exporter-otlp-proto-http==1.36.0
+opentelemetry-exporter-prometheus==0.57b0
+prometheus-client==0.16.0
+grpcio==1.74.0
+uvicorn==0.22.0
+aiohttp==3.8.5
+coloredlogs==15.0.1

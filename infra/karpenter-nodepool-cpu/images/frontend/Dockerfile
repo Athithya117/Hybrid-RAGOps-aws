@@ -9,5 +9,3 @@ WORKDIR /app
 COPY --from=build /install /usr/local
 COPY . .
 CMD ["streamlit", "run", "streamlit_ui.py", "--server.port=3000", "--server.address=0.0.0.0", "--server.headless=true", "--browser.gatherUsageStats=false"]
-
-

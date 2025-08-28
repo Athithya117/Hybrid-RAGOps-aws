@@ -32,7 +32,9 @@
       "settings": {
         "files.autoSave": "afterDelay",
         "files.autoSaveDelay": 1000,
-        "terminal.integrated.scrollback": 2000
+        "terminal.integrated.scrollback": 4000,
+        "workbench.colorTheme": "Default Dark Modern",
+        "workbench.preferredDarkColorTheme": "Default Dark Modern"
       }
     }
   }

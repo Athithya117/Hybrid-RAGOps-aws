@@ -96,7 +96,7 @@ frontend:
   replicas: 1
 ray:
   enabled: true
-rayVersion: "2.48.0"
+rayVersion: "2.49.0"
 headServiceName: rag8s-onnx-ray-head-svc
 rayClientPort: 10001
 service:
