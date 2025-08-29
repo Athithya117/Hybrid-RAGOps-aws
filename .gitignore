@@ -22,7 +22,9 @@ rag8s-aws/
 rag8s-dev/
 
 # Large or sensitive data
-models/
+llm
+onnx
+
 lid.176.bin
 backups/
 tmp/

@@ -2,10 +2,8 @@
 set -euo pipefail
 
 CLUSTER_NAME="rag8s-local"
-NAMESPACE="rag8s-dev"
-KIND_VERSION="v0.29.0"
-KUBERAY_VERSION="1.4.2"
 LOCAL_BIN="$HOME/.local/bin"
+KIND_VERSION="v0.29.0"
 
 mkdir -p "$LOCAL_BIN"
 export PATH="$LOCAL_BIN:$PATH"
@@ -32,28 +30,36 @@ create_cluster() {
     kind delete cluster --name "${CLUSTER_NAME}"
   fi
 
-  echo "Creating new kind cluster: ${CLUSTER_NAME}"
+  echo "Creating new kind cluster: ${CLUSTER_NAME} with extended memory"
   cat <<EOF | kind create cluster --name "${CLUSTER_NAME}" --config=-
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 30080
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            # Allow more pods and memory
+            max-pods: "110"
+    # Override default Docker resource limits (8 CPUs, 8GiB RAM for node)
+    # Adjust these numbers to your machine's capacity
+    extraMounts:
+      - hostPath: /var/run/docker.sock
+        containerPath: /var/run/docker.sock
 EOF
-}
 
-install_kuberay_crds() {
-  if ! kubectl get crds 2>/dev/null | grep -q "rayclusters.ray.io"; then
-    echo "Installing KubeRay CRDs v${KUBERAY_VERSION}..."
-    kubectl create -k "github.com/ray-project/kuberay/ray-operator/config/crd?ref=v${KUBERAY_VERSION}"
-  else
-    echo "KubeRay CRDs already installed."
-  fi
+  # Update container runtime to have more resources
+  docker update --memory 10g --cpus 10 "rag8s-local-control-plane" || true
 }
 
 main() {
   install_kind
   create_cluster
-  install_kuberay_crds
 
   CONTEXT="kind-${CLUSTER_NAME}"
   echo "Switching kubectl context to ${CONTEXT}..."
