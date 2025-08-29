@@ -1,8 +1,10 @@
+# ---------- Namespace ----------
 apiVersion: v1
 kind: Namespace
 metadata:
   name: inference
 ---
+# ---------- EMBEDDER: Alibaba-NLP/gte-modernbert-base (ONNX INT8, local path) ----------
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,48 +21,54 @@ spec:
         app: gte-embedder
     spec:
       containers:
-      - name: gte-embedder
-        image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.7
-        imagePullPolicy: IfNotPresent
-        args:
-          - --model-id
-          - Alibaba-NLP/gte-modernbert-base
-        env:
-          - name: OMP_NUM_THREADS
-            value: "2"
-          - name: MKL_NUM_THREADS
-            value: "2"
-        resources:
-          requests:
-            cpu: "1"
-            memory: "2Gi"
-          limits:
-            cpu: "2"
-            memory: "2Gi"
-        ports:
-          - name: http
-            containerPort: 80
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 80
-          initialDelaySeconds: 5
-          periodSeconds: 5
-          failureThreshold: 6
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 80
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        volumeMounts:
-          - name: dshm
-            mountPath: /dev/shm
+        - name: tei
+          image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
+          imagePullPolicy: IfNotPresent
+          args:
+            - --model-id
+            - /data/gte-modernbert-base-onnx-int8
+          env:
+            # Ensure no Hub calls; we serve purely from the mounted path.
+            - name: HF_HUB_OFFLINE
+              value: "1"
+          ports:
+            - name: http
+              containerPort: 80
+          # Give TEI time to load the ONNX weights before liveness kicks in.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 80
+            periodSeconds: 5
+            failureThreshold: 120   # ~10 minutes max warmup (adjust if you like)
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: models
+              mountPath: /data
+              readOnly: true
       volumes:
-        - name: dshm
-          emptyDir:
-            medium: Memory
-            sizeLimit: 1Gi
+        - name: models
+          hostPath:
+            path: /workspace/models/onnx
+            type: Directory
 ---
 apiVersion: v1
 kind: Service
@@ -71,7 +79,7 @@ spec:
   selector:
     app: gte-embedder
   ports:
-    - protocol: TCP
+    - name: http
       port: 80
       targetPort: 80
   type: ClusterIP
@@ -86,8 +94,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: gte-embedder
-  minReplicas: 1
-  maxReplicas: 2
+  minReplicas: 2
+  maxReplicas: 4
   metrics:
     - type: Resource
       resource:
@@ -95,3 +103,81 @@ spec:
         target:
           type: Utilization
           averageUtilization: 50
+---
+# ---------- (Optional) RERANKER: GTE ModernBERT cross-encoder (ONNX INT8, local path) ----------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gte-reranker
+  namespace: inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gte-reranker
+  template:
+    metadata:
+      labels:
+        app: gte-reranker
+    spec:
+      containers:
+        - name: tei
+          image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
+          imagePullPolicy: IfNotPresent
+          args:
+            - --model-id
+            - /data/gte-reranker-modernbert-base-onnx-int8
+          env:
+            - name: HF_HUB_OFFLINE
+              value: "1"
+          ports:
+            - name: http
+              containerPort: 80
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 80
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: models
+              mountPath: /data
+              readOnly: true
+      volumes:
+        - name: models
+          hostPath:
+            path: /workspace/models/onnx
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gte-reranker
+  namespace: inference
+spec:
+  selector:
+    app: gte-reranker
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+  type: ClusterIP

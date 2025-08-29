@@ -1,0 +1,14 @@
+apiVersion: kubeai.org/v1
+kind: Model
+metadata:
+  name: gte-small-cpu
+spec:
+  features:
+    - TextEmbedding
+  owner: thenlper
+  url: "hf://thenlper/gte-small"
+  engine: Infinity
+  resourceProfile: cpu:3
+  minReplicas: 1
+  maxReplicas: 2
+  cacheProfile: default

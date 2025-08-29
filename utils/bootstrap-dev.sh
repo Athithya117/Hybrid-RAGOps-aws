@@ -226,3 +226,6 @@ pip install huggingface_hub==0.34.4
 sudo python3 utils/archive/download_hf.py
 
 log "Bootstrap completed. Restart your shell or run: source ~/.bashrc"
+
+git config --global user.email "athithyasakthivel1@gmail.com"
+git config --global user.name "Athithya-Sakthivel"
