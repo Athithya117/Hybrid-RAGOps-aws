@@ -6,6 +6,7 @@ KIND_VERSION="v0.29.0"
 KUBECTL_VERSION="$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)"
 export PATH="$LOCAL_BIN:$PATH"
 mkdir -p "$LOCAL_BIN"
+
 install_kind() {
   if ! command -v kind &>/dev/null; then
     OS=$(uname | tr '[:upper:]' '[:lower:]')
@@ -15,6 +16,7 @@ install_kind() {
     chmod +x "$LOCAL_BIN/kind"
   fi
 }
+
 install_kubectl() {
   if ! command -v kubectl &>/dev/null; then
     OS=$(uname | tr '[:upper:]' '[:lower:]')
@@ -24,16 +26,18 @@ install_kubectl() {
     chmod +x "$LOCAL_BIN/kubectl"
   fi
 }
+
 check_docker() {
   if ! command -v docker &>/dev/null; then
     echo "docker not found. Install and ensure the daemon is running." >&2
     exit 1
   fi
   if ! docker info >/dev/null 2>&1; then
-    echo "docker daemon not running or current user cannot access it. Start docker or adjust permissions." >&2
+    echo "docker daemon not running or current user cannot access it." >&2
     exit 1
   fi
 }
+
 create_cluster() {
   if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
     kind delete cluster --name "${CLUSTER_NAME}"
@@ -46,22 +50,23 @@ nodes:
     extraPortMappings:
       - containerPort: 30080
         hostPort: 30080
-    kubeadmConfigPatches:
-      - |
-        kind: InitConfiguration
-        nodeRegistration:
-          kubeletExtraArgs:
-            max-pods: "110"
-    extraMounts:
-      - hostPath: /var/run/docker.sock
-        containerPath: /var/run/docker.sock
 EOF
-  sleep 3
+
+  sleep 5
   CONTAINER_NAME="$(docker ps --filter "name=kind-${CLUSTER_NAME}-control-plane" --format '{{.Names}}' | head -n1 || true)"
   if [ -n "$CONTAINER_NAME" ]; then
     docker update --memory 10g --memory-swap 10g --cpus 10 "$CONTAINER_NAME" || true
   fi
 }
+
+setup_storageclass() {
+  DEFAULT_SC=$(kubectl get storageclass -o jsonpath='{.items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")].metadata.name}' 2>/dev/null || true)
+  if [ -z "$DEFAULT_SC" ]; then
+    kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
+    kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' || true
+  fi
+}
+
 main() {
   install_kind
   install_kubectl
@@ -70,8 +75,9 @@ main() {
   CONTEXT="kind-${CLUSTER_NAME}"
   kubectl cluster-info --context "${CONTEXT}"
   kubectl --context "${CONTEXT}" wait --for=condition=Ready nodes --all --timeout=180s
-  kubectl --context "${CONTEXT}" get nodes
+  kubectl config use-context "${CONTEXT}"
   echo "Switched context to ${CONTEXT}"
+  setup_storageclass
 }
+
 main
-kubectl config use-context "kind-${CLUSTER_NAME}"

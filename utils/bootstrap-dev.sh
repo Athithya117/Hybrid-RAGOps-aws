@@ -221,6 +221,7 @@ for cmd in aws kubectl eksctl argocd helm pulumi k3d; do
   fi
 done
 
+# sudo apt purge ttf-mscorefonts-installer -y
 
 pip install huggingface_hub==0.34.4
 sudo python3 utils/archive/download_hf.py

@@ -355,19 +355,23 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 
 ```sh
 
-# Storage / paths
-export S3_BUCKET=e2e-rag-system                      # set per-env/tenant (unique bucket)
+export S3_BUCKET=e2e-rag-system-<string>              # Set any globally unique complex name
 export S3_RAW_PREFIX=data/raw/                        # raw ingest prefix (change to isolate datasets)
 export S3_CHUNKED_PREFIX=data/chunked/                # chunked output prefix (change to separate processed data)
 export CHUNK_FORMAT=json                              # 'json' (readable) or 'jsonl' (stream/space efficient)
-export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to delete and replace docx with PDF, false to keep originals
+export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to delete and replace docx with PDF, false to keep the originals
 
-# OCR & image extraction
 export DISABLE_OCR=false                              # true to skip OCR (faster) | false to extract text from images
-export OCR_ENGINE=tesseract                           # 'tesseract' (fast/common) or 'rapidocr' (higher accuracy, slower)
+export OCR_ENGINE=tesseract                           # 'tesseract' (fast/common) or 'rapidocr' (higher accuracy, slightly slower)
 export FORCE_OCR=false                                # true to always OCR (use if source text unreliable)
 export OCR_RENDER_DPI=300                             # increase for detecting tiny text; lower for speed/cost
 export MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller than this (often unneccessary black images)
+
+export EMBEDDER_RESOURCE_PROFILE=cpu:2                 # runtime resources for (cpu:2 for local testing with 2 cpus, nvidia-gpu-l4:1 for GPU prod scaling
+export EMBEDDER_MIN_REPLICAS=1                         # autoscaling bounds (set 0 for cost efficiency or set higher to avoid cold start latency)
+export EMBEDDER_MAX_REPLICAS=2                         # autoscaling bounds (set high for higher traffic)
+export EMBEDDER_PRUNE=true                             # true to delete other kubeai-embedder-managed models when applying a new one 
+
 
 # Arango / vector index toggles
 export ARANGO_VECTOR_INDEX_ENABLE=true                # range: true|false; false to disable vector ops (read-only or minimal infra)
@@ -391,6 +395,25 @@ export FAISS_INDEX_PATH="/mnt/faiss/index.ivf"        # range: filesystem path|"
 export FAISS_INDEX_DIM=768                            # range: embedding dim; must match embedding model output
 export FAISS_NLIST=256                                # range: 128-16384; local FAISS nlist; increase for large indices
 export FAISS_NPROBE=10                                # range: 1-128; raise for recall at latency cost
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # Retrieval fusion weights (tune by devset; relative importance)
 export W_VEC=0.6                                      # range: 0.0-1.0; raise if domain embeddings are highly accurate
@@ -468,18 +491,7 @@ FAISS handles “meaning in text,” GeAR handles “meaning in structure.” Bo
 
 ---
 
-### 🔹 **\[2] gte-reranker-modernbert-base(Optional)**
-
-* **Cross-encoder reranker** for re-ranking retrieved docs
-* High BEIR benchmark score (**nDCG\@10 ≈ 90.7%**)
-* Same architecture & size as embedding model (149M), supports **8192 tokens**
-* Very fast CPU inference with ONNX (FlashAttention 2)
-
-🔗 [https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base)
-
----
-
-### 🔹 **\[3] ReLiK-CIE-small(For precomputing triplets, not deployed)**
+### 🔹 **\[2] ReLiK-CIE-small(For precomputing triplets, not deployed)**
 
 A compact and efficient **entity + relation extraction** model designed for **Graph-RAG pipelines**. Unlike fast entity-only models (e.g., SpEL, ReFinED), `relik-cie-small` can extract both **named entities** and **semantic triplets** (`(head, relation, tail)`), enabling direct construction of **knowledge subgraphs** from raw text.
 
@@ -490,7 +502,7 @@ A compact and efficient **entity + relation extraction** model designed for **Gr
 
 ---
 
-### 🔹 **\[4] Qwen3-4B-AWQ**
+### 🔹 **\[3] Qwen3-4B-AWQ**
 
 A compact, high-throughput **instruction-tuned LLM** quantized using **AWQ**. Built on **Qwen3-4B**, this variant supports **32,768-token context** natively and achieves performance comparable to models 10× its size (e.g., Qwen2.5-72B). Optimized for **SGLang inference**, it balances **speed, memory efficiency, and accuracy**, running seamlessly on GPUs like A10G, L4, and L40S.
 

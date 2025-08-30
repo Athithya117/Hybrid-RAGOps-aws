@@ -20,7 +20,8 @@ data/
 raw_data/
 rag8s-aws/
 rag8s-dev/
-
+onnx
+*.onnx
 # Large or sensitive data
 models/
 lid.176.bin
