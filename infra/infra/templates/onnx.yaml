@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: inference
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gte-embedder
+  namespace: inference
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gte-embedder
+  template:
+    metadata:
+      labels:
+        app: gte-embedder
+    spec:
+      containers:
+      - name: gte-embedder
+        image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.7
+        imagePullPolicy: IfNotPresent
+        args:
+          - --model-id
+          - Alibaba-NLP/gte-modernbert-base
+        env:
+          - name: OMP_NUM_THREADS
+            value: "2"
+          - name: MKL_NUM_THREADS
+            value: "2"
+        resources:
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+        ports:
+          - name: http
+            containerPort: 80
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        volumeMounts:
+          - name: dshm
+            mountPath: /dev/shm
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gte-embedder
+  namespace: inference
+spec:
+  selector:
+    app: gte-embedder
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gte-embedder-hpa
+  namespace: inference
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gte-embedder
+  minReplicas: 1
+  maxReplicas: 2
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50

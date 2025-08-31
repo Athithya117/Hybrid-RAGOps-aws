@@ -21,3 +21,13 @@ host-embedder:
 	ray stop --force || true
 	ray start --head --port=6379 --dashboard-port=8265 --ray-client-server-port=10001
 	python3 infra/host-embedding-model/host_embedding_model_local.py
+
+
+
+git config --global user.email "athithyasakthivel1@gmail.com"
+git config --global user.name "Athithya-Sakthivel"
+git remote remove origin
+git remote add origin https://github.com/Athithya-Sakthivel/RAG8s.git
+git add .
+git commit -m "embedder-cpu"
+git push origin main --force

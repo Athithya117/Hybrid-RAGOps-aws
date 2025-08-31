@@ -8,6 +8,8 @@
 .venv_refined/
 venv/
 myenv/
+temp
+tmp
 
 # Python cache
 __pycache__/

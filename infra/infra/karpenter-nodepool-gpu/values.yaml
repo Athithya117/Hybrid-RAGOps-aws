@@ -1,0 +1,18 @@
+# GPU models (LLM)
+env:
+  WORKSPACE_MODELS: /workspace/models
+  HF_HOME: /workspace/models/hf
+  FORCE_DOWNLOAD: "0"
+  LOG_LEVEL: INFO
+  MODEL_LLM_NAME: Qwen/Qwen3-4B-AWQ
+  MODEL_LLM_LOCAL_NAME: qwen3-4b-awq
+  LLM_MODEL_PATH: /workspace/models/llm/qwen3-4b-awq/model.safetensors
+  LLM_CONFIG_PATH: /workspace/models/llm/qwen3-4b-awq/config.json
+  LLM_TOKENIZER_PATH: /workspace/models/llm/qwen3-4b-awq/tokenizer.json
+  LLM_TOKENIZER_CONFIG_PATH: /workspace/models/llm/qwen3-4b-awq/tokenizer_config.json
+  LLM_VOCAB_PATH: /workspace/models/llm/qwen3-4b-awq/vocab.json
+  LLM_MERGES_PATH: /workspace/models/llm/qwen3-4b-awq/merges.txt
+  LLM_GENERATION_CONFIG_PATH: /workspace/models/llm/qwen3-4b-awq/generation_config.json
+  CUDA_VISIBLE_DEVICES: "0"
+  TORCH_CUDA_ARCH_LIST: "8.0;8.6;9.0"
+  TRANSFORMERS_CACHE: /workspace/models/hf
