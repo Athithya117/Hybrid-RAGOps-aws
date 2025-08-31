@@ -208,6 +208,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 "file_type": "application/pdf",
                 "source_path": source,
                 "page_number": page_num,
+                "max_length": 2500,
                 "start_time": None,
                 "end_time": None,
                 "line_range": None,

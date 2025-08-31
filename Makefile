@@ -16,3 +16,8 @@ clean:
 
 lc:
 	bash utils/lc.sh
+
+host-embedder:
+	ray stop --force || true
+	ray start --head --port=6379 --dashboard-port=8265 --ray-client-server-port=10001
+	python3 infra/host-embedding-model/host_embedding_model_local.py

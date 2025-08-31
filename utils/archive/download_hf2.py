@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import logging
 import shutil
@@ -22,7 +21,7 @@ MODELS = [
         "base": "onnx",
         "items": [
             # Only the actual existing files in the repo
-            ("onnx/model_int8.onnx", "onnx/model_int8.onnx"),
+            ("model.onnx"),
             ("config.json", "config.json"),
             ("tokenizer.json", "tokenizer.json"),
             ("tokenizer_config.json", "tokenizer_config.json"),
@@ -31,9 +30,6 @@ MODELS = [
     }
 ]
 
-# -----------------------------
-# Download logic
-# -----------------------------
 def download_one(repo_id, name, remote_candidates, target_rel, base):
     target = Path(WORKSPACE_MODELS) / base / name / Path(target_rel)
     target.parent.mkdir(parents=True, exist_ok=True)
