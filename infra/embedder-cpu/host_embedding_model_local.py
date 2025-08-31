@@ -451,3 +451,11 @@ if __name__ == "__main__":
         app = build_fastapi_app()
         import uvicorn
         uvicorn.run(app, host=HOST, port=PORT, log_level="info")
+
+
+
+sudo chown -R user:user .git
+git config --global user.name "Athithya-Sakthivel"
+git config --global user.email "athithyasakthivel1@gmail.com"
+git add .
+git commit -m "embedder-cpu"
