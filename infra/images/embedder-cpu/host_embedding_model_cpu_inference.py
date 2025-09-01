@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 K8s-native embedding server (FastAPI + ONNX + Prometheus)
 
@@ -18,6 +17,7 @@ Prometheus:
  - Do NOT rely on a fallback metrics port in k8s; the /metrics endpoint is the single source.
 
 This file intentionally constructs `app` at import time so k8s process managers can import it.
+
 """
 
 import os
