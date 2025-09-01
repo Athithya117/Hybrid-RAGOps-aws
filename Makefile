@@ -24,10 +24,3 @@ host-embedder:
 
 
 
-git config --global user.email "athithyasakthivel1@gmail.com"
-git config --global user.name "Athithya-Sakthivel"
-git remote remove origin
-git remote add origin https://github.com/Athithya-Sakthivel/RAG8s.git
-git add .
-git commit -m "embedder-cpu"
-git push origin main --force

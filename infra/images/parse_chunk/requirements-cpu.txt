@@ -1,0 +1,18 @@
+# python 3.10.12, amd-ubuntu-22.04
+
+
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+transformers
+torchvision
+torchaudio
+boto3
+pymupdf
+pdfplumber
+opencv-python
+rapidocr-onnxruntime
+huggingface_hub
+pandas
+ray
+python-arango
+extractous

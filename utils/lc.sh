@@ -59,13 +59,6 @@ EOF
   fi
 }
 
-setup_storageclass() {
-  DEFAULT_SC=$(kubectl get storageclass -o jsonpath='{.items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")].metadata.name}' 2>/dev/null || true)
-  if [ -z "$DEFAULT_SC" ]; then
-    kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
-    kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' || true
-  fi
-}
 
 main() {
   install_kind
@@ -77,7 +70,6 @@ main() {
   kubectl --context "${CONTEXT}" wait --for=condition=Ready nodes --all --timeout=180s
   kubectl config use-context "${CONTEXT}"
   echo "Switched context to ${CONTEXT}"
-  setup_storageclass
 }
 
 main
