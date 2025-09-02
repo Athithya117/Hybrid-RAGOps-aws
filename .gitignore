@@ -26,7 +26,6 @@ rag8s-dev/
 # Large or sensitive data
 llm
 onnx
-
 lid.176.bin
 backups/
 tmp/
