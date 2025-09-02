@@ -14,6 +14,7 @@ SMOKE_POSTS="${SMOKE_POSTS:-5}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-60}"
 NO_CACHE=0
 PUSH_REGISTRY=""
+PLATFORMS="linux/amd64,linux/arm64"   # multi-arch build
 
 # parse args
 while [[ $# -gt 0 ]]; do
@@ -23,27 +24,37 @@ while [[ $# -gt 0 ]]; do
     --model) MODEL_HOST_PATH="$2"; shift 2;;
     --image) IMAGE_NAME="$2"; shift 2;;
     --port) APP_PORT="$2"; shift 2;;
-    --help|-h) echo "Usage: $0 [--no-cache] [--push registry/repo:tag] [--model /host/models] [--image name:tag] [--port 8000]"; exit 0;;
+    --help|-h) 
+      echo "Usage: $0 [--no-cache] [--push registry/repo:tag] [--model /host/models] [--image name:tag] [--port 8000]"
+      exit 0;;
     *) echo "Unknown arg: $1"; exit 2;;
   esac
 done
 
-echo "IMAGE=$IMAGE_NAME MODEL=$MODEL_HOST_PATH PORT=$APP_PORT PUSH=${PUSH_REGISTRY:-<auto>}"
+echo "IMAGE=$IMAGE_NAME MODEL=$MODEL_HOST_PATH PORT=$APP_PORT PUSH=${PUSH_REGISTRY:-<auto>} PLATFORMS=$PLATFORMS"
 
 # sanity checks
 command -v docker >/dev/null 2>&1 || { echo "docker CLI not found"; exit 1; }
 [ -d "$MODEL_HOST_PATH" ] || { echo "Model path not found: $MODEL_HOST_PATH"; exit 1; }
 
-# build
-BUILD_CMD=(docker build -t "$IMAGE_NAME" .)
+# ensure buildx builder exists
+if ! docker buildx inspect multiarch-builder >/dev/null 2>&1; then
+  docker buildx create --name multiarch-builder --use
+  docker buildx inspect --bootstrap
+else
+  docker buildx use multiarch-builder
+fi
+
+# build multi-arch image
+BUILD_CMD=(docker buildx build --platform "$PLATFORMS" -t "$IMAGE_NAME" . --load)
 [ "$NO_CACHE" -eq 1 ] && BUILD_CMD+=(--no-cache)
-echo "Building image..."
+echo "Building image for $PLATFORMS..."
 "${BUILD_CMD[@]}"
 
 # remove any previous container
 docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
-# run test container detached
+# run test container detached (uses amd64 locally unless you're on ARM machine)
 docker run --rm -d --name "$CONTAINER_NAME" -p "${APP_PORT}:${APP_PORT}" -v "${MODEL_HOST_PATH}:/workspace/models:ro" "$IMAGE_NAME" >/dev/null
 
 cleanup() {
@@ -98,26 +109,6 @@ fi
 
 echo "Requests counted (delta): $delta"
 
-# Decide push target:
-# - If user passed --push, use that
-# - Else if DOCKER_USERNAME exported, auto-create DOCKER_USERNAME/<image_basename>:<tag>
-if [ -z "$PUSH_REGISTRY" ]; then
-  if [ -n "${DOCKER_USERNAME:-}" ] && [ -n "${DOCKER_PASSWORD:-}" ]; then
-    # derive base image name and tag
-    # IMAGE_NAME format: name[:tag] (tag optional)
-    IMAGE_BASENAME="${IMAGE_NAME%%:*}"   # before first colon
-    IMAGE_TAG="${IMAGE_NAME#*:}"
-    if [[ "$IMAGE_BASENAME" == "$IMAGE_TAG" ]]; then
-      # no tag present; default tag 'latest'
-      IMAGE_TAG="latest"
-    fi
-    # extract raw basename without any registry/username
-    RAW_NAME="${IMAGE_BASENAME##*/}"
-    PUSH_REGISTRY="${DOCKER_USERNAME}/${RAW_NAME}:${IMAGE_TAG}"
-    echo "Auto push target: $PUSH_REGISTRY"
-  fi
-fi
-
 echo "last 8 lines of embedding response: "
 curl -s -X POST http://127.0.0.1:8000/embed \
   -H "Content-Type: application/json" \
@@ -125,9 +116,8 @@ curl -s -X POST http://127.0.0.1:8000/embed \
 
 # push if target decided
 if [ -n "${PUSH_REGISTRY:-}" ]; then
-  echo "Pushing image to $PUSH_REGISTRY"
+  echo "Pushing multi-arch image to $PUSH_REGISTRY"
 
-  # require docker creds if not already logged in
   if [ -z "${DOCKER_USERNAME:-}" ] || [ -z "${DOCKER_PASSWORD:-}" ]; then
     echo "ERROR: DOCKER_USERNAME and DOCKER_PASSWORD must be exported to push"
     exit 3
@@ -136,11 +126,12 @@ if [ -n "${PUSH_REGISTRY:-}" ]; then
   echo "Logging in to Docker Hub as $DOCKER_USERNAME"
   echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
 
-  echo "Tagging $IMAGE_NAME -> $PUSH_REGISTRY"
-  docker tag "$IMAGE_NAME" "$PUSH_REGISTRY"
-
-  echo "Pushing..."
-  docker push "$PUSH_REGISTRY"
+  echo "Building and pushing multi-arch image..."
+  docker buildx build \
+    --platform "$PLATFORMS" \
+    -t "$PUSH_REGISTRY" \
+    . \
+    --push
 
   echo "Push complete: $PUSH_REGISTRY"
 fi
