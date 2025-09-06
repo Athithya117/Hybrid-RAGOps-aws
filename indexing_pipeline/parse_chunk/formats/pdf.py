@@ -199,38 +199,26 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
 
         duration_ms = int((time.perf_counter() - t0) * 1000)
         payload = {
-            "document_id": doc_id,
-            "chunk_id": chunk_id,
-            "chunk_type": "page",
-            "text": final_text,
-            "embedding": None,
-            "source": {
-                "file_type": "application/pdf",
-                "source_path": source,
-                "page_number": page_num,
-                "max_length": 2500,
-                "start_time": None,
-                "end_time": None,
-                "line_range": None,
-                "bbox": None
-            },
-            "graph": {
-                "graph_node_id": chunk_id,
-                "parent_id": f"{doc_id}_page{page_num}",
-                "previous_id": f"{doc_id}_{page_num - 1}" if page_num > 1 else None,
-                "next_id": f"{doc_id}_{page_num + 1}"
-            },
-            "metadata": {
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "tags": [],
-                "layout_tags": ["page"],
-                "entities": [],
-                "used_ocr": used_ocr,
-                "is_multilingual": IS_MULTILINGUAL,
-                "parse_chunk_duration": duration_ms,
-                "custom": {}
-            }
-        }
+    "document_id": doc_id,
+    "chunk_id": chunk_id,
+    "chunk_type": "page",   # useful for distinguishing across formats
+    "text": final_text,
+    "embedding": None,      # to be filled after vectorization
+    "source": {
+        "file_type": "application/pdf",
+        "source_path": source,
+        "page_number": page_num,
+        # "bbox": None,  # optional, keep if OCR / layout traceability is required
+    },
+    "metadata": {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "tags": [],
+        "layout_tags": ["page"],
+        "used_ocr": used_ocr,
+        "is_multilingual": IS_MULTILINGUAL,
+        "parse_chunk_duration_ms": duration_ms
+    }
+}
 
         ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
         out_key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext}"

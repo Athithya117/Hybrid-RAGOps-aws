@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 IFS=$'\n\t'
 
+docker run --privileged --rm tonistiigi/binfmt --install all
+
+
 # --- Predefined env (user requested)
 export DEBIAN_FRONTEND=noninteractive
 export TZ=Etc/UTC

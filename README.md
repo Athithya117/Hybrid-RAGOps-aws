@@ -355,7 +355,7 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 
 ```sh
 
-export S3_BUCKET=e2e-rag-system-<string>              # Set any globally unique complex name
+export S3_BUCKET=e2e-rag-system-42             # Set any globally unique complex name
 export S3_RAW_PREFIX=data/raw/                        # raw ingest prefix (change to isolate datasets)
 export S3_CHUNKED_PREFIX=data/chunked/                # chunked output prefix (change to separate processed data)
 export CHUNK_FORMAT=json                              # 'json' (readable) or 'jsonl' (stream/space efficient)
@@ -367,10 +367,6 @@ export FORCE_OCR=false                                # true to always OCR (use 
 export OCR_RENDER_DPI=300                             # increase for detecting tiny text; lower for speed/cost
 export MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller than this (often unneccessary black images)
 
-export EMBEDDER_RESOURCE_PROFILE=cpu:2                 # runtime resources for (cpu:2 for local testing with 2 cpus, nvidia-gpu-l4:1 for GPU prod scaling
-export EMBEDDER_MIN_REPLICAS=1                         # autoscaling bounds (set 0 for cost efficiency or set higher to avoid cold start latency)
-export EMBEDDER_MAX_REPLICAS=2                         # autoscaling bounds (set high for higher traffic)
-export EMBEDDER_PRUNE=true                             # true to delete other kubeai-embedder-managed models when applying a new one 
 
 
 # Arango / vector index toggles
@@ -502,31 +498,3 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **AWQ**. Bu
 
 ---
 
-
-
-```
-.
-├── embedder-cpu
-│   ├── Dockerfile
-│   ├── host_embedding_model_cpu_inference.py
-│   ├── ray_gateway.py
-│   ├── requirements.txt
-│   └── test_and_push.sh
-├── embedder-gpu
-│   ├── embedding_model_requirements-gpu.txt
-│   └── host_embedding_model_prod.py
-├── frontend              # cpu based inference container
-│   ├── Dockerfile
-│   ├── requirements-cpu.txt
-│   └── streamlit_ui.py
-├── llm                     # gpu based llm scaling in inference pipeline
-├── indexing_pipeline       # Does cpu parse and chunk by itself, uses the embedder-gpu and relik-gpu container for computing embeddings, triplets
-│   ├── Dockerfile
-│   └── requirements-cpu.txt
-├── ray_indexing_cluster.yaml           # aws ray cluster temp from INDEXING_DURATION
-├── ray_inference_cluster.yaml          # aws ray cluster long running
-├── ray_runtime_env_indexing.py         # dynamic env variable for inference pipeline
-├── ray_runtime_env_inference.py        # dynamic env variable for inference pipeline
-└── .env           # env variables that ray_runtime_env_indexing.py and ray_runtime_env_inference.py refers
-
-```
