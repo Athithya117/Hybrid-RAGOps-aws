@@ -4,11 +4,13 @@
     "dockerfile": "Dockerfile", 
     "context": "." 
   },
+  "forwardPorts": [3000, 3001, 8000, 8080, 7000, 7001, 7002, 7003 ],
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
   "remoteUser": "root",
   
   "runArgs": [
+    "--privileged",
     "--network=host",
     "--cap-add=SYS_PTRACE",
     "--security-opt=seccomp=unconfined",

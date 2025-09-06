@@ -1,13 +1,11 @@
 import streamlit as st
 
-# --- Replace with your backend integrations ---
 def retrieve_docs(query: str):
     return ["doc1 text", "doc2 text"]
 
 def generate_answer(query: str, docs: list[str]) -> str:
     return f"Answer to '{query}' using {len(docs)} retrieved docs."
 
-# --- Streamlit UI ---
 st.set_page_config(page_title="RAG8s Chat", page_icon="💬", layout="wide")
 st.title("RAG8s Console")
 

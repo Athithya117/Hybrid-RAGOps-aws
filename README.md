@@ -399,27 +399,10 @@ export FAISS_NPROBE=10                                # range: 1-128; raise for 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # Retrieval fusion weights (tune by devset; relative importance)
 export W_VEC=0.6                                      # range: 0.0-1.0; raise if domain embeddings are highly accurate
 export W_BM25=0.3                                     # range: 0.0-1.0; raise if exact keyword matches are critical
 export W_GRAPH=0.1                                    # range: 0.0-1.0; raise if graph/triplet hits are very high precision
-export W_RERANK=0.5                                   # range: 0.0-1.0; meaningful only when reranker enabled
 
 # Candidate fanout & GeAR
 export N_VEC=15                                       # range: 5-100; top-K vector candidates (raise for recall on large corpora)
@@ -433,9 +416,7 @@ export VEC_SCORE_THRESH=0.20                          # range: 0.05-0.40; min ve
 export BM25_SCORE_THRESH=1.50                         # range: 0.5-3.0; min BM25 to keep (raise to filter weak keyword hits)
 export GRAPH_SCORE_THRESH=0.0                         # range: 0.0-0.5; min graph edge confidence (set >0 if confidences provided)
 
-# Reranker & metadata boosting
-export USE_RERANKER=true                              # range: true|false; enable only if you accept added latency/cost for higher precision
-export RERANK_BATCH_SIZE=16                           # range: 4-64; increase to amortize GPU/CPU when latency allows
+
 export META_BOOST_FIELD="timestamp"                   # range: metadata key name; metadata key to bias ranking (e.g., timestamp, source_score)
 export META_BOOST_WEIGHT=0.20                         # range: 0.0-1.0; raise if metadata should strongly affect ranking
 
@@ -483,7 +464,7 @@ FAISS handles “meaning in text,” GeAR handles “meaning in structure.” Bo
 * Embedding-only model for dense retrieval in RAG pipelines
 * Long-context support: up to **8192 tokens** (Sufficient for page wise chunking)
 * Based on **ModernBERT** (FlashAttention 2, RoPE, no position embeddings)
-* Optimized for ONNX export and CPU-inference
+* Optimized for ONNX export and CPU-inference(max_length only 50-100). Embedding generation in indexing pipeline is GPU based(for large corpora)
 * Embedding dimension: **768**
 * Parameter size: **149M**
 
@@ -491,7 +472,7 @@ FAISS handles “meaning in text,” GeAR handles “meaning in structure.” Bo
 
 ---
 
-### 🔹 **\[2] ReLiK-CIE-small(For precomputing triplets, not deployed)**
+### 🔹 **\[2] ReLiK-CIE-small(For precomputing entities and triplets, not deployed)**
 
 A compact and efficient **entity + relation extraction** model designed for **Graph-RAG pipelines**. Unlike fast entity-only models (e.g., SpEL, ReFinED), `relik-cie-small` can extract both **named entities** and **semantic triplets** (`(head, relation, tail)`), enabling direct construction of **knowledge subgraphs** from raw text.
 
@@ -517,86 +498,35 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **AWQ**. Bu
 > — [Qwen3 Blog](https://qwenlm.github.io/blog/qwen3/)
 > — [Thinking-mode](https://qwenlm.github.io/blog/qwen3/#key-features)
 
-> **Use case**: Smaller models (e.g., Qwen3-4B-AWQ or 8B) **fit on a single VM** , making them better suited for data-parallel engines like **SGLang**, rather than tensor-parallel engine like **vLLM**.
+> **Use case**: Smaller models (e.g., Qwen3-4B-AWQ or 30B-A3B) **fit on a single VM** , making them better suited for data-parallel engines like **SGLang**  than tensor-parallel engine like **vLLM**.
 
 ---
 
-<details>
- <summary>EC2 (Click the triangle)</summary>
-
-## EC2 instances for spot with fallback pre warmed on-demand scaling with karpenter-gpu
-
-#### **G6f (Fractional L4 GPU) Sizes**
-
-| Instance        | vCPUs | Memory  | GPU Fraction | GPU Memory |
-| --------------- | ----- | ------- | ------------ | ---------- |
-| **g6f.large**   | 2     | 8 GiB   | 0.125 × L4   | \~3 GiB    |
-| **g6f.xlarge**  | 4     | 16 GiB  | 0.25 × L4    | \~6 GiB    |
-| **g6f.2xlarge** | 8     | 32 GiB  | 0.5 × L4     | \~12 GiB   |
-| **g6f.4xlarge** | 16    | 64 GiB  | 1 × L4       | 24 GiB     |
-| **g6f.8xlarge** | 32    | 128 GiB | 2 × L4       | 48 GiB     |
-
----
-
-#### **G6e (Full L40S GPU) Sizes**
-
-| Instance         | vCPUs | Memory   | GPUs | GPU Memory                               |
-| ---------------- | ----- | -------- | ---- | ---------------------------------------- |
-| **g6e.xlarge**   | 4     | 32 GiB   | 1    | 44 GiB (1×44)   ([AWS Documentation][1]) |
-| **g6e.2xlarge**  | 8     | 64 GiB   | 1    | 44 GiB (1×44)   ([AWS Documentation][1]) |
-| **g6e.4xlarge**  | 16    | 128 GiB  | 1    | 44 GiB (1×44)   ([AWS Documentation][1]) |
-| **g6e.8xlarge**  | 32    | 256 GiB  | 1    | 44 GiB (1×44)   ([AWS Documentation][1]) |
-| **g6e.12xlarge** | 48    | 384 GiB  | 4    | 178 GiB (4×44)  ([AWS Documentation][1]) |
-| **g6e.16xlarge** | 64    | 512 GiB  | 1    | 44 GiB (1×44)   ([AWS Documentation][1]) |
-| **g6e.24xlarge** | 96    | 768 GiB  | 4    | 178 GiB (4×44)  ([AWS Documentation][1]) |
-| **g6e.48xlarge** | 192   | 1536 GiB | 8    | 357 GiB (8×44)  ([AWS Documentation][1]) |
-
----
-# Local NVMe based EC2s for hosting vector dbs like qdrant, arrangodb as statefulsets 
-| Instance     | vCPU / RAM       | **C8g On-Demand** (USD/hr) | **C8g On-Demand** (₹/hr) | **C8g Spot** (USD/hr)   | **C8g Spot** (₹/hr) | **C8gd On-Demand** (USD/hr) | **C8gd On-Demand** (₹/hr) | **C8gd Spot** (USD/hr)  | **C8gd Spot** (₹/hr) |
-| ------------ | ---------------- | -------------------------- | ------------------------ | ----------------------- | ------------------- | --------------------------- | ------------------------- | ----------------------- | -------------------- |
-| **medium**   | 1 vCPU/2 GiB     | \$0.044 ([Vantage][1])     | ₹3.7                     | \$0.013 ([Vantage][1])  | ₹1.1                | \$0.054 ([Vantage][2])      | ₹4.5                      | \$0.012 ([Vantage][2])  | ₹1.0                 |
-| **xlarge**   | 4 vCPU/8 GiB     | \$0.702 ([Vantage][3])     | ₹58.2                    | \$0.238 ([Vantage][3])  | ₹19.8               | \$0.196 ([Vantage][4])      | ₹16.3                     | \$0.080 ([Vantage][4])  | ₹6.6                 |
-| **2xlarge**  | 8 vCPU/16 GiB    | \$0.319 ([Vantage][5])     | ₹26.5                    | \$0.128 ([Vantage][5])  | ₹10.6               | —                           | —                         | —                       | —                    |
-| **4xlarge**  | 16 vCPU/32 GiB   | \$0.702 ([Vantage][3])     | ₹58.2                    | \$0.238 ([Vantage][3])  | ₹19.8               | \$0.784 ([Vantage][6])      | ₹65.1                     | \$0.298 ([Vantage][6])  | ₹24.7                |
-| **8xlarge**  | 32 vCPU/64 GiB   | \$1.276 ([Vantage][7])     | ₹105.9                   | \$0.522 ([Vantage][7])  | ₹43.3               | \$1.720 ([Vantage][8])      | ₹142.8                    | \$— (spot NA)           | —                    |
-| **16xlarge** | 64 vCPU/128 GiB  | \$2.808 ([Vantage][9])     | ₹233.1                   | \$0.731 ([Vantage][9])  | ₹60.7               | \$3.135 ([Vantage][10])     | ₹259.9                    | \$0.796 ([Vantage][10]) | ₹66.1                |
-| **24xlarge** | 96 vCPU/192 GiB  | \$4.211 ([Vantage][8])     | ₹349.3                   | \$1.065 ([Vantage][8])  | ₹88.4               | \$5.173 ([Vantage][8])      | ₹429.4                    | \$1.476 ([Vantage][8])  | ₹122.5               |
-| **48xlarge** | 192 vCPU/384 GiB | \$7.657 ([Vantage][11])    | ₹635.6                   | \$1.979 ([Vantage][11]) | ₹164.3              | \$9.406 ([Vantage][12])     | ₹780.8                    | \$3.323 ([Vantage][12]) | ₹275.6               |
-
----
-
-### Notes
-
-* “—” indicates data not available or not listed for that size.
-* Spot prices fluctuate; these are **minimums** observed at time of lookup.
-* INR values are approximate (USD × 83).
-* NVMe-equipped C8gd variants include large local SSD at no extra configuration cost; C8g has no NVMe.
-* Source pricing from Instances.Vantage.sh snapshots as of early August 2025.
-
-[1]: https://instances.vantage.sh/aws/ec2/c8g.medium
-[2]: https://instances.vantage.sh/aws/ec2/c8gd.medium
-[3]: https://instances.vantage.sh/aws/ec2/c8g.4xlarge
-[4]: https://instances.vantage.sh/aws/ec2/c8gd.xlarge?cost_duration=monthly&os=linux&region=us-east-1&reserved_term=Standard.noUpfront
-[5]: https://instances.vantage.sh/aws/ec2/c8g.2xlarge
-[6]: https://instances.vantage.sh/aws/ec2/c8gd.4xlarge
-[7]: https://instances.vantage.sh/aws/ec2/c8g.8xlarge
-[8]: https://instances.vantage.sh/aws/ec2/c8gd.24xlarge
-[9]: https://instances.vantage.sh/aws/ec2/c8g.16xlarge
-[10]: https://instances.vantage.sh/aws/ec2/c8gd.16xlarge
-[11]: https://instances.vantage.sh/aws/ec2/c8g.48xlarge
-[12]: https://instances.vantage.sh/aws/ec2/c8gd.48xlarge
-
-</details>
 
 
+```
+.
+├── embedder-cpu
+│   ├── Dockerfile
+│   ├── host_embedding_model_cpu_inference.py
+│   ├── ray_gateway.py
+│   ├── requirements.txt
+│   └── test_and_push.sh
+├── embedder-gpu
+│   ├── embedding_model_requirements-gpu.txt
+│   └── host_embedding_model_prod.py
+├── frontend              # cpu based inference container
+│   ├── Dockerfile
+│   ├── requirements-cpu.txt
+│   └── streamlit_ui.py
+├── llm                     # gpu based llm scaling in inference pipeline
+├── indexing_pipeline       # Does cpu parse and chunk by itself, uses the embedder-gpu and relik-gpu container for computing embeddings, triplets
+│   ├── Dockerfile
+│   └── requirements-cpu.txt
+├── ray_indexing_cluster.yaml           # aws ray cluster temp from INDEXING_DURATION
+├── ray_inference_cluster.yaml          # aws ray cluster long running
+├── ray_runtime_env_indexing.py         # dynamic env variable for inference pipeline
+├── ray_runtime_env_inference.py        # dynamic env variable for inference pipeline
+└── .env           # env variables that ray_runtime_env_indexing.py and ray_runtime_env_inference.py refers
 
-
-
-
-
-
-
-
-
-
+```

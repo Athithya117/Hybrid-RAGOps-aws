@@ -55,7 +55,7 @@ EOF
   sleep 5
   CONTAINER_NAME="$(docker ps --filter "name=kind-${CLUSTER_NAME}-control-plane" --format '{{.Names}}' | head -n1 || true)"
   if [ -n "$CONTAINER_NAME" ]; then
-    docker update --memory 10g --memory-swap 10g --cpus 10 "$CONTAINER_NAME" || true
+    docker update --memory 11g --memory-swap 8g --cpus 10 "$CONTAINER_NAME" || true
   fi
 }
 
