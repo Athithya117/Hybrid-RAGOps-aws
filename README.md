@@ -361,11 +361,15 @@ export S3_CHUNKED_PREFIX=data/chunked/                # chunked output prefix (c
 export CHUNK_FORMAT=json                              # 'json' (readable) or 'jsonl' (stream/space efficient)
 export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to delete and replace docx with PDF, false to keep the originals
 
+
 export DISABLE_OCR=false                              # true to skip OCR (faster) | false to extract text from images
-export OCR_ENGINE=tesseract                           # 'tesseract' (fast/common) or 'rapidocr' (higher accuracy, slightly slower)
+export OCR_ENGINE=tesseract                           # 'tesseract' (fast/common) or 'rapidocr' (high accuracy , slightly slower)
 export FORCE_OCR=false                                # true to always OCR (use if source text unreliable)
 export OCR_RENDER_DPI=300                             # increase for detecting tiny text; lower for speed/cost
 export MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller than this (often unneccessary black images)
+
+export HTML_WINDOW_SIZE=2000                          # default is page wise chunking, for large page 2000 tokens per chunk with 200 token overlap
+export HTML_OVERLAP_TOKENS=200                        # Alter if needed. HTML_WINDOW_SIZE is max size including HTML_OVERLAP_TOKENS 
 
 
 

@@ -11,9 +11,7 @@ from botocore.exceptions import ClientError
 
 def create_local_folders(base_path="."):
     folders = [
-        "data/raw/",
-        "backups/dbs/qdrant/",
-        "backups/dbs/arrangodb/"
+        "data/raw/"
     ]
     for folder in folders:
         path = os.path.join(base_path, folder)
@@ -91,9 +89,7 @@ def create_s3_bucket():
 def create_s3_folders(bucket_name, s3_client):
     prefixes = [
         "data/raw/",
-        "pulumi/",
-        "backups/dbs/qdrant/",
-        "backups/dbs/arrangodb/"
+        "pulumi/"
     ]
     for prefix in prefixes:
         try:
