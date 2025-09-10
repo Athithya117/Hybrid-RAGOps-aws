@@ -354,12 +354,11 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 
 ```sh
 
-export S3_BUCKET=e2e-rag-system-42             # Set any globally unique complex name
+export S3_BUCKET=e2e-rag-system-42                    # Set any globally unique complex name
 export S3_RAW_PREFIX=data/raw/                        # raw ingest prefix (change to isolate datasets)
 export S3_CHUNKED_PREFIX=data/chunked/                # chunked output prefix (change to separate processed data)
 export CHUNK_FORMAT=json                              # 'json' (readable) or 'jsonl' (stream/space efficient)
 export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to delete and replace docx with PDF, false to keep the originals
-
 
 export DISABLE_OCR=false                              # true to skip OCR (faster) | false to extract text from images
 export OCR_ENGINE=rapidocr                            # 'tesseract' (fast/common) or 'rapidocr' (high accuracy , slightly slower)
@@ -367,33 +366,10 @@ export FORCE_OCR=false                                # true to always OCR (use 
 export OCR_RENDER_DPI=300                             # increase for detecting tiny text; lower for speed/cost
 export MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller than this (often unneccessary black images)
 
-export HTML_WINDOW_SIZE=2000                          # default is page wise chunking, for large page 2000 tokens per chunk with 200 token overlap
-export HTML_OVERLAP_TOKENS=200                        # Alter if needed. HTML_WINDOW_SIZE is max size including HTML_OVERLAP_TOKENS 
+export HTML_WINDOW_SIZE=800                          # Default is page wise chunking, for large page 800 tokens per chunk with 80 token overlap
+export HTML_OVERLAP_TOKENS=80                        # Alter if needed. HTML_WINDOW_SIZE is max size including HTML_OVERLAP_TOKENS 
+export CSV_TARGET_TOKENS_PER_CHUNK=300               # Amazon Bedrock defaults to ~300 tokens for tabular/textual data.
 
-
-
-# Arango / vector index toggles
-export ARANGO_VECTOR_INDEX_ENABLE=true                # range: true|false; false to disable vector ops (read-only or minimal infra)
-export ARANGO_VECTOR_INDEX_TYPE="ivf"                 # range: 'hnsw'|'ivf'|'ivf+pq'; choose 'hnsw' (<100k docs), 'ivf' (>=100k), 'ivf+pq' for huge corpora
-export ARANGO_VECTOR_INDEX_MAX_MEMORY_MB=2048         # range: 512-65536 MB; soft cap for index memory on node; increase with corpus size
-
-# IVF-specific (only if using ivf)
-export ARANGO_VECTOR_INDEX_IVF_NLIST=1000             # range: 256-16384; set ~sqrt(N_vectors); increase for very large corpora
-export ARANGO_VECTOR_INDEX_IVF_NPROBE=10              # range: 4-128; raise for recall at cost of latency
-
-# PQ (only if using ivf+pq/pq)
-export ARANGO_VECTOR_INDEX_PQ_M=16                    # range: 8-32; PQ segments; must divide embedding dim; tune for memory vs accuracy
-
-# HNSW-specific (only if using hnsw)
-export ARANGO_VECTOR_INDEX_HNSW_M=32                  # range: 16-64; higher => more memory but higher recall
-export ARANGO_VECTOR_INDEX_HNSW_EFCONSTRUCTION=200    # range: 100-800; raise for better index build quality
-export ARANGO_VECTOR_INDEX_HNSW_EFSEARCH=50           # range: 40-300; raise for higher query recall (latency ↑)
-
-# FAISS sidecar / local index
-export FAISS_INDEX_PATH="/mnt/faiss/index.ivf"        # range: filesystem path|"empty"; local index path (empty if not used)
-export FAISS_INDEX_DIM=768                            # range: embedding dim; must match embedding model output
-export FAISS_NLIST=256                                # range: 128-16384; local FAISS nlist; increase for large indices
-export FAISS_NPROBE=10                                # range: 1-128; raise for recall at latency cost
 
 
 

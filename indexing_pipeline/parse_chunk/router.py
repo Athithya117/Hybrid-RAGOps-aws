@@ -7,10 +7,38 @@ import boto3
 import hashlib
 import importlib
 import mimetypes
+import logging
 from datetime import datetime
 from botocore.exceptions import ClientError
 
-# --- ENV ---
+try:
+    import colorama
+    colorama.init()
+except Exception:
+    pass
+
+RESET = "\033[0m"
+COLORS = {
+    logging.DEBUG: "\033[90m",
+    logging.INFO: "\033[36m",
+    logging.WARNING: "\033[33m",
+    logging.ERROR: "\033[31m",
+    logging.CRITICAL: "\033[1;41m"
+}
+
+class ColorFormatter(logging.Formatter):
+    def format(self, record):
+        color = COLORS.get(record.levelno, RESET)
+        message = super().format(record)
+        return f"{color}{message}{RESET}"
+
+logger = logging.getLogger("router")
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler(sys.stdout)
+fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+handler.setFormatter(ColorFormatter(fmt._fmt))
+logger.handlers[:] = [handler]
+
 def env_or_fail(var, default=None, mandatory=True):
     val = os.environ.get(var, default)
     if mandatory and val is None:
@@ -18,25 +46,29 @@ def env_or_fail(var, default=None, mandatory=True):
         sys.exit(1)
     return val
 
-S3_BUCKET         = env_or_fail("S3_BUCKET")
-S3_RAW_PREFIX     = os.getenv("S3_RAW_PREFIX", "data/raw/")
+S3_BUCKET = env_or_fail("S3_BUCKET")
+S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/")
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/")
-CHUNK_FORMAT      = os.getenv("CHUNK_FORMAT", "json").lower()
-FORCE_PROCESS     = os.getenv("FORCE_PROCESS", "false").lower() == "true"
+CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
+FORCE_PROCESS = os.getenv("FORCE_PROCESS", "false").lower() == "true"
 
 assert CHUNK_FORMAT in ("json", "jsonl"), f"Invalid CHUNK_FORMAT '{CHUNK_FORMAT}'"
 
 s3 = boto3.client("s3")
 
 def log(*args, level="INFO", **kwargs):
-    print(f"[{level}]", *args, flush=True, **kwargs)
+    msg = " ".join(str(a) for a in args)
+    lvl = level.upper()
+    if lvl == "WARN":
+        lvl = "WARNING"
+    levelno = getattr(logging, lvl, logging.INFO)
+    logger.log(levelno, msg, **kwargs)
 
 def retry(func, retries=3, delay=2, backoff=2):
     for attempt in range(retries):
         try:
             return func()
         except ClientError as e:
-            # propagate 404 so callers can interpret "not found"
             if e.response.get("Error", {}).get("Code") == "404":
                 raise
             if attempt == retries - 1:
@@ -61,10 +93,6 @@ def list_raw_files():
                 yield key
 
 def file_sha256(s3_key):
-    """
-    Compute a 128-bit BLAKE2b digest (16 bytes -> 32 hex chars) of the S3 object.
-    Kept name for backward compatibility; previously used xxh128.
-    """
     hasher = hashlib.blake2b(digest_size=16)
     obj = retry(lambda: s3.get_object(Bucket=S3_BUCKET, Key=s3_key))
     stream = obj["Body"]
@@ -73,25 +101,13 @@ def file_sha256(s3_key):
     return hasher.hexdigest()
 
 def manifest_path(s3_key, file_hash=None):
-    """
-    Canonical manifest path: append '.manifest.json' to the original raw key.
-    Example: data/raw/foo.pdf -> data/raw/foo.pdf.manifest.json
-    """
     return f"{s3_key}.manifest.json"
 
 def is_already_processed(file_hash):
-    """
-    Robust existence check:
-     - If FORCE_PROCESS set, always reprocess.
-     - Otherwise, list objects with prefix "<S3_CHUNKED_PREFIX><file_hash>_" and return True if any found.
-     - As a compatibility fallback also check for page 1 keys in both json/jsonl formats.
-    """
     if FORCE_PROCESS:
         return False
-
     base_prefix = S3_CHUNKED_PREFIX.rstrip("/") + "/"
     search_prefix = f"{base_prefix}{file_hash}_"
-
     try:
         paginator = s3.get_paginator("list_objects_v2")
         pages = paginator.paginate(Bucket=S3_BUCKET, Prefix=search_prefix, PaginationConfig={"MaxItems": 1})
@@ -100,7 +116,6 @@ def is_already_processed(file_hash):
                 return True
     except ClientError as e:
         log(f"S3 list_objects_v2 error while checking {search_prefix}: {e}", level="WARN")
-
     for ext in ("json", "jsonl"):
         test_key = f"{base_prefix}{file_hash}_1.{ext}"
         try:
@@ -111,7 +126,6 @@ def is_already_processed(file_hash):
             if code == "404":
                 continue
             raise
-
     return False
 
 def save_manifest(s3_key, manifest):
@@ -155,17 +169,14 @@ def main():
     log("Router pipeline started")
     run_id = str(uuid.uuid4())
     parser_version = "2.42.1"
-
     keys = list(list_raw_files())
     log(f"Found {len(keys)} files")
-
     for key in keys:
         ext = key.split(".")[-1]
         module_name = get_format_module(ext)
         if not module_name:
             log(f"Skipping unsupported '{ext}': {key}", level="WARN")
             continue
-
         try:
             mod = importlib.import_module(
                 f"indexing_pipeline.parse_chunk.formats.{module_name}"
@@ -176,17 +187,14 @@ def main():
         except Exception as e:
             log(f"Import error in module {module_name}: {e}", level="ERROR")
             continue
-
         try:
             file_hash = file_sha256(key)
         except Exception as e:
             log(f"Hash error for {key}: {e}", level="ERROR")
             continue
-
         if is_already_processed(file_hash):
             log(f"Already processed {file_hash}, skipping")
             continue
-
         manifest = {
             "file_hash": file_hash,
             "s3_key": key,
@@ -194,7 +202,6 @@ def main():
             "mime_type": detect_mime(key),
             "timestamp": datetime.utcnow().isoformat() + "Z"
         }
-
         try:
             result = mod.parse_file(key, manifest)
             if not isinstance(result, dict) or "saved_chunks" not in result:
@@ -204,7 +211,6 @@ def main():
         except Exception as e:
             log(f"Parse error for {key}: {e}", level="ERROR")
             continue
-
         log(f"Parsed and stored {result['saved_chunks']} chunks for {key}")
         save_manifest(key, manifest)
 

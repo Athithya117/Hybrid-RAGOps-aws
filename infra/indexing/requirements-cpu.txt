@@ -12,3 +12,6 @@ pytesseract==0.3.13
 rapidocr-onnxruntime==1.4.4
 lxml==5.4.0
 lxml_html_clean==0.4.2
+pandas==2.3.2
+ray==2.49.1
+pyarrow==21.0.0

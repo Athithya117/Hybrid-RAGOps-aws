@@ -12,6 +12,33 @@ from io import BytesIO
 from datetime import datetime
 from botocore.exceptions import ClientError
 
+try:
+    import colorama
+    colorama.init()
+except Exception:
+    pass
+
+RESET = "\033[0m"
+COLORS = {
+    logging.DEBUG: "\033[90m",
+    logging.INFO: "\033[36m",
+    logging.WARNING: "\033[33m",
+    logging.ERROR: "\033[31m",
+    logging.CRITICAL: "\033[1;41m"
+}
+
+class ColorFormatter(logging.Formatter):
+    def format(self, record):
+        color = COLORS.get(record.levelno, RESET)
+        message = super().format(record)
+        return f"{color}{message}{RESET}"
+
+log = logging.getLogger("pdf_parser")
+log.setLevel(logging.INFO)
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(ColorFormatter("%(asctime)s %(levelname)s %(message)s"))
+log.handlers[:] = [handler]
+
 REQUIRED = [
     "S3_BUCKET", "S3_RAW_PREFIX", "S3_CHUNKED_PREFIX",
     "CHUNK_FORMAT", "DISABLE_OCR", "OCR_ENGINE", "FORCE_OCR",
@@ -32,8 +59,6 @@ RENDER_DPI = int(os.getenv("OCR_RENDER_DPI", "500"))
 MIN_IMG_BYTES = int(os.getenv("MIN_IMG_SIZE_BYTES", "3072"))
 assert CHUNK_FORMAT in ("json", "jsonl")
 
-logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO)
-log = logging.getLogger("pdf_parser")
 s3 = boto3.client("s3")
 
 def _tesseract_ready():
