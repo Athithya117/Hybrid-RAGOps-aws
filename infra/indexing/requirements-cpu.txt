@@ -16,3 +16,5 @@ pandas==2.3.2
 ray==2.49.1
 pyarrow==21.0.0
 ijson==3.4.0
+markdown-it-py==4.0.0
+colorama==0.4.6

@@ -8,6 +8,7 @@ import hashlib
 import importlib
 import mimetypes
 import logging
+import urllib.parse
 from datetime import datetime
 from botocore.exceptions import ClientError
 
@@ -20,7 +21,7 @@ except Exception:
 RESET = "\033[0m"
 COLORS = {
     logging.DEBUG: "\033[90m",
-    logging.INFO: "\033[36m",
+    logging.INFO: "\033[97m",
     logging.WARNING: "\033[33m",
     logging.ERROR: "\033[31m",
     logging.CRITICAL: "\033[1;41m"
@@ -104,7 +105,6 @@ def file_sha256(s3_key):
     return hasher.hexdigest()
 
 def manifest_path(s3_key, file_hash=None):
-    # keep manifest next to original file (but router will skip any .manifest.json keys)
     return f"{s3_key}.manifest.json"
 
 def is_already_processed(file_hash):
@@ -156,6 +156,7 @@ def get_format_module(ext):
         "pptx": "ppt_pptx",
         "html": "html",
         "md": "md",
+        "markdown": "md",
         "txt": "txt",
         "mp3": "mp3",
         "jpg": "png_jpeg_jpg",
@@ -170,6 +171,34 @@ def detect_mime(key):
     mime, _ = mimetypes.guess_type(key)
     return mime or "application/octet-stream"
 
+def detect_ext_from_key(s3_client, bucket, key):
+    k = urllib.parse.unquote(key.split("?", 1)[0].split("#", 1)[0])
+    base, ext = os.path.splitext(k)
+    ext = ext.lstrip(".").lower()
+    if ext in ("markdown", "mdown"):
+        ext = "md"
+    if ext:
+        return ext
+    try:
+        head = s3_client.head_object(Bucket=bucket, Key=key)
+        ctype = (head.get("ContentType") or "").lower()
+        metadata = head.get("Metadata") or {}
+        meta_fn = metadata.get("filename") or metadata.get("originalname") or ""
+        if meta_fn:
+            _, mext = os.path.splitext(meta_fn)
+            mext = mext.lstrip(".").lower()
+            if mext in ("markdown", "mdown"):
+                return "md"
+            if mext:
+                return mext
+        if "markdown" in ctype or "text/markdown" in ctype:
+            return "md"
+        if ctype.startswith("text/"):
+            return "txt"
+    except Exception:
+        pass
+    return ""
+
 def main():
     log("Router pipeline started")
     run_id = str(uuid.uuid4())
@@ -181,10 +210,10 @@ def main():
             log(f"Skipping manifest file {key}")
             continue
 
-        ext = key.split(".")[-1]
+        ext = detect_ext_from_key(s3, S3_BUCKET, key)
         module_name = get_format_module(ext)
         if not module_name:
-            log(f"Skipping unsupported '{ext}': {key}", level="WARN")
+            log(f"Skipping unsupported '{ext or 'unknown'}': {key}", level="WARN")
             continue
         try:
             mod = importlib.import_module(

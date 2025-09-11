@@ -21,7 +21,7 @@ except Exception:
 RESET = "\033[0m"
 COLORS = {
     logging.DEBUG: "\033[90m",
-    logging.INFO: "\033[36m",
+    logging.INFO: "\033[37m",
     logging.WARNING: "\033[33m",
     logging.ERROR: "\033[31m",
     logging.CRITICAL: "\033[1;41m"
@@ -52,11 +52,11 @@ S3_BUCKET = os.getenv("S3_BUCKET")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX").rstrip("/") + "/"
 CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
-DISABLE_OCR = os.getenv("DISABLE_OCR", "false").lower() == "true"
-FORCE_OCR = os.getenv("FORCE_OCR", "false").lower() == "true"
-OCR_BACKEND = os.getenv("OCR_ENGINE", "tesseract").lower()
-RENDER_DPI = int(os.getenv("OCR_RENDER_DPI", "500"))
-MIN_IMG_BYTES = int(os.getenv("MIN_IMG_SIZE_BYTES", "3072"))
+DISABLE_OCR = os.getenv("PDF_DISABLE_OCR", "false").lower() == "true"
+FORCE_OCR = os.getenv("PDF_FORCE_OCR", "false").lower() == "true"
+OCR_BACKEND = os.getenv("PDF_OCR_ENGINE", "tesseract").lower()
+RENDER_DPI = int(os.getenv("PDF_OCR_RENDER_DPI", "500"))
+MIN_IMG_BYTES = int(os.getenv("PDF_MIN_IMG_SIZE_BYTES", "3072"))
 assert CHUNK_FORMAT in ("json", "jsonl")
 
 s3 = boto3.client("s3")

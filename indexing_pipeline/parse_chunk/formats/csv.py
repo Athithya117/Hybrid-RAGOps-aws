@@ -22,7 +22,7 @@ except Exception:
 RESET = "\033[0m"
 COLORS = {
     logging.DEBUG: "\033[90m",
-    logging.INFO: "\033[36m",
+    logging.INFO:"\033[37m",
     logging.WARNING: "\033[33m",
     logging.ERROR: "\033[31m",
     logging.CRITICAL: "\033[1;41m"
