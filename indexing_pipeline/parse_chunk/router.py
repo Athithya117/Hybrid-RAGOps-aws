@@ -47,8 +47,8 @@ def env_or_fail(var, default=None, mandatory=True):
     return val
 
 S3_BUCKET = env_or_fail("S3_BUCKET")
-S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/")
-S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/")
+S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/").rstrip("/") + "/"
+S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/").rstrip("/") + "/"
 CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
 FORCE_PROCESS = os.getenv("FORCE_PROCESS", "false").lower() == "true"
 
@@ -89,8 +89,11 @@ def list_raw_files():
     for page in pages:
         for obj in page.get("Contents", []):
             key = obj["Key"]
-            if not key.endswith("/"):
-                yield key
+            if key.endswith("/"):
+                continue
+            if key.lower().endswith(".manifest.json"):
+                continue
+            yield key
 
 def file_sha256(s3_key):
     hasher = hashlib.blake2b(digest_size=16)
@@ -101,6 +104,7 @@ def file_sha256(s3_key):
     return hasher.hexdigest()
 
 def manifest_path(s3_key, file_hash=None):
+    # keep manifest next to original file (but router will skip any .manifest.json keys)
     return f"{s3_key}.manifest.json"
 
 def is_already_processed(file_hash):
@@ -158,7 +162,8 @@ def get_format_module(ext):
         "jpeg": "png_jpeg_jpg",
         "png": "png_jpeg_jpg",
         "csv": "csv",
-        "json": "json"
+        "jsonl": "jsonl",
+        "ndjson": "jsonl"
     }.get(ext.lower())
 
 def detect_mime(key):
@@ -172,6 +177,10 @@ def main():
     keys = list(list_raw_files())
     log(f"Found {len(keys)} files")
     for key in keys:
+        if key.lower().endswith(".manifest.json"):
+            log(f"Skipping manifest file {key}")
+            continue
+
         ext = key.split(".")[-1]
         module_name = get_format_module(ext)
         if not module_name:
