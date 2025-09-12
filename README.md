@@ -358,6 +358,8 @@ export S3_RAW_PREFIX=data/raw/                        # raw ingest prefix (chang
 export S3_CHUNKED_PREFIX=data/chunked/                # chunked output prefix (change to separate processed data)
 export CHUNK_FORMAT=json                              # 'json' (readable) or 'jsonl' (stream/space efficient)
 export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to delete and replace docx with PDF, false to keep the originals
+export OVERWRITE_ALL_AUDIO_FILES=true                 # true to delete and replace .mp3, .m4a, .aac, etc with .mav 16khz
+
 
 export PDF_DISABLE_OCR=false                              # true to skip OCR (faster) | false to extract text from images
 export PDF_OCR_ENGINE=rapidocr                            # 'tesseract' (fast/common) or 'rapidocr' (high accuracy , slightly slower)
@@ -366,13 +368,14 @@ export PDF_OCR_RENDER_DPI=400                             # increase for detecti
 export PDF_MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller than this (often unneccessary black images)
 
 
-export HTML_WINDOW_SIZE=800                          # Default is page wise chunking, for large page 800 tokens per chunk with 80 token overlap
-export HTML_OVERLAP_TOKENS=80                        # Alter if needed. HTML_WINDOW_SIZE is max size including HTML_OVERLAP_TOKENS 
-export CSV_TARGET_TOKENS_PER_CHUNK=600               # Increase if very large .csv or Decrease if higher precision required
-export JSONL_TARGET_TOKENS_PER_CHUNK=800             # Increase if very large .jsonl or Decrease if higher precision required
-export MD_MAX_TOKENS_PER_CHUNK=800                   # Threshold for split headers in header wise chunking with 10% overlap
-export MD_MERGE_HEADER_THRESHOLD_TOKENS=400          # Threshold to merge small headers with their following header(s) till MD_MAX_TOKENS_PER_CHUNK
-
+export HTML_WINDOW_SIZE=800                      # Default is page wise chunking, for large page 800 tokens per chunk with 80 token overlap
+export HTML_OVERLAP_TOKENS=80                    # Alter if needed. HTML_WINDOW_SIZE is max size including HTML_OVERLAP_TOKENS 
+export CSV_TARGET_TOKENS_PER_CHUNK=600           # Increase if very large .csv or Decrease if higher precision required
+export JSONL_TARGET_TOKENS_PER_CHUNK=800         # Increase if very large .jsonl or Decrease if higher precision required
+export MD_MAX_TOKENS_PER_CHUNK=800               # Threshold for split headers in header wise chunking with 10% overlap
+export MD_MERGE_HEADER_THRESHOLD_TOKENS=400      # Threshold to cummulatively merge small headers with their next header(s) till MD_MAX_TOKENS_PER_CHUNK
+export AUDIO_SLICE_SECONDS=30                    # Audio slices in seconds with 10% overlap. Increase or decrease based on AUDIO_MAX_TOKENS_PER_CHUNK
+export AUDIO_MAX_TOKENS_PER_CHUNK=800            # Threshold to cummulatively merge small headers with their next header(s) till MD_MAX_TOKENS_PER_CHUNK    
 
 
 
@@ -454,7 +457,7 @@ FAISS handles “meaning in text,” GeAR handles “meaning in structure.” Bo
 
 ---
 
-### 🔹 **\[2] ReLiK-CIE-small(For precomputing entities and triplets, not deployed)**
+### 🔹 **\[2] whisper-base-int8-static-inc(For , not deployed)**
 
 A compact and efficient **entity + relation extraction** model designed for **Graph-RAG pipelines**. Unlike fast entity-only models (e.g., SpEL, ReFinED), `relik-cie-small` can extract both **named entities** and **semantic triplets** (`(head, relation, tail)`), enabling direct construction of **knowledge subgraphs** from raw text.
 
