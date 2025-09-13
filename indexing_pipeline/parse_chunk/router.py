@@ -150,8 +150,7 @@ def save_manifest(s3_key, manifest):
 def get_format_module(ext):
     return {
         "pdf": "pdf",
-        "ppt": "ppt_pptx",
-        "pptx": "ppt_pptx",
+        "pptx": "pptx",
         "html": "html",
         "md": "md",
         "markdown": "md",
@@ -162,10 +161,14 @@ def get_format_module(ext):
         "png": "images",
         "webp": "images",
         "tiff": "images",
+        "tif": "images",
+        "gif": "images",
+        "bmp": "images",
         "csv": "csv",
         "jsonl": "jsonl",
         "ndjson": "jsonl"
     }.get(ext.lower())
+
 
 def detect_mime(key):
     mime, _ = mimetypes.guess_type(key)

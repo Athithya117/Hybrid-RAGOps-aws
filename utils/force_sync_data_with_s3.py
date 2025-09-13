@@ -15,8 +15,6 @@ aws s3 ls "s3://$S3_BUCKET/" --recursive | tail -n 100
 
 """
 
-
-
 import os
 import sys
 import argparse

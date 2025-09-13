@@ -361,13 +361,12 @@ export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to delete and repla
 export OVERWRITE_ALL_AUDIO_FILES=true                 # true to delete and replace .mp3, .m4a, .aac, etc with .mav 16khz, false to keep the originals
 export OVERWRITE_SPREADSHEETS_WITH_CSV=true           # true to delete and replace .xls, .xlsx, .ods, etc with .csv files, false to keep the originals
 
-
-export PDF_DISABLE_OCR=false                              # true to skip OCR (faster) | false to extract text from images
-export PDF_OCR_ENGINE=rapidocr                            # 'tesseract' (fast/common) or 'rapidocr' (high accuracy , slightly slower)
-export PDF_FORCE_OCR=false                                # true to always OCR (use if source text unreliable)
+export PDF_DISABLE_OCR=false                              # true to skip OCR (very fast) or false to extract text from images
+export PDF_OCR_ENGINE=rapidocr                            # 'tesseract' (faster) or 'rapidocr' (high accuracy , slightly slower)
+export PDF_FORCE_OCR=false                                # true to always OCR(use if source text unreliable but not recommended for scaling)
 export PDF_OCR_RENDER_DPI=400                             # increase for detecting tiny text; lower for speed/cost
 export PDF_MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller than this (often unneccessary black images)
-
+export IMAGE_OCR_ENGINE=rapidocr                          # or 'tesseract' for image formats .png, .jpeg, .jpg, .tiff, .webp
 
 export HTML_WINDOW_SIZE=800                      # Default is page wise chunking, for large page 800 tokens per chunk with 80 token overlap
 export HTML_OVERLAP_TOKENS=80                    # Alter if needed. HTML_WINDOW_SIZE is max size including HTML_OVERLAP_TOKENS 
@@ -377,11 +376,9 @@ export MD_MAX_TOKENS_PER_CHUNK=800               # Threshold for split headers i
 export MD_MERGE_HEADER_THRESHOLD_TOKENS=400      # Threshold to cummulatively merge small headers with their next header(s) till MD_MAX_TOKENS_PER_CHUNK
 export AUDIO_SLICE_SECONDS=30                    # Audio slices in seconds with 10% overlap. Increase or decrease based on AUDIO_MAX_TOKENS_PER_CHUNK
 export AUDIO_MAX_TOKENS_PER_CHUNK=800            # Threshold to cummulatively merge small headers with their next header(s) till MD_MAX_TOKENS_PER_CHUNK    
-
-
-
-
-
+export TXT_MAX_TOKENS_PER_CHUNK=600              # Simple token based chunking with 10% overlap. Increase for cost or decrease for precision
+export PPTX_SLIDES_PER_CHUNK=3                   # Number of slides per chunk. Increase for cost or decrease for precision
+export PPTX_OCR_ENGINE=rapidocr                  # 'tesseract' (faster), 'rapidocr' (high accuracy , slightly slower)
 
 
 
