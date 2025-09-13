@@ -1,0 +1,13 @@
+{
+  "public_subnet_azs": [
+    "ap-south-1a",
+    "ap-south-1b"
+  ],
+  "public_subnet_ids": [
+    "subnet-0ff847c6a936292c4",
+    "subnet-0db4950f11e9fddd8"
+  ],
+  "qdrant_security_group_id": "sg-008d7b456174c312c",
+  "ray_security_group_id": "sg-017f8622d0facc8a2",
+  "vpc_id": "vpc-062728a355e719f7f"
+}

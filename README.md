@@ -353,7 +353,7 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 
 ```sh
 
-export S3_BUCKET=e2e-rag-system-42                    # Set any globally unique complex name
+
 export S3_RAW_PREFIX=data/raw/                        # raw ingest prefix (change to isolate datasets)
 export S3_CHUNKED_PREFIX=data/chunked/                # chunked output prefix (change to separate processed data)
 export CHUNK_FORMAT=json                              # 'json' (readable) or 'jsonl' (stream/space efficient)
@@ -379,6 +379,27 @@ export AUDIO_MAX_TOKENS_PER_CHUNK=800            # Threshold to cummulatively me
 export TXT_MAX_TOKENS_PER_CHUNK=600              # Simple token based chunking with 10% overlap. Increase for cost or decrease for precision
 export PPTX_SLIDES_PER_CHUNK=5                   # Number of slides per chunk. Increase for cost or decrease for precision
 export PPTX_OCR_ENGINE=rapidocr                  # 'tesseract' (faster), 'rapidocr' (high accuracy , slightly slower)
+
+```
+
+
+
+# infra 
+
+```sh
+
+export PULUMI_CONFIG_PASSPHRASE=mypassword    # For headless automation
+export QDRANT_PRIVATE_IP="10.0.1.10"          # Deterministic private IP for Qdrant that only ray clusters can access
+export QDRANT_INSTANCE_TYPE="t3.medium"       # EC2 instance type for Qdrant
+export AWS_ACCESS_KEY_ID="AKIA.."
+export AWS_SECRET_ACCESS_KEY=""
+export AWS_REGION="ap-south-1"               # AWS region to create resources
+export S3_BUCKET=e2e-rag-system-42           # Set any globally unique complex name, Pulumi S3 backend -> s3://$S3_BUCKET/pulumi/
+export STACK="prod"                          # Any name for pulumi stack
+
+export MY_SSH_CIDR="203.0.113.42/32"                       # operator SSH CIDR (single IP recommended)
+export PUBLIC_SUBNET_CIDRS="10.0.1.0/24,10.0.2.0/24"       # comma-separated public subnets
+export VPC_CIDR="10.0.0.0/16"                             # VPC range
 
 
 

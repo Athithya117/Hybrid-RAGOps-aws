@@ -69,7 +69,7 @@ log "Update & install base packages"
 sudo apt-get update -yq
 sudo apt-get upgrade -yq || true
 sudo apt-get install -yq --no-install-recommends \
-  ca-certificates curl wget git sudo tree jq unzip make python3.10-venv python3-pip \
+  ca-certificates curl wget git gh sudo tree jq unzip make python3.10-venv python3-pip \
   build-essential gnupg lsb-release software-properties-common zip apt-transport-https fonts-dejavu fonts-liberation \
   unzip
 
@@ -131,10 +131,14 @@ if ! command -v libreoffice >/dev/null 2>&1; then
   log "Installing LibreOffice (headless)"
   sudo add-apt-repository ppa:libreoffice/ppa -y || true
   sudo apt-get update -yq
-  sudo apt-get install -y libreoffice-core libreoffice-writer libreoffice-calc --no-install-recommends || true
+  sudo apt-get install -yq libreoffice-core libreoffice-writer libreoffice-calc --no-install-recommends || true
 fi
 
-# Pull a helpful docker image if available (non-fatal)
 docker pull athithya324/embedder-cpu-inference:linux-amd64-arm64 >/dev/null 2>&1 || true
 
-log "Bootstrap completed. Reload shell: source ~/.bashrc"
+pip install pulumi==3.196.0 pulumi-aws==7.7.0
+pulumi plugin install resource aws v7.7.0
+
+clear
+
+echo "Bootstrap completed. Open a new terminal or run source ~/.bashrc"

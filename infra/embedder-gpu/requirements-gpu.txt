@@ -1,4 +1,4 @@
-ray[serve]==2.49.0
+ray[serve]==2.49.1
 onnxruntime-gpu==1.22.0
 transformers==4.56.0
 fastapi==0.116.1
