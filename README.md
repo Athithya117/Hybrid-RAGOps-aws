@@ -358,7 +358,8 @@ export S3_RAW_PREFIX=data/raw/                        # raw ingest prefix (chang
 export S3_CHUNKED_PREFIX=data/chunked/                # chunked output prefix (change to separate processed data)
 export CHUNK_FORMAT=json                              # 'json' (readable) or 'jsonl' (stream/space efficient)
 export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to delete and replace docx with PDF, false to keep the originals
-export OVERWRITE_ALL_AUDIO_FILES=true                 # true to delete and replace .mp3, .m4a, .aac, etc with .mav 16khz
+export OVERWRITE_ALL_AUDIO_FILES=true                 # true to delete and replace .mp3, .m4a, .aac, etc with .mav 16khz, false to keep the originals
+export OVERWRITE_SPREADSHEETS_WITH_CSV=true           # true to delete and replace .xls, .xlsx, .ods, etc with .csv files, false to keep the originals
 
 
 export PDF_DISABLE_OCR=false                              # true to skip OCR (faster) | false to extract text from images

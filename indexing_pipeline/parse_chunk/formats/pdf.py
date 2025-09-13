@@ -41,8 +41,8 @@ log.handlers[:] = [handler]
 
 REQUIRED = [
     "S3_BUCKET", "S3_RAW_PREFIX", "S3_CHUNKED_PREFIX",
-    "CHUNK_FORMAT", "DISABLE_OCR", "OCR_ENGINE", "FORCE_OCR",
-    "OCR_RENDER_DPI", "MIN_IMG_SIZE_BYTES"
+    "CHUNK_FORMAT", "PDF_DISABLE_OCR", "PDF_OCR_ENGINE", "PDF_FORCE_OCR",
+    "PDF_OCR_RENDER_DPI", "PDF_MIN_IMG_SIZE_BYTES"
 ]
 missing = [v for v in REQUIRED if os.getenv(v) is None]
 if missing:

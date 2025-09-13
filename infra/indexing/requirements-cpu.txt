@@ -18,3 +18,5 @@ pyarrow==21.0.0
 ijson==3.4.0
 markdown-it-py==4.0.0
 colorama==0.4.6
+faster-whisper==1.2.0
+soundfile==0.13.1

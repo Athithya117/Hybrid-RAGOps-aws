@@ -40,7 +40,6 @@ def run_cmd(cmd: list) -> Tuple[int, str]:
     rc = proc.returncode
     return rc, out + err
 
-
 def list_audio_keys(bucket: str, prefix: str):
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
@@ -50,15 +49,12 @@ def list_audio_keys(bucket: str, prefix: str):
             if ext in AUDIO_EXTS:
                 yield key
 
-
 def s3_download(bucket: str, key: str, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     s3.download_file(bucket, key, str(out_path))
 
-
 def s3_upload(bucket: str, key: str, src_path: Path) -> None:
     s3.upload_file(str(src_path), bucket, key)
-
 
 def probe_audio(path: Path) -> Tuple[int, int, str]:
     cmd = [
@@ -86,7 +82,6 @@ def probe_audio(path: Path) -> Tuple[int, int, str]:
     codec = st.get("codec_name", "")
     return sr, ch, codec
 
-
 def convert_to_wav(src: Path, dst: Path, sample_rate: int = 16000) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
@@ -106,11 +101,8 @@ def convert_to_wav(src: Path, dst: Path, sample_rate: int = 16000) -> None:
     if rc != 0:
         raise RuntimeError(f"ffmpeg failed converting {src} -> {dst}: {out}")
 
-
 def target_key_for_wav(original_key: str) -> str:
-    base, _ = os.path.splitext(original_key)
-    return f"{base}.wav"
-
+    return f"{original_key}.wav"
 
 def already_ok_wav(path: Path) -> bool:
     try:
@@ -121,7 +113,6 @@ def already_ok_wav(path: Path) -> bool:
         return False
     return False
 
-
 def delete_s3_key(bucket: str, key: str) -> bool:
     try:
         s3.delete_object(Bucket=bucket, Key=key)
@@ -130,7 +121,6 @@ def delete_s3_key(bucket: str, key: str) -> bool:
     except Exception as e:
         logger.exception("Failed to delete s3://%s/%s: %s", bucket, key, e)
         return False
-
 
 def process_key(bucket: str, key: str, tmp_root: Path) -> bool:
     logger.info("Processing s3://%s/%s (OVERWRITE_ALL_AUDIO_FILES=%s FORCE=%s)", bucket, key, OVERWRITE_ALL_AUDIO_FILES, FORCE)
@@ -142,10 +132,8 @@ def process_key(bucket: str, key: str, tmp_root: Path) -> bool:
     except ClientError:
         target_exists = False
 
-    # If target exists and FORCE not set, we normally skip uploading.
     if target_exists and not FORCE:
         logger.info("Target %s already exists and FORCE not set.", target_key)
-        # If user requested overwrite semantics (delete originals), do it anyway (but avoid deleting if same key)
         if OVERWRITE_ALL_AUDIO_FILES and target_key != key:
             try:
                 delete_s3_key(bucket, key)
@@ -157,21 +145,18 @@ def process_key(bucket: str, key: str, tmp_root: Path) -> bool:
         return False
 
     local_src = tmp_root / "src" / Path(key).name
-    local_dst = tmp_root / "dst" / (Path(key).stem + ".wav")
+    local_dst = tmp_root / "dst" / (Path(key).name + ".wav")
     try:
         s3_download(bucket, key, local_src)
     except Exception as e:
         logger.exception("Failed to download s3://%s/%s -> %s: %s", bucket, key, local_src, e)
         return False
 
-    # If source is already a good 16k mono wav, upload as-is (unless it's same key)
     try:
         if local_src.suffix.lower() == ".wav" and already_ok_wav(local_src):
             logger.info("Source is already 16kHz mono WAV: %s", local_src)
-            # If original key equals target_key, nothing to change; but if OVERWRITE requested, we don't delete it because it's the same file.
             if local_src.name == Path(target_key).name and key.endswith(".wav"):
                 logger.info("Original is target WAV; nothing to upload.")
-                # If OVERWRITE_ALL_AUDIO_FILES true and target_key != key, handled earlier; here target==original so nothing to delete.
                 return False
             try:
                 s3_upload(bucket, target_key, local_src)
@@ -179,14 +164,12 @@ def process_key(bucket: str, key: str, tmp_root: Path) -> bool:
                 logger.exception("Upload failed for %s -> s3://%s/%s: %s", local_src, bucket, target_key, e)
                 return False
             logger.info("Uploaded existing WAV to %s", target_key)
-            # If requested, delete original (only if different key)
             if OVERWRITE_ALL_AUDIO_FILES and target_key != key:
                 delete_s3_key(bucket, key)
             return True
     except Exception as e:
         logger.warning("Probe/handling failed for %s: %s (will attempt conversion)", local_src, e)
 
-    # Convert and upload
     try:
         convert_to_wav(local_src, local_dst, sample_rate=16000)
     except Exception as e:
@@ -201,12 +184,10 @@ def process_key(bucket: str, key: str, tmp_root: Path) -> bool:
 
     logger.info("Converted and uploaded %s -> s3://%s/%s", key, bucket, target_key)
 
-    # If requested, delete the original (only if different key)
     if OVERWRITE_ALL_AUDIO_FILES and target_key != key:
         delete_s3_key(bucket, key)
 
     return True
-
 
 def main():
     tmp_root = Path(tempfile.mkdtemp(prefix="audioconv_", dir=TMP_DIR))
@@ -232,7 +213,6 @@ def main():
             pass
 
     logger.info("Done. processed=%d skipped=%d failed=%d", processed, skipped, failed)
-
 
 if __name__ == "__main__":
     main()

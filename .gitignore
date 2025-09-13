@@ -11,6 +11,9 @@ myenv/
 temp
 tmp
 
+data_sample/
+data_sample
+
 # Python cache
 __pycache__/
 *.pyc

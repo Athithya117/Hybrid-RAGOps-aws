@@ -1,4 +1,10 @@
-.PHONY: s3 delete-s3 tree clean lc
+.PHONY: s3 delete-s3 tree clean lc push
+
+push:
+	git add .
+	git commit -m "new"
+	git push origin main
+
 s3:
 	python3 utils/s3_bucket.py --create
 	aws s3 ls "s3://$S3_BUCKET/" --recursive | head -n 100
