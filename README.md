@@ -377,7 +377,7 @@ export MD_MERGE_HEADER_THRESHOLD_TOKENS=400      # Threshold to cummulatively me
 export AUDIO_SLICE_SECONDS=30                    # Audio slices in seconds with 10% overlap. Increase or decrease based on AUDIO_MAX_TOKENS_PER_CHUNK
 export AUDIO_MAX_TOKENS_PER_CHUNK=800            # Threshold to cummulatively merge small headers with their next header(s) till MD_MAX_TOKENS_PER_CHUNK    
 export TXT_MAX_TOKENS_PER_CHUNK=600              # Simple token based chunking with 10% overlap. Increase for cost or decrease for precision
-export PPTX_SLIDES_PER_CHUNK=3                   # Number of slides per chunk. Increase for cost or decrease for precision
+export PPTX_SLIDES_PER_CHUNK=5                   # Number of slides per chunk. Increase for cost or decrease for precision
 export PPTX_OCR_ENGINE=rapidocr                  # 'tesseract' (faster), 'rapidocr' (high accuracy , slightly slower)
 
 

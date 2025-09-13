@@ -37,3 +37,4 @@ exec soffice \
   --nocrashreport \
   --nolockcheck \
   --accept="socket,host=127.0.0.1,port=${PORT};urp;StarOffice.ServiceManager"
+
