@@ -391,7 +391,8 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 
 ```sh
 
-
+export PYTHONUNBUFFERED=1
+export S3_BUCKET=e2e-rag-system-42           # Set any globally unique complex name, Pulumi S3 backend -> s3://$S3_BUCKET/pulumi/
 export S3_RAW_PREFIX=data/raw/                        # raw ingest prefix (change to isolate datasets)
 export S3_CHUNKED_PREFIX=data/chunked/                # chunked output prefix (change to separate processed data)
 export CHUNK_FORMAT=json                              # 'json' (readable) or 'jsonl' (stream/space efficient)
@@ -417,6 +418,9 @@ export AUDIO_MAX_TOKENS_PER_CHUNK=800            # Threshold to cummulatively me
 export TXT_MAX_TOKENS_PER_CHUNK=600              # Simple token based chunking with 10% overlap. Increase for cost or decrease for precision
 export PPTX_SLIDES_PER_CHUNK=5                   # Number of slides per chunk. Increase for cost or decrease for precision
 export PPTX_OCR_ENGINE=rapidocr                  # 'tesseract' (faster), 'rapidocr' (high accuracy , slightly slower)
+
+
+
 
 ```
 

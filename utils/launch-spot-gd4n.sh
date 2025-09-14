@@ -3,7 +3,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 AWS_REGION=${AWS_REGION:-ap-south-1}
-ARCH=${ARCH:-x86_64}   # set to "arm64" if you want Graviton-based AMIs
+ARCH=${ARCH:-x86_64}  
 
 echo "Searching for latest Deep Learning GPU AMI for Ubuntu 22.04 in region: $AWS_REGION (arch=$ARCH)"
 

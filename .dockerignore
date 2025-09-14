@@ -34,6 +34,11 @@ commands.md
 cli.md
 tmp.md
 
+
+data_sample/
+data_sample
+
+
 # Git and versioning
 .git/
 .gitignore

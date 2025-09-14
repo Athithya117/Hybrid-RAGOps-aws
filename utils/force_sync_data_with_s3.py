@@ -11,7 +11,7 @@ python3 utils/force_sync_data_with_s3.py --upload --force
 (OR)
 python3 utils/force_sync_data_with_s3.py --download --force
 
-aws s3 ls "s3://$S3_BUCKET/" --recursive | tail -n 100
+aws s3 ls "s3://$S3_BUCKET/data/" --recursive | tail -n 100
 
 """
 
