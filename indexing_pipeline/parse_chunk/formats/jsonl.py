@@ -184,6 +184,12 @@ def get_header_and_sample_tokens(s3_key: str) -> Tuple[str, int]:
 def make_doc_id(s3_key: str, last_modified: Any) -> str:
     return sha256_hex(s3_key + str(last_modified or ""))
 
+def _derive_source_key_from_path(s3_path: str) -> str:
+    prefix = f"s3://{S3_BUCKET}/"
+    if s3_path.startswith(prefix):
+        return s3_path[len(prefix):]
+    return ""
+
 def _flush_rows_chunk(
     doc_id: str,
     s3_path: str,
@@ -200,42 +206,80 @@ def _flush_rows_chunk(
     chunk_text = header_text + "\n" + "\n".join(rows_text) if header_text else "\n".join(rows_text)
     token_ct = token_count_for(chunk_text)
     end_row_num = start_row_num + len(rows_text) - 1
+
+    source_key = _derive_source_key_from_path(s3_path)
+
+    # universal schema payload
     payload = {
-        "document_id": doc_id,
-        "chunk_id": chunk_id,
+        "document_id": doc_id or "",
+        "chunk_id": chunk_id or "",
         "chunk_type": "row_group",
-        "text": chunk_text,
+        "text": canonicalize_text(chunk_text) or "",
+        "token_count": int(token_ct or 0),
         "embedding": None,
-        "source": {
-            "file_type": "application/x-ndjson",
-            "source_url": s3_path,
-            "text_checksum": sha256_hex(chunk_text),
-            "row_range": [start_row_num, end_row_num],
-        },
-        "metadata": {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "parser_version": PARSER_VERSION,
-            "token_count": token_ct,
-        },
+        "file_type": "application/x-ndjson",
+        "source_path": s3_path,
+        "source_url": None,
+        "snapshot_path": "",
+        "text_checksum": sha256_hex(chunk_text),
+        "page_number": None,
+        "slide_range_start": None,
+        "slide_range_end": None,
+        "row_range_start": int(start_row_num),
+        "row_range_end": int(end_row_num),
+        "token_start": None,
+        "token_end": None,
+        "audio_range_start": "",
+        "audio_range_end": "",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "parser_version": PARSER_VERSION or "",
+        "token_encoder": ENC_NAME or "",
+        "tags": [],
+        "layout_tags": [],
+        "used_ocr": False,
+        "parse_chunk_duration_ms": None,
+        "window_index": None,
+        "heading_path": [],
+        "headings": [],
+        "line_range_start": None,
+        "line_range_end": None,
+        "subchunk_index": None,
+        "commit_sha": "",
+        "model_compute": "",
+        "cpu_threads": None,
+        "beam_size": None,
+        "chunk_duration_ms": None,
+        "token_window_index": None,
+        "snapshot_id": "",
+        "source_bucket": S3_BUCKET,
+        "source_key": source_key,
+        "source_format_hint": "application/x-ndjson"
     }
+
     ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
     out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
     body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
+
     if not FORCE_OVERWRITE and s3_object_exists(out_key):
         t_after = time.perf_counter()
         parse_ms = int(round((t_after - t0_chunk) * 1000))
         if parse_ms == 0:
             parse_ms = 1
-        payload["metadata"]["parse_chunk_duration_ms"] = parse_ms
+        payload["parse_chunk_duration_ms"] = parse_ms
         log.info(f"Skipping existing chunk {payload['chunk_id']} (assembly {parse_ms} ms)")
         return 0, chunk_index
+
+    # write initial payload
     t_put_start = time.perf_counter()
     s3_put_object_with_retries(out_key, body, content_type="application/json")
     t_put_end = time.perf_counter()
     total_ms = int(round((t_put_end - t0_chunk) * 1000))
     if total_ms == 0:
         total_ms = 1
-    payload["metadata"]["parse_chunk_duration_ms"] = total_ms
+    payload["parse_chunk_duration_ms"] = total_ms
+    payload["chunk_duration_ms"] = total_ms
+
+    # write payload again with duration metadata to preserve the original behavior
     body_with_meta = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
     s3_put_object_with_retries(out_key, body_with_meta, content_type="application/json")
     log.info(f"Wrote JSONL chunk {payload['chunk_id']} → {out_key} ({total_ms} ms)")
@@ -256,6 +300,9 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
         next_row_num += 1
         row_tokens = token_count_for(row_text)
         header_tokens = token_count_for(header_text) if header_text else 0
+
+        source_key = _derive_source_key_from_path(s3_path)
+
         if row_tokens > TARGET_TOKENS_PER_CHUNK:
             if rows_text:
                 wrote, chunk_index = _flush_rows_chunk(doc_id, s3_path, chunk_index, header_text, rows_text, start_row_of_current)
@@ -267,27 +314,53 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
                 chunk_id = f"{doc_id}_{chunk_index}"
                 candidate_text = header_text + "\n" + w["text"] if header_text and (header_tokens + w["token_count"] <= TARGET_TOKENS_PER_CHUNK) else w["text"]
                 token_ct = token_count_for(candidate_text)
+                # universal schema for token window
                 payload = {
-                    "document_id": doc_id,
-                    "chunk_id": chunk_id,
+                    "document_id": doc_id or "",
+                    "chunk_id": chunk_id or "",
                     "chunk_type": "token_window",
-                    "text": candidate_text,
+                    "text": canonicalize_text(candidate_text) or "",
+                    "token_count": int(token_ct or 0),
                     "embedding": None,
-                    "source": {
-                        "file_type": "application/x-ndjson",
-                        "source_url": s3_path,
-                        "text_checksum": sha256_hex(candidate_text),
-                        "token_start": w["token_start"],
-                        "token_end": w["token_end"],
-                        "row_range": [row_num, row_num],
-                    },
-                    "metadata": {
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
-                        "parser_version": PARSER_VERSION,
-                        "token_count": token_ct,
-                        "window_index": w["window_index"],
-                    },
+                    "file_type": "application/x-ndjson",
+                    "source_path": s3_path,
+                    "source_url": None,
+                    "snapshot_path": "",
+                    "text_checksum": sha256_hex(candidate_text),
+                    "page_number": None,
+                    "slide_range_start": None,
+                    "slide_range_end": None,
+                    "row_range_start": int(row_num),
+                    "row_range_end": int(row_num),
+                    "token_start": int(w.get("token_start")),
+                    "token_end": int(w.get("token_end")),
+                    "audio_range_start": "",
+                    "audio_range_end": "",
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "parser_version": PARSER_VERSION or "",
+                    "token_encoder": ENC_NAME or "",
+                    "tags": [],
+                    "layout_tags": [],
+                    "used_ocr": False,
+                    "parse_chunk_duration_ms": None,
+                    "window_index": int(w.get("window_index")),
+                    "heading_path": [],
+                    "headings": [],
+                    "line_range_start": None,
+                    "line_range_end": None,
+                    "subchunk_index": None,
+                    "commit_sha": "",
+                    "model_compute": "",
+                    "cpu_threads": None,
+                    "beam_size": None,
+                    "chunk_duration_ms": None,
+                    "token_window_index": int(w.get("window_index")),
+                    "snapshot_id": "",
+                    "source_bucket": S3_BUCKET,
+                    "source_key": source_key,
+                    "source_format_hint": "application/x-ndjson"
                 }
+
                 ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
                 out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
                 body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
@@ -297,22 +370,23 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
                     parse_ms = int(round((t_after - t0_chunk) * 1000))
                     if parse_ms == 0:
                         parse_ms = 1
-                    payload["metadata"]["parse_chunk_duration_ms"] = parse_ms
+                    payload["parse_chunk_duration_ms"] = parse_ms
                     log.info(f"Skipping existing window chunk {payload['chunk_id']} (assembly {parse_ms} ms)")
                     continue
-                t_put_start = time.perf_counter()
                 s3_put_object_with_retries(out_key, body, content_type="application/json")
                 t_put_end = time.perf_counter()
                 total_ms = int(round((t_put_end - t0_chunk) * 1000))
                 if total_ms == 0:
                     total_ms = 1
-                payload["metadata"]["parse_chunk_duration_ms"] = total_ms
+                payload["parse_chunk_duration_ms"] = total_ms
+                payload["chunk_duration_ms"] = total_ms
                 body_with_meta = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
                 s3_put_object_with_retries(out_key, body_with_meta, content_type="application/json")
                 log.info(f"Wrote JSONL token window {payload['chunk_id']} → {out_key} ({total_ms} ms)")
                 saved += 1
             start_row_of_current = next_row_num
             continue
+
         candidate_text = header_text + "\n" + "\n".join(rows_text + [row_text]) if header_text else "\n".join(rows_text + [row_text])
         candidate_tokens = token_count_for(candidate_text)
         if candidate_tokens <= TARGET_TOKENS_PER_CHUNK:

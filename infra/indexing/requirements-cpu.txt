@@ -21,3 +21,4 @@ colorama==0.4.6
 faster-whisper==1.2.0
 soundfile==0.13.1
 python-pptx==1.0.2
+qdrant-client==1.15.1

@@ -11,7 +11,7 @@ import unicodedata
 import re
 from datetime import datetime
 from botocore.exceptions import ClientError
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Iterator, Tuple
 
 try:
     import colorama
@@ -75,7 +75,7 @@ except Exception:
         enc = None
 
 def sha256_hex(s: str) -> str:
-    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+    return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
 def canonicalize_text(s: str) -> str:
     if not isinstance(s, str):
@@ -121,6 +121,12 @@ def s3_put_object_with_retries(key: str, body: bytes, content_type: str = "appli
             if attempt < S3_PUT_RETRIES:
                 time.sleep(S3_PUT_BACKOFF * attempt)
     raise Exception("s3 put failed after retries")
+
+def _derive_source_key_from_path(s3_path: str) -> str:
+    prefix = f"s3://{S3_BUCKET}/"
+    if s3_path.startswith(prefix):
+        return s3_path[len(prefix):]
+    return ""
 
 def split_long_line_into_char_windows(line: str, max_tokens: int, overlap_tokens: int) -> List[Dict[str, Any]]:
     pieces = []
@@ -222,33 +228,63 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
     full_token_count = token_count_for(canonical_full)
     saved = 0
     chunk_index = 1
+    s3_key_derived = _derive_source_key_from_path(s3_path)
+
     if full_token_count <= TXT_MAX_TOKENS_PER_CHUNK:
         chunk_id = f"{doc_id}_{chunk_index}"
         chunk_index += 1
         checksum = sha256_hex(canonical_full)
         chunk_build_start = time.perf_counter()
+        duration_ms = int((time.perf_counter() - chunk_build_start) * 1000)
+        if duration_ms == 0:
+            duration_ms = 1
+
         payload = {
-            "document_id": doc_id,
-            "chunk_id": chunk_id,
+            "document_id": doc_id or "",
+            "chunk_id": chunk_id or "",
             "chunk_type": "txt_section",
-            "text": canonical_full,
+            "text": canonical_full or "",
+            "token_count": int(full_token_count or 0),
             "embedding": None,
-            "source": {
-                "file_type": "text/plain",
-                "source_url": s3_path,
-                "snapshot_path": snapshot_path,
-                "text_checksum": checksum
-            },
-            "metadata": {
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "parser_version": PARSER_VERSION,
-                "token_count": full_token_count,
-                "token_encoder": ENC_NAME,
-                "line_range": [1, len(lines)],
-                "commit_sha": commit_sha
-            }
+            "file_type": "text/plain",
+            "source_path": s3_path,
+            "source_url": s3_path,
+            "snapshot_path": snapshot_path or "",
+            "text_checksum": checksum,
+            "page_number": None,
+            "slide_range_start": None,
+            "slide_range_end": None,
+            "row_range_start": None,
+            "row_range_end": None,
+            "token_start": None,
+            "token_end": None,
+            "audio_range_start": "",
+            "audio_range_end": "",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "parser_version": PARSER_VERSION,
+            "token_encoder": ENC_NAME,
+            "tags": [],
+            "layout_tags": [],
+            "used_ocr": False,
+            "parse_chunk_duration_ms": int(duration_ms),
+            "window_index": None,
+            "heading_path": [],
+            "headings": [],
+            "line_range_start": 1,
+            "line_range_end": len(lines),
+            "subchunk_index": None,
+            "commit_sha": commit_sha or "",
+            "model_compute": "",
+            "cpu_threads": None,
+            "beam_size": None,
+            "chunk_duration_ms": int(duration_ms),
+            "token_window_index": None,
+            "snapshot_id": "",
+            "source_bucket": S3_BUCKET,
+            "source_key": s3_key_derived,
+            "source_format_hint": "text/plain"
         }
-        payload["metadata"]["parse_chunk_duration_ms"] = int((time.perf_counter() - chunk_build_start) * 1000)
+
         ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
         out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
         if not FORCE_OVERWRITE and s3_object_exists(out_key):
@@ -271,29 +307,56 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             start_line = sline + 1
             end_line = eline
             checksum = sha256_hex(chunk_text)
+            duration_ms = int((time.perf_counter() - chunk_build_start) * 1000)
+            if duration_ms == 0:
+                duration_ms = 1
+
             payload = {
-                "document_id": doc_id,
-                "chunk_id": chunk_id,
+                "document_id": doc_id or "",
+                "chunk_id": chunk_id or "",
                 "chunk_type": "txt_subchunk",
-                "text": chunk_text,
+                "text": chunk_text or "",
+                "token_count": int(token_ct or 0),
                 "embedding": None,
-                "source": {
-                    "file_type": "text/plain",
-                    "source_url": s3_path,
-                    "snapshot_path": snapshot_path,
-                    "text_checksum": checksum
-                },
-                "metadata": {
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                    "parser_version": PARSER_VERSION,
-                    "token_count": token_ct,
-                    "token_encoder": ENC_NAME,
-                    "line_range": [start_line, end_line],
-                    "subchunk_index": sub.get("subchunk_index", 0),
-                    "commit_sha": commit_sha
-                }
+                "file_type": "text/plain",
+                "source_path": s3_path,
+                "source_url": s3_path,
+                "snapshot_path": snapshot_path or "",
+                "text_checksum": checksum,
+                "page_number": None,
+                "slide_range_start": None,
+                "slide_range_end": None,
+                "row_range_start": None,
+                "row_range_end": None,
+                "token_start": None,
+                "token_end": None,
+                "audio_range_start": "",
+                "audio_range_end": "",
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "parser_version": PARSER_VERSION,
+                "token_encoder": ENC_NAME,
+                "tags": [],
+                "layout_tags": [],
+                "used_ocr": False,
+                "parse_chunk_duration_ms": int(duration_ms),
+                "window_index": None,
+                "heading_path": [],
+                "headings": [],
+                "line_range_start": int(start_line),
+                "line_range_end": int(end_line),
+                "subchunk_index": int(sub.get("subchunk_index", 0)),
+                "commit_sha": commit_sha or "",
+                "model_compute": "",
+                "cpu_threads": None,
+                "beam_size": None,
+                "chunk_duration_ms": int(duration_ms),
+                "token_window_index": None,
+                "snapshot_id": "",
+                "source_bucket": S3_BUCKET,
+                "source_key": s3_key_derived,
+                "source_format_hint": "text/plain"
             }
-            payload["metadata"]["parse_chunk_duration_ms"] = int((time.perf_counter() - chunk_build_start) * 1000)
+
             ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
             out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
             if not FORCE_OVERWRITE and s3_object_exists(out_key):
@@ -303,6 +366,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             s3_put_object_with_retries(out_key, body)
             log.info("Wrote subchunk %s (lines %d-%d) → %s", payload["chunk_id"], start_line, end_line, out_key)
             saved += 1
+
     total_ms = int((time.perf_counter() - start_all) * 1000)
     log.info("Completed parsing %d chunks for %s in %d ms total", saved, s3_key, total_ms)
     return {"saved_chunks": saved, "total_parse_duration_ms": total_ms}

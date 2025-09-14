@@ -1,3 +1,4 @@
+# (entire script as you provided, with payload replaced by the universal schema)
 import os
 import sys
 import json
@@ -249,25 +250,61 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         clean = dedupe_lines(clean)
         final_text = "\n\n".join(clean)
         duration_ms = int((time.perf_counter() - t0) * 1000)
+
+        # Compute checksum of text (SHA256)
+        try:
+            text_checksum = hashlib.sha256(final_text.encode("utf-8")).hexdigest()
+        except Exception:
+            text_checksum = ""
+
+        # Universal payload (matches the schema you provided)
         payload = {
-            "document_id": doc_id,
-            "chunk_id": chunk_id,
-            "chunk_type": "page",
-            "text": final_text,
-            "embedding": None,
-            "source": {
-                "file_type": "application/pdf",
-                "source_path": source,
-                "page_number": page_num
-            },
-            "metadata": {
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "tags": [],
-                "layout_tags": ["page"],
-                "used_ocr": used_ocr,
-                "parse_chunk_duration_ms": duration_ms
-            }
+          "document_id": doc_id or "",
+          "chunk_id": chunk_id or "",
+          "chunk_type": "page",
+          "text": final_text or "",
+          "token_count": 0,
+          "embedding": None,
+          "file_type": "application/pdf",
+          "source_path": source,
+          "source_url": None,
+          "snapshot_path": "",
+          "text_checksum": text_checksum,
+          "page_number": page_num,
+          "slide_range_start": None,
+          "slide_range_end": None,
+          "row_range_start": None,
+          "row_range_end": None,
+          "token_start": None,
+          "token_end": None,
+          "audio_range_start": "",
+          "audio_range_end": "",
+          "timestamp": datetime.utcnow().isoformat() + "Z",
+          "parser_version": "",
+          "token_encoder": "",
+          "tags": [],
+          "layout_tags": ["page"],
+          "used_ocr": bool(used_ocr),
+          "parse_chunk_duration_ms": duration_ms,
+          "window_index": None,
+          "heading_path": [],
+          "headings": [],
+          "line_range_start": None,
+          "line_range_end": None,
+          "subchunk_index": None,
+          "commit_sha": manifest.get("commit_sha", "") if isinstance(manifest, dict) else "",
+          "model_compute": "",
+          "cpu_threads": None,
+          "beam_size": None,
+          "chunk_duration_ms": duration_ms,
+          "token_window_index": None,
+          "snapshot_id": "",
+          "source_bucket": S3_BUCKET,
+          "source_key": s3_key,
+          "source_format_hint": "pdf"
         }
+
+        # keep legacy-compatible output filename and format behavior
         ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
         out_key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext}"
         body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())

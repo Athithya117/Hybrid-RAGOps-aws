@@ -177,27 +177,58 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         t0_chunk = time.perf_counter()
         chunk_index = 1
         chunk_id = f"{doc_id}_{chunk_index}"
+        # compute parse duration (include extract time)
+        parse_ms = extract_duration_ms + int((time.perf_counter() - t0_chunk) * 1000)
+        if parse_ms == 0:
+            parse_ms = 1
+
+        # universal schema payload (small page)
         payload = {
             "document_id": doc_id,
             "chunk_id": chunk_id,
             "chunk_type": "page",
             "text": canonical_full,
+            "token_count": int(token_ct),
             "embedding": None,
-            "source": {
-                "file_type": "text/html",
-                "source_url": source_url,
-                "snapshot_path": snapshot_path,
-                "text_checksum": sha256_hex(canonical_full)
-            },
-            "metadata": {
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "title": title,
-                "parser_version": PARSER_VERSION,
-                "token_count": token_ct,
-                "token_encoder": ENC_NAME,
-                "parse_chunk_duration_ms": int((time.perf_counter() - t0_chunk) * 1000) + extract_duration_ms
-            }
+            "file_type": "text/html",
+            "source_path": s3_path,
+            "source_url": source_url,
+            "snapshot_path": snapshot_path or "",
+            "text_checksum": sha256_hex(canonical_full),
+            "page_number": None,
+            "slide_range_start": None,
+            "slide_range_end": None,
+            "row_range_start": None,
+            "row_range_end": None,
+            "token_start": None,
+            "token_end": None,
+            "audio_range_start": "",
+            "audio_range_end": "",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "parser_version": PARSER_VERSION,
+            "token_encoder": ENC_NAME,
+            "tags": [],
+            "layout_tags": ["page"],
+            "used_ocr": False,
+            "parse_chunk_duration_ms": int(parse_ms),
+            "window_index": None,
+            "heading_path": [],
+            "headings": [title] if title else [],
+            "line_range_start": None,
+            "line_range_end": None,
+            "subchunk_index": None,
+            "commit_sha": manifest.get("commit_sha", "") if isinstance(manifest, dict) else "",
+            "model_compute": "",
+            "cpu_threads": None,
+            "beam_size": None,
+            "chunk_duration_ms": int(parse_ms),
+            "token_window_index": None,
+            "snapshot_id": "",
+            "source_bucket": S3_BUCKET,
+            "source_key": s3_key,
+            "source_format_hint": "text/html"
         }
+
         ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
         out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
         if not FORCE_OVERWRITE and s3_object_exists(out_key):
@@ -217,30 +248,57 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             chunk_id = f"{doc_id}_{chunk_index}"
             wtext = w["text"]
             w_token_count = w.get("token_count")
+            parse_ms = extract_duration_ms + int((time.perf_counter() - t0_chunk) * 1000)
+            if parse_ms == 0:
+                parse_ms = 1
+
+            # universal schema payload for token window
             payload = {
                 "document_id": doc_id,
                 "chunk_id": chunk_id,
                 "chunk_type": "token_window",
                 "text": wtext,
+                "token_count": int(w_token_count or 0),
                 "embedding": None,
-                "source": {
-                    "file_type": "text/html",
-                    "source_url": source_url,
-                    "snapshot_path": snapshot_path,
-                    "text_checksum": sha256_hex(wtext),
-                    "token_start": w.get("token_start"),
-                    "token_end": w.get("token_end")
-                },
-                "metadata": {
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                    "title": title,
-                    "parser_version": PARSER_VERSION,
-                    "token_count": w_token_count,
-                    "window_index": window_idx,
-                    "token_encoder": ENC_NAME,
-                    "parse_chunk_duration_ms": extract_duration_ms + int((time.perf_counter() - t0_chunk) * 1000)
-                }
+                "file_type": "text/html",
+                "source_path": s3_path,
+                "source_url": source_url,
+                "snapshot_path": snapshot_path or "",
+                "text_checksum": sha256_hex(wtext),
+                "page_number": None,
+                "slide_range_start": None,
+                "slide_range_end": None,
+                "row_range_start": None,
+                "row_range_end": None,
+                "token_start": int(w.get("token_start")),
+                "token_end": int(w.get("token_end")),
+                "audio_range_start": "",
+                "audio_range_end": "",
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "parser_version": PARSER_VERSION,
+                "token_encoder": ENC_NAME,
+                "tags": [],
+                "layout_tags": ["page"],
+                "used_ocr": False,
+                "parse_chunk_duration_ms": int(parse_ms),
+                "window_index": int(window_idx),
+                "heading_path": [],
+                "headings": [title] if title else [],
+                "line_range_start": None,
+                "line_range_end": None,
+                "subchunk_index": None,
+                "commit_sha": manifest.get("commit_sha", "") if isinstance(manifest, dict) else "",
+                "model_compute": "",
+                "cpu_threads": None,
+                "beam_size": None,
+                "chunk_duration_ms": int(parse_ms),
+                "token_window_index": int(window_idx),
+                "snapshot_id": "",
+                "source_bucket": S3_BUCKET,
+                "source_key": s3_key,
+                "source_format_hint": "text/html"
             }
+
             ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
             out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
             if not FORCE_OVERWRITE and s3_object_exists(out_key):

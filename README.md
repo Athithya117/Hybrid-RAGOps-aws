@@ -45,61 +45,101 @@
 
 #### RAG8s implements page-wise chunking and similar chunking for scalability without losing accuracy
 
-```sh
-
+```py
 {
-  "chunk_id": "a3f5be12c9d47e09_5",               // Unique chunk ID: <document_hash>_<chunk_index> (1-based)
-  "document_id": "a3f5be12c9d47e09",              // Unique document ID (128-bit hash of file path + size)
-  "chunk_type": "page",                           // Type of content: "paragraph", "heading", "section", "table", "page", etc.
-
-  "text": "Cleaned markdown-formatted content of the chunk.",  // Final parsed content (Markdown)
-  "embedding": null,                              // Optional: vector embedding (array of floats); null if not yet computed
-
-  "source": {
-    "file_type": "application/pdf",                  // MIME type preferred (e.g., "application/pdf", "text/html", "audio/mpeg")
-    "source_path": "s3://bucket/data/raw/file.pdf",  // Full s3 path to original source
-    "page_number": 3,                                // For paged formats like PDF/ePub; null otherwise
-    "time": [null, null],                            // [start_time, end_time] in seconds for audio/video; nulls otherwise
-    "line_range": null,                              // For plain/tabular text: [start_line, end_line]; null otherwise
-    "bbox": null                                     // For visual formats: [x0, y0, x1, y1] in pixel coordinates; null otherwise
-  },
-
-  "graph": {
-    "graph_node_id": "a3f5be12c9d47e09_5",       // Same as chunk_id (recommended)
-    "parent_id": "a3f5be12c9d47e09_page3",       // Parent node ID (e.g., page, section, table)
-    "previous_id": "a3f5be12c9d47e09_4",         // Optional: previous chunk
-    "next_id": "a3f5be12c9d47e09_6"              // Optional: next chunk
-  },
-
-  "metadata": {
-    "timestamp": "2025-08-03T12:00:00Z",         // UTC ISO timestamp of chunk creation/parsing
-    "tags": ["invoice", "header"],               // High-level content tags (semantic or manual)
-    "layout_tags": ["paragraph"]                 // Structural tags (e.g., "heading", "table", etc.)
-  },
-
-  "entities": ["Q123", "Q456"],                  // Optional: Linked entity IDs (Wikidata, etc.) or null if not yet computed
-
-  "triplets": [                                  // Extracted subject-predicate-object relations
-    {
-      "subject": "Invoice",
-      "predicate": "hasDate",
-      "object": "2025-08-01"
-    },
-    {
-      "subject": "Invoice",
-      "predicate": "issuedBy",
-      "object": "ACME Corp"
-    },
-    {
-      "subject": "ACME Corp",
-      "predicate": "locatedIn",
-      "object": "New York"
-    }
-  ]
+  "document_id": "doc-12345", // All: global document identifier (filename or UUID)
+  "chunk_id": "chunk-0001", // All: unique chunk id (doc-scoped index or UUID)
+  "chunk_type": "page", // pdf:page|page_subchunk, pptx:slides, txt:txt_subchunk, md:md_subchunk, jsonl:row_group, csv/html/wav:token_window, images:image
+  "text": "Sample extracted text .", // text-bearing formats: extracted canonicalized text; wav/images may have ASR/OCR transcript or empty
+  "token_count": 128, // txt,md,wav,html,csv,pdf,pptx,jsonl: tokenizer token count if computed
+  "embedding": [0.12, -0.08, 0.44], // All: null before vectorization; numeric array after embedding
+  "file_type": "application/pdf", // All: MIME type (e.g. application/pdf, audio/wav, text/plain, image/png, etc)
+  "source_path": "/data/docs/report.pdf", // pdf,pptx,images: filesystem or s3 path; may be absent when source_url used
+  "source_url": "s3://my-bucket/docs/report.pdf", // txt,md,jsonl,csv,html,wav: canonical URL (s3://... or https://...) of source object
+  "snapshot_path": "/snapshots/report_v1.json", // txt,md,html: path to parsed snapshot for provenance
+  "text_checksum": "9d377b29f9e6c0f1a55f0e78c7b3d66d8c2b4b5bda5ef9123a3e4a8b99fbb21f", // txt,md,jsonl,csv,html,wav: sha256 hex of chunk text
+  "page_number": 5, // pdf: integer page index (parser-defined base); null otherwise
+  "slide_range_start": 1, // pptx: start slide index for chunk
+  "slide_range_end": 3, // pptx: end slide index for chunk
+  "row_range_start": 10, // jsonl,csv: starting row number for this chunk
+  "row_range_end": 20, // jsonl,csv: ending row number for this chunk
+  "token_start": 0, // html,csv,jsonl: token index where window starts
+  "token_end": 127, // html,csv,jsonl: token index where window ends
+  "audio_range": ["00:00:05.000", "00:00:10.000"], // wav: [start_ts, end_ts] segment timestamps; null for non-audio
+  "timestamp": "2025-09-14T12:34:56Z", // All: ISO8601 UTC when chunk created (e.g. 2025-09-14T12:34:56Z)
+  "parser_version": "v1.2.3", // txt,md,jsonl,csv,html,pdf,pptx,wav: parser semantic version or tag
+  "token_encoder": "cl100k_base", // txt,md,wav,html,csv,pdf,pptx: tokenizer/encoder name used for token_count
+  "tags": ["financial", "confidential"], // pdf,pptx,images,html,general: producer tags for routing/classification
+  "layout_tags": ["page"], // pdf,pptx,images,html: structural labels like ["page","slide","image","table"]
+  "used_ocr": true, // pdf,images,pptx,md: whether OCR was applied
+  "parse_chunk_duration_ms": 134, // All: integer ms spent parsing this chunk
+  "window_index": 0, // html,csv,jsonl: sliding window index for token windows
+  "heading_path": ["Introduction", "Background"], // md: array representing nested heading hierarchy for the subchunk
+  "headings": ["Introduction"], // md: flattened list of headings present inside chunk
+  "line_range_start": 1, // txt,md: starting line number for subchunk
+  "line_range_end": 20, // txt,md: ending line number for subchunk
+  "subchunk_index": 0, // txt,md: index of this subchunk within parent file
+  "commit_sha": "abc123def456", // txt,md,jsonl,csv: VCS commit SHA or pipeline build id for provenance
+  "model_compute": "faster-whisper-v1", // wav: ASR compute/model variant descriptor (e.g. faster-whisper-v1)
+  "cpu_threads": 8, // wav: CPU threads used by ASR when reported
+  "beam_size": 5, // wav: ASR decoding beam size when applicable
+  "chunk_duration_ms": 5000, // wav: audio chunk duration in ms
+  "token_window_index": 1, // csv,html,jsonl: alternate name mapping to window_index used by some parsers
+  "snapshot_id": "snap-20250914-xyz", // snapshot-enabled ingests: opaque snapshot identifier for provenance
+  "source_bucket": "my-bucket", // S3 ingests: bucket name extracted from s3:// URL; null for non-s3
+  "source_key": "docs/report.pdf", // S3 ingests: object key extracted from s3:// URL; null for non-s3
+  "source_format_hint": "html-generated-pdf" // Optional producer hint when original format ambiguous (e.g. "html-generated-pdf")
 }
 
-
 ```
+
+| Field                      | Description                                                                                                                                                                   | Indexed | Filterable |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-----: | :--------: |
+| document\_id               | Global document identifier (filename or UUID).                                                                                                                                |   Yes   |     Yes    |
+| chunk\_id                  | Unique chunk identifier within document or global UUID.                                                                                                                       |   Yes   |     Yes    |
+| chunk\_type                | Lexical label of chunk role (page, slide, txt\_subchunk, md\_subchunk, row\_group, token\_window, image).                                                                     |   Yes   |     Yes    |
+| text                       | Canonical extracted plain text for text-bearing formats; ASR/OCR transcript for audio/image; empty string otherwise.                                                          |   Yes   |     No     |
+| token\_count               | Integer token count from tokenizer when computed.                                                                                                                             |    No   |     Yes    |
+| embedding                  | Null before vectorization; numeric vector after embedding for semantic search.                                                                                                |   Yes   |     No     |
+| file\_type                 | MIME type of original source (application/pdf, audio/wav, text/plain, image/\*, text/markdown, application/x-ndjson, text/csv, text/html, application/vnd.openxmlformats...). |   Yes   |     Yes    |
+| source\_path               | Filesystem or S3 path to original file (pdf,pptx,images); may be absent if source\_url used.                                                                                  |    No   |     Yes    |
+| source\_url                | Canonical URL (s3:// or https\://) of source object (txt,md,jsonl,csv,html,wav).                                                                                              |    No   |     Yes    |
+| snapshot\_path             | Path to parser snapshot used for provenance (txt,md,html); absent for streaming ingests.                                                                                      |    No   |     Yes    |
+| text\_checksum             | SHA256 hex of chunk text for dedupe/integrity (txt,md,jsonl,csv,html,wav).                                                                                                    |   Yes   |     Yes    |
+| page\_number               | PDF page index for chunk (parser-specific base).                                                                                                                              |    No   |     Yes    |
+| slide\_range\_start        | PPTX starting slide index for chunk.                                                                                                                                          |    No   |     Yes    |
+| slide\_range\_end          | PPTX ending slide index for chunk.                                                                                                                                            |    No   |     Yes    |
+| row\_range\_start          | JSONL/CSV starting row number for this chunk.                                                                                                                                 |    No   |     Yes    |
+| row\_range\_end            | JSONL/CSV ending row number for this chunk.                                                                                                                                   |    No   |     Yes    |
+| token\_start               | Token index where window starts in document (html,csv,jsonl).                                                                                                                 |    No   |     Yes    |
+| token\_end                 | Token index where window ends in document (html,csv,jsonl).                                                                                                                   |    No   |     Yes    |
+| audio\_range\_start        | Audio segment start timestamp (ISO or seconds float) for wav.                                                                                                                 |    No   |     Yes    |
+| audio\_range\_end          | Audio segment end timestamp for wav.                                                                                                                                          |    No   |     Yes    |
+| timestamp                  | ISO8601 UTC when chunk was produced for recency and auditing.                                                                                                                 |   Yes   |     Yes    |
+| parser\_version            | Semantic version or tag of the parser that produced the chunk.                                                                                                                |    No   |     Yes    |
+| token\_encoder             | Tokenizer/encoder name used to compute token\_count (e.g. cl100k\_base).                                                                                                      |    No   |     No     |
+| tags                       | Producer tags for routing/classification (array of strings).                                                                                                                  |   Yes   |     Yes    |
+| layout\_tags               | Structural labels like \["page","slide","image","table"].                                                                                                                     |   Yes   |     Yes    |
+| used\_ocr                  | Boolean indicating OCR was applied to generate text.                                                                                                                          |    No   |     Yes    |
+| parse\_chunk\_duration\_ms | Integer milliseconds spent parsing this chunk for telemetry.                                                                                                                  |    No   |     No     |
+| window\_index              | Sliding window index for token windows (html,csv,jsonl).                                                                                                                      |    No   |     No     |
+| heading\_path              | Markdown: array representing nested heading hierarchy for subchunk.                                                                                                           |   Yes   |     Yes    |
+| headings                   | Markdown: flattened list of headings present within the chunk.                                                                                                                |   Yes   |     Yes    |
+| line\_range\_start         | TXT/MD starting line number for this subchunk.                                                                                                                                |    No   |     Yes    |
+| line\_range\_end           | TXT/MD ending line number for this subchunk.                                                                                                                                  |    No   |     Yes    |
+| subchunk\_index            | Index of this subchunk inside parent chunk/file (txt,md).                                                                                                                     |    No   |     No     |
+| commit\_sha                | VCS commit SHA or pipeline build id used to produce parser/snapshot.                                                                                                          |    No   |     Yes    |
+| model\_compute             | ASR model identifier or compute target used for transcription (wav).                                                                                                          |    No   |     Yes    |
+| cpu\_threads               | CPU threads used by ASR when reported.                                                                                                                                        |    No   |     No     |
+| beam\_size                 | Beam size used for ASR decoding when applicable.                                                                                                                              |    No   |     No     |
+| chunk\_duration\_ms        | Duration of audio chunk in milliseconds (wav).                                                                                                                                |    No   |     Yes    |
+| token\_window\_index       | Alternate/window index name for window\_index used by some parsers.                                                                                                           |    No   |     No     |
+| snapshot\_id               | Opaque snapshot identifier for versioned snapshots (provenance).                                                                                                              |    No   |     Yes    |
+| source\_bucket             | S3 ingests: bucket name extracted from s3:// source\_url.                                                                                                                     |   Yes   |     Yes    |
+| source\_key                | S3 ingests: object key path extracted from s3:// source\_url.                                                                                                                 |    No   |     Yes    |
+| source\_format\_hint       | Producer hint for ambiguous originals (e.g. "html-generated-pdf" or "markdown-like").                                                                                         |   Yes   |     Yes    |
+
+
 
 ## Component-Level Parsing & Chunking Strategy 
 
@@ -110,20 +150,18 @@
 | **HTML Parsing**        | `trafilatura`, `tiktoken`, `requests`, `boto3`                                    | - Extract article text + metadata with `trafilatura` → normalize Markdown<br>- Tokenize with `tiktoken` using `TOKEN_ENCODER`<br>- Generate fixed-size windows (`WINDOW_SIZE`, `OVERLAP_TOKENS`), step = `WINDOW_SIZE - OVERLAP_TOKENS`<br>- If ≤ `SPLIT_THRESHOLD`, emit single chunk `"{doc_hash}_1"`, else emit sequential `"{doc_hash}_n"` (1-indexed)                                                                                         | - Token windows give budget control and context continuity<br>- Deterministic chunk IDs enable reproducible joins<br>- Canonical text + token checksums ensure dedupe and idempotent ingestion                                                                                                                  |
 | **CSV Chunking**        | `ray.data.read_csv`, `tiktoken`                                                   | `rows_per_chunk = clamp( floor((TARGET_TOKENS_PER_CHUNK - header_tokens) / max(1, sample_row_tokens)), MIN_ROWS_PER_CHUNK, MAX_ROWS_PER_CHUNK )`; accumulate rows until token budget exceeded; split oversized rows with `split_into_token_windows`                                                                                                                                            | Predictable token-bounded chunks; header included if it fits; oversized rows split deterministically                                                                                                                                                                                                            |
 | **JSONL Chunking**      | `ray.data.read_json`, `pandas`, `tiktoken`, `boto3`                               | - Infer keys → `header_text` → compute `rows_per_chunk` like CSV<br>- Accumulate records until token budget exceeded<br>- Oversized rows split into deterministic token windows (`TARGET_TOKENS_PER_CHUNK`, 10% overlap)<br>- Chunk IDs: `"{doc_hash}_{n}"`                                                                                                   | - Token-bounded chunks ensure cost control<br>- Deterministic IDs + checksums give idempotence/dedupe<br>- `parse_chunk_duration_ms` gives per-chunk latency observability                                                                                              |
-| **Audio Transcription** | `faster-whisper (CTranslate2)`, `pydub`, `ffmpeg-python`                          | - Audio sliced into 20–30s segments via silence detection (`pydub.silence`)<br>- Each segment transcribed individually                                                                                                                                                                                                                                                                                | - Faster-Whisper is GPU/CPU efficient<br>- Segmentation makes long audio scalable and parallelizable                                                                                                                                                                                                           |
-| **Markdown**            | `markdown-it-py`, `mistune`, `regex`                                              | - Chunk by heading levels, paragraphs, and code blocks<br>- Fallback to fixed-token or sentence-based slicing                                                                                                                                                                                                                                                                                        | - Preserves Markdown structure<br>- Compatible with LLM indexing and embeddings                                                                                                                                                                                                                               |
-| **PPTX (PowerPoint)**   | `python-pptx`, `Pillow` (optional OCR)                                            | - 1 slide = 1 chunk<br>- Extract text, speaker notes, images<br>- OCR fallback on image slides                                                                                                                                                                                                                                                                                                       | - Natural chunking by slide<br>- Works well with educational or slide-heavy documents                                                                                                                                                                                                                          |
-| **EPUB/eBooks**         | `ebooklib`, `BeautifulSoup`, `html5lib`                                           | - Chunk by chapters/headings from EPUB metadata<br>- Paragraph or heading-based segmentation within chapters                                                                                                                                                                                                                                                                                         | - Structure-aware<br>- Works with long-form content like books                                                                                                                                                                                                                                                 |
-| **Images (Scans)**      | `OpenCV`, `PIL/Pillow`, `Tesseract` or `RapidOCR`                                 | - 1 image = 1 chunk<br>- OCR applied to entire image or regions (if detected)                                                                                                                                                                                                                                                                                                                        | - Useful for form scans, handwritten notes, flyers<br>- Preserves visual layout                                                                                                                                                                                                                                |
-| **ZIP Archives**        | `zipfile`, `tarfile`, custom dispatcher                                           | - Files extracted, routed to correct parsers based on extension (pdf, docx, txt, etc.)                                                                                                                                                                                                                                                                                                               | - Allows batch ingestion<br>- Enables unified multi-file upload experience                                                                                                                                                                                                                                     |
-| **Plaintext Files**     | `open()`, `re`, `nltk`, `tiktoken` (optional)                                     | - Chunk by paragraph, newline gaps (`\n\n`), or fixed line/token window                                                                                                                                                                                                                                                                                                                              | - Extremely lightweight<br>- Works well with logs, scraped data, or long articles                                                                                                                                                                                                                              |
+| **Audio Transcription** | `faster-whisper (CTranslate2)`, `pydub`, `ffmpeg-python`                          | - Audio sliced into 20–30s segments via silence detection (`pydub.silence`)<br>- Each segment transcribed individually                                                                                                                                                                                                                                                                                | - Faster-Whisper is CPU efficient<br>- Segmentation makes long audio scalable and parallelizable                                                                                                                                                                                                           |
+\| **Markdown**            | `markdown-it-py` (parser), `tiktoken` (tokenizer)                                      | - Parse to heading sections (heading\_path) with `markdown-it-py` → normalized sections.<br>- Merge small adjacent sections up to `MD_MERGE_HEADER_THRESHOLD_TOKENS`.<br>- If section ≤ `MD_MAX_TOKENS_PER_CHUNK` → write `md_section` chunk; otherwise split into `md_subchunk` windows by tokens with overlap `MD_OVERLAP_TOKENS` (preserves heading\_path/headings).<br>- Long single lines are split into char-windows to respect token limits. | - Preserves logical Markdown structure (headings, code blocks) and attributes: `heading_path`, `headings`, `line_range`, `subchunk_index`, `token_count`, `token_encoder`, `parser_version` (snapshot optional). |
+\| **PPTX (PowerPoint)**   | `python-pptx`, `Pillow`/`numpy`, optional OCR backends `pytesseract` / `rapidocr_onnxruntime` | - Extract per-slide content: text frames, tables (converted to markdown), images (image blob OCR attempted).<br>- OCR only used when needed or on image-only slides; image OCR uses MIN\_IMG\_BYTES threshold and OCR backend selection; `used_ocr` flag set when OCR contributed text.<br>- Slides grouped into chunks of `PPTX_SLIDES_PER_CHUNK` by default → chunk\_type `slides` with `slide_range` / `slide_range_start`/`slide_range_end` in source/fields. | n slides = 1 chunk, `parse_chunk_duration_ms`, `layout_tags: ["slide"]`, and `snapshot` option. |
+\| **Images (Scans / Photos)** | `PIL/Pillow`, `OpenCV` preprocessing, OCR via `pytesseract` or `rapidocr_onnxruntime`         | - 1 image → 1 chunk (image-level extraction).<br>- Preprocess variants (upscale, denoise/sharpen, CLAHE, adaptive thresholding) then run OCR variants and choose best / fallback.<br>- Post-process lines: hyphen-fix, dedupe, filter by alnum ratio. | - Chunk fields: `chunk_type: image`, `file_type: image/*`, `used_ocr` boolean, `layout_tags: ["image"]`, `parse_chunk_duration_ms`, `text` contains OCR lines (if any). Good for scanned pages, forms, photos. |
+\| **Plaintext Files (.txt)** | builtin read, canonicalize, `tiktoken` (optional)                                          | - Canonicalize text → split into lines preserving newline semantics.<br>- If total tokens ≤ `TXT_MAX_TOKENS_PER_CHUNK` → single `txt_section` chunk; otherwise produce `txt_subchunk` windows by aggregating lines until token limit, with overlap `TXT_OVERLAP_TOKENS`.<br>- Extremely long single lines are split into char-windows with subchunk indices. | - Lightweight; produces `line_range`, `subchunk_index`, `token_count`, `token_encoder`, `parser_version`, optional `.snapshot.txt` upload. Works well for logs, transcripts, scraped text. |
 
 
 </details>
 ---
 
 * **Embedding generation:** dense vector creation using **gte-modernbert-base** (ONNX) or appropriate sentence/embed models.  
-* **Triplet extraction / graph augmentation:** run entity/triplet extractors (e.g., `relik-cie-tiny`) at index time to populate `triplets` and `entity_graph`.  
+
 * **Storage:** store embeddings + metadata in **ArangoDB (with FAISS integration)** for hybrid dense+graph retrieval; persist raw artifacts to S3.  
 * **Orchestration & scaling:** RayJobs for parallel ingestion and indexing; cronjobs for backups (arangobackup → S3); modular Docker images for CPU/GPU runtime.
 

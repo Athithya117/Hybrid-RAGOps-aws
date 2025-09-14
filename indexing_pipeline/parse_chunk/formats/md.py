@@ -320,7 +320,7 @@ def split_section_by_tokens_lines(section: Dict[str, Any], overlap_tokens: int, 
                 chunk_start_line = base_start_line + line_idx
                 chunk_end_line = chunk_start_line + 1
                 chunk_text = p["text"]
-                chunks.append({"text": canonicalize_text(chunk_text), "token_count": p["token_count"], "start_line": chunk_start_line, "end_line": chunk_end_line, "subchunk_index": sub_idx})
+                chunks.append({"text": canonicalize_text(chunk_text), "token_count": p["token_count"], "start_line": chunk_start_line, "end_line": chunk_end_line, "subchunk_index": idx})
                 sub_idx += 1
             ptr = ptr + 1
             continue
@@ -379,34 +379,66 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             headings = [headings]
         sec_start_line = sec.get("start_line", 0)
         sec_end_line = sec.get("end_line", sec_start_line)
+        # Use 1-based lines in metadata like the previous behavior
+        start_line = sec_start_line + 1
+        end_line = sec_end_line
         if sec_token_count <= MD_MAX_TOKENS_PER_CHUNK:
+            # small section -> one chunk
             chunk_id = f"{doc_id}_{chunk_index}"
             chunk_index += 1
-            start_line = sec_start_line + 1
-            end_line = sec_end_line
-            checksum = sha256_hex(sec_text)
+            t0 = time.perf_counter()
+            checksum = sha256_hex(canonicalize_text(sec_text))
+            duration_ms = None
+            try:
+                duration_ms = int((time.perf_counter() - t0) * 1000)
+            except Exception:
+                duration_ms = None
+
+            # universal payload
             payload = {
-                "document_id": doc_id,
-                "chunk_id": chunk_id,
+                "document_id": doc_id or "",
+                "chunk_id": chunk_id or "",
                 "chunk_type": "md_section",
-                "text": canonicalize_text(sec_text),
+                "text": canonicalize_text(sec_text) or "",
+                "token_count": int(sec_token_count or 0),
                 "embedding": None,
-                "source": {
-                    "file_type": "text/markdown",
-                    "source_url": s3_path,
-                    "snapshot_path": snapshot_path,
-                    "text_checksum": checksum
-                },
-                "metadata": {
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                    "parser_version": PARSER_VERSION,
-                    "token_count": sec_token_count,
-                    "token_encoder": ENC_NAME,
-                    "heading_path": heading_path,
-                    "headings": headings,
-                    "line_range": [start_line, end_line],
-                    "commit_sha": commit_sha
-                }
+                "file_type": "text/markdown",
+                "source_path": s3_path,
+                "source_url": None,
+                "snapshot_path": snapshot_path or "",
+                "text_checksum": checksum or "",
+                "page_number": None,
+                "slide_range_start": None,
+                "slide_range_end": None,
+                "row_range_start": None,
+                "row_range_end": None,
+                "token_start": None,
+                "token_end": None,
+                "audio_range_start": "",
+                "audio_range_end": "",
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "parser_version": PARSER_VERSION or "",
+                "token_encoder": ENC_NAME or "",
+                "tags": [],
+                "layout_tags": [],
+                "used_ocr": False,
+                "parse_chunk_duration_ms": duration_ms,
+                "window_index": None,
+                "heading_path": heading_path or [],
+                "headings": headings or [],
+                "line_range_start": start_line,
+                "line_range_end": end_line,
+                "subchunk_index": None,
+                "commit_sha": commit_sha or "",
+                "model_compute": "",
+                "cpu_threads": None,
+                "beam_size": None,
+                "chunk_duration_ms": duration_ms,
+                "token_window_index": None,
+                "snapshot_id": "",
+                "source_bucket": S3_BUCKET,
+                "source_key": s3_key,
+                "source_format_hint": "markdown"
             }
             ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
             out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
@@ -418,41 +450,73 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 log.info("Wrote chunk %s → %s", payload["chunk_id"], out_key)
                 saved += 1
         else:
+            # section too big -> split into subchunks
             subchunks = split_section_by_tokens_lines(sec, OVERLAP_TOKENS, MD_MAX_TOKENS_PER_CHUNK, line_token_cache)
             for sub in subchunks:
                 chunk_text = sub.get("text", "")
-                token_ct = sub.get("token_count", 0)
+                token_ct = int(sub.get("token_count", 0))
                 sline = sub.get("start_line", 0)
                 eline = sub.get("end_line", sline)
+                sub_idx = sub.get("subchunk_index", None)
                 chunk_id = f"{doc_id}_{chunk_index}"
                 chunk_index += 1
-                start_line = sline + 1
-                end_line = eline
-                checksum = sha256_hex(chunk_text)
+                t0 = time.perf_counter()
+                checksum = sha256_hex(chunk_text or "")
+                duration_ms = None
+                try:
+                    duration_ms = int((time.perf_counter() - t0) * 1000)
+                except Exception:
+                    duration_ms = None
+                start_line_sub = sline + 1
+                end_line_sub = eline
+
+                # universal payload for subchunk
                 payload = {
-                    "document_id": doc_id,
-                    "chunk_id": chunk_id,
+                    "document_id": doc_id or "",
+                    "chunk_id": chunk_id or "",
                     "chunk_type": "md_subchunk",
-                    "text": canonicalize_text(chunk_text),
+                    "text": canonicalize_text(chunk_text) or "",
+                    "token_count": token_ct,
                     "embedding": None,
-                    "source": {
-                        "file_type": "text/markdown",
-                        "source_url": s3_path,
-                        "snapshot_path": snapshot_path,
-                        "text_checksum": checksum
-                    },
-                    "metadata": {
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
-                        "parser_version": PARSER_VERSION,
-                        "token_count": token_ct,
-                        "token_encoder": ENC_NAME,
-                        "heading_path": heading_path,
-                        "headings": headings,
-                        "line_range": [start_line, end_line],
-                        "subchunk_index": sub.get("subchunk_index", 0),
-                        "commit_sha": commit_sha
-                    }
+                    "file_type": "text/markdown",
+                    "source_path": s3_path,
+                    "source_url": None,
+                    "snapshot_path": snapshot_path or "",
+                    "text_checksum": checksum or "",
+                    "page_number": None,
+                    "slide_range_start": None,
+                    "slide_range_end": None,
+                    "row_range_start": None,
+                    "row_range_end": None,
+                    "token_start": None,
+                    "token_end": None,
+                    "audio_range_start": "",
+                    "audio_range_end": "",
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "parser_version": PARSER_VERSION or "",
+                    "token_encoder": ENC_NAME or "",
+                    "tags": [],
+                    "layout_tags": [],
+                    "used_ocr": False,
+                    "parse_chunk_duration_ms": duration_ms,
+                    "window_index": None,
+                    "heading_path": heading_path or [],
+                    "headings": headings or [],
+                    "line_range_start": start_line_sub,
+                    "line_range_end": end_line_sub,
+                    "subchunk_index": int(sub_idx) if sub_idx is not None else None,
+                    "commit_sha": commit_sha or "",
+                    "model_compute": "",
+                    "cpu_threads": None,
+                    "beam_size": None,
+                    "chunk_duration_ms": duration_ms,
+                    "token_window_index": None,
+                    "snapshot_id": "",
+                    "source_bucket": S3_BUCKET,
+                    "source_key": s3_key,
+                    "source_format_hint": "markdown"
                 }
+
                 ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
                 out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
                 if not FORCE_OVERWRITE and s3_object_exists(out_key):
@@ -460,7 +524,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     continue
                 body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
                 s3_put_object_with_retries(out_key, body)
-                log.info("Wrote subchunk %s (lines %d-%d) → %s", payload["chunk_id"], start_line, end_line, out_key)
+                log.info("Wrote subchunk %s (lines %d-%d) → %s", payload["chunk_id"], start_line_sub, end_line_sub, out_key)
                 saved += 1
     total_ms = int((time.perf_counter() - start_all) * 1000)
     log.info("Completed parsing %d chunks for %s in %d ms total", saved, s3_key, total_ms)

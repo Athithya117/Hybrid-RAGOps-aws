@@ -5,6 +5,7 @@ import logging
 import boto3
 import numpy as np
 import time
+import hashlib
 from io import BytesIO
 from datetime import datetime
 from botocore.exceptions import ClientError
@@ -53,6 +54,8 @@ DISABLE_OCR = os.getenv("PPTX_DISABLE_OCR", "false").lower() == "true"
 FORCE_OCR = os.getenv("PPTX_FORCE_OCR", "false").lower() == "true"
 OCR_BACKEND = os.getenv("PPTX_OCR_ENGINE", "tesseract").lower()
 MIN_IMG_BYTES = int(os.getenv("PPTX_MIN_IMG_SIZE_BYTES", "3072"))
+PARSER_VERSION_PPTX = os.getenv("PARSER_VERSION_PPTX", "pptx-parser-v1")
+TOKEN_ENCODER = os.getenv("TOKEN_ENCODER", "cl100k_base")
 assert CHUNK_FORMAT in ("json", "jsonl")
 
 s3 = boto3.client("s3")
@@ -113,9 +116,12 @@ if OCR_BACKEND == "rapidocr":
 
 try:
     import tiktoken
-    ENCODER = tiktoken.get_encoding("cl100k_base")
+    ENCODER = tiktoken.get_encoding(TOKEN_ENCODER)
 except Exception:
     ENCODER = None
+
+def sha256_hex(s: str) -> str:
+    return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
 def is_valid_text(text: str) -> bool:
     t = (text or "").strip()
@@ -297,25 +303,52 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         token_count = _count_tokens(final_text)
         merge_write_ms = (time.perf_counter() - t_chunk_start) * 1000.0
         duration_ms = int(slides_sum_ms + merge_write_ms)
+
+        # universal schema payload
         payload = {
-            "document_id": doc_id,
-            "chunk_id": chunk_id,
+            "document_id": doc_id or "",
+            "chunk_id": chunk_id or "",
             "chunk_type": "slides",
-            "text": final_text,
-            "token_count": token_count,
+            "text": final_text or "",
+            "token_count": int(token_count or 0),
             "embedding": None,
-            "source": {
-                "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                "source_path": source,
-                "slide_range": [start, end]
-            },
-            "metadata": {
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "tags": [],
-                "layout_tags": ["slide"],
-                "used_ocr": used_ocr,
-                "parse_chunk_duration_ms": duration_ms
-            }
+            "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "source_path": source,
+            "source_url": None,
+            "snapshot_path": "",
+            "text_checksum": sha256_hex(final_text),
+            "page_number": None,
+            "slide_range_start": int(start),
+            "slide_range_end": int(end),
+            "row_range_start": None,
+            "row_range_end": None,
+            "token_start": None,
+            "token_end": None,
+            "audio_range_start": "",
+            "audio_range_end": "",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "parser_version": PARSER_VERSION_PPTX,
+            "token_encoder": TOKEN_ENCODER,
+            "tags": [],
+            "layout_tags": ["slide"],
+            "used_ocr": bool(used_ocr),
+            "parse_chunk_duration_ms": int(duration_ms),
+            "window_index": None,
+            "heading_path": [],
+            "headings": [],
+            "line_range_start": None,
+            "line_range_end": None,
+            "subchunk_index": None,
+            "commit_sha": manifest.get("commit_sha", "") if isinstance(manifest, dict) else "",
+            "model_compute": "",
+            "cpu_threads": None,
+            "beam_size": None,
+            "chunk_duration_ms": int(duration_ms),
+            "token_window_index": None,
+            "snapshot_id": "",
+            "source_bucket": S3_BUCKET,
+            "source_key": s3_key,
+            "source_format_hint": "presentation"
         }
         ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
         out_key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext}"

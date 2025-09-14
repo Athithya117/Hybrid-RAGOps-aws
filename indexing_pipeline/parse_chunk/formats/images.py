@@ -63,6 +63,9 @@ S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX").rstrip("/") + "/"
 CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
 assert CHUNK_FORMAT in ("json", "jsonl")
 
+# parser version (will be included in payload as parser_version)
+PARSER_VERSION = os.getenv("PARSER_VERSION_IMAGES", "images-parser-v1")
+
 OCR_ENGINE_DESIRED = os.getenv("IMAGE_OCR_ENGINE", "auto").lower()
 MIN_IMG_BYTES = int(os.getenv("IMAGE_MIN_IMG_SIZE_BYTES", "1024"))
 MIN_WIDTH = int(os.getenv("IMAGE_MIN_WIDTH", "1600"))
@@ -123,6 +126,9 @@ log.info(f"OCR backend: {OCR_BACKEND}")
 
 def blob_hash(b: bytes) -> str:
     return hashlib.sha1(b).hexdigest()
+
+def sha256_hex(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 def pil_to_bgr(img: Image.Image) -> np.ndarray:
     arr = np.asarray(img.convert("RGB"))
@@ -370,22 +376,11 @@ def do_ocr(img_bgr: np.ndarray) -> List[str]:
         log.error("No OCR backend available")
         return []
 
-def create_payload(doc_id: str, chunk_id: str, text: str, source_path: str, content_type: str, used_ocr: bool, parse_ms: int) -> dict:
-    return {
-        "document_id": doc_id,
-        "chunk_id": chunk_id,
-        "chunk_type": "image",
-        "text": text,
-        "embedding": None,
-        "source": {"file_type": content_type, "source_path": source_path},
-        "metadata": {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "tags": [],
-            "layout_tags": ["image"],
-            "used_ocr": used_ocr,
-            "parse_chunk_duration_ms": parse_ms
-        }
-    }
+def _derive_source_key_from_path(s3_path: str) -> str:
+    prefix = f"s3://{S3_BUCKET}/"
+    if s3_path.startswith(prefix):
+        return s3_path[len(prefix):]
+    return ""
 
 def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
     t_all = time.perf_counter()
@@ -418,7 +413,61 @@ def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
     else:
         log.warning(f"Cannot decode image {s3_key}")
     parse_ms = int((time.perf_counter() - start) * 1000)
-    payload = create_payload(doc_id=doc_id, chunk_id=chunk_id, text=final_text, source_path=f"s3://{S3_BUCKET}/{s3_key}", content_type=content_type, used_ocr=used_ocr, parse_ms=parse_ms)
+
+    # Universal schema payload (top-level fields)
+    text_checksum = sha256_hex(final_text or "")
+    source_path = f"s3://{S3_BUCKET}/{s3_key}"
+    source_key = _derive_source_key_from_path(source_path)
+    commit_sha = ""
+    if isinstance(manifest, dict):
+        commit_sha = manifest.get("commit_sha", "") or manifest.get("git_commit", "") or ""
+
+    payload = {
+      "document_id": doc_id or "",
+      "chunk_id": chunk_id or "",
+      "chunk_type": "image",
+      "text": final_text or "",
+      "token_count": 0,
+      "embedding": None,
+      "file_type": content_type,
+      "source_path": source_path,
+      "source_url": None,
+      "snapshot_path": "",
+      "text_checksum": text_checksum,
+      "page_number": None,
+      "slide_range_start": None,
+      "slide_range_end": None,
+      "row_range_start": None,
+      "row_range_end": None,
+      "token_start": None,
+      "token_end": None,
+      "audio_range_start": "",
+      "audio_range_end": "",
+      "timestamp": datetime.utcnow().isoformat() + "Z",
+      "parser_version": PARSER_VERSION or "",
+      "token_encoder": "",
+      "tags": [],
+      "layout_tags": ["image"],
+      "used_ocr": bool(used_ocr),
+      "parse_chunk_duration_ms": int(parse_ms) if parse_ms is not None else None,
+      "window_index": None,
+      "heading_path": [],
+      "headings": [],
+      "line_range_start": None,
+      "line_range_end": None,
+      "subchunk_index": None,
+      "commit_sha": commit_sha or "",
+      "model_compute": "",
+      "cpu_threads": None,
+      "beam_size": None,
+      "chunk_duration_ms": int(parse_ms) if parse_ms is not None else None,
+      "token_window_index": None,
+      "snapshot_id": "",
+      "source_bucket": S3_BUCKET,
+      "source_key": source_key,
+      "source_format_hint": content_type or ""
+    }
+
     ext_out = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
     out_key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext_out}"
     body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8") if ext_out == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"))

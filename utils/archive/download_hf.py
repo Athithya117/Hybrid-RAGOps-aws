@@ -42,7 +42,6 @@ MODELS = [
     },
 ]
 
-
 def download_one(repo_id: str, remote: str, target: Path) -> bool:
     if target.exists() and not FORCE:
         logger.info("SKIP exists %s", target)
