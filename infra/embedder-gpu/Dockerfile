@@ -1,20 +1,25 @@
-# Multi-stage build: build wheels in a debian builder, run on CUDA runtime image
-# Note: pick CUDA base tag that matches your host GPU drivers. Update CUDA_TAG if needed.
 ARG CUDA_TAG=12.2.0
-FROM python:3.10-slim AS builder
-ARG DEBIAN_FRONTEND=noninteractive
-WORKDIR /build
+FROM nvidia/cuda:${CUDA_TAG}-runtime-ubuntu22.04 AS builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential git curl wget ca-certificates libsndfile1 libgomp1 libssl-dev pkg-config python3-dev \
-  && rm -rf /var/lib/apt/lists/*
+ENV PIP_NO_CACHE_DIR=0 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONWARNINGS="ignore"
 
-COPY requirements.txt /build/requirements.txt
-RUN python -m pip install --upgrade pip setuptools wheel && \
-    python -m pip wheel --no-cache-dir --wheel-dir=/wheels -r /build/requirements.txt
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      python3 python3-pip python3-dev build-essential ca-certificates curl git \
+      libsndfile1 libgomp1 && \
+    rm -rf /var/lib/apt/lists/*
 
-FROM nvidia/cuda:${CUDA_TAG}-runtime-ubuntu22.04 AS runtime
-ARG DEBIAN_FRONTEND=noninteractive
+WORKDIR /app
+COPY requirements-gpu.txt /app/requirements-gpu.txt
+
+RUN python3 -m pip install --upgrade pip setuptools wheel && \
+    python3 -m pip wheel --no-cache-dir -r /app/requirements-gpu.txt -w /wheels && \
+    rm -rf /root/.cache/pip
+
+FROM nvidia/cuda:${CUDA_TAG}-runtime-ubuntu22.04
+
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -22,35 +27,42 @@ ENV PYTHONUNBUFFERED=1 \
     MODEL_DIR=/workspace/models/onnx/gte-modernbert-base-onnx-int8 \
     MODEL_PATH=/workspace/models/onnx/gte-modernbert-base-onnx-int8/model.onnx \
     HOST=0.0.0.0 \
-    PORT=8000 \
+    PORT=8001 \
     OMP_NUM_THREADS=1 \
     OPENBLAS_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
     MAX_BATCH=64 \
-    BATCH_WAIT_S=0.03
+    BATCH_WAIT_S=0.03 \
+    MAX_LENGTH=512 \
+    NUM_REPLICAS=1 \
+    REPLICA_CPUS=1.0 \
+    REPLICA_GPUS=1.0 \
+    CUSTOM_RESOURCE="" \
+    CUSTOM_RESOURCE_UNITS=1 \
+    ORT_INTRA_THREADS=1 \
+    ORT_INTER_THREADS=1 \
+    CUDA_DEVICE=0 \
+    FORCE_CPU=0 \
+    LOG_LEVEL=INFO
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 python3-pip ca-certificates libsndfile1 libgomp1 && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 python3-pip ca-certificates curl libsndfile1 libgomp1 && rm -rf /var/lib/apt/lists/*
-
 COPY --from=builder /wheels /wheels
-RUN python3 -m pip install --upgrade pip setuptools wheel && python3 -m pip install --no-cache-dir /wheels/*
+COPY requirements-gpu.txt /app/requirements-gpu.txt
 
-# copy app
-COPY host_embedding_model_gpu_inference.py /app/host_embedding_model_gpu_inference.py
-COPY requirements.txt /app/requirements.txt
-COPY gpu_preflight.sh /app/gpu_preflight.sh
-RUN chmod +x /app/gpu_preflight.sh
+RUN python3 -m pip install --upgrade pip setuptools && \
+    python3 -m pip install --no-index --find-links /wheels -r /app/requirements-gpu.txt && \
+    rm -rf /wheels /root/.cache/pip
 
-# run as non-root
+COPY host_embedding_model_gpu_indexing.py /app/host_embedding_model_gpu_indexing.py
+
 RUN groupadd -r appuser && useradd -r -g appuser -m -d /home/appuser appuser && \
     chown -R appuser:appuser /app
+
 USER appuser
 
 EXPOSE ${PORT}
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-  CMD curl -fsS "http://127.0.0.1:${PORT}/health" || exit 1
-
-ENTRYPOINT ["python3", "-u", "host_embedding_model_gpu_inference.py"]
+ENTRYPOINT ["python3","-u","host_embedding_model_gpu_indexing.py"]

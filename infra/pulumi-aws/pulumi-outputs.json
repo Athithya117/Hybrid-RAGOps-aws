@@ -1,4 +1,6 @@
 {
+  "ec2_key_name": "pulumi-aws-rag-prod-ec2-key",
+  "ec2_key_path": "[secret]",
   "public_subnet_azs": [
     "ap-south-1a",
     "ap-south-1b"
@@ -11,3 +13,5 @@
   "ray_security_group_id": "sg-017f8622d0facc8a2",
   "vpc_id": "vpc-062728a355e719f7f"
 }
+
+// ami-0f0a52f5ee6ca5cf2

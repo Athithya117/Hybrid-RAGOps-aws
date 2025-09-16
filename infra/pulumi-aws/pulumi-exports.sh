@@ -1,3 +1,5 @@
+export PULUMI_EC2_KEY_NAME='pulumi-aws-rag-prod-ec2-key'
+export PULUMI_EC2_KEY_PATH='[secret]'
 export PULUMI_PUBLIC_SUBNET_AZS='ap-south-1a,ap-south-1b'
 export PULUMI_PUBLIC_SUBNET_IDS='subnet-0ff847c6a936292c4,subnet-0db4950f11e9fddd8'
 export PULUMI_QDRANT_SECURITY_GROUP_ID='sg-008d7b456174c312c'

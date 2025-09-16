@@ -430,9 +430,12 @@ export PPTX_OCR_ENGINE=rapidocr                  # 'tesseract' (faster), 'rapido
 
 ```sh
 
-export PULUMI_CONFIG_PASSPHRASE=mypassword    # For headless automation
 export QDRANT_PRIVATE_IP="10.0.1.10"          # Deterministic private IP for Qdrant that only ray clusters can access
 export QDRANT_INSTANCE_TYPE="t3.medium"       # EC2 instance type for Qdrant
+
+
+export PULUMI_CONFIG_PASSPHRASE=mypassword    # For headless automation
+
 export AWS_ACCESS_KEY_ID="AKIA.."
 export AWS_SECRET_ACCESS_KEY=""
 export AWS_REGION="ap-south-1"               # AWS region to create resources

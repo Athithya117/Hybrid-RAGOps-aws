@@ -38,6 +38,7 @@ tmp.md
 data_sample/
 data_sample
 
+*.pem
 
 # Git and versioning
 .git/

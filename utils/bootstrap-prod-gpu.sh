@@ -2,7 +2,6 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-### Configurable env vars (can be passed via env or cloud-init)
 export DEBIAN_FRONTEND=noninteractive
 export WORKSPACE_MODELS=${WORKSPACE_MODELS:-/workspace/models}
 export HF_TOKEN=${HF_TOKEN:-}
@@ -11,11 +10,9 @@ export PIP_NO_WARN_SCRIPT_LOCATION=1
 
 LOG() { echo "[$(date -Is)] $*"; }
 
-# Basic environment
 LOG "Starting GPU-ready setup script"
 mkdir -p "$WORKSPACE_MODELS"
 
-# Update & base packages
 LOG "Updating apt and installing base packages"
 apt-get update -yq
 apt-get install -yq --no-install-recommends \
@@ -23,14 +20,10 @@ apt-get install -yq --no-install-recommends \
   git curl ca-certificates gnupg lsb-release software-properties-common jq \
   linux-headers-$(uname -r) || true
 
-# Ensure pip is recent and required python packages
 LOG "Upgrading pip and installing python deps"
 python3 -m pip install --no-warn-script-location --upgrade pip==25.2.0
 python3 -m pip install --no-cache-dir huggingface-hub==0.34.3 tqdm==4.67.1 requests==2.32.4
 
-# --------------------------------------------------------------------------------
-# Model download script (keeps your previous implementation)
-# --------------------------------------------------------------------------------
 LOG "Writing model download helper to /opt/download_models.py"
 cat >/opt/download_models.py <<'PY'
 import os
@@ -144,15 +137,12 @@ python3 /opt/download_models.py || {
   LOG "Model download failed (non-fatal). Continuing - check logs for details."
 }
 
-# Fix model folder permissions
 LOG "Setting permissions on $WORKSPACE_MODELS"
 chown -R 1000:1000 "$WORKSPACE_MODELS" || true
 chmod -R 755 "$WORKSPACE_MODELS" || true
 chmod -R a+rX "$WORKSPACE_MODELS" || true
 
-# --------------------------------------------------------------------------------
-# Docker: official repo install (keyring approach)
-# --------------------------------------------------------------------------------
+
 LOG "Installing Docker (official repository)"
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /tmp/docker_gpg.key
 mkdir -p /etc/apt/keyrings

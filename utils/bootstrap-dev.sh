@@ -10,7 +10,7 @@ export HF_HOME="$MODEL_HOME/hf"
 export HF_HUB_CACHE="$HF_HOME/hub"
 export HF_ASSETS_CACHE="$HF_HOME/assets"
 export RAPIDOCR_MODEL_DIR="$MODEL_HOME/rapidocr"
-PULUMI_VERSION="3.186.0"
+PULUMI_VERSION="3.196.0"
 
 log(){ printf '%s %s\n' "$(date --iso-8601=seconds)" "$*"; }
 require_sudo(){ if ! sudo -n true 2>/dev/null; then log "sudo access required: you'll be prompted for password..."; fi }
@@ -69,7 +69,7 @@ log "Update & install base packages"
 sudo apt-get update -yq
 sudo apt-get upgrade -yq || true
 sudo apt-get install -yq --no-install-recommends \
-  ca-certificates curl wget git gh sudo tree jq unzip make python3.10-venv python3-pip \
+  ca-certificates curl wget git gh sudo tree jq unzip vim make python3.10-venv python3-pip \
   build-essential gnupg lsb-release software-properties-common zip apt-transport-https fonts-dejavu fonts-liberation \
   unzip
 
