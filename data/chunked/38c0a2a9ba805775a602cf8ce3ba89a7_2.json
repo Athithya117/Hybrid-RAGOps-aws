@@ -1,0 +1,28 @@
+{
+  "document_id": "38c0a2a9ba805775a602cf8ce3ba89a7",
+  "chunk_id": "38c0a2a9ba805775a602cf8ce3ba89a7_2",
+  "chunk_type": "row_group",
+  "text": "authors | body | category | created_at | headline | id | location | organizations | published_date | references | related_ids | severity | summary | tags | updated_at id: news_002 | headline: Microsoft rolls GPT-5 into Copilot and Azure products | summary: Microsoft confirms integration of GPT-5 across Microsoft 365 Copilot, Copilot Studio and Azure AI offerings with staged rollouts. | body: On August 7, 2025 Microsoft announced plans to embed GPT-5 across its productivity and developer tooling. The company highlighted improvements in long-conversation coherence, document reasoning, and lower hallucination rates for Copilot scenarios, with phased availability for licensed enterprise customers followed by broader consumer and developer access. The announcement underlines Microsoft's strategy of bundling leading foundation models into its productivity ecosystem. | published_date: 2025-08-07T00:00:00Z | authors: ['Microsoft communications', 'press coverage'] | organizations: ['Microsoft', 'OpenAI'] | tags: ['integration', 'microsoft', 'copilot', 'gpt-5'] | category: product | severity: info | location: None | related_ids: ['news_001'] | references: [{'name': 'Microsoft statement', 'url': ''}] | created_at: 2025-09-10T06:30:00Z | updated_at: 2025-09-10T06:30:00Z",
+  "token_count": 299,
+  "embedding": null,
+  "file_type": "application/x-ndjson",
+  "source_url": "s3://e2e-rag-system-42/data/raw/jsonls/ai_news_latest.jsonl",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": [
+    2,
+    2
+  ],
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:51:48.394694Z",
+  "parser_version": "ray-jsonl-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": null,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": null
+}

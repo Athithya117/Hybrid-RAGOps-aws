@@ -1,0 +1,32 @@
+{
+  "document_id": "45a94a339e983a1666d811dd81380550",
+  "chunk_id": "45a94a339e983a1666d811dd81380550_10",
+  "chunk_type": "md_section",
+  "text": "# Additional help and resources\n- See the [NGINX Community Blog](https://blog.nginx.org/) for more tips, tricks and HOW-TOs related to NGINX and related projects.\n- Access [nginx.org](https://nginx.org/), your go-to source for all documentation, information and software related to the NGINX suite of projects.\n\n# Changelog\nSee our [changelog](https://nginx.org/en/CHANGES) to keep track of updates.\n\n# License\n[2-clause BSD-like license](LICENSE)\n\n---\nAdditional documentation available at: https://nginx.org/en/docs",
+  "token_count": 129,
+  "embedding": null,
+  "file_type": "text/markdown",
+  "source_url": "s3://e2e-rag-system-42/data/raw/mds/nginx.md",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:51:58.546285Z",
+  "parser_version": "markdown-it-py-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 0,
+  "heading_path": [],
+  "headings": [
+    "Additional help and resources",
+    "Changelog",
+    "License"
+  ],
+  "line_range": [
+    218,
+    230
+  ],
+  "chunk_duration_ms": null
+}

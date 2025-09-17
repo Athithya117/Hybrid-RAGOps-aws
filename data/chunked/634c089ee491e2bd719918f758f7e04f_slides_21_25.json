@@ -1,0 +1,30 @@
+{
+  "document_id": "634c089ee491e2bd719918f758f7e04f",
+  "chunk_id": "634c089ee491e2bd719918f758f7e04f_slides_21_25",
+  "chunk_type": "slides",
+  "text": "## Slide 21\n\nBasic Processes\n\nThe basic processes of CT consists of for steps\n\nData acquisition\n\nImage reconstruction\n\nImage display\n\nImage archive (recording)\n\n## Slide 22\n\nThis is done with:\n\nthe patient properly placed in the scanner\n\nthe selection of correct protocols and technical factors\n\nAt the initialization of the scan x-rays passing through the patient are attenuated depending on the tissue type.\n\nA detector system located opposite the x-ray tube measures the attenuation values as an analogue signal\n\nThis signal is transmitted to the Analogue to digital converter (ADC)\n\nThe ADC converts the signal of attenuated values from analog to digital, preparing it for processing by the computer.\n\n## Slide 23\n\nThe minicomputer reads this digital data and employs a mathematical formula, called a reconstruction algorithm, to generate the cross-sectional image.\n\nThe image reconstruction, involving millions of data points, is usually performed in less than a second by a group of array processors.\n\n## Slide 24\n\nThe reconstructed image, still in its digital form, is displayed on a LCD monitor as an image suitable for manipulation by the operator\n\n## Slide 25\n\nImage archive\n\nThis includes\n\nImage manipulation\n\nArchiving on a Picture Archiving and Communication System (PACS)\n\nStorage\n\nA wide range of software is available to enhance the image on the monitor before storage. These include:\n\nAltering the density and brightness\n\nChanging the plane of the image from axial to sagittal or coronal\n\nProducing three dimensional images\n\nDemonstrating detailed angiography\n\nThe Image can  be stored on the computer’s hard drive or an external medium such as a versatile optical disk or as a hard copy on a photosensitive film",
+  "token_count": 339,
+  "embedding": null,
+  "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "source_url": "s3://e2e-rag-system-42/data/raw/ppts/CT.pptx",
+  "page_number": null,
+  "slide_range": [
+    21,
+    25
+  ],
+  "row_range": null,
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:53:13.021242Z",
+  "parser_version": "pptx-parser-v1",
+  "tags": [],
+  "layout_tags": [
+    "slide"
+  ],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 6,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": null
+}

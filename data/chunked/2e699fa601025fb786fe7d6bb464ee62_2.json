@@ -1,0 +1,33 @@
+{
+  "document_id": "2e699fa601025fb786fe7d6bb464ee62",
+  "chunk_id": "2e699fa601025fb786fe7d6bb464ee62_2",
+  "chunk_type": "token_window",
+  "text": "and use case. ## Experimental setup ### Chunking strategies tested We tested three primary chunking approaches to understand their impact on retrieval quality and response accuracy: **Token-based chunking**: Documents are split into fixed-size token chunks using content extracted by NVIDIA NeMo Retriever extraction.- Sizes tested: 128, 256, 512, 1,024, and 2,048 tokens - With 15% overlap between chunks (we tested 10%, 15%, and 20% overlap values and found 15% to perform the best on FinanceBench with 1,024 token chunks. While not a full-grid search, this result aligns with the 10–20% overlap commonly seen in industry practices.) **Page-level chunking**: Each page of a document becomes a separate chunk.- Implemented with both NeMo Retriever extraction and nemoretriever-parse to ensure fair comparisons across chunking strategies. **Section-level chunking**: Documents are split based on structural document layout sections using nemoretriever-parse, following the document’s native organization, such as headings, paragraphs, and other formatting elements.- For a fair comparison, we compared page-level and section-level chunking using the same nemoretriever-parse extraction model. ### Datasets We evaluated these strategies across diverse datasets: **DigitalCorpora767**: A public dataset of 767 PDFs from Digital Corpora with 991 human-annotated questions across text, tables, charts, and infographics.**Earnings**: An internal collection of 512 PDFs (earnings reports, consulting presentations) containing over 3,000 instances each of charts, tables, and infographics, accompanied by 600+ human-annotated retrieval questions.**FinanceBench**: A benchmark dataset designed to evaluate the performance of large language models (LLMs) in answering financial questions related to publicly traded companies, using real-world financial documents like 10-K filings and earnings reports.**KG-RAG**: The Docugami KG-RAG dataset is a repository of documents and annotated question-answer pairs designed to evaluate retrieval-augmented generation (RAG) systems, featuring realistic long-form business documents and varying question complexities across single and multiple documents.**RAGBattlePacket**: A collection of tax consulting PDF reports from Deloitte. ### Evaluation methodology We established a comprehensive evaluation framework to systematically compare chunking strategies across different datasets and measure their impact on RAG system performance. **Primary metric**: End-to",
+  "token_count": 500,
+  "embedding": null,
+  "file_type": "text/html",
+  "source_url": "s3://e2e-rag-system-42/data/raw/htmls/best_chunking_stratergy.html",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": [
+    450,
+    950
+  ],
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:50:02Z",
+  "parser_version": "trafilatura-only-v2",
+  "tags": [],
+  "layout_tags": [
+    "page"
+  ],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 429,
+  "heading_path": [],
+  "headings": [
+    "Finding the Best Chunking Strategy for Accurate AI Responses | NVIDIA Technical Blog"
+  ],
+  "line_range": null,
+  "chunk_duration_ms": null,
+  "snapshot_url": null
+}

@@ -1,0 +1,28 @@
+{
+  "document_id": "870070972a0602c1b24df04d7673f73c",
+  "chunk_id": "870070972a0602c1b24df04d7673f73c_8",
+  "chunk_type": "txt_subchunk",
+  "text": "* GeAR requires fewer iterations to reach high recall compared to iterative baselines. On MuSiQue, GeAR often achieves high retrieval quality in a single iteration.\n* Token usage: across repeated iterations, GeAR accumulates far fewer LLM input/output tokens than some iterative baselines in the reported experiments.\n\nPractical implication:\n\n* SyncGE increases offline work (indexing and triple extraction) but saves online LLM tokens and iterations at query time. This tradeoff favors scenarios where online LLM costs dominate.\n\n---\n\n9. QUALITATIVE EXAMPLES (illustrative)\n\n---\n\n* Case studies in the paper show GeAR recovering necessary multi-hop facts in fewer iterations than baselines. Example: a multi-hop question about a Nobel laureate's PhD institution — initial BM25 fetches general pages, SyncGE expands via triples to connect the laureate to PhD relations, gist memory collects the missing node, then the agent issues a rewritten query to locate the doctorate record and returns a confident, sourced answer.\n\n* The project page contains additional exemplars showing LLM-seeded triples and beam paths that lead to the final evidence.\n\n---\n\n10. LIMITATIONS & FUTURE WORK (authors' discussion)\n\n---\n\n* Scope limited to triple graphs derived from passages; richer graph construction (better entity disambiguation, knowledge graph completion) could boost performance further.\n\n* Dependence on triple extraction quality: noisy triple extraction or poor alignment can degrade graph expansion and retrieval quality. Authors discuss potential extractor improvements in the appendix.\n\n* Design choices such as the specific dense embedding model for path scoring could be replaced by alternative formulations (e.g., NLI scoring, stronger similarity models).\n\n* Very high-complexity or extremely sparse-evidence questions remain challenging; authors report best gains for low-to-moderate complexity multi-hop questions.\n\n---\n\n11. REPRODUCIBILITY & RESOURCES\n\n---",
+  "token_count": 394,
+  "embedding": null,
+  "file_type": "text/plain",
+  "source_url": "s3://e2e-rag-system-42/data/raw/txts/GeAR.txt",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:53:16.972507Z",
+  "parser_version": "plain-txt-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 1,
+  "heading_path": [],
+  "headings": [],
+  "line_range": [
+    218,
+    254
+  ],
+  "chunk_duration_ms": null
+}

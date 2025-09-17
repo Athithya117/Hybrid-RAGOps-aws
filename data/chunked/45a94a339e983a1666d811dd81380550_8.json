@@ -1,0 +1,33 @@
+{
+  "document_id": "45a94a339e983a1666d811dd81380550",
+  "chunk_id": "45a94a339e983a1666d811dd81380550_8",
+  "chunk_type": "md_section",
+  "text": "### Installing compiler and make utility\nUse the following command to install the GNU C compiler and Make utility.\n\n```bash\nsudo apt install gcc make\n```\n\n### Installing dependency libraries\n\n```bash\nsudo apt install libpcre3-dev zlib1g-dev\n```\n\n> [!WARNING]\n> This is the minimal set of dependency libraries needed to build NGINX with rewriting and gzip capabilities. Other dependencies may be required if you choose to build NGINX with additional modules. Monitor the output of the `configure` command discussed in the following sections for information on which modules may be missing. For example, if you plan to use SSL certificates to encrypt traffic with TLS, you'll need to install the OpenSSL library. To do so, issue the following command.\n\n>```bash\n>sudo apt install libssl-dev\n\n## Cloning the NGINX GitHub repository\nUsing your preferred method, clone the NGINX repository into your development directory. See [Cloning a GitHub Repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) for additional help.\n\n```bash\ngit clone https://github.com/nginx/nginx.git\n```\n\n## Configuring the build\nPrior to building NGINX, you must run the `configure` script with [appropriate flags](https://nginx.org/en/docs/configure.html). This will generate a Makefile in your NGINX source root directory that can then be used to compile NGINX with [options specified during configuration](https://nginx.org/en/docs/configure.html).\n\nFrom the NGINX source code repository's root directory:\n\n```bash\nauto/configure\n```\n\n> [!IMPORTANT]\n> Configuring the build without any flags will compile NGINX with the default set of options. Please refer to https://nginx.org/en/docs/configure.html for a full list of available build configuration options.",
+  "token_count": 398,
+  "embedding": null,
+  "file_type": "text/markdown",
+  "source_url": "s3://e2e-rag-system-42/data/raw/mds/nginx.md",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:51:57.861363Z",
+  "parser_version": "markdown-it-py-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 0,
+  "heading_path": [],
+  "headings": [
+    "Installing compiler and make utility",
+    "Installing dependency libraries",
+    "Cloning the NGINX GitHub repository",
+    "Configuring the build"
+  ],
+  "line_range": [
+    133,
+    170
+  ],
+  "chunk_duration_ms": null
+}

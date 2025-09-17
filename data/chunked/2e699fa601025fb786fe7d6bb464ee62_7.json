@@ -1,0 +1,33 @@
+{
+  "document_id": "2e699fa601025fb786fe7d6bb464ee62",
+  "chunk_id": "2e699fa601025fb786fe7d6bb464ee62_7",
+  "chunk_type": "token_window",
+  "text": "sweet spot” in the middle chunk size range for most document types.**Performance curves aren’t always linear**: For some datasets, performance didn’t increase or decrease linearly with chunk size. Earnings showed a non-linear pattern where performance peaked at 512 tokens (0.681), declined slightly at 1,024 tokens (0.663), and then declined further at 2,048 tokens (0.651). This contrasts with RAGBattlePacket, which showed a more linear improvement from 128 tokens (0.749) to 1,024 tokens (0.804) before declining at 2,048 tokens (0.749). These different curves highlight the complex relationship between chunk size and retrieval effectiveness.**Query characteristics influence optimal chunk size**: The nature of queries in each dataset correlates with the most effective chunking strategies. DigitalCorpora767 and Earnings datasets, which primarily contain factoid queries seeking specific information, performed well with smaller to medium-sized chunks (256-512 tokens). These datasets showed consistent performance across smaller chunk sizes, with DigitalCorpora767 maintaining relatively stable accuracy from 256 to 1,024 tokens, and Earnings achieving peak performance at 512 tokens (0.681). In contrast, FinanceBench, KG-RAG, and RAGBattlePacket datasets, which feature more complex analytical queries requiring broader context and deeper reasoning, generally benefited from larger chunk sizes (1,024 tokens) or page-level chunking. **Guidelines for choosing your chunking strategy** Based on our findings, here are practical recommendations for selecting a chunking strategy: ### 1. Consider page-level chunking first Our experiments clearly show that page-level chunking provides the most consistent performance across diverse document types. We recommend: **Start with page-level chunking**as your default strategy (using NeMo Retriever extraction)- While not always the absolute best for every dataset, it offers the highest average accuracy and most consistent performance - Page-level chunking provides easier citation and reference capabilities since pages are static boundaries, unlike token-based chunking, where chunk indices depend on the chosen chunk size, making references less stable across different configurations ### 2. Consider your content type for refinement If you want to experiment beyond page-level chunking: **Financial documents**: Try 512 or 1,024-token chunks (using NeMo Retriever extraction) if your documents resemble FinanceBench. Section-level chunking can also be effective for financial documents, sometimes",
+  "token_count": 500,
+  "embedding": null,
+  "file_type": "text/html",
+  "source_url": "s3://e2e-rag-system-42/data/raw/htmls/best_chunking_stratergy.html",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": [
+    2700,
+    3200
+  ],
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:50:03Z",
+  "parser_version": "trafilatura-only-v2",
+  "tags": [],
+  "layout_tags": [
+    "page"
+  ],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 429,
+  "heading_path": [],
+  "headings": [
+    "Finding the Best Chunking Strategy for Accurate AI Responses | NVIDIA Technical Blog"
+  ],
+  "line_range": null,
+  "chunk_duration_ms": null,
+  "snapshot_url": null
+}

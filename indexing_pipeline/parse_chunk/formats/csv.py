@@ -7,6 +7,7 @@ import hashlib
 import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, Tuple, List
+from tempfile import NamedTemporaryFile
 import boto3
 import botocore
 
@@ -42,6 +43,7 @@ MAX_ROWS_PER_CHUNK = int(os.getenv("CSV_MAX_ROWS_PER_CHUNK", "100"))
 S3_PUT_RETRIES = int(os.getenv("S3_PUT_RETRIES", "3"))
 S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF", "0.5"))
 S3_RANGE_BYTES = int(os.getenv("S3_RANGE_BYTES", "131072"))
+STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "true").lower() == "true"
 
 s3 = boto3.client("s3")
 ENCODER = None
@@ -192,14 +194,51 @@ def _derive_source_key_from_path(s3_path: str) -> str:
         return s3_path[len(prefix):]
     return ""
 
-def _write_payload(out_key: str, payload: Dict[str, Any]) -> None:
-    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
-    body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
-    if not FORCE_OVERWRITE and s3_object_exists(out_key):
-        return
-    s3_put_object_with_retries(out_key, body, content_type="application/json")
+class LocalChunkAppender:
+    def __init__(self, chunk_format: str, doc_id: str):
+        self.chunk_format = chunk_format
+        self.doc_id = doc_id
+        suffix = f".{chunk_format}"
+        self.temp = NamedTemporaryFile(delete=False, mode="w", encoding="utf-8", suffix=suffix)
+        self.path = self.temp.name
+        self.count = 0
+    def append(self, payload: dict):
+        if self.chunk_format == "jsonl":
+            line = json.dumps(payload, ensure_ascii=False)
+            self.temp.write(line + "\n")
+        else:
+            pretty = json.dumps(payload, indent=2, ensure_ascii=False)
+            self.temp.write(pretty + "\n")
+        self.count += 1
+        self.temp.flush()
+    def finalize_and_upload(self, s3_bucket: str, s3_key: str):
+        self.temp.close()
+        extra = {"ContentType": "application/json"}
+        try:
+            s3.upload_file(self.path, s3_bucket, s3_key, ExtraArgs=extra)
+            logger.info("Uploaded combined chunks for %s → s3://%s/%s (%d chunks)", self.doc_id, s3_bucket, s3_key, self.count)
+        finally:
+            try:
+                os.remove(self.path)
+            except Exception:
+                pass
 
-def _flush_rows_chunk(doc_id: str, s3_path: str, chunk_index: int, header_text: str, rows_text: List[str], start_row_num: int, manifest_tags: List[str] = None) -> Tuple[int, int]:
+def write_or_append(out_key: str, payload: Dict[str, Any], combined_appender: LocalChunkAppender | None):
+    if not STORE_ONE_FILE_PER_CHUNK:
+        try:
+            combined_appender.append(payload)
+            logger.info("Appended chunk %s → s3://%s/%s", payload.get("chunk_id"), S3_BUCKET, os.path.basename(out_key))
+        except Exception as e:
+            logger.error("Failed to append payload %s: %s", payload.get("chunk_id"), e)
+        return
+    if not FORCE_OVERWRITE and s3_object_exists(out_key):
+        logger.info("Skipping existing chunk %s", payload.get("chunk_id"))
+        return
+    body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if CHUNK_FORMAT == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
+    s3_put_object_with_retries(out_key, body)
+    logger.info("Wrote chunk %s → %s", payload.get("chunk_id"), out_key)
+
+def _flush_rows_chunk(doc_id: str, s3_path: str, chunk_index: int, header_text: str, rows_text: List[str], start_row_num: int, manifest_tags: List[str] | None, combined_appender: LocalChunkAppender | None) -> Tuple[int, int]:
     if not rows_text:
         return 0, chunk_index
     chunk_index += 1
@@ -234,24 +273,32 @@ def _flush_rows_chunk(doc_id: str, s3_path: str, chunk_index: int, header_text: 
         "chunk_duration_ms": None,
     }
     out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ 'jsonl' if CHUNK_FORMAT == 'jsonl' else 'json'}"
-    if not FORCE_OVERWRITE and s3_object_exists(out_key):
+    if STORE_ONE_FILE_PER_CHUNK:
+        if not FORCE_OVERWRITE and s3_object_exists(out_key):
+            t_after = time.perf_counter()
+            parse_ms = int(round((t_after - t0_chunk) * 1000)) or 1
+            payload["parse_chunk_duration_ms"] = parse_ms
+            payload["chunk_duration_ms"] = parse_ms
+            logger.info("Skipping existing chunk %s (assembly %d ms)", payload["chunk_id"], parse_ms)
+            return 0, chunk_index
+        t_put_start = time.perf_counter()
+        write_or_append(out_key, payload, None)
+        t_put_end = time.perf_counter()
+        total_ms = int(round((t_put_end - t0_chunk) * 1000)) or 1
+        payload["parse_chunk_duration_ms"] = total_ms
+        payload["chunk_duration_ms"] = total_ms
+        write_or_append(out_key, payload, None)
+        logger.info("Wrote CSV chunk %s → %s (%d ms)", payload["chunk_id"], out_key, total_ms)
+        return 1, chunk_index
+    else:
         t_after = time.perf_counter()
         parse_ms = int(round((t_after - t0_chunk) * 1000)) or 1
         payload["parse_chunk_duration_ms"] = parse_ms
         payload["chunk_duration_ms"] = parse_ms
-        logger.info("Skipping existing chunk %s (assembly %d ms)", payload["chunk_id"], parse_ms)
-        return 0, chunk_index
-    t_put_start = time.perf_counter()
-    _write_payload(out_key, payload)
-    t_put_end = time.perf_counter()
-    total_ms = int(round((t_put_end - t0_chunk) * 1000)) or 1
-    payload["parse_chunk_duration_ms"] = total_ms
-    payload["chunk_duration_ms"] = total_ms
-    _write_payload(out_key, payload)
-    logger.info("Wrote CSV chunk %s → %s (%d ms)", payload["chunk_id"], out_key, total_ms)
-    return 1, chunk_index
+        write_or_append(out_key, payload, combined_appender)
+        return 1, chunk_index
 
-def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text, next_row_num, manifest_tags: List[str] = None):
+def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text, next_row_num, manifest_tags: List[str] | None, combined_appender: LocalChunkAppender | None):
     saved = 0
     rows_text: List[str] = []
     start_row_of_current = next_row_num
@@ -268,7 +315,7 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
         header_tokens = token_count_for(header_text) if header_text else 0
         if row_tokens > TARGET_TOKENS_PER_CHUNK:
             if rows_text:
-                wrote, chunk_index = _flush_rows_chunk(doc_id, s3_path, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags)
+                wrote, chunk_index = _flush_rows_chunk(doc_id, s3_path, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags, combined_appender)
                 saved += wrote
                 rows_text = []
             windows = list(split_into_token_windows(row_text, TARGET_TOKENS_PER_CHUNK, overlap=int(TARGET_TOKENS_PER_CHUNK * 0.1)))
@@ -304,21 +351,27 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
                 }
                 out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ 'jsonl' if CHUNK_FORMAT == 'jsonl' else 'json'}"
                 t0_chunk = time.perf_counter()
-                if not FORCE_OVERWRITE and s3_object_exists(out_key):
+                if STORE_ONE_FILE_PER_CHUNK:
+                    if not FORCE_OVERWRITE and s3_object_exists(out_key):
+                        t_after = time.perf_counter()
+                        parse_ms = int(round((t_after - t0_chunk) * 1000)) or 1
+                        payload["parse_chunk_duration_ms"] = parse_ms
+                        logger.info("Skipping existing window chunk %s (assembly %d ms)", payload["chunk_id"], parse_ms)
+                        continue
+                    write_or_append(out_key, payload, None)
+                    t_put_end = time.perf_counter()
+                    total_ms = int(round((t_put_end - t0_chunk) * 1000)) or 1
+                    payload["parse_chunk_duration_ms"] = total_ms
+                    write_or_append(out_key, payload, None)
+                    logger.info("Wrote CSV token window %s → %s (%d ms)", payload["chunk_id"], out_key, total_ms)
+                    saved += 1
+                else:
                     t_after = time.perf_counter()
                     parse_ms = int(round((t_after - t0_chunk) * 1000)) or 1
                     payload["parse_chunk_duration_ms"] = parse_ms
-  
-                    logger.info("Skipping existing window chunk %s (assembly %d ms)", payload["chunk_id"], parse_ms)
-                    continue
-                _write_payload(out_key, payload)
-                t_put_end = time.perf_counter()
-                total_ms = int(round((t_put_end - t0_chunk) * 1000)) or 1
-                payload["parse_chunk_duration_ms"] = total_ms
-
-                _write_payload(out_key, payload)
-                logger.info("Wrote CSV token window %s → %s (%d ms)", payload["chunk_id"], out_key, total_ms)
-                saved += 1
+                    payload["chunk_duration_ms"] = parse_ms
+                    write_or_append(out_key, payload, combined_appender)
+                    saved += 1
             start_row_of_current = next_row_num
             continue
         candidate_text = header_text + "\n" + "\n".join(rows_text + [row_text]) if header_text else "\n".join(rows_text + [row_text])
@@ -329,12 +382,12 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
             rows_text.append(row_text)
             continue
         else:
-            wrote, chunk_index = _flush_rows_chunk(doc_id, s3_path, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags)
+            wrote, chunk_index = _flush_rows_chunk(doc_id, s3_path, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags, combined_appender)
             saved += wrote
             rows_text = [row_text]
             start_row_of_current = row_num
     if rows_text:
-        wrote, chunk_index = _flush_rows_chunk(doc_id, s3_path, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags)
+        wrote, chunk_index = _flush_rows_chunk(doc_id, s3_path, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags, combined_appender)
         saved += wrote
     return saved, chunk_index, next_row_num
 
@@ -366,6 +419,15 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
     chunk_index = 0
     next_row_num = 1
     manifest_tags = manifest.get("tags", []) if isinstance(manifest, dict) else []
+    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+    combined_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+    combined_appender = None
+    if not STORE_ONE_FILE_PER_CHUNK:
+        if not FORCE_OVERWRITE and s3_object_exists(combined_key):
+            logger.info("Skipping file %s because combined target exists and FORCE_OVERWRITE is false → %s", s3_key, combined_key)
+            return {"saved_chunks": 0, "total_parse_duration_ms": int((time.perf_counter() - start_all) * 1000)}
+        combined_appender = LocalChunkAppender(ext, doc_id)
+        logger.info("Using combined chunk file mode for %s → s3://%s/%s", doc_id, S3_BUCKET, combined_key)
     try:
         if ray is not None:
             ds = ray.data.read_csv(f"s3://{S3_BUCKET}/{s3_key}", file_extensions=["csv"])
@@ -373,7 +435,7 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
             for batch in batch_iter:
                 if pd is None or not isinstance(batch, pd.DataFrame) or batch.shape[0] == 0:
                     continue
-                saved_batch, chunk_index, next_row_num = _process_batch_rows(batch.iterrows(), doc_id, s3_path, chunk_index, header_text, next_row_num, manifest_tags)
+                saved_batch, chunk_index, next_row_num = _process_batch_rows(batch.iterrows(), doc_id, s3_path, chunk_index, header_text, next_row_num, manifest_tags, combined_appender)
                 saved += saved_batch
         else:
             raise Exception("ray-unavailable")
@@ -387,12 +449,17 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
             for chunk in reader:
                 if not isinstance(chunk, pd.DataFrame) or chunk.shape[0] == 0:
                     continue
-                saved_chunk, chunk_index, next_row_num = _process_batch_rows(chunk.iterrows(), doc_id, s3_path, chunk_index, header_text, next_row_num, manifest_tags)
+                saved_chunk, chunk_index, next_row_num = _process_batch_rows(chunk.iterrows(), doc_id, s3_path, chunk_index, header_text, next_row_num, manifest_tags, combined_appender)
                 saved += saved_chunk
         except Exception as e_pd:
             total_ms = int((time.perf_counter() - start_all) * 1000)
             logger.error("Skipping malformed or unreadable CSV %s error=%s | %s", s3_key, str(e_pd), "")
             return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_pd)}
+    if not STORE_ONE_FILE_PER_CHUNK and combined_appender is not None:
+        try:
+            combined_appender.finalize_and_upload(S3_BUCKET, combined_key)
+        except Exception as e:
+            logger.error("Failed uploading combined file for %s: %s", doc_id, e)
     total_ms = int((time.perf_counter() - start_all) * 1000)
     logger.info("Completed parsing %d chunks for %s in %d ms total", saved, s3_key, total_ms)
     return {"saved_chunks": saved, "total_parse_duration_ms": total_ms}

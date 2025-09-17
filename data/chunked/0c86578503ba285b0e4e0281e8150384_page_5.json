@@ -1,0 +1,30 @@
+{
+  "document_id": "0c86578503ba285b0e4e0281e8150384",
+  "chunk_id": "0c86578503ba285b0e4e0281e8150384_page_5",
+  "chunk_type": "page",
+  "text": "Exact Match:\n\n• Binary indicator of whether entity oc- Clients can flexibly configure the module depending on\n\ncursverbatimind’stext.\n\nthe data modality and privacy requirements. For example,\n\nin clinical applications, Presidio may anonymize patient\n\nPhraseSimilarityS (e,d):Stringsimilaritybetween\n\nrecords,Eraser4RAGfiltersirrelevantnarrativedetails,and\n\neandtheconcatenatedtextusingembeddingmodel.\n\nTenSEALsecureslabvalueembeddings.\n\nThesesignalsarecombinedtoyieldafusionscore:\n\ns (e,d)=λ ·ExactMatch(e,d)\n\n4 Experiments\n\ncombined 1\n\n4.1 ExperimentalSetup\n\nImplementationDetails We use the PMC-Patients\n\ndataset(Zhao et al. 2022), from which we extract 50,000\n\n4 sim\n\npatient records and approximately 400,000 associated\n\nwhere are manually tuned weights. Docu-\n\narticles to construct three types of datasets: TEXT, SQL,\n\nmentsaresortedbydescendingExactMatchands\n\nandKG.\n\ncombined\n\ntop-N\n\nand results are retained per entity after UID-level\n\nThe TEXT version retains only the raw text content, ig-\n\ndeduplication.\n\nnoring original data structures. The SQL version preserves\n\nthe original structured format. The KG version is con-\n\nDeepReranking:\n\nForeachmergedcandidatesetfromall\n\nstructed using Llama-3.1-8B-Instruct to generate a knowl-\n\nentities, a final reranking step is performed using a local\n\nedgegraph(Dubeyetal.2024),andtheprompttemplatesfor\n\ncross-encodermodel:\n\ntriple extraction are provided in the appendix.We also use\n\nbge-reranker-v2-m3(Lietal.2023)asthererankingmodel.\n\nrerank Reranker\n\nNotably, to ensure generalizability, we do not perform any\n\nwhere denotes the deep relevance scoring func-\n\nReranker\n\nfine-tuning on this model and use the original checkpoint\n\ntion. The top records by are returned as the\n\nrerank\n\nas-is.\n\nfinalretrievaloutput.\n\nForprivacy-preservingsummarizationusinglocalLLMs,\n\nwe employ three different models: Llama-3.1-8B-Instruct\n\n3.4 Privacy-AwareSummaryGeneration\n\nand Gemma-2-9B-IT(Team et al. 2024). Anonymization is\n\nToensuredataprivacyinfederatedretrieval-augmentedgen-\n\nperformedusingthePresidioprivacyprotectiontoolkit.\n\neration, we design a local LLM-based privacy-aware sum-\n\nmary generation module that transforms sensitive client-\n\nBaselines We adopt the official leaderboard from PMC-\n\nside data into de-identified, semantically rich representa-\n\nPatients as the source for our baseline, specifically RRF\n\ntions suitable for global reasoning. This module operates\n\n(Zhaoetal.2022),DPR(SciMult-MHAExpert)(Zhangetal.\n\nentirelyon-device,preventingrawdataexposurewhilepre-\n\n2023),BM25 in PMC-Patients (Zhao et al. 2022),DPR (Bi-\n\nserving contextual integrity for downstream inference. We\n\noLinkBERT)(Zhaoetal.2022),DPR(PubMedBERT)(Zhao\n\nsupportmulti-granularityprivacyprotectionbyintegrat-\n\net al. 2022),bge-base-en-v1.5(Xiao et al. 2024),DPR\n\ningthreecomplementaryprivacy-preservingtools:\n\n(SPECTER)(Zhaoetal.2022),MedCPT-d(Jinetal.2023).\n\n• Presidio: An industrial-grade named entity recognition\n\nEvaluation Metrics We adopt standard information re-\n\n(NER) and anonymization framework, used for rule-\n\ntrievalmetrics—PrecisionatK(P@K,K=10),MeanRecip-\n\nbasedandmodel-basedidentificationofpersonallyiden-\n\nrocalRank(MRR),andNormalizedDiscountedCumulative\n\ntifiable information (PII). Presidio replaces sensitive\n\nGain (nDCG@K, K=10)—to evaluate the performance of\n\ntokens (e.g., names, addresses, IDs) with generalized\n\ntheretrievalmodule(Zhaoetal.2024).\n\nplaceholders, enabling coarse-grained de-identification\n\nwithminimalsemanticloss.\n\nForinformation-constrainedretrievers,suchastheSQL-\n\nbased and KG-based backends, we additionally introduce\n\n• Eraser4RAG: A recent lightweight module tailored\n\nP@K (K=1, 5) and Hit@K (K=5) to measure potential\n\nfor retrieval scenarios(Wang et al. 2025b). It identifies\n\nperformance degradation caused by incomplete or missing\n\nattribution-relevantspansandremovesormasksdatathat\n\nknowledge.\n\nisnon-essentialforansweringtheinputquery.Thispro-\n\nvidescontext-awaresanitization,balancingprivacywith\n\nFor local LLM-based summarization and privacy-\n\nutility by pruning only non-contributory sensitive con-\n\npreserving generation, where ground-truth references are\n\ntent.\n\nunavailable, we employ the geval scoring method from the\n\nDeepEvalframework(Liuetal.2023),usingGPT-4oasthe\n\n• TenSEAL: A homomorphic encryption library that al-\n\nevaluatormodel.\n\nlowslocalLLMstocomputeoverencryptedembeddings.\n\nWe support TenSEAL for high-sensitivity environments Finally, we report the end-to-end latency under a simu-\n\nwhere structural features or vector representations must lated federated retrieval setting. All local models are exe-\n\nbe computed or transmitted without ever exposing raw cuted on two NVIDIA RTX A6000 48GB GPUs. Cache-\n\nvalues. This enables fine-grained cryptographic protec- related latency improvements are evaluated in terms of the\n\ntionatthefeaturelevel. cachehitrate.",
+  "token_count": 1244,
+  "embedding": null,
+  "file_type": "application/pdf",
+  "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/graph_rag_sep_2025.pdf",
+  "page_number": 5,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": [
+    0,
+    1243
+  ],
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:52:31.507113Z",
+  "parser_version": null,
+  "tags": null,
+  "layout_tags": [
+    "page"
+  ],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 463,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": null
+}

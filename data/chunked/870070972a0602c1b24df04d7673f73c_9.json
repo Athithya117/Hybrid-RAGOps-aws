@@ -1,0 +1,28 @@
+{
+  "document_id": "870070972a0602c1b24df04d7673f73c",
+  "chunk_id": "870070972a0602c1b24df04d7673f73c_9",
+  "chunk_type": "txt_subchunk",
+  "text": "* Very high-complexity or extremely sparse-evidence questions remain challenging; authors report best gains for low-to-moderate complexity multi-hop questions.\n\n---\n\n11. REPRODUCIBILITY & RESOURCES\n\n---\n\n* Project page: gear-rag.github.io (contains pseudocode, examples, and diagrams).\n* Paper: arXiv:2412.18431 — contains algorithms, plots, tables, and appendices with extra experiment details.\n* The paper includes pseudocode outlines, hyperparameter choices, and experimental setup details for replication.\n\nSuggested citation (BibTeX-style entry):\n@article{shen2024gear,\ntitle={GeAR: Graph-enhanced Agent for Retrieval-augmented Generation},\nauthor={Shen, Zhili and Diao, Chenxin and Vougiouklis, Pavlos and Merita, Pascual and Piramanayagam, Shriram and Graux, Damien and Tu, Dandan and Jiang, Zeren and Lai, Ruofei and Ren, Yang and Pan, Jeff Z.},\njournal={arXiv preprint arXiv:2412.18431},\nyear={2024}\n}\n\n---\n\n12. APPENDIX NOTES & IMPLEMENTATION HINTS\n\n---\n\nIndexing:\n\n* Build two aligned indexes — passage text to passage ID and triple to passage ID(s). Efficient triple-to-passage lookup is central to graph expansion speed and responsiveness.\n\nTriple extraction:\n\n* Can be performed offline with off-the-shelf information-extraction LLM prompts or a neural IE pipeline. Quality of extraction matters; tune extractor for precision in high-recall contexts.\n\nBeam/diversity hyperparameters:\n\n* Beam size B, path length L, and diversity constant gamma control exploration/exploitation tradeoffs. The authors found diversity helps recall and reduces redundant expansions.\n\nScoring:",
+  "token_count": 390,
+  "embedding": null,
+  "file_type": "text/plain",
+  "source_url": "s3://e2e-rag-system-42/data/raw/txts/GeAR.txt",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:53:17.281560Z",
+  "parser_version": "plain-txt-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 1,
+  "heading_path": [],
+  "headings": [],
+  "line_range": [
+    247,
+    286
+  ],
+  "chunk_duration_ms": null
+}

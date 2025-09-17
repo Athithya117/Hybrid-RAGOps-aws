@@ -1,0 +1,31 @@
+{
+  "document_id": "45a94a339e983a1666d811dd81380550",
+  "chunk_id": "45a94a339e983a1666d811dd81380550_4",
+  "chunk_type": "md_section",
+  "text": "## Configurations\nNGINX is highly flexible and configurable. Provisioning the software is achieved via text-based config file(s) accepting parameters called \"[Directives](https://nginx.org/en/docs/dirindex.html)\". See [Configuration File's Structure](https://nginx.org/en/docs/beginners_guide.html#conf_structure) for a comprehensive description of how NGINX configuration files work.\n\n> [!NOTE]\n> The set of directives available to your distribution of NGINX is dependent on which [modules](#modules) have been made available to it.\n\n## Runtime\nRather than running in a single, monolithic process, NGINX is architected to scale beyond Operating System process limitations by operating as a collection of processes. They include:\n- A \"master\" process that maintains worker processes, as well as, reads and evaluates configuration files.\n- One or more \"worker\" processes that process data (eg. HTTP requests).\n\nThe number of [worker processes](https://nginx.org/en/docs/ngx_core_module.html#worker_processes) is defined in the configuration file and may be fixed for a given configuration or automatically adjusted to the number of available CPU cores. In most cases, the latter option optimally balances load across available system resources, as NGINX is designed to efficiently distribute work across all worker processes.\n\n> [!TIP]\n> Processes synchronize data through shared memory. For this reason, many NGINX directives require the allocation of shared memory zones. As an example, when configuring [rate limiting](https://nginx.org/en/docs/http/ngx_http_limit_req_module.html#limit_req), connecting clients may need to be tracked in a [common memory zone](https://nginx.org/en/docs/http/ngx_http_limit_req_module.html#limit_req_zone) so all worker processes can know how many times a particular client has accessed the server in a span of time.",
+  "token_count": 388,
+  "embedding": null,
+  "file_type": "text/markdown",
+  "source_url": "s3://e2e-rag-system-42/data/raw/mds/nginx.md",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:51:56.727755Z",
+  "parser_version": "markdown-it-py-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 0,
+  "heading_path": [],
+  "headings": [
+    "Configurations",
+    "Runtime"
+  ],
+  "line_range": [
+    62,
+    78
+  ],
+  "chunk_duration_ms": null
+}

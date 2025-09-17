@@ -25,7 +25,6 @@ repos
 production-stack/
 production-stack
 # Data directories
-data/
 raw_data/
 rag8s-aws/
 rag8s-dev/

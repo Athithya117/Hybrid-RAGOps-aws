@@ -1,0 +1,30 @@
+{
+  "document_id": "634c089ee491e2bd719918f758f7e04f",
+  "chunk_id": "634c089ee491e2bd719918f758f7e04f_slides_26_30",
+  "chunk_type": "slides",
+  "text": "## Slide 26\n\nHighlights of Development Trends\n\nInstallation of first clinical scanner at Atkinson-Morley’s hospital by Hounsfield and Ambrose\n\nConsisted of an x-ray tube and two detectors\n\nInitially the scan time was about 5 minutes per slice\n\nDigital data was recorded on a magnetic tape and was sent to a factory for overnight reconstruction\n\nUpon return to the hospital the images were printed as an array of numbers\n\n## Slide 27\n\nThe first publication of a grey scale image by Hounsfield and Ambrose\n\nThe image was of a brain of a living  patient\n\nShowed a cystic lesion in the frontal lobe\n\nThis was followed by a popular exhibit at the 1972 RSNA  (Radiological Society of North America) annual meeting  in Chicago\n\n## Slide 28\n\nThe original scanner was updated with its own microprocessor\n\nIt reduced the data acquisition time and the reconstruction time to 4.5 minutes each.\n\nThe smallest detail that could e visualized was about 3mm\n\nFist whole body scanner installed at Georgetown University Washington\n\nIntroduction of the 2nd generation scanners using 3 detectors.\n\n## Slide 29\n\nUse of Scanners with more detectors up to 30, and with reduced scan times up to 20 seconds.\n\nA ring of detectors is employed resulting scan times down to 5 seconds.\n\nEMI left the field of CT, while other companies enter into market producing scanners with more detectors from 280 t0 2400 reducing scan times to 2 seconds and with resolution of 0.4mm.\n\n## Slide 30\n\nGoitein and Abrams described multidimensional treatment planning based on CT images using a Beams eye view created from a divergent projection through the CT study data\n\nContinuous rotation slip ring technology was introduced\n\nAfter a brief hiatus, during which MRI stole the limelight, CT came back with vengeance.\n\nTime was cut down to one second scanning.\n\nThe use of CT data for treatment planning increased and began top influence the total radiation oncology treatment planning effort.",
+  "token_count": 415,
+  "embedding": null,
+  "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "source_url": "s3://e2e-rag-system-42/data/raw/ppts/CT.pptx",
+  "page_number": null,
+  "slide_range": [
+    26,
+    30
+  ],
+  "row_range": null,
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:53:13.287441Z",
+  "parser_version": "pptx-parser-v1",
+  "tags": [],
+  "layout_tags": [
+    "slide"
+  ],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 5,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": null
+}

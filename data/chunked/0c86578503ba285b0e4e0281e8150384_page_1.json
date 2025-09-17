@@ -1,0 +1,30 @@
+{
+  "document_id": "0c86578503ba285b0e4e0281e8150384",
+  "chunk_id": "0c86578503ba285b0e4e0281e8150384_page_1",
+  "chunk_type": "page",
+  "text": "HyFedRAG: A Federated Retrieval-Augmented Generation Framework\n\nfor Heterogeneous and Privacy-Sensitive Data\n\nChengQian1,HainanZhang2,YongxinTong3,Hong-WeiZheng4,ZhimingZheng5\n\n1BeijingAdvancedInnovationCenterforFutureBlockchainandPrivacyComputing\n\n2InstituteofArtificialIntelligence,BeihangUniversity,China\n\nalpacino@buaa.edu.cn,zhanghainan1990@163.com\n\nI would like to review the article entitled \"Clinical\n\nmanifestation and prognostic factor in anti-melanoma\n\ndifferentiation-associated gene...\n\nHOSPITALA\n\nHOSPITAL C\n\nHOSPITALB\n\nDOCUMENT\n\nKNOWLEDGE\n\nDATABASES\n\nARCHIVES\n\nGRAPH\n\n[Text] a 50-year-old\n\n[Table] Patient UID:\n\n[KG triple]\n\nCaucasian woman,\n\n8708605-1,\n\nPatient UID 6039648-\n\npreviously in good\n\n1DIAGNOSEDWITH\n\nhealth, developed\n\nGender: F,\n\nAnti-MDA5_Antibody,\n\ncutaneous\n\nTitle: Combination\n\nTREATEDWITH\n\nPrednisolone...\n\nerythematosuspapular\n\nTherapy with Rituximab...\n\nlesions both on the...\n\nAbstract\n\nCentralizedRAGpipelinesstrugglewithheterogeneousand\n\nprivacy-sensitive data, especially in distributed healthcare\n\nsettings where patient data spans SQL, knowledge graphs,\n\nandclinicalnotes.Cliniciansfacedifficultiesretrievingrare\n\ndisease cases due to privacy constraints and the limita-\n\ntions of traditional cloud-based RAG systems in handling\n\ndiverse formats and edge devices. To address this, we in-\n\ntroduce HyFedRAG, a unified and efficient Federated RAG\n\nframework tailored for Hybrid data modalities. By leverag-\n\ninganedge-cloudcollaborativemechanism,HyFedRAGen-\n\nablesRAGtooperateacrossdiversedatasourceswhilepre-\n\nserving data privacy. Our key contributions are: (1) We de-\n\nsign an edge-cloud collaborative RAG framework built on\n\nFlower,whichsupportsqueryingstructuredSQLdata,semi-\n\nstructured knowledge graphs, and unstructured documents.\n\nThe edge-side LLMs convert diverse data into standardized\n\nprivacy-preservingrepresentations,andtheserver-sideLLMs\n\nintegrates them for global reasoning and generation. (2)\n\nFigure1:Inprivacy-sensitivemedicalenvironments,thehet-\n\nWeintegratelightweightlocalretrieverswithprivacy-aware\n\nerogeneousstorageformatsemployedbydifferenthospitals,\n\nLLMsandprovidethreeanonymizationtoolsthatenableeach\n\ncombined with stringent privacy protection requirements,\n\nclienttoproducesemanticallyrich,de-identifiedsummaries\n\nhinder data interoperability and pose significant challenges\n\nforglobalinferenceacrossdevices.(3)Tooptimizeresponse\n\nforcross-institutionalqueries.\n\nlatencyandreduceredundantcomputation,wedesignathree-\n\ntier caching strategy consisting of local cache, intermediate\n\nrepresentationcache,andcloudinferencecache.Experimen-\n\ntalresultsonPMC-PatientsdemonstratethatHyFedRAGout-\n\nstruggling to handle multiple heterogeneous data formats\n\nperformsexistingbaselinesintermsofretrievalquality,gen-\n\nwithinasingleworkflow(BehnamGhaderetal.2024),such\n\neration consistency, and system efficiency. Our framework\n\nas structured tables(Kong et al. 2024), semi-structured\n\noffers a scalable and privacy-compliant solution for RAG\n\nknowledge-graph triples(Huang et al. 2023), and unstruc-\n\noverstructural-heterogeneousdata,unlockingthepotentialof\n\nturedfreetext.Forexample,aretrieverspecializedintable-\n\nLLMsinsensitiveanddiversedataenvironments.\n\nbased retrieval(Herzig et al. 2021) cannot be easily ap-\n\nplied to knowledge graph-based question answering (QA)\n\n1 Introduction\n\ntasks(BehnamGhaderetal.2024).\n\nThis shortfall is especially problematic in\n\nLarge language models (LLMs) have demonstrated re-\n\nprivacy-sensitive domains like healthcare, where pa-\n\nmarkable proficiency in natural language understanding\n\ntient data spans electronic health record tables, pathology\n\nand generation(Achiam et al. 2023), but they are prone\n\nreports(Zhao et al. 2022; Zheng et al. 2024), imaging\n\nto “hallucinations” caused by missing or outdated knowl-\n\nmetadata,andgenomicprofiles.Eachstoredunderdifferent\n\nedge(Schick et al. 2023). Retrieval-Augmented Generation\n\nconventionsandprotectedbyregulationssuchasGDPRand\n\n(RAG)(Seo 2024; Zhang et al. 2024) addresses this by\n\nHIPAAthatforbidcentralizingrawrecords.Forexamplein\n\ninvoking external search(Zhao et al. 2024; Wang et al.\n\nFigure 1, clinicians face challenges retrieving rare disease\n\n2025a) or database queries at inference time, injecting\n\ncases due to privacy restrictions on raw data access and\n\nup-to-date, domain-specific information to improve han-\n\nthe limitations of traditional cloud-based RAG systems in\n\ndlingoflong-tailentitiesandspecializedterminology.\n\nhandlingdiverseedgedevicesandinconsistentformats.\n\nHowever, existing RAG systems typically assume a ho-\n\nmogeneous repository (e.g., only text or only graphs), Tofacilitaterealisticcross-institutionfederatedRAG,we",
+  "token_count": 1165,
+  "embedding": null,
+  "file_type": "application/pdf",
+  "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/graph_rag_sep_2025.pdf",
+  "page_number": 1,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": [
+    0,
+    1164
+  ],
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:52:21.732141Z",
+  "parser_version": null,
+  "tags": null,
+  "layout_tags": [
+    "page"
+  ],
+  "used_ocr": true,
+  "parse_chunk_duration_ms": 5060,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": null
+}

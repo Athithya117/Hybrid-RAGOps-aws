@@ -1,0 +1,30 @@
+{
+  "document_id": "634c089ee491e2bd719918f758f7e04f",
+  "chunk_id": "634c089ee491e2bd719918f758f7e04f_slides_31_34",
+  "chunk_type": "slides",
+  "text": "## Slide 31\n\nMultiplanar and three-dimensional reconstruction software was developed, proving beneficial to not only radiologists but also orthopaedic and plastic surgeons.\n\nHelical scanning permitted acquisition of data by volume, thereby improving the ability to scan without misregistration and to produce superb quality 3D images.\n\nThe work station, a boon to the area of post-processing, was made available.\n\nSoftware functions create a virtual simulator for radiation therapy\n\n## Slide 32\n\nCT simulation was pioneered and made available for use by major CT manufacturer.\n\nHelical scanning, with its tremendous amount of heat build-up during a 30-second scan, led to the development of the 6.0 unit tube.\n\nDemonstrated the wide use of CT utilizing successfully in other areas including geology, anthropology, archeology, Egyptology, art restoration, and oil exploration.\n\n## Slide 33\n\nReconstruction times are reduced to microseconds, enabling a display of 6 images per second.\n\nThis resulted in the clinical introduction of CT fluoroscopy and real time helical scanning.\n\nScan times dropped to 0.7seconds per rotation and workstations became standard equipment.\n\nThe multi-slice helical scanner, introduced briefly in the early 90’s, became widespread and revolutionized patient throughput time and image manipulation with 0.5 –second scanning and real-time reconstruction\n\n## Slide 34\n\nInvented by Dr. Ron Nutt and Dr. David Townsend, the PET/CT scanner was named  the Invention of the year by Time Magazine.\n\nThe 64 slice multi-slice scanner is introduced and becomes the standard with full body coverage at high resolution, providing superb vascular imaging, both cardiac and peripheral.\n\nToshiba launches their 320 slice scanner which allows the imaging of 16 cm length in a single 0.35sec rotation, thereby enabling ‘dynamic volume scanning’ or functional imaging.",
+  "token_count": 380,
+  "embedding": null,
+  "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "source_url": "s3://e2e-rag-system-42/data/raw/ppts/CT.pptx",
+  "page_number": null,
+  "slide_range": [
+    31,
+    34
+  ],
+  "row_range": null,
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:53:13.493170Z",
+  "parser_version": "pptx-parser-v1",
+  "tags": [],
+  "layout_tags": [
+    "slide"
+  ],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 5,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": null
+}

@@ -1,0 +1,28 @@
+{
+  "document_id": "38c0a2a9ba805775a602cf8ce3ba89a7",
+  "chunk_id": "38c0a2a9ba805775a602cf8ce3ba89a7_4",
+  "chunk_type": "row_group",
+  "text": "authors | body | category | created_at | headline | id | location | organizations | published_date | references | related_ids | severity | summary | tags | updated_at id: news_004 | headline: Anthropic agrees to proposed ~$1.5B settlement with authors | summary: Anthropic reached a proposed settlement valuing payouts to authors and remediation over claims that copyrighted books were used in training. | body: On September 5, 2025 Anthropic agreed to a proposed settlement of roughly $1.5 billion with a class of authors who alleged the company used large caches of copyrighted books for model training. The proposed deal included an initial valuation (reported in press coverage) tied to identified downloaded works, remediation steps including destruction of certain copies, and creation of a claims fund. Observers noted the settlement could set important precedents for copyright remedies tied to foundation model training data. | published_date: 2025-09-05T00:00:00Z | authors: ['legal filings coverage'] | organizations: ['Anthropic', 'plaintiff class (authors)'] | tags: ['legal', 'copyright', 'anthropic', 'settlement'] | category: legal | severity: high | location: United States | related_ids: ['news_005'] | references: [{'name': 'Settlement filings / press reports', 'url': ''}] | created_at: 2025-09-10T06:30:00Z | updated_at: 2025-09-10T06:30:00Z",
+  "token_count": 317,
+  "embedding": null,
+  "file_type": "application/x-ndjson",
+  "source_url": "s3://e2e-rag-system-42/data/raw/jsonls/ai_news_latest.jsonl",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": [
+    4,
+    4
+  ],
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:51:49.529036Z",
+  "parser_version": "ray-jsonl-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": null,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": null
+}

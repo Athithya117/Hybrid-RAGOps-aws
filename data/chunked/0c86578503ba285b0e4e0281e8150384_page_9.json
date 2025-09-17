@@ -1,0 +1,30 @@
+{
+  "document_id": "0c86578503ba285b0e4e0281e8150384",
+  "chunk_id": "0c86578503ba285b0e4e0281e8150384_page_9",
+  "chunk_type": "page",
+  "text": "Jiang, X.; Gao, B.; and Lu, J. 2024. Fedcache: A knowl-\n\nedge cache-driven federated learning architecture for per-\n\nIEEE Transactions on Mobile\n\nsonalized edge intelligence.\n\nComputing,23(10):9368–9382.\n\nXiao,S.;Liu,Z.;Zhang,P.;Muennighoff,N.;Lian,D.;and\n\nNie, J.-Y. 2024. C-pack: Packed resources for general chi-\n\nInProceedingsofthe47thinternational\n\nneseembeddings.\n\nACMSIGIRconferenceonresearchanddevelopmentinin-\n\nformationretrieval,641–649.\n\n2024. Adacomp:Extractivecontextcompressionwithadap-\n\ntive predictor for retrieval-augmented large language mod-\n\narXivpreprintarXiv:2409.01579.\n\nGao,J.2023. Pre-trainingMulti-taskContrastiveLearning\n\nInFindings\n\nModelsforScientificLiteratureUnderstanding.\n\nof the Association for Computational Linguistics: EMNLP\n\n2023,12259–12275.\n\nZhao,W.X.;Liu,J.;Ren,R.;andWen,J.-R.2024. Dense\n\ntextretrievalbasedonpretrainedlanguagemodels:Asurvey.\n\nACMTransactionsonInformationSystems,42(4):1–60.\n\nZhao,Z.;Jin,Q.;Chen,F.;Peng,T.;andYu,S.2022. Pmc-\n\npatients:Alarge-scaledatasetofpatientsummariesandrela-\n\ntionsforbenchmarkingretrieval-basedclinicaldecisionsup-\n\narXivpreprintarXiv:2202.13876.\n\nportsystems.\n\nW.; and Zheng, Z.-M. 2024. Safely Learning with Private\n\nData:AFederatedLearningFrameworkforLargeLanguage\n\nModel.InProceedingsofthe2024ConferenceonEmpirical\n\nMethodsinNaturalLanguageProcessing,5293–5306.\n\nAcknowledgments\n\nThis work was funded by the National Natural Science\n\nFoundation of China (NSFC) under Grants No. 62406013,\n\nthe Beijing Advanced Innovation Center Funds for Future\n\nBlockchain and Privacy Computing and the Fundamental\n\nResearchFundsfortheCentralUniversities.",
+  "token_count": 470,
+  "embedding": null,
+  "file_type": "application/pdf",
+  "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/graph_rag_sep_2025.pdf",
+  "page_number": 9,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": [
+    0,
+    469
+  ],
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:52:50.338847Z",
+  "parser_version": null,
+  "tags": null,
+  "layout_tags": [
+    "page"
+  ],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 194,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": null
+}

@@ -1,0 +1,28 @@
+{
+  "document_id": "062287fc8def036c9fc35facd0645d91",
+  "chunk_id": "062287fc8def036c9fc35facd0645d91_1",
+  "chunk_type": "row_group",
+  "text": "id | date_iso | title | summary | category | source | url id: evt-2025-06-09-apple-wwdc | date_iso: 2025-06-09 | title: Apple WWDC 2025: Apple Intelligence and platform redesign | summary: Apple unveiled Apple Intelligence and a platform redesign across iOS, iPadOS and macOS focused on stronger on-device AI, privacy, and efficient local inference. New developer APIs support RAG, intent routing and document handling. System optimizations target battery and thermal gains to enable privacy-preserving, hybrid AI apps for enterprises. | category: Devices | source: Apple News | url: https://www.apple.com/newsroom/2025/06/apple-intelligence-gets-even-more-powerful-with-new-capabilities-across-apple-devices/",
+  "token_count": 164,
+  "embedding": null,
+  "file_type": "text/csv",
+  "source_url": "s3://e2e-rag-system-42/data/raw/csvs/latest_tech_news.csv",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": [
+    1,
+    1
+  ],
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:49:53Z",
+  "parser_version": "ray-csv-firstrow-auto-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": null,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": null
+}

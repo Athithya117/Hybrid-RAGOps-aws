@@ -1,0 +1,30 @@
+{
+  "document_id": "634c089ee491e2bd719918f758f7e04f",
+  "chunk_id": "634c089ee491e2bd719918f758f7e04f_slides_6_10",
+  "chunk_type": "slides",
+  "text": "## Slide 6\n\nHow is blurring achieved?\n\nTomographic Blurring\ngPrinciple\nPosition2\nPosition1\nFulcrum or pivot point\n(objective plane)\n·Only\"B\"(fulcrum)\nremains in same\nposition on theIR\nPosition 1\n>Position2\nCopyright @2001 Mosby, Inc.\n\n## Slide 7\n\nMultidirectional Tube\nTrajectories\nElliptical\nCircular\nSpiral Hypocycloidal\nComputed tomography(CT)has largely replaced specialized\nmultidirectionalsystemsliketheoneshownhere.\nCopyright@20o1 Mosby,Inc.\n\n## Slide 8\n\nConventional tomography images\n\nR10V2\n\n## Slide 9\n\nComputerized Tomography\n\nCompare this image with that of the same area in previous slide\n\n## Slide 10\n\nDefinition of CT\n\nComputerized Tomography is the process of scanning a patient to gather x-ray absorption coefficients taken from thin sections through the body, obtaining multiple measurements from these coefficients and reconstructing these measurements into an image that displays that section’s anatomy.\n\nThis can be broken down to five components:\n\nScanning a patient\n\nGather x-ray absorption coefficients taken from thin sections through the body\n\nObtaining multiple measurements from these coefficients\n\nReconstructing these measurements into an image\n\nDisplay’s that section’s anatomy",
+  "token_count": 280,
+  "embedding": null,
+  "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "source_url": "s3://e2e-rag-system-42/data/raw/ppts/CT.pptx",
+  "page_number": null,
+  "slide_range": [
+    6,
+    10
+  ],
+  "row_range": null,
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:53:12.637724Z",
+  "parser_version": "pptx-parser-v1",
+  "tags": [],
+  "layout_tags": [
+    "slide"
+  ],
+  "used_ocr": true,
+  "parse_chunk_duration_ms": 10699,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": null
+}

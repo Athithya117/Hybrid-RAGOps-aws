@@ -1,0 +1,30 @@
+{
+  "document_id": "0c86578503ba285b0e4e0281e8150384",
+  "chunk_id": "0c86578503ba285b0e4e0281e8150384_page_3",
+  "chunk_type": "page",
+  "text": "USER QUERY\n\nStage1:\n\nStage2:\n\nStage3:\n\nmultiple clients IR\n\nPrivacy-Preserving\n\nResponse Generation\n\nsummary generation\n\nCache\n\nLocal Retriever\n\nLocal LLMA\n\nprivcay\n\npreserved\n\npreserved!\n\nLocal LLM B\n\nPrivacy-\n\nGlobal LLM Fusion\n\nTOOLS\n\naware\n\nsummariza\n\nLocal LLM C\n\nClinet A\n\nClinet B\n\nClinet C\n\nStore\n\nUSERQUERY\n\nAnonymizati\n\nRESPONSE\n\non Tools\n\nDatabase\n\nAdjacency\n\nFigure 2: Overview of the HyFedRAG architecture. In Stage 1, multiple clients (SQL, KG, Text) perform local retrieval and\n\nloadpre-constructedadjacencytopredictpossiblesubsequentinputs;inStage2,eachclientusesalocalLLMandanonymiza-\n\ntion tools to generate privacy-preserving summaries, which are cached in L2/L3; finally, in Stage 3, a global LLM fuses the\n\nanonymizedsummariestoproducetheuserqueryresponse.\n\nandanabstractb,weformthequeryq = (t, b).Inthefed-\n\ndirectly within each participant’s local environment, ensur-\n\neratedsetting,assumethereareM\n\ningthatrawsensitivedataneverleavetheclient.Thework- hospitalsordatasources,\n\nflowincludes: and each client locally maintains a collection of patient\n\nrecords where each record\n\n1. Construction of multimodal indices (text embeddings,\n\ncontains structured fields, semi-structured triples, and\n\nrelational-tableindices,graphqueryinterfaces)\n\nunstructuredtext.\n\n2. Localsimilarityretrieval\n\nTheretrievalgoalis,foreachclienti,toreturnthetopK\n\n3. Privacy-awaresummarygeneration(de-identification)\n\nmostsimilarpatientUIDs:R (q)= p , p , ...,p\n\nsuchthatthesimilarityscoress q, d\n\narehighestwithin\n\nMiddleware Layer\n\nThe middleware layer provides\n\n. The system then aggregates all and their corre-\n\nmulti-tier caching and scheduling between clients and the\n\nspondingsummariesσ(d )atthecentralservertoproduce\n\ncentral server, significantly improving the efficiency and\n\naglobalretrievalreport.\n\nscalabilityoftheretrieval-and-generationpipelinethrough:\n\nThisretrievalscenarioemphasizes:\n\nTier 1 Cache:\n\n• Local summary features to avoid redun-\n\ndantpreprocessing\n\nMulti-source heterogeneity:\n\n• each client holds only one\n\ndata modality (structured, semi-structured, or unstruc-\n\nTier 2 Cache:\n\n• Summary-to-LLM-input transformations\n\ntured)toreflectreal-worldinstitutionalstorage;\n\ntoreduceencodingoverhead\n\nTier3Cache:High-frequencyinferenceoutputstomin-\n\nPrivacy preservation:\n\n• raw records remain local and are\n\nimizeduplicateLLMcalls\n\nnevershared;\n\nFederated collaboration:\n\n• each client independently re-\n\nCentral Server Layer\n\nThe central server aggregates\n\ntrieves and generates de-identified summaries, and the\n\nde-identified summaries from all clients and invokes open\n\nserverprocessesonlythesesummaries.\n\nLLMAPIsdeployedinaprivatecloudortrustedexecution\n\nenvironmenttoperformunifiedinferenceandfusion.Itthen\n\nIn subsequent sections, we detail the implementation of\n\ngenerates the final retrieval report, ensuring global consis-\n\nclient-sideretrieval,privacy-awaresummarygeneration,and\n\ntencywhilerespectingeachinstitution’sdataheterogeneity.\n\nthemulti-tiercachingaccelerationmechanism.\n\n3.2 RetrievalScenarioDefinition\n\n3.3 RetrievalModule\n\nThis study takes a literature-based similar-patient retrieval\n\ntaskasatypicalscenario.Givenaclinicalcasearticlefrom Inthissubsection,wedescribetheconstructionofthreedis-\n\nPMC(Zhaoetal.2022),whosestructurecomprisesatitlet\n\ntinctclientretrievalmodules.",
+  "token_count": 822,
+  "embedding": null,
+  "file_type": "application/pdf",
+  "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/graph_rag_sep_2025.pdf",
+  "page_number": 3,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": [
+    0,
+    821
+  ],
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:52:29.841758Z",
+  "parser_version": null,
+  "tags": null,
+  "layout_tags": [
+    "page"
+  ],
+  "used_ocr": true,
+  "parse_chunk_duration_ms": 7205,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": null
+}

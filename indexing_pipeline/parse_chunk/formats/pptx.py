@@ -9,6 +9,7 @@ import hashlib
 from io import BytesIO
 from datetime import datetime
 from botocore.exceptions import ClientError
+from tempfile import NamedTemporaryFile
 
 try:
     import colorama
@@ -56,6 +57,7 @@ OCR_BACKEND = os.getenv("PPTX_OCR_ENGINE", "tesseract").lower()
 MIN_IMG_BYTES = int(os.getenv("PPTX_MIN_IMG_SIZE_BYTES", "3072"))
 PARSER_VERSION_PPTX = os.getenv("PARSER_VERSION_PPTX", "pptx-parser-v1")
 TOKEN_ENCODER = os.getenv("TOKEN_ENCODER", "cl100k_base")
+STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "true").lower() == "true"
 assert CHUNK_FORMAT in ("json", "jsonl")
 
 s3 = boto3.client("s3")
@@ -77,7 +79,7 @@ def is_ocr_line_valid(text: str, min_ratio: float = 0.6) -> bool:
 def dedupe_lines(lines: list[str]) -> list[str]:
     seen, out = set(), []
     for l in lines:
-        key = l.strip().lower()
+        key = (l or "").strip().lower()
         if key and key not in seen:
             seen.add(key)
             out.append(l)
@@ -144,17 +146,56 @@ def _count_tokens(text: str) -> int:
     except Exception:
         return len(text.split())
 
+class LocalChunkAppender:
+    def __init__(self, chunk_format: str, doc_id: str):
+        self.chunk_format = chunk_format
+        self.doc_id = doc_id
+        suffix = f".{chunk_format}"
+        self.temp = NamedTemporaryFile(delete=False, mode="w", encoding="utf-8", suffix=suffix)
+        self.path = self.temp.name
+        self.count = 0
+    def append(self, payload: dict):
+        if self.chunk_format == "jsonl":
+            line = json.dumps(payload, ensure_ascii=False)
+            self.temp.write(line + "\n")
+        else:
+            pretty = json.dumps(payload, indent=2, ensure_ascii=False)
+            self.temp.write(pretty + "\n")
+        self.count += 1
+        self.temp.flush()
+    def finalize_and_upload(self, s3_bucket: str, s3_key: str):
+        self.temp.close()
+        extra = {"ContentType": "application/json"}
+        try:
+            s3.upload_file(self.path, s3_bucket, s3_key, ExtraArgs=extra)
+            log.info(f"Uploaded combined chunks for {self.doc_id} → s3://{s3_bucket}/{s3_key} ({self.count} chunks)")
+        finally:
+            try:
+                os.remove(self.path)
+            except Exception:
+                pass
+
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
-    raw = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
-    doc_id = manifest.get("file_hash", "") if isinstance(manifest, dict) else ""
+    try:
+        raw = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
+    except Exception as e:
+        log.error(f"Failed to read {s3_key} from S3: {e}")
+        return {"saved_chunks": 0, "total_parse_duration_ms": 0}
+    doc_id = manifest.get("file_hash") if isinstance(manifest, dict) else None
+    if not doc_id:
+        doc_id = os.path.basename(s3_key) or sha256_hex(s3_key)
     source = f"s3://{S3_BUCKET}/{s3_key}"
     try:
         from pptx import Presentation
     except Exception as e:
         log.error(f"pptx import failed: {e}")
         return {"saved_chunks": 0, "total_parse_duration_ms": 0}
-    prs = Presentation(BytesIO(raw))
+    try:
+        prs = Presentation(BytesIO(raw))
+    except Exception as e:
+        log.error(f"Failed to parse PPTX {s3_key}: {e}")
+        return {"saved_chunks": 0, "total_parse_duration_ms": 0}
     slides_content = []
     for idx, slide in enumerate(prs.slides):
         slide_num = idx + 1
@@ -215,6 +256,12 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         })
     saved = 0
     total_slides = len(slides_content)
+    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+    combined_appender = None
+    combined_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+    if not STORE_ONE_FILE_PER_CHUNK:
+        combined_appender = LocalChunkAppender(ext, doc_id)
+        log.info(f"Using combined chunk file mode for {doc_id} → s3://{S3_BUCKET}/{combined_key}")
     for i in range(0, total_slides, SLIDES_PER_CHUNK):
         chunk_slides = slides_content[i:i + SLIDES_PER_CHUNK]
         start = chunk_slides[0]["slide_number"]
@@ -266,15 +313,27 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             "line_range": None,
             "chunk_duration_ms": None
         }
-        ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
-        out_key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext}"
-        body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
+        if STORE_ONE_FILE_PER_CHUNK:
+            out_key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext}"
+            body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
+            try:
+                s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body, ContentType="application/json")
+                log.info(f"Parsed slides {start}-{end} in {duration_ms} ms (tokens={token_count}) → {out_key}")
+                saved += 1
+            except ClientError as e:
+                log.error(f"Failed to write {out_key}: {e}")
+        else:
+            try:
+                combined_appender.append(payload)
+                log.info(f"Appended slides {start}-{end} in {duration_ms} ms (tokens={token_count}) → {combined_key}")
+                saved += 1
+            except Exception as e:
+                log.error(f"Failed to append payload for {chunk_id}: {e}")
+    if not STORE_ONE_FILE_PER_CHUNK and combined_appender is not None:
         try:
-            s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body, ContentType="application/json")
-            log.info(f"Parsed slides {start}-{end} in {duration_ms} ms (tokens={token_count}) → {out_key}")
-            saved += 1
-        except ClientError as e:
-            log.error(f"Failed to write {out_key}: {e}")
+            combined_appender.finalize_and_upload(S3_BUCKET, combined_key)
+        except Exception as e:
+            log.error(f"Failed uploading combined file for {doc_id}: {e}")
     total_ms = int((time.perf_counter() - start_all) * 1000)
     log.info(f"Completed parsing {saved} chunks ({total_slides} slides) in {total_ms} ms total")
     return {"saved_chunks": saved, "total_parse_duration_ms": total_ms}

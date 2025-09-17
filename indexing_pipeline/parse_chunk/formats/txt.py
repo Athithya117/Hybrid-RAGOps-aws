@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import sys
 import json
@@ -11,6 +10,7 @@ import re
 from datetime import datetime
 from botocore.exceptions import ClientError
 from typing import List, Dict, Any
+from tempfile import NamedTemporaryFile
 
 try:
     import colorama
@@ -57,6 +57,7 @@ if OVERLAP_TOKENS >= TXT_MAX_TOKENS_PER_CHUNK:
 ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
 PARSER_VERSION = os.getenv("PARSER_VERSION_TXT", "plain-txt-v1")
 FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
+STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "true").lower() == "true"
 S3_PUT_RETRIES = int(os.getenv("S3_PUT_RETRIES", "3"))
 S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF", "0.3"))
 
@@ -201,6 +202,35 @@ def split_lines_by_tokens(lines: List[str], base_start_line: int, overlap_tokens
         ptr = next_ptr
     return chunks
 
+class LocalChunkAppender:
+    def __init__(self, chunk_format: str, doc_id: str):
+        self.chunk_format = chunk_format
+        self.doc_id = doc_id
+        suffix = f".{chunk_format}"
+        self.temp = NamedTemporaryFile(delete=False, mode="w", encoding="utf-8", suffix=suffix)
+        self.path = self.temp.name
+        self.count = 0
+    def append(self, payload: dict):
+        if self.chunk_format == "jsonl":
+            line = json.dumps(payload, ensure_ascii=False)
+            self.temp.write(line + "\n")
+        else:
+            pretty = json.dumps(payload, indent=2, ensure_ascii=False)
+            self.temp.write(pretty + "\n")
+        self.count += 1
+        self.temp.flush()
+    def finalize_and_upload(self, s3_bucket: str, s3_key: str):
+        self.temp.close()
+        extra = {"ContentType": "application/json"}
+        try:
+            s3.upload_file(self.path, s3_bucket, s3_key, ExtraArgs=extra)
+            log.info("Uploaded combined chunks for %s → s3://%s/%s (%d chunks)", self.doc_id, s3_bucket, s3_key, self.count)
+        finally:
+            try:
+                os.remove(self.path)
+            except Exception:
+                pass
+
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
     obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
@@ -214,6 +244,15 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
     saved = 0
     chunk_index = 1
     s3_key_derived = _derive_source_key_from_path(s3_path)
+    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+    combined_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+    combined_appender = None
+    if not STORE_ONE_FILE_PER_CHUNK:
+        if not FORCE_OVERWRITE and s3_object_exists(combined_key):
+            log.info("Skipping file %s because combined target exists and FORCE_OVERWRITE is false → %s", s3_key, combined_key)
+            return {"saved_chunks": 0, "total_parse_duration_ms": int((time.perf_counter() - start_all) * 1000)}
+        combined_appender = LocalChunkAppender(ext, doc_id)
+        log.info("Using combined chunk file mode for %s → s3://%s/%s", doc_id, S3_BUCKET, combined_key)
 
     if full_token_count <= TXT_MAX_TOKENS_PER_CHUNK:
         chunk_id = f"{doc_id}_{chunk_index}"
@@ -247,15 +286,22 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             "line_range": [1, len(lines)],
             "chunk_duration_ms": None
         }
-        ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
         out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
-        if not FORCE_OVERWRITE and s3_object_exists(out_key):
-            log.info("Skipping existing chunk %s", payload["chunk_id"])
+        if STORE_ONE_FILE_PER_CHUNK:
+            if not FORCE_OVERWRITE and s3_object_exists(out_key):
+                log.info("Skipping existing chunk %s", payload["chunk_id"])
+            else:
+                body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
+                s3_put_object_with_retries(out_key, body)
+                log.info("Wrote chunk %s → %s", payload["chunk_id"], out_key)
+                saved += 1
         else:
-            body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
-            s3_put_object_with_retries(out_key, body)
-            log.info("Wrote chunk %s → %s", payload["chunk_id"], out_key)
-            saved += 1
+            try:
+                combined_appender.append(payload)
+                log.info("Appended chunk %s → %s", payload["chunk_id"], combined_key)
+                saved += 1
+            except Exception as e:
+                log.error("Failed to append payload for %s: %s", payload["chunk_id"], e)
     else:
         subchunks = split_lines_by_tokens(lines, 0, OVERLAP_TOKENS, TXT_MAX_TOKENS_PER_CHUNK)
         for sub in subchunks:
@@ -296,16 +342,27 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 "line_range": [int(start_line), int(end_line)],
                 "chunk_duration_ms": None
             }
-            ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
             out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
-            if not FORCE_OVERWRITE and s3_object_exists(out_key):
-                log.info("Skipping existing subchunk %s", payload["chunk_id"])
-                continue
-            body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
-            s3_put_object_with_retries(out_key, body)
-            log.info("Wrote subchunk %s (lines %d-%d) → %s", payload["chunk_id"], start_line, end_line, out_key)
-            saved += 1
-
+            if STORE_ONE_FILE_PER_CHUNK:
+                if not FORCE_OVERWRITE and s3_object_exists(out_key):
+                    log.info("Skipping existing subchunk %s", payload["chunk_id"])
+                    continue
+                body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
+                s3_put_object_with_retries(out_key, body)
+                log.info("Wrote subchunk %s (lines %d-%d) → %s", payload["chunk_id"], start_line, end_line, out_key)
+                saved += 1
+            else:
+                try:
+                    combined_appender.append(payload)
+                    log.info("Appended subchunk %s (lines %d-%d) → %s", payload["chunk_id"], start_line, end_line, combined_key)
+                    saved += 1
+                except Exception as e:
+                    log.error("Failed to append payload for %s: %s", payload["chunk_id"], e)
+    if not STORE_ONE_FILE_PER_CHUNK and combined_appender is not None:
+        try:
+            combined_appender.finalize_and_upload(S3_BUCKET, combined_key)
+        except Exception as e:
+            log.error("Failed uploading combined file for %s: %s", doc_id, e)
     total_ms = int((time.perf_counter() - start_all) * 1000)
     log.info("Completed parsing %d chunks for %s in %d ms total", saved, s3_key, total_ms)
     return {"saved_chunks": saved, "total_parse_duration_ms": total_ms}

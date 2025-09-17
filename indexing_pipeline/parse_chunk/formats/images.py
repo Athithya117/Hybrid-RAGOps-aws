@@ -8,6 +8,7 @@ import time
 from io import BytesIO
 from datetime import datetime
 from typing import Tuple, Optional, List, Dict, Any
+from tempfile import NamedTemporaryFile
 
 try:
     import boto3
@@ -67,7 +68,6 @@ S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX").rstrip("/") + "/"
 CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
 assert CHUNK_FORMAT in ("json", "jsonl")
-
 PARSER_VERSION = os.getenv("PARSER_VERSION_IMAGES", "images-parser-v1")
 OCR_ENGINE_DESIRED = os.getenv("IMAGE_OCR_ENGINE", "auto").lower()
 MIN_IMG_BYTES = int(os.getenv("IMAGE_MIN_IMG_SIZE_BYTES", "1024"))
@@ -76,6 +76,7 @@ TESSERACT_PSM = int(os.getenv("TESSERACT_PSM", "6"))
 OCR_CONFIDENCE_THRESHOLD = float(os.getenv("OCR_CONFIDENCE_THRESHOLD", "30.0"))
 S3_MAX_RETRIES = int(os.getenv("S3_MAX_RETRIES", "3"))
 TOKEN_ENCODER = os.getenv("TOKEN_ENCODER", "cl100k_base")
+STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "true").lower() == "true"
 
 boto_config = BotoConfig(retries={"max_attempts": S3_MAX_RETRIES, "mode": "standard"})
 s3 = boto3.client("s3", config=boto_config)
@@ -141,7 +142,7 @@ def blob_hash(b: bytes) -> str:
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
-def pil_to_bgr(img: Image.Image) -> np.ndarray:
+def pil_to_bgr(img) -> np.ndarray:
     arr = np.asarray(img.convert("RGB"))
     return arr[..., ::-1].copy()
 
@@ -229,24 +230,23 @@ def tesseract_extract_lines_and_conf(img_bgr: np.ndarray, psm: int = TESSERACT_P
             except Exception:
                 conf = 0.0
             left = int(data.get("left", [0]*n)[i])
-            top = int(data.get("top", [0]*n)[i])
             block = int(data.get("block_num", [0]*n)[i])
             par = int(data.get("par_num", [0]*n)[i])
             line = int(data.get("line_num", [0]*n)[i])
-            tokens.append({"text": txt, "conf": conf, "left": left, "top": top, "block": block, "par": par, "line": line})
+            tokens.append({"text": txt, "conf": conf, "left": left, "block": block, "par": par, "line": line})
         groups: Dict[Tuple[int,int,int], List[dict]] = {}
         for t in tokens:
             key = (t["block"], t["par"], t["line"])
             groups.setdefault(key, []).append(t)
         lines = []
         all_confs = []
-        for (block, par, line_idx), toks in groups.items():
+        for toks in groups.values():
             toks_sorted = sorted(toks, key=lambda x: x["left"])
             line_text = " ".join(t["text"] for t in toks_sorted)
             left_min = min(t["left"] for t in toks_sorted)
-            lines.append({"text": line_text, "block": block, "par": par, "left": left_min})
+            lines.append({"text": line_text, "left": left_min})
             all_confs.extend([t["conf"] for t in toks_sorted])
-        lines_sorted = sorted(lines, key=lambda x: (x["block"], x["par"], x["left"]))
+        lines_sorted = sorted(lines, key=lambda x: x["left"])
         out_lines = [l["text"] for l in lines_sorted]
         avg_conf = (sum(all_confs) / len(all_confs)) if all_confs else 0.0
         return out_lines, float(avg_conf)
@@ -384,7 +384,36 @@ def _compute_token_count(text: str) -> int:
             pass
     return len(text.split())
 
-def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
+class LocalChunkAppender:
+    def __init__(self, chunk_format: str, doc_id: str):
+        self.chunk_format = chunk_format
+        self.doc_id = doc_id
+        suffix = f".{chunk_format}"
+        self.temp = NamedTemporaryFile(delete=False, mode="w", encoding="utf-8", suffix=suffix)
+        self.path = self.temp.name
+        self.count = 0
+    def append(self, payload: dict):
+        if self.chunk_format == "jsonl":
+            line = json.dumps(payload, ensure_ascii=False)
+            self.temp.write(line + "\n")
+        else:
+            pretty = json.dumps(payload, indent=2, ensure_ascii=False)
+            self.temp.write(pretty + "\n")
+        self.count += 1
+        self.temp.flush()
+    def finalize_and_upload(self, s3_bucket: str, s3_key: str):
+        self.temp.close()
+        extra = {"ContentType": "application/json"}
+        try:
+            s3.upload_file(self.path, s3_bucket, s3_key, ExtraArgs=extra)
+            log.info("Uploaded combined chunks for %s → s3://%s/%s (%d chunks)", self.doc_id, s3_bucket, s3_key, self.count)
+        finally:
+            try:
+                os.remove(self.path)
+            except Exception:
+                pass
+
+def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None, combined_appender: Optional[LocalChunkAppender] = None) -> dict:
     t_all = time.perf_counter()
     try:
         obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
@@ -445,17 +474,29 @@ def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
     }
     ext_out = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
     out_key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext_out}"
-    body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8") if ext_out == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"))
-    try:
-        s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body, ContentType="application/json")
-        log.info(f"Saved chunk for {s3_key} -> {out_key} (ocr_used={used_ocr}, parse_ms={parse_ms}, tokens={token_ct})")
-        return {"saved_chunks": 1, "parse_ms": parse_ms}
-    except ClientError as e:
-        log.error(f"S3 PUT error for {out_key}: {e}")
-        return {"saved_chunks": 0, "error": str(e)}
-    finally:
-        total_ms = int((time.perf_counter() - t_all) * 1000)
-        log.debug(f"Total processing time for {s3_key}: {total_ms} ms")
+    if combined_appender is None or STORE_ONE_FILE_PER_CHUNK:
+        body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8") if ext_out == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"))
+        try:
+            s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body, ContentType="application/json")
+            log.info(f"Saved chunk for {s3_key} -> {out_key} (ocr_used={used_ocr}, parse_ms={parse_ms}, tokens={token_ct})")
+            return {"saved_chunks": 1, "parse_ms": parse_ms}
+        except ClientError as e:
+            log.error(f"S3 PUT error for {out_key}: {e}")
+            return {"saved_chunks": 0, "error": str(e)}
+        finally:
+            total_ms = int((time.perf_counter() - t_all) * 1000)
+            log.debug(f"Total processing time for {s3_key}: {total_ms} ms")
+    else:
+        try:
+            combined_appender.append(payload)
+            log.info(f"Appended chunk for {s3_key} -> combined {combined_appender.doc_id} (ocr_used={used_ocr}, parse_ms={parse_ms}, tokens={token_ct})")
+            return {"saved_chunks": 1, "parse_ms": parse_ms}
+        except Exception as e:
+            log.error(f"Failed to append payload for {s3_key}: {e}")
+            return {"saved_chunks": 0, "error": str(e)}
+        finally:
+            total_ms = int((time.perf_counter() - t_all) * 1000)
+            log.debug(f"Total processing time for {s3_key}: {total_ms} ms")
 
 def list_image_keys(prefix: str) -> List[str]:
     keys: List[str] = []
@@ -472,7 +513,25 @@ def parse_file(s3_key: str, manifest: Optional[dict] = None) -> dict:
     if manifest is None:
         manifest = {}
     start = time.perf_counter()
-    result = parse_image_s3_object(s3_key, manifest)
+    if STORE_ONE_FILE_PER_CHUNK:
+        result = parse_image_s3_object(s3_key, manifest, combined_appender=None)
+    else:
+        ext_out = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+        doc_id = (manifest.get("file_hash") if isinstance(manifest, dict) and manifest.get("file_hash") else None)
+        if not doc_id:
+            try:
+                obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+                raw = obj["Body"].read()
+                doc_id = blob_hash(raw)
+            except Exception:
+                doc_id = sha256_hex(s3_key)
+        combined_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext_out}"
+        appender = LocalChunkAppender(ext_out, doc_id)
+        result = parse_image_s3_object(s3_key, manifest, combined_appender=appender)
+        try:
+            appender.finalize_and_upload(S3_BUCKET, combined_key)
+        except Exception as e:
+            log.error("Failed uploading combined file for %s: %s", doc_id, e)
     if isinstance(manifest, dict):
         manifest.setdefault("parsed_by", []).append({"module": "images", "timestamp": datetime.utcnow().isoformat() + "Z"})
         manifest["parsed_chunks"] = manifest.get("parsed_chunks", 0) + result.get("saved_chunks", 0)
@@ -498,13 +557,17 @@ def main():
             manifest = json.load(mf["Body"])
         except Exception:
             manifest = {}
-        res = parse_image_s3_object(key, manifest)
-        processed += 1
-        total_saved += res.get("saved_chunks", 0)
-        if res.get("error"):
+        try:
+            res = parse_file(key, manifest)
+            total_saved += res.get("saved_chunks", 0)
+            if res.get("error"):
+                errors += 1
+                log.warning("Error for %s: %s", key, res.get("error"))
+        except Exception as e:
             errors += 1
-            log.warning(f"Error for {key}: {res.get('error')}")
-    log.info(f"Completed. Processed: {processed}, Saved chunks: {total_saved}, Errors: {errors}")
+            log.exception("Failed to parse %s: %s", key, e)
+        processed += 1
+    log.info("Completed. Processed: %d, Saved chunks: %d, Errors: %d", processed, total_saved, errors)
 
 if __name__ == "__main__":
     main()

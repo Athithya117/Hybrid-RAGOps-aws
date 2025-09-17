@@ -1,0 +1,28 @@
+{
+  "document_id": "1f982816dd44401badb26a79b2bb3088",
+  "chunk_id": "1f982816dd44401badb26a79b2bb3088_2",
+  "chunk_type": "audio",
+  "text": "ex, the island by any means necessary, including military force. Dennis Great Roger Federer announced his retirement from the gang Thursday after a career which saw him win 20 grand slams, 100 re-career titles, and be crowned one of the greatest players of all time. The 41-year-old said he would retire after the labor cup in London later in September. He hasn't laid since Wimbledon in 2021 because of a knee problem. The Mexican government says an army general has been detained in connection with the disappearance of 43 students in 2014. It's the latest arrest in a case that generated international condemnation. The Deputy Secretary of Security Minister Toll reporters Thursday that the general commended a battalion in the area of southern Mexico where the incident occurred, he's one of three suspects detained. The Deputy Security Minister did not identify the suspects, but said the other two were also military personnel. Prosecutors announced last month that arrest warrants had been issued for more than 80 suspects in the case, including 20 military personnel, 44 police officers, and 14 cartel members. The case is one of the worst human rights tragedies in Mexico where a spiral of drug-related violence has left more than 100,000 people missing. The United States Congress is moving ahead on bipartisan action, strengthening trade and defense ties with Taiwan as the self-governing island faces new threats from China. The U.S. Senate Foreign Relations Committee approved the Taiwan Policy Act on Wednesday, clearing the way for $6.5 billion in enhanced security funding over five years to come up for a full vote on the Senate floor. The measure would also designate Taiwan as a major non-NATO ally. Senate Foreign Relations Committee Chairman Bob Nendez said after the committee approved the bill that the measure aims to raise the cost of taking the island by force, which China has threatened to do. President Biden approved $1.1 billion in arms sales to Taiwan earlier this month. China condemned that move. And once again, the U.S. on Thursday imposed new economic sanctions on a number of Russians, including some, it accuses of stealing Ukrainian grain. Marisa Melton, V.O.",
+  "token_count": 438,
+  "embedding": null,
+  "file_type": "audio/wav",
+  "source_url": "s3://e2e-rag-system-42/data/raw/audio/random_news.wav",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": null,
+  "audio_range": [
+    "00:00:02.771",
+    "00:00:04.835"
+  ],
+  "timestamp": "2025-09-17T12:49:42Z",
+  "parser_version": "faster-whisper-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": null,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": 3880
+}

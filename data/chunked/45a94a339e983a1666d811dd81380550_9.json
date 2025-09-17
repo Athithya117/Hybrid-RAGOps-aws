@@ -1,0 +1,34 @@
+{
+  "document_id": "45a94a339e983a1666d811dd81380550",
+  "chunk_id": "45a94a339e983a1666d811dd81380550_9",
+  "chunk_type": "md_section",
+  "text": "## Compiling\nThe `configure` script will generate a `Makefile` in the NGINX source root directory upon successful execution. To compile NGINX into a binary, issue the following command from that same directory:\n\n```bash\nmake\n```\n\n## Location of binary and installation\nAfter successful compilation, a binary will be generated at `<NGINX_SRC_ROOT_DIR>/objs/nginx`. To install this binary, issue the following command from the source root directory:\n\n```bash\nsudo make install\n```\n\n> [!IMPORTANT]\n> The binary will be installed into the `/usr/local/nginx/` directory.\n\n## Running and testing the installed binary\nTo run the installed binary, issue the following command:\n\n```bash\nsudo /usr/local/nginx/sbin/nginx\n```\n\nYou may test NGINX operation using `curl`.\n\n```bash\ncurl localhost\n```\n\nThe output of which should start with:\n\n```html\n<!DOCTYPE html>\n<html>\n<head>\n<title>Welcome to nginx!</title>\n```\n\n# Asking questions and reporting issues\nWe encourage you to engage with us.\n- [NGINX GitHub Discussions](https://github.com/nginx/nginx/discussions), is the go-to place to start asking questions and sharing your thoughts.\n- Our [GitHub Issues](https://github.com/nginx/nginx/issues) page offers space to submit and discuss specific issues, report bugs, and suggest enhancements.\n\n# Contributing code\nPlease see the [Contributing](CONTRIBUTING.md) guide for information on how to contribute code.",
+  "token_count": 322,
+  "embedding": null,
+  "file_type": "text/markdown",
+  "source_url": "s3://e2e-rag-system-42/data/raw/mds/nginx.md",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:51:58.169927Z",
+  "parser_version": "markdown-it-py-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 0,
+  "heading_path": [],
+  "headings": [
+    "Compiling",
+    "Location of binary and installation",
+    "Running and testing the installed binary",
+    "Asking questions and reporting issues",
+    "Contributing code"
+  ],
+  "line_range": [
+    171,
+    217
+  ],
+  "chunk_duration_ms": null
+}

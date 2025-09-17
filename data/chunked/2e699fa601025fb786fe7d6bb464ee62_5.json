@@ -1,0 +1,33 @@
+{
+  "document_id": "2e699fa601025fb786fe7d6bb464ee62",
+  "chunk_id": "2e699fa601025fb786fe7d6bb464ee62_5",
+  "chunk_type": "token_window",
+  "text": "model**: nvidia/llama-3.2-nv-rerankqa-1b-v2**Retrieval top-k**: 10 (number of retrieved contexts for generation)**Generator model**: nvidia/llama-3.1-nemotron-70b-instruct By keeping these components consistent across all experiments, we ensured that performance differences could be attributed to the chunking strategies rather than variations in other parts of the RAG pipeline. These state-of-the-art models from NVIDIA provide the foundation for our retrieval and generation capabilities, helping us isolate the impact of different chunking strategies on overall RAG performance. ## Results and analysis Our experiments yielded several interesting patterns across datasets. ### Overall performance by chunking strategy This chart shows the average end-to-end RAG accuracy across all datasets for each chunking strategy, with error bars representing standard deviations. Notably, page-level chunking achieved the highest average accuracy (0.648) with the lowest standard deviation (0.107), indicating more consistent performance across datasets. Meanwhile, all token-based approaches maintained consistent performance between 0.603 and 0.645. When directly comparing page-level chunking with section-level chunking using the same nemoretriever-parse extraction, we find that page-level chunking outperforms section-level chunking on average across our test datasets. This reinforces our finding that page-level chunking is generally the most effective strategy. **Dataset-specific performance** This chart breaks down RAG accuracy by dataset and chunking strategy, revealing how different content types respond to various chunking approaches. Some datasets, such as FinanceBench and RAGBattlePacket, show optimal performance with medium-sized chunks (512-1024 tokens), while performance drops with large chunks (2,048 tokens). Other datasets, such as KG-RAG, show more variability across chunking strategies, with no clear linear relationship between chunk size and performance. Looking at the dataset-specific comparison between page and section chunking strategies, we can see that page-level chunking outperforms section-level chunking in most cases, with only FinanceBench showing slightly better performance with section-level chunking. This indicates that while document structure matters, natural page boundaries typically provide more coherent and effective chunks for retrieval. **Key observations** **Page-level chunking is the overall winner**: Our experiments clearly show that page-level chunking achieved the highest average accuracy (0.648) across all datasets and the lowest standard deviation (0.107",
+  "token_count": 500,
+  "embedding": null,
+  "file_type": "text/html",
+  "source_url": "s3://e2e-rag-system-42/data/raw/htmls/best_chunking_stratergy.html",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": [
+    1800,
+    2300
+  ],
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:50:03Z",
+  "parser_version": "trafilatura-only-v2",
+  "tags": [],
+  "layout_tags": [
+    "page"
+  ],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 429,
+  "heading_path": [],
+  "headings": [
+    "Finding the Best Chunking Strategy for Accurate AI Responses | NVIDIA Technical Blog"
+  ],
+  "line_range": null,
+  "chunk_duration_ms": null,
+  "snapshot_url": null
+}

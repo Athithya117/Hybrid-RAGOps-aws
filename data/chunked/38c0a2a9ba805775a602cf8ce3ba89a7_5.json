@@ -1,0 +1,28 @@
+{
+  "document_id": "38c0a2a9ba805775a602cf8ce3ba89a7",
+  "chunk_id": "38c0a2a9ba805775a602cf8ce3ba89a7_5",
+  "chunk_type": "row_group",
+  "text": "authors | body | category | created_at | headline | id | location | organizations | published_date | references | related_ids | severity | summary | tags | updated_at id: news_005 | headline: Federal judge delays preliminary approval of Anthropic settlement | summary: A U.S. district judge paused preliminary approval and requested more transparency on covered works and the claims process. | body: On September 9, 2025 a federal judge delayed preliminary approval of the proposed Anthropic settlement, expressing concerns about the completeness of disclosures, the notice/claims mechanism and whether authors would be adequately informed. The court ordered additional documentation and scheduling of a follow-up hearing. The delay raised the prospect of revised settlement terms, further court scrutiny, or potential progression to trial if issues are unresolved. | published_date: 2025-09-09T00:00:00Z | authors: ['court reporting'] | organizations: ['U.S. District Court', 'Anthropic', 'plaintiff class'] | tags: ['legal', 'court', 'anthropic', 'copyright'] | category: legal | severity: high | location: United States | related_ids: ['news_004'] | references: [{'name': 'Court hearing reports', 'url': ''}] | created_at: 2025-09-10T06:30:00Z | updated_at: 2025-09-10T06:30:00Z",
+  "token_count": 291,
+  "embedding": null,
+  "file_type": "application/x-ndjson",
+  "source_url": "s3://e2e-rag-system-42/data/raw/jsonls/ai_news_latest.jsonl",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": [
+    5,
+    5
+  ],
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:51:49.933915Z",
+  "parser_version": "ray-jsonl-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": null,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": null
+}

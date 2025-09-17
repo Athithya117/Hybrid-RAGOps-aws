@@ -9,6 +9,7 @@ import numpy as np
 import time
 from io import BytesIO
 from datetime import datetime
+from tempfile import NamedTemporaryFile
 
 log = logging.getLogger("pdf_parser_minimal_schema")
 log.setLevel(logging.INFO)
@@ -35,6 +36,8 @@ OCR_BACKEND = os.getenv("PDF_OCR_ENGINE", "tesseract").lower()
 RENDER_DPI = int(os.getenv("PDF_OCR_RENDER_DPI", "500"))
 MIN_IMG_BYTES = int(os.getenv("PDF_MIN_IMG_SIZE_BYTES", "3072"))
 assert CHUNK_FORMAT in ("json", "jsonl")
+
+STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "true").lower() == "true"
 
 PDF_PAGE_THRESHOLD = int(os.getenv("PDF_PAGE_THRESHOLD", "1500"))
 PDF_WINDOW_SIZE = int(os.getenv("PDF_WINDOW_SIZE", "800"))
@@ -172,6 +175,34 @@ def _write_chunk_to_s3(payload: dict, out_key: str):
         body = json.dumps(payload, indent=2, ensure_ascii=False).encode()
     s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body, ContentType="application/json")
 
+class LocalChunkAppender:
+    def __init__(self, chunk_format: str, doc_id: str):
+        self.chunk_format = chunk_format
+        self.doc_id = doc_id
+        self.temp = NamedTemporaryFile(delete=False, mode="w", encoding="utf-8", suffix=f".{chunk_format}")
+        self.path = self.temp.name
+        self.count = 0
+    def append(self, payload: dict):
+        if self.chunk_format == "jsonl":
+            line = json.dumps(payload, ensure_ascii=False)
+            self.temp.write(line + "\n")
+        else:
+            pretty = json.dumps(payload, indent=2, ensure_ascii=False)
+            self.temp.write(pretty + "\n")
+        self.count += 1
+        self.temp.flush()
+    def finalize_and_upload(self, s3_bucket: str, s3_key: str):
+        self.temp.close()
+        extra = {"ContentType": "application/json"}
+        try:
+            s3.upload_file(self.path, s3_bucket, s3_key, ExtraArgs=extra)
+            log.info(f"Uploaded combined chunks for {self.doc_id} → s3://{s3_bucket}/{s3_key} ({self.count} objects)")
+        finally:
+            try:
+                os.remove(self.path)
+            except Exception:
+                pass
+
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
     raw = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
@@ -181,6 +212,13 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
     mp = fitz.open(stream=raw, filetype="pdf")
     pp = pdfplumber.open(BytesIO(raw))
     saved = 0
+
+    combined_appender = None
+    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+    if not STORE_ONE_FILE_PER_CHUNK:
+        combined_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+        combined_appender = LocalChunkAppender(ext, doc_id)
+        log.info(f"Using combined chunk file mode for {doc_id} → s3://{S3_BUCKET}/{combined_key}")
 
     for idx, page in enumerate(mp):
         page_num = idx + 1
@@ -223,7 +261,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 px0 = int(x0 * pix.width / page.rect.width)
                 py0 = int(y0 * pix.height / page.rect.height)
                 px1 = int(x1 * pix.width / page.rect.width)
-                py1 = int(y1 * pix.height / page.rect.height)
+                py1 = int(y1 * pix.height * page.rect.height / page.rect.height) if False else int(y1 * pix.height / page.rect.height)
                 crop = full[py0:py1, px0:px1]
                 if crop.size >= MIN_IMG_BYTES and crop.shape[0] >= 50 and crop.shape[1] >= 50:
                     pieces = do_ocr(crop)
@@ -295,9 +333,15 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             "chunk_duration_ms": None
         }
 
-        out_key = f"{S3_CHUNKED_PREFIX}{page_chunk_id}.{ 'jsonl' if CHUNK_FORMAT == 'jsonl' else 'json' }"
-        _write_chunk_to_s3(page_payload, out_key)
-        log.info(f"Parsed page {page_num} in {duration_ms} ms → {out_key}")
+        if STORE_ONE_FILE_PER_CHUNK:
+            out_key = f"{S3_CHUNKED_PREFIX}{page_chunk_id}.{ 'jsonl' if CHUNK_FORMAT == 'jsonl' else 'json' }"
+            _write_chunk_to_s3(page_payload, out_key)
+            log.info(f"Parsed page {page_num} in {duration_ms} ms → {out_key}")
+        else:
+            combined_appender.append(page_payload)
+            out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+            log.info(f"Appended page {page_num} in {duration_ms} ms → {out_key}")
+
         saved += 1
 
         try:
@@ -348,9 +392,14 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                         "line_range": None,
                         "chunk_duration_ms": None
                     }
-                    out_key_sub = f"{S3_CHUNKED_PREFIX}{sub_chunk_id}.{ 'jsonl' if CHUNK_FORMAT == 'jsonl' else 'json' }"
-                    _write_chunk_to_s3(sub_payload, out_key_sub)
-                    log.info(f"Wrote subchunk {sub_chunk_id} tokens {start_t}-{end_t-1} → {out_key_sub}")
+                    if STORE_ONE_FILE_PER_CHUNK:
+                        out_key_sub = f"{S3_CHUNKED_PREFIX}{sub_chunk_id}.{ 'jsonl' if CHUNK_FORMAT == 'jsonl' else 'json' }"
+                        _write_chunk_to_s3(sub_payload, out_key_sub)
+                        log.info(f"Wrote subchunk {sub_chunk_id} tokens {start_t}-{end_t-1} → {out_key_sub}")
+                    else:
+                        combined_appender.append(sub_payload)
+                        out_key_sub = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+                        log.info(f"Appended subchunk {sub_chunk_id} tokens {start_t}-{end_t-1} → {out_key_sub}")
                     saved += 1
                     sub_index += 1
                     start_t += step
@@ -359,6 +408,14 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
 
     mp.close()
     pp.close()
+
+    if not STORE_ONE_FILE_PER_CHUNK and combined_appender is not None:
+        combined_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+        try:
+            combined_appender.finalize_and_upload(S3_BUCKET, combined_key)
+        except Exception as e:
+            log.warning(f"Failed uploading combined file for {doc_id}: {e}")
+
     total_ms = int((time.perf_counter() - start_all) * 1000)
     log.info(f"Completed parsing {saved} chunks (pages + subchunks) in {total_ms} ms total")
     return {"saved_chunks": saved, "total_parse_duration_ms": total_ms}

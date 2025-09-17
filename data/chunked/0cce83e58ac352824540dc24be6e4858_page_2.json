@@ -1,0 +1,30 @@
+{
+  "document_id": "0cce83e58ac352824540dc24be6e4858",
+  "chunk_id": "0cce83e58ac352824540dc24be6e4858_page_2",
+  "chunk_type": "page",
+  "text": "different kinds of data. However, this method needed a equally represented, a technique called SMOTE was used\n\nlot of data, which isn’t always easy to get. to balance the data.\n\nIn [4], researchers used Convolutional Neural Networks C. Model Development\n\n(CNNs) to identify skin problems in cattle by looking at\n\npictures. Several types of classification models were tested and\n\nThis method was very accurate, but it needed special compared:\n\ncameras, which aren’t always available to small farmers.\n\n- Logistic Regression as a basic linear model.\n\nOverall, these studies show that while different models\n\nhave worked well, most of them are only useful for a - Support Vector Machine (SVM) for handling complex\n\nspecific disease, use expensive tools, or need a lot of data patterns.\n\ndata.\n\nThis means there’s a need for a system that can handle - Random Forest, which works well with many types of\n\nmany diseases, is cheap to use, and can work with simple data, especially when there are many categories.\n\nfeatures like the animal’s symptoms, behavior, and the\n\nillness. - XGBoost, which is efficient and accurate for prediction\n\nenvironment to predict\n\ntasks.\n\nIII. Methodology\n\nEach model was trained using data split into 80% for\n\nThe system for predicting cattle diseases uses machine\n\ntraining and 20% for testing.\n\nlearning to analyze symptoms and environmental factors.\n\nThe best settings for each model were found using a\n\nThe approach includes four main steps: collecting data,\n\nprocess called grid search and cross-validation to ensure\n\npreparing it, building the model, and testing it.\n\nstrong results.\n\nA. Data Collection\n\nD. System Architecture\n\nThe data includes information about the body, behavior,\n\nThe system follows four steps:\n\nand environment of cattle.\n\nImportant details are body temperature, milk production,\n\nInput of health information and environmental data about\n\nhow much they eat, coughing, injuries, activity levels,\n\nthe cattle.\n\nand environmental factors like humidity and the season.\n\nEach entry is marked as either healthy or showing a\n\nspecific illness like foot-and-mouth disease, mastitis, or\n\nPreprocessing and making the data ready for analysis.\n\nlumpy skin disease. This data was gathered from records\n\nkept by veterinarians, research studies, and surveys by\n\nUsing the trained model to classify the data.\n\nfarmers.\n\nGiving an output that shows the predicted disease or if\n\nB. Data Preprocessing\n\nthe cattle is healthy.\n\nTo make the data better and more reliable, some steps\n\nwere taken.\n\nMissing information was filled in using average values\n\nand common values. Categorical data like \"Cough =\n\nYes/No\" was converted into numbers using a method\n\ncalled one-hot encoding. Numerical values such as\n\ntemperature and milk production were adjusted to a\n\ncommon scale. To make sure each disease type was",
+  "token_count": 577,
+  "embedding": null,
+  "file_type": "application/pdf",
+  "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/IEEE_docx_file.docx.pdf",
+  "page_number": 2,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": [
+    0,
+    576
+  ],
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:52:04.788872Z",
+  "parser_version": null,
+  "tags": null,
+  "layout_tags": [
+    "page"
+  ],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 878,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": null
+}

@@ -1,0 +1,28 @@
+{
+  "document_id": "870070972a0602c1b24df04d7673f73c",
+  "chunk_id": "870070972a0602c1b24df04d7673f73c_5",
+  "chunk_type": "txt_subchunk",
+  "text": "current\\_query = query\nstep = 1\nwhile step <= max\\_steps:\nbase\\_passages = base\\_retrieve(current\\_query)            # BM25 / ColBERT / hybrid\nproximal\\_triples = LLM\\_read\\_and\\_extract\\_triples(base\\_passages, query, gist\\_memory)\nlinked\\_triples = triple\\_link(proximal\\_triples)         # map to indexed triples\nexpanded\\_passages = SyncGE\\_expand(linked\\_triples, query)  # diverse triple beam search\ncombined = combine\\_passages(base\\_passages, expanded\\_passages)  # RRF-style combine\ngist\\_additions = gist\\_constructor(expanded\\_passages)\ngist\\_memory.append(gist\\_additions)\nis\\_answerable, reasoning = LLM\\_reason(gist\\_memory, combined, query)\nif is\\_answerable:\nbreak\nelse:\ncurrent\\_query = LLM\\_rewrite\\_query(query, gist\\_memory, reasoning)\nstep += 1\nfinal\\_passages = finalize\\_ranking(gist\\_memory, combined)\nreturn final\\_passages\n\nfunction SyncGE\\_expand(linked\\_triples, query):\ninitialize beam with top seeds (from LLM seeds)\nfor depth = 1..max\\_length:\nexpand each beam by neighbor triples (avoid repeats)\nscore new candidate paths (scoring = scoring\\_model(query, path))\napply diversity penalty to ranked candidates\nkeep top B beams\nmap beams to passages\nreturn set of expanded\\_passages\n\nNotes:\n\n* The authors provide more low-level details on their project page and in appendices; this paraphrase captures the high-level control flow and the roles of the components.\n\n---\n\n5. DATASETS, EVAL METRICS & SETUP\n\n---\n\nDatasets used by the authors:",
+  "token_count": 383,
+  "embedding": null,
+  "file_type": "text/plain",
+  "source_url": "s3://e2e-rag-system-42/data/raw/txts/GeAR.txt",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:53:16.292487Z",
+  "parser_version": "plain-txt-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 1,
+  "heading_path": [],
+  "headings": [],
+  "line_range": [
+    116,
+    156
+  ],
+  "chunk_duration_ms": null
+}

@@ -1,0 +1,28 @@
+{
+  "document_id": "870070972a0602c1b24df04d7673f73c",
+  "chunk_id": "870070972a0602c1b24df04d7673f73c_3",
+  "chunk_type": "txt_subchunk",
+  "text": "A. Offline indexing and alignment: index passages and extract triples from passages (using automatic triple extraction) and align passages with triples for fast linking during graph expansion.\n\nB. Base retrieval: apply a cheap base retriever (BM25 or other) to get initial passages given the query.\n\nC. LLM reader: read retrieved passages to extract proximal triples (triples most relevant to the query) — the LLM acts as a triple extractor and selector.\n\nD. SyncGE graph expansion: link proximal triples to their nearest real triples in the triple index and expand the graph using diverse triple beam search to find multi-hop passage candidates.\n\nE. Combine and rerank: combine the base and expanded passages (RRF-style combination is used by authors) and present to the LLM reasoner.\n\nF. Gist memory: accumulate proximal triples across iterations to form a compact working memory used by the reasoner.\n\nG. Agent loop: the LLM assesses whether the current gist memory suffices to answer; if not, it rewrites the query for the next iteration and the cycle repeats until stopping conditions or maximum steps.\n\n---\n\n3. KEY COMPONENTS — DETAILED\n\n---\n\nA. Triple extraction and index alignment\n\n* Passages are processed offline to extract triples (subject, predicate, object).\n* A retrieval index is maintained for both passages and extracted triples; the system can link a \"proximal triple\" proposed by the LLM back to the real triples and their associated passages. This alignment builds the graph substrate used by SyncGE.\n\nB. SyncGE (Synchronized Graph Expansion)\n\n* Core idea: use the LLM to find initial nodes (proximal triples) and then expand the graph by exploring neighboring triples, using a diverse beam search that penalizes redundant expansion and rewards diverse multi-hop paths.",
+  "token_count": 379,
+  "embedding": null,
+  "file_type": "text/plain",
+  "source_url": "s3://e2e-rag-system-42/data/raw/txts/GeAR.txt",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:53:15.744719Z",
+  "parser_version": "plain-txt-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 1,
+  "heading_path": [],
+  "headings": [],
+  "line_range": [
+    63,
+    90
+  ],
+  "chunk_duration_ms": null
+}

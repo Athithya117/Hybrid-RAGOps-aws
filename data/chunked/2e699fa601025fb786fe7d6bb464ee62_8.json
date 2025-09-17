@@ -1,0 +1,33 @@
+{
+  "document_id": "2e699fa601025fb786fe7d6bb464ee62",
+  "chunk_id": "2e699fa601025fb786fe7d6bb464ee62_8",
+  "chunk_type": "token_window",
+  "text": "beyond page-level chunking: **Financial documents**: Try 512 or 1,024-token chunks (using NeMo Retriever extraction) if your documents resemble FinanceBench. Section-level chunking can also be effective for financial documents, sometimes outperforming page-level chunking**Diverse documents**: Smaller token-sized chunks (256-512 tokens) performed well for varied content collections ### 3. Query characteristics impact performance **Factoid queries**(seeking specific facts): page-level chunking or smaller chunks (256-512 tokens, using NeMo Retriever extraction)**Complex analytical queries**: Page-level chunking or large chunks (1024 tokens, using NeMo Retriever extraction) We recommend evaluating these strategies on your own data to confirm they work well for your specific use case. Different query patterns and content structures may require different approaches, so testing with your actual data is crucial for optimal performance. ### 4. Test multiple approaches While page-level chunking is our recommended starting point, we still recommend experimenting with multiple chunking strategies for your specific use case: - Start with page-level chunking as your baseline. - Select 1-2 additional chunking strategies based on your content type. - Run a small-scale evaluation on your dataset. - Analyze both quantitative metrics and qualitative response quality. - Iterate and refine based on results. ## Conclusion Our comprehensive evaluation across diverse datasets demonstrates that page-level chunking is the most effective chunking strategy for RAG systems, offering the highest average accuracy and most consistent performance. This is true when compared against both token-based chunking and section-level chunking approaches. While specific content types may occasionally benefit from alternative strategies, page-level chunking provides an excellent default choice that balances performance across document types, query styles, and retrieval scenarios. This suggests that natural page boundaries often encapsulate coherent information units that are well-suited for retrieval tasks. The optimal chunking strategy for your specific RAG system may still vary depending on your unique use case, content type, and query patterns. By starting with page-level chunking and systematically evaluating alternatives using the guidelines provided in this post, you can optimize your RAG system’s performance and deliver more accurate, relevant responses to your users. Remember that chunking is just one of many hyperparameters in a RAG system. For truly optimal performance, consider exploring other dimensions such as embedding models, reranking strategies, and generation parameters. **Get started with the NVIDIA RAG Blueprint** We",
+  "token_count": 500,
+  "embedding": null,
+  "file_type": "text/html",
+  "source_url": "s3://e2e-rag-system-42/data/raw/htmls/best_chunking_stratergy.html",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": [
+    3150,
+    3650
+  ],
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:50:03Z",
+  "parser_version": "trafilatura-only-v2",
+  "tags": [],
+  "layout_tags": [
+    "page"
+  ],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 429,
+  "heading_path": [],
+  "headings": [
+    "Finding the Best Chunking Strategy for Accurate AI Responses | NVIDIA Technical Blog"
+  ],
+  "line_range": null,
+  "chunk_duration_ms": null,
+  "snapshot_url": null
+}

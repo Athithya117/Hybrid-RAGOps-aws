@@ -1,0 +1,16 @@
+{
+  "file_hash": "12b815dbcb7fef5c365c38d741a7dcf2",
+  "s3_key": "data/raw/images/jpg.jpg",
+  "pipeline_run_id": "a7f343d4-f7e8-4ddf-811a-957191cdc537",
+  "mime_type": "image/jpeg",
+  "timestamp": "2025-09-17T12:50:08.546808Z",
+  "parsed_by": [
+    {
+      "module": "images",
+      "timestamp": "2025-09-17T12:51:06.421934Z"
+    }
+  ],
+  "parsed_chunks": 1,
+  "parse_completed_at": "2025-09-17T12:51:06.421958Z",
+  "parse_duration_ms": 57875
+}

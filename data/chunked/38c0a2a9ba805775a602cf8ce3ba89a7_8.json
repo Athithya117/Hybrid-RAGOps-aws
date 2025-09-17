@@ -1,0 +1,28 @@
+{
+  "document_id": "38c0a2a9ba805775a602cf8ce3ba89a7",
+  "chunk_id": "38c0a2a9ba805775a602cf8ce3ba89a7_8",
+  "chunk_type": "row_group",
+  "text": "authors | body | category | created_at | headline | id | location | organizations | published_date | references | related_ids | severity | summary | tags | updated_at id: news_008 | headline: White House releases 'Winning the AI Race: America's AI Action Plan' | summary: The U.S. government publishes a 90-recommendation action plan and executive orders to accelerate AI innovation, infrastructure and international leadership. | body: On July 23, 2025 the White House released 'Winning the AI Race: America's AI Action Plan' along with three executive orders. The plan centers on three pillars — accelerating innovation, building AI infrastructure (data centers, permitting, energy access) and leading internationally on standards and security. Industry welcomed clearer coordination and faster permitting proposals, while civil-rights and privacy advocates raised concerns about potential tradeoffs in safeguards and oversight. | published_date: 2025-07-23T00:00:00Z | authors: ['White House', 'policy analysis'] | organizations: ['U.S. federal government'] | tags: ['policy', 'government', 'white_house', 'infrastructure'] | category: policy | severity: high | location: United States | related_ids: [] | references: [{'name': 'White House action plan', 'url': ''}] | created_at: 2025-09-10T06:30:00Z | updated_at: 2025-09-10T06:30:00Z",
+  "token_count": 305,
+  "embedding": null,
+  "file_type": "application/x-ndjson",
+  "source_url": "s3://e2e-rag-system-42/data/raw/jsonls/ai_news_latest.jsonl",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": [
+    8,
+    8
+  ],
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:51:51.775422Z",
+  "parser_version": "ray-jsonl-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": null,
+  "heading_path": [],
+  "headings": [],
+  "line_range": null,
+  "chunk_duration_ms": null
+}

@@ -361,16 +361,18 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 ```sh
 
 
-export PYTHONUNBUFFERED=1                             # To display logs 
+export PYTHONUNBUFFERED=1                             # To force Python to display logs/output immediately instead of buffering
 export S3_BUCKET=e2e-rag-system-42                    # Set any globally unique complex name, Pulumi S3 backend -> s3://$S3_BUCKET/pulumi/
 export S3_RAW_PREFIX=data/raw/                        # raw ingest prefix (change to isolate datasets)
 export S3_CHUNKED_PREFIX=data/chunked/                # chunked output prefix (change to separate processed data)
 export CHUNK_FORMAT=json                              # 'json' (readable) or 'jsonl' (stream/space efficient)
+export STORE_ONE_FILE_PER_CHUNK=false            # true for faster parallelism(small-mid scale data) or 'false' 1 raw data file = 1 json/jsonl (if large scale)
 export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to delete and replace docx with PDF, false to keep the originals
 export OVERWRITE_ALL_AUDIO_FILES=true                 # true to delete and replace .mp3, .m4a, .aac, etc as .mav 16khz, false to keep the originals
 export OVERWRITE_SPREADSHEETS_WITH_CSV=true           # true to delete and replace .xls, .xlsx, .ods, etc as .csv files, false to keep the originals
 export OVERWRITE_PPT_WITH_PPTS=true                  # true to delete and replace .ppt files as .pptx, false to keep the originals
-export PDF_PAGE_THRESHOLD=1800                   # Threshold to detect large pages and split them into subchunks 
+
+export PDF_PAGE_THRESHOLD=1800                   # Threshold to detect very large pages and split them into subchunks 
 export PDF_WINDOW_SIZE=600                       # Default is page wise chunking, for large page 600 tokens per chunk with 10% token overlap
 export PDF_DISABLE_OCR=false                              # true to skip OCR (very fast) or false to extract text from images
 export PDF_OCR_ENGINE=rapidocr                            # 'tesseract' (faster) or 'rapidocr' (high accuracy , slightly slower)
@@ -378,21 +380,20 @@ export PDF_FORCE_OCR=false                                # true to always OCR(u
 export PDF_OCR_RENDER_DPI=400                             # increase for detecting tiny text; lower for speed/cost
 export PDF_MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller than 3KB (often unneccessary black images)
 export IMAGE_OCR_ENGINE=rapidocr                          # or 'tesseract' for image formats .png, .jpeg, .jpg, .tiff, .webp
-export HTML_WINDOW_SIZE=600                      # Default is page wise chunking, for large page 800 tokens per chunk with 10% token overlap
-export CSV_TARGET_TOKENS_PER_CHUNK=400           # Increase if very large .csv or Decrease if higher precision required
+
+export HTML_WINDOW_SIZE=800                     # Default is page wise chunking, for large page 500 tokens per chunk with 10% token overlap
+export CSV_TARGET_TOKENS_PER_CHUNK=600           # Increase if very large .csv or Decrease if higher precision required
 export JSONL_TARGET_TOKENS_PER_CHUNK=600         # Increase if very large .jsonl or Decrease if higher precision required
-export MD_MAX_TOKENS_PER_CHUNK=600               # Threshold for split headers in header wise chunking with 10% overlap
-export MD_MERGE_HEADER_THRESHOLD_TOKENS=400      # Threshold to cummulatively merge small headers with their next header(s) till MD_MAX_TOKENS_PER_CHUNK
+export MD_MAX_TOKENS_PER_CHUNK=800               # Threshold for split headers in header wise chunking with 10% overlap
+export MD_MERGE_HEADER_THRESHOLD_TOKENS=200     # Threshold to cummulatively merge small headers with their next header(s) till MD_MAX_TOKENS_PER_CHUNK
 export AUDIO_SLICE_SECONDS=30                    # Audio slices in seconds with 10% overlap. Increase or decrease based on AUDIO_MAX_TOKENS_PER_CHUNK
-export AUDIO_MAX_TOKENS_PER_CHUNK=600            # Limit to cummulatively merge text from audio slices with next audio slices
-export TXT_MAX_TOKENS_PER_CHUNK=600              # Simple token based chunking with 10% overlap. Increase for cost or decrease for precision
+export AUDIO_MAX_TOKENS_PER_CHUNK=800            # Limit to cummulatively merge text from audio slices with next audio slices
+export TXT_MAX_TOKENS_PER_CHUNK=800              # Simple token based chunking with 10% overlap. Increase for cost or decrease for precision
 export PPTX_SLIDES_PER_CHUNK=5                   # Number of slides per chunk. Increase for cost or decrease for precision
 export PPTX_OCR_ENGINE=rapidocr                  # 'tesseract' (faster), 'rapidocr' (high accuracy , slightly slower)
 
 
 ```
-
-
 
 # infra 
 

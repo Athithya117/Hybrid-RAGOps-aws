@@ -1,0 +1,28 @@
+{
+  "document_id": "870070972a0602c1b24df04d7673f73c",
+  "chunk_id": "870070972a0602c1b24df04d7673f73c_4",
+  "chunk_type": "txt_subchunk",
+  "text": "* Core idea: use the LLM to find initial nodes (proximal triples) and then expand the graph by exploring neighboring triples, using a diverse beam search that penalizes redundant expansion and rewards diverse multi-hop paths.\n* SyncGE differs from naive graph expansion in that the LLM is used to select starting nodes (higher quality seeds), enabling better single-iteration performance.\n\nC. Diverse Triple Beam Search (intuition)\n\n* Maintain a beam of candidate triple-paths. At each step, expand by neighboring triples, score candidate paths against the query (embedding similarity plus scoring function), and apply a diversity penalty to encourage varied paths. Keep top-B beams up to a maximum path length.\n* The final beams map back to passages via triple-to-passage links.\n\nD. Gist Triple Memory\n\n* A compact accumulator of proximal triples learned in one or a few iterations (authors draw a biomimetic analogy to hippocampal gist memory). The gist memory is used both for reasoning and for rewriting the query when more retrieval is needed.\n\nE. Agent Reasoner and Stop criterion\n\n* The LLM reads the combined passages and gist memory and decides whether the answer is ready. If not, it emits a rewritten query intended to retrieve the next missing piece of evidence. The agent stops when the reasoner judges the accumulated evidence sufficient or when maximum iterations are reached.\n\n---\n\n4. ALGORITHMIC DETAILS & PSEUDOCODE (paraphrased)\n\n---\n\nThe following pseudocode is a conceptual paraphrase of the authors' algorithm.\n\nfunction GeAR(query, max\\_steps=4):\ngist\\_memory = \\[]\ncurrent\\_query = query\nstep = 1\nwhile step <= max\\_steps:\nbase\\_passages = base\\_retrieve(current\\_query)            # BM25 / ColBERT / hybrid",
+  "token_count": 378,
+  "embedding": null,
+  "file_type": "text/plain",
+  "source_url": "s3://e2e-rag-system-42/data/raw/txts/GeAR.txt",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:53:15.986773Z",
+  "parser_version": "plain-txt-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 1,
+  "heading_path": [],
+  "headings": [],
+  "line_range": [
+    90,
+    119
+  ],
+  "chunk_duration_ms": null
+}

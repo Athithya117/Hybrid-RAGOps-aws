@@ -1,0 +1,28 @@
+{
+  "document_id": "870070972a0602c1b24df04d7673f73c",
+  "chunk_id": "870070972a0602c1b24df04d7673f73c_1",
+  "chunk_type": "txt_subchunk",
+  "text": "GeAR — Graph-enhanced Agent for Retrieval-augmented Generation\nSources: arXiv PDF (GeAR), project page (gear-rag.github.io), project mirrors.\n\n---\n\n## METADATA\n\nTitle: GeAR: Graph-enhanced Agent for Retrieval-augmented Generation\nAuthors: Zhili Shen, Chenxin Diao, Pavlos Vougiouklis, Pascual Merita, Shriram Piramanayagam, Damien Graux, Dandan Tu, Zeren Jiang, Ruofei Lai, Yang Ren, Jeff Z. Pan\nAffiliation: Huawei Technologies (listed), submitted to ACL 2025\nArXiv / PDF: arXiv:2412.18431 (paper PDF). Project page: gear-rag.github.io\n\n---\n\n## SHORT ABSTRACT (paraphrased)\n\nGeAR (Graph-enhanced Agent for RAG) is a retrieval-augmented generation framework designed to improve multi-hop retrieval and question answering by:\n\n* Building a graph expansion module (SyncGE) that augments any base retriever (for example BM25) with triple-based graph expansion.\n* Wrapping retrieval inside an LLM-driven agent loop that maintains a compact \"gist memory\" of proximal triples and iteratively decides whether more retrieval is needed.\n\nThe system demonstrates strong gains on multi-hop datasets and requires fewer LLM tokens and iterations than several prior iterative approaches.\n\n---\n\n## TABLE OF CONTENTS (this file)\n\n1. High-level motivation & contributions\n2. Architecture overview\n3. Key components (SyncGE, Gist Memory, Agent loop)\n4. Algorithmic details & pseudocode (paraphrased)\n5. Datasets, evaluation metrics & experimental setup\n6. Main results (numbers summarized)\n7. Ablations & analysis\n8. Efficiency (token / iteration analysis)",
+  "token_count": 388,
+  "embedding": null,
+  "file_type": "text/plain",
+  "source_url": "s3://e2e-rag-system-42/data/raw/txts/GeAR.txt",
+  "page_number": null,
+  "slide_range": null,
+  "row_range": null,
+  "token_range": null,
+  "audio_range": null,
+  "timestamp": "2025-09-17T12:53:15.149758Z",
+  "parser_version": "plain-txt-v1",
+  "tags": [],
+  "layout_tags": [],
+  "used_ocr": false,
+  "parse_chunk_duration_ms": 1,
+  "heading_path": [],
+  "headings": [],
+  "line_range": [
+    1,
+    35
+  ],
+  "chunk_duration_ms": null
+}
