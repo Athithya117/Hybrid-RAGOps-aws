@@ -1,3 +1,4 @@
+# Don't create python venv this is meant to run in a container
 import os
 import sys
 import time
@@ -12,8 +13,13 @@ import subprocess
 import botocore
 import boto3
 import uuid
+import shutil
+from typing import Optional, List
+
 from indexing_pipeline.parse_chunk.router import env_or_fail, log, retry, list_raw_files
+
 warnings.filterwarnings("ignore")
+
 S3_BUCKET = env_or_fail("S3_BUCKET")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/")
 OVERWRITE_SPREADSHEETS_WITH_CSV = os.getenv("OVERWRITE_SPREADSHEETS_WITH_CSV", "false").lower() == "true"
@@ -398,7 +404,8 @@ def convert_and_upload(key):
                 else:
                     suffix = f"_{produced_stem}"
                 target_basename = original_basename + suffix + ".csv"
-                csv_key = f"{S3_RAW_PREFIX}{target_basename}"
+                out_prefix = S3_RAW_PREFIX.rstrip('/') + "/csvs/"
+                csv_key = f"{out_prefix}{target_basename}"
                 upload_to_s3_atomic(csv_path, csv_key, key)
             if OVERWRITE_SPREADSHEETS_WITH_CSV:
                 log(f"OVERWRITE_SPREADSHEETS_WITH_CSV=true → deleting original {key}")

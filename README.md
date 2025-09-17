@@ -45,7 +45,7 @@
 
 #### RAG8s implements page-wise chunking and similar chunking for scalability without losing accuracy
 
-```py
+```go
 {
   "document_id": "doc-12345", // All: global document identifier (filename or UUID)
   "chunk_id": "chunk-0001", // All: unique chunk id (doc-scoped index or UUID)
@@ -54,41 +54,22 @@
   "token_count": 128, // txt,md,wav,html,csv,pdf,pptx,jsonl: tokenizer token count if computed
   "embedding": [0.12, -0.08, 0.44], // All: null before vectorization; numeric array after embedding
   "file_type": "application/pdf", // All: MIME type (e.g. application/pdf, audio/wav, text/plain, image/png, etc)
-  "source_path": "/data/docs/report.pdf", // pdf,pptx,images: filesystem or s3 path; may be absent when source_url used
   "source_url": "s3://my-bucket/docs/report.pdf", // txt,md,jsonl,csv,html,wav: canonical URL (s3://... or https://...) of source object
-  "snapshot_path": "/snapshots/report_v1.json", // txt,md,html: path to parsed snapshot for provenance
-  "text_checksum": "9d377b29f9e6c0f1a55f0e78c7b3d66d8c2b4b5bda5ef9123a3e4a8b99fbb21f", // txt,md,jsonl,csv,html,wav: sha256 hex of chunk text
   "page_number": 5, // pdf: integer page index (parser-defined base); null otherwise
-  "slide_range_start": 1, // pptx: start slide index for chunk
-  "slide_range_end": 3, // pptx: end slide index for chunk
-  "row_range_start": 10, // jsonl,csv: starting row number for this chunk
-  "row_range_end": 20, // jsonl,csv: ending row number for this chunk
-  "token_start": 0, // html,csv,jsonl: token index where window starts
-  "token_end": 127, // html,csv,jsonl: token index where window ends
+  "slide_range": [1, 3], // pptx: [start_slide, end_slide] inclusive for chunk (replaces slide_range_start/slide_range_end)
+  "row_range": [10, 20], // jsonl,csv: [start_row, end_row] inclusive for this chunk (replaces row_range_start/row_range_end)
+  "token_range": [0, 127], // html,csv,jsonl: [token_start, token_end] token indices where window starts/ends (replaces token_start/token_end)
   "audio_range": ["00:00:05.000", "00:00:10.000"], // wav: [start_ts, end_ts] segment timestamps; null for non-audio
   "timestamp": "2025-09-14T12:34:56Z", // All: ISO8601 UTC when chunk created (e.g. 2025-09-14T12:34:56Z)
   "parser_version": "v1.2.3", // txt,md,jsonl,csv,html,pdf,pptx,wav: parser semantic version or tag
-  "token_encoder": "cl100k_base", // txt,md,wav,html,csv,pdf,pptx: tokenizer/encoder name used for token_count
   "tags": ["financial", "confidential"], // pdf,pptx,images,html,general: producer tags for routing/classification
   "layout_tags": ["page"], // pdf,pptx,images,html: structural labels like ["page","slide","image","table"]
   "used_ocr": true, // pdf,images,pptx,md: whether OCR was applied
-  "parse_chunk_duration_ms": 134, // All: integer ms spent parsing this chunk
-  "window_index": 0, // html,csv,jsonl: sliding window index for token windows
+  "parse_chunk_duration_ms": 134, // All: integer ms spent parsing this chunk or null for wav
   "heading_path": ["Introduction", "Background"], // md: array representing nested heading hierarchy for the subchunk
   "headings": ["Introduction"], // md: flattened list of headings present inside chunk
-  "line_range_start": 1, // txt,md: starting line number for subchunk
-  "line_range_end": 20, // txt,md: ending line number for subchunk
-  "subchunk_index": 0, // txt,md: index of this subchunk within parent file
-  "commit_sha": "abc123def456", // txt,md,jsonl,csv: VCS commit SHA or pipeline build id for provenance
-  "model_compute": "faster-whisper-v1", // wav: ASR compute/model variant descriptor (e.g. faster-whisper-v1)
-  "cpu_threads": 8, // wav: CPU threads used by ASR when reported
-  "beam_size": 5, // wav: ASR decoding beam size when applicable
-  "chunk_duration_ms": 5000, // wav: audio chunk duration in ms
-  "token_window_index": 1, // csv,html,jsonl: alternate name mapping to window_index used by some parsers
-  "snapshot_id": "snap-20250914-xyz", // snapshot-enabled ingests: opaque snapshot identifier for provenance
-  "source_bucket": "my-bucket", // S3 ingests: bucket name extracted from s3:// URL; null for non-s3
-  "source_key": "docs/report.pdf", // S3 ingests: object key extracted from s3:// URL; null for non-s3
-  "source_format_hint": "html-generated-pdf" // Optional producer hint when original format ambiguous (e.g. "html-generated-pdf")
+  "line_range": [1, 20], // txt,md: [start_line, end_line] inclusive for subchunk (replaces line_range_start/line_range_end)
+  "chunk_duration_ms": 5000, // for wav: audio chunk duration in ms since parsing is seperate
 }
 
 ```
@@ -102,7 +83,6 @@
 | token\_count               | Integer token count from tokenizer when computed.                                                                                                                             |    No   |     Yes    |
 | embedding                  | Null before vectorization; numeric vector after embedding for semantic search.                                                                                                |   Yes   |     No     |
 | file\_type                 | MIME type of original source (application/pdf, audio/wav, text/plain, image/\*, text/markdown, application/x-ndjson, text/csv, text/html, application/vnd.openxmlformats...). |   Yes   |     Yes    |
-| source\_path               | Filesystem or S3 path to original file (pdf,pptx,images); may be absent if source\_url used.                                                                                  |    No   |     Yes    |
 | source\_url                | Canonical URL (s3:// or https\://) of source object (txt,md,jsonl,csv,html,wav).                                                                                              |    No   |     Yes    |
 | snapshot\_path             | Path to parser snapshot used for provenance (txt,md,html); absent for streaming ingests.                                                                                      |    No   |     Yes    |
 | text\_checksum             | SHA256 hex of chunk text for dedupe/integrity (txt,md,jsonl,csv,html,wav).                                                                                                    |   Yes   |     Yes    |
@@ -127,19 +107,8 @@
 | headings                   | Markdown: flattened list of headings present within the chunk.                                                                                                                |   Yes   |     Yes    |
 | line\_range\_start         | TXT/MD starting line number for this subchunk.                                                                                                                                |    No   |     Yes    |
 | line\_range\_end           | TXT/MD ending line number for this subchunk.                                                                                                                                  |    No   |     Yes    |
-| subchunk\_index            | Index of this subchunk inside parent chunk/file (txt,md).                                                                                                                     |    No   |     No     |
-| commit\_sha                | VCS commit SHA or pipeline build id used to produce parser/snapshot.                                                                                                          |    No   |     Yes    |
-| model\_compute             | ASR model identifier or compute target used for transcription (wav).                                                                                                          |    No   |     Yes    |
-| cpu\_threads               | CPU threads used by ASR when reported.                                                                                                                                        |    No   |     No     |
-| beam\_size                 | Beam size used for ASR decoding when applicable.                                                                                                                              |    No   |     No     |
 | chunk\_duration\_ms        | Duration of audio chunk in milliseconds (wav).                                                                                                                                |    No   |     Yes    |
-| token\_window\_index       | Alternate/window index name for window\_index used by some parsers.                                                                                                           |    No   |     No     |
-| snapshot\_id               | Opaque snapshot identifier for versioned snapshots (provenance).                                                                                                              |    No   |     Yes    |
-| source\_bucket             | S3 ingests: bucket name extracted from s3:// source\_url.                                                                                                                     |   Yes   |     Yes    |
-| source\_key                | S3 ingests: object key path extracted from s3:// source\_url.                                                                                                                 |    No   |     Yes    |
-| source\_format\_hint       | Producer hint for ambiguous originals (e.g. "html-generated-pdf" or "markdown-like").                                                                                         |   Yes   |     Yes    |
-
-
+\
 
 ## Component-Level Parsing & Chunking Strategy 
 
@@ -391,35 +360,34 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 
 ```sh
 
-export PYTHONUNBUFFERED=1
-export S3_BUCKET=e2e-rag-system-42           # Set any globally unique complex name, Pulumi S3 backend -> s3://$S3_BUCKET/pulumi/
+
+export PYTHONUNBUFFERED=1                             # To display logs 
+export S3_BUCKET=e2e-rag-system-42                    # Set any globally unique complex name, Pulumi S3 backend -> s3://$S3_BUCKET/pulumi/
 export S3_RAW_PREFIX=data/raw/                        # raw ingest prefix (change to isolate datasets)
 export S3_CHUNKED_PREFIX=data/chunked/                # chunked output prefix (change to separate processed data)
 export CHUNK_FORMAT=json                              # 'json' (readable) or 'jsonl' (stream/space efficient)
 export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to delete and replace docx with PDF, false to keep the originals
-export OVERWRITE_ALL_AUDIO_FILES=true                 # true to delete and replace .mp3, .m4a, .aac, etc with .mav 16khz, false to keep the originals
-export OVERWRITE_SPREADSHEETS_WITH_CSV=true           # true to delete and replace .xls, .xlsx, .ods, etc with .csv files, false to keep the originals
-
+export OVERWRITE_ALL_AUDIO_FILES=true                 # true to delete and replace .mp3, .m4a, .aac, etc as .mav 16khz, false to keep the originals
+export OVERWRITE_SPREADSHEETS_WITH_CSV=true           # true to delete and replace .xls, .xlsx, .ods, etc as .csv files, false to keep the originals
+export OVERWRITE_PPT_WITH_PPTS=true                  # true to delete and replace .ppt files as .pptx, false to keep the originals
+export PDF_PAGE_THRESHOLD=1800                   # Threshold to detect large pages and split them into subchunks 
+export PDF_WINDOW_SIZE=600                       # Default is page wise chunking, for large page 600 tokens per chunk with 10% token overlap
 export PDF_DISABLE_OCR=false                              # true to skip OCR (very fast) or false to extract text from images
 export PDF_OCR_ENGINE=rapidocr                            # 'tesseract' (faster) or 'rapidocr' (high accuracy , slightly slower)
 export PDF_FORCE_OCR=false                                # true to always OCR(use if source text unreliable but not recommended for scaling)
 export PDF_OCR_RENDER_DPI=400                             # increase for detecting tiny text; lower for speed/cost
-export PDF_MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller than this (often unneccessary black images)
+export PDF_MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller than 3KB (often unneccessary black images)
 export IMAGE_OCR_ENGINE=rapidocr                          # or 'tesseract' for image formats .png, .jpeg, .jpg, .tiff, .webp
-
-export HTML_WINDOW_SIZE=800                      # Default is page wise chunking, for large page 800 tokens per chunk with 80 token overlap
-export HTML_OVERLAP_TOKENS=80                    # Alter if needed. HTML_WINDOW_SIZE is max size including HTML_OVERLAP_TOKENS 
-export CSV_TARGET_TOKENS_PER_CHUNK=600           # Increase if very large .csv or Decrease if higher precision required
-export JSONL_TARGET_TOKENS_PER_CHUNK=800         # Increase if very large .jsonl or Decrease if higher precision required
-export MD_MAX_TOKENS_PER_CHUNK=800               # Threshold for split headers in header wise chunking with 10% overlap
+export HTML_WINDOW_SIZE=600                      # Default is page wise chunking, for large page 800 tokens per chunk with 10% token overlap
+export CSV_TARGET_TOKENS_PER_CHUNK=400           # Increase if very large .csv or Decrease if higher precision required
+export JSONL_TARGET_TOKENS_PER_CHUNK=600         # Increase if very large .jsonl or Decrease if higher precision required
+export MD_MAX_TOKENS_PER_CHUNK=600               # Threshold for split headers in header wise chunking with 10% overlap
 export MD_MERGE_HEADER_THRESHOLD_TOKENS=400      # Threshold to cummulatively merge small headers with their next header(s) till MD_MAX_TOKENS_PER_CHUNK
 export AUDIO_SLICE_SECONDS=30                    # Audio slices in seconds with 10% overlap. Increase or decrease based on AUDIO_MAX_TOKENS_PER_CHUNK
-export AUDIO_MAX_TOKENS_PER_CHUNK=800            # Threshold to cummulatively merge small headers with their next header(s) till MD_MAX_TOKENS_PER_CHUNK    
+export AUDIO_MAX_TOKENS_PER_CHUNK=600            # Limit to cummulatively merge text from audio slices with next audio slices
 export TXT_MAX_TOKENS_PER_CHUNK=600              # Simple token based chunking with 10% overlap. Increase for cost or decrease for precision
 export PPTX_SLIDES_PER_CHUNK=5                   # Number of slides per chunk. Increase for cost or decrease for precision
 export PPTX_OCR_ENGINE=rapidocr                  # 'tesseract' (faster), 'rapidocr' (high accuracy , slightly slower)
-
-
 
 
 ```
@@ -521,18 +489,7 @@ FAISS handles “meaning in text,” GeAR handles “meaning in structure.” Bo
 
 ---
 
-### 🔹 **\[2] whisper-base-int8-static-inc(For , not deployed)**
-
-A compact and efficient **entity + relation extraction** model designed for **Graph-RAG pipelines**. Unlike fast entity-only models (e.g., SpEL, ReFinED), `relik-cie-small` can extract both **named entities** and **semantic triplets** (`(head, relation, tail)`), enabling direct construction of **knowledge subgraphs** from raw text.
-
-* Extracts **entities and triplets** in a single pass
-* Balanced for **accuracy and runtime performance**
-
-🔗 [relik-ie/relik-cie-small](https://hub.docker.com/r/sapienzanlp/relik#docker-images)
-
----
-
-### 🔹 **\[3] Qwen3-4B-AWQ**
+### 🔹 **\[2] Qwen3-4B-AWQ**
 
 A compact, high-throughput **instruction-tuned LLM** quantized using **AWQ**. Built on **Qwen3-4B**, this variant supports **32,768-token context** natively and achieves performance comparable to models 10× its size (e.g., Qwen2.5-72B). Optimized for **SGLang inference**, it balances **speed, memory efficiency, and accuracy**, running seamlessly on GPUs like A10G, L4, and L40S.
 

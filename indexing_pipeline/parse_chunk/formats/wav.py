@@ -6,7 +6,7 @@ import hashlib
 import unicodedata
 import tempfile
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -14,8 +14,16 @@ import boto3
 from botocore.exceptions import ClientError
 import soundfile as sf
 import numpy as np
-import tiktoken
-from faster_whisper import WhisperModel
+
+try:
+    import tiktoken
+except Exception:
+    tiktoken = None
+
+try:
+    from faster_whisper import WhisperModel
+except Exception:
+    WhisperModel = None
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("wav_parser_fw")
@@ -36,17 +44,18 @@ FW_CPU_THREADS = int(os.getenv("FW_CPU_THREADS", str(max(1, (os.cpu_count() or 1
 WORKSPACE_MODELS = Path(os.getenv("WORKSPACE_MODELS", "/workspace/models"))
 FW_MODEL_PATH = WORKSPACE_MODELS / "faster_whisper" / "faster-whisper-base"
 FW_MODEL_BIN = FW_MODEL_PATH / "model.bin"
+PARSER_VERSION = os.getenv("PARSER_VERSION_WAV", "faster-whisper-v1")
 
 s3 = boto3.client("s3")
-enc: Optional[tiktoken.Encoding] = None
-_model: Optional[WhisperModel] = None
+enc: Optional[Any] = None
+_model: Optional[Any] = None
 
 
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
 
-def canonicalize_text(s: str) -> str:
+def canonicalize_text(s: Any) -> str:
     if not isinstance(s, str):
         s = str(s or "")
     s = unicodedata.normalize("NFKC", s)
@@ -85,33 +94,26 @@ def get_encoder():
     global enc
     if enc is not None:
         return enc
-    try:
-        enc = tiktoken.get_encoding(ENC_NAME)
-        return enc
-    except Exception as e:
-        logger.exception("Failed to load tiktoken encoder '%s': %s", ENC_NAME, e)
-        raise
+    if tiktoken is None:
+        raise RuntimeError("tiktoken not available")
+    enc = tiktoken.get_encoding(ENC_NAME)
+    return enc
 
 
-def format_ts(seconds: float) -> str:
-    seconds = max(0, int(round(seconds)))
-    h = seconds // 3600
-    m = (seconds % 3600) // 60
-    s = seconds % 60
-    if h > 0:
-        return f"{h}:{m:02d}:{s:02d}"
-    else:
-        return f"{m}:{s:02d}"
+def format_ts_ms(seconds: float) -> str:
+    ms = int(round(max(0.0, float(seconds)) * 1000.0))
+    s, msecs = divmod(ms, 1000)
+    s, sec = divmod(s, 60)
+    m, sec = divmod(s, 60)
+    h = m
+    hh = int(h)
+    mm = int(m)
+    ss = int(sec)
+    return f"{hh:02d}:{mm:02d}:{ss:02d}.{msecs:03d}"
 
 
 def write_payload_and_upload(text: str, doc_id: str, chunk_id: str, s3_key: str, token_ct: int, start_s: float, end_s: float, parse_ms: int) -> None:
-    """
-    Write a payload that follows the universal schema and upload to S3.
-    Irrelevant fields are filled with null/empty defaults per schema.
-    """
-    checksum = sha256_hex(text)
-    source_path = f"s3://{S3_BUCKET}/{s3_key}"
-    # universal-schema payload
+    source_path = f"s3://{S3_BUCKET}/{s3_key}" if S3_BUCKET else None
     payload = {
         "document_id": doc_id or "",
         "chunk_id": chunk_id or "",
@@ -120,47 +122,25 @@ def write_payload_and_upload(text: str, doc_id: str, chunk_id: str, s3_key: str,
         "token_count": int(token_ct or 0),
         "embedding": None,
         "file_type": "audio/wav",
-        "source_path": source_path,
         "source_url": source_path,
-        "snapshot_path": "",
-        "text_checksum": checksum,
         "page_number": None,
-        "slide_range_start": None,
-        "slide_range_end": None,
-        "row_range_start": None,
-        "row_range_end": None,
-        "token_start": None,
-        "token_end": None,
-        "audio_range_start": format_ts(float(start_s)) if start_s is not None else "",
-        "audio_range_end": format_ts(float(end_s)) if end_s is not None else "",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "parser_version": "faster-whisper-v1",
-        "token_encoder": ENC_NAME or "",
+        "slide_range": None,
+        "row_range": None,
+        "token_range": None,
+        "audio_range": [format_ts_ms(float(start_s)), format_ts_ms(float(end_s))] if start_s is not None and end_s is not None else None,
+        "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "parser_version": PARSER_VERSION or "",
         "tags": [],
         "layout_tags": [],
         "used_ocr": False,
-        "parse_chunk_duration_ms": int(parse_ms or 0),
-        "window_index": None,
+        "parse_chunk_duration_ms": None,
         "heading_path": [],
         "headings": [],
-        "line_range_start": None,
-        "line_range_end": None,
-        "subchunk_index": None,
-        "commit_sha": "",
-        "model_compute": FW_COMPUTE,
-        "cpu_threads": int(FW_CPU_THREADS or 0),
-        "beam_size": int(WHISPER_BEAM or 0),
+        "line_range": None,
         "chunk_duration_ms": int(parse_ms or 0),
-        "token_window_index": None,
-        "snapshot_id": "",
-        "source_bucket": S3_BUCKET or "",
-        "source_key": s3_key or "",
-        "source_format_hint": "audio/wav"
     }
-
     ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
     out_key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext}"
-
     if not FORCE_OVERWRITE:
         try:
             s3.head_object(Bucket=S3_BUCKET, Key=out_key)
@@ -168,10 +148,9 @@ def write_payload_and_upload(text: str, doc_id: str, chunk_id: str, s3_key: str,
             return
         except ClientError:
             pass
-
     body = (json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode()
     retry_s3(lambda: s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body, ContentType="application/json"))
-    logger.info("Wrote chunk %s [%s - %s] → %s", chunk_id, payload["audio_range_start"], payload["audio_range_end"], out_key)
+    logger.info("Wrote chunk %s [%s - %s] → %s", chunk_id, payload["audio_range"], payload["audio_range"], out_key)
 
 
 def read_wav(path: str):
@@ -190,10 +169,11 @@ def make_token_chunks_from_segments(segments: List[Any]) -> List[Dict[str, Any]]
         seg_start = getattr(seg, "start", None)
         seg_end = getattr(seg, "end", None)
         if seg_start is None or seg_end is None:
-            seg_start = 0.0
-            seg_end = seg_start + 0.0
+            continue
         duration = max(0.0, float(seg_end) - float(seg_start))
-        tokens = enc_local.encode(seg_text) if seg_text else []
+        if not seg_text:
+            continue
+        tokens = enc_local.encode(seg_text)
         n = len(tokens)
         if n == 0:
             continue
@@ -224,14 +204,12 @@ def ensure_model_loaded():
     global _model
     if _model is not None:
         return
+    if WhisperModel is None:
+        raise RuntimeError("faster_whisper not available")
     if not FW_MODEL_PATH.exists() or not FW_MODEL_BIN.exists():
         raise RuntimeError(f"Missing faster-whisper model at {FW_MODEL_PATH}; ensure model.bin is present")
-    try:
-        _model = WhisperModel(str(FW_MODEL_PATH), device="cpu", compute_type=FW_COMPUTE, cpu_threads=FW_CPU_THREADS)
-        logger.info("Loaded faster-whisper model from %s compute=%s cpu_threads=%d", FW_MODEL_PATH, FW_COMPUTE, FW_CPU_THREADS)
-    except Exception:
-        _model = WhisperModel(str(FW_MODEL_PATH), device="cpu", compute_type="int8", cpu_threads=FW_CPU_THREADS)
-        logger.info("Loaded faster-whisper model with fallback int8")
+    _model = WhisperModel(str(FW_MODEL_PATH), device="cpu", compute_type=FW_COMPUTE, cpu_threads=FW_CPU_THREADS)
+    logger.info("Loaded faster-whisper model from %s compute=%s cpu_threads=%d", FW_MODEL_PATH, FW_COMPUTE, FW_CPU_THREADS)
 
 
 def parse_file_with_fw(s3_key: str, manifest: dict) -> dict:
@@ -272,8 +250,6 @@ def parse_file_with_fw(s3_key: str, manifest: dict) -> dict:
             return {"saved_chunks": 0, "total_parse_duration_ms": 0}
     parse_ms = int((time.perf_counter() - t0) * 1000)
     chunks = make_token_chunks_from_segments(segments)
-
-    # Distribute parse_ms across chunks: prefer audio-duration weighting, fallback to token-count weighting.
     total_parse_ms = int(parse_ms)
     total_audio = 0.0
     for c in chunks:
@@ -286,15 +262,11 @@ def parse_file_with_fw(s3_key: str, manifest: dict) -> dict:
         dur = max(0.0, end_s - start_s)
         c["_dur_for_weight"] = dur
         total_audio += dur
-
     if total_audio > 0.0:
         assigned_ms = 0
         for c in chunks:
             dur = c.get("_dur_for_weight", 0.0)
-            if dur <= 0.0:
-                c["parse_ms"] = 0
-            else:
-                c["parse_ms"] = int(round(total_parse_ms * (dur / total_audio)))
+            c["parse_ms"] = int(round(total_parse_ms * (dur / total_audio))) if dur > 0 else 0
             assigned_ms += c["parse_ms"]
     else:
         total_tokens = sum(max(0, int(c.get("token_count", 0))) for c in chunks) or 1
@@ -303,21 +275,18 @@ def parse_file_with_fw(s3_key: str, manifest: dict) -> dict:
             tc = max(0, int(c.get("token_count", 0)))
             c["parse_ms"] = int(round(total_parse_ms * (tc / total_tokens))) if tc > 0 else 0
             assigned_ms += c["parse_ms"]
-
     diff = total_parse_ms - assigned_ms
     if chunks:
         chunks[-1]["parse_ms"] = int(max(0, chunks[-1].get("parse_ms", 0) + diff))
-
     for c in chunks:
         c.pop("_dur_for_weight", None)
-
     saved = 0
     doc_id = manifest.get("file_hash") or sha256_hex(s3_key + str(obj.get("LastModified", "")))
     for idx, c in enumerate(chunks):
         chunk_id = f"{doc_id}_{idx+1}"
         start_s, end_s = c.get("audio_range", [0.0, 0.0])
         try:
-            write_payload_and_upload(c["text"], doc_id, chunk_id, s3_key, c["token_count"], start_s, end_s, c.get("parse_ms", 0))
+            write_payload_and_upload(c["text"], doc_id, chunk_id, s3_key, c.get("token_count", 0), start_s, end_s, c.get("parse_ms", 0))
             saved += 1
         except Exception:
             logger.exception("Failed to upload chunk %s for %s", chunk_id, s3_key)

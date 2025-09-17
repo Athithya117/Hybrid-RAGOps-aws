@@ -1,3 +1,5 @@
+# python3 indexing_pipeline/ray_indexing_pipeline.py --libreoffice-ready-timeout 30
+
 from __future__ import annotations
 import argparse
 import logging
@@ -22,6 +24,7 @@ PRE_CONVERSION_SCRIPTS = [
     "parse_chunk/pre_conversions/all_audio_to_wav.py",
     "parse_chunk/pre_conversions/doc_docx_to_pdf.py",
     "parse_chunk/pre_conversions/spreadsheets_to_csv.py",
+    "parse_chunk/pre_conversions/ppt_to_pptx.py",
 ]
 ROUTER = "parse_chunk/router.py"
 INDEX = "index.py"
@@ -471,4 +474,3 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, _handler)
     main()
 
-# python3 indexing_pipeline/ray_indexing_pipeline.py --libreoffice-ready-timeout 30

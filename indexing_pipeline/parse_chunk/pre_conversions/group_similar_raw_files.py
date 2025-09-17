@@ -1,4 +1,3 @@
-
 import os
 import argparse
 import boto3
@@ -16,7 +15,7 @@ s3 = boto3.client("s3")
 FORMATS = [
     ".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus", ".webm", ".amr", ".wma", ".aiff", ".aif",
     ".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".bmp", ".gif",
-    ".pdf", ".doc", ".docx", ".pptx", ".txt", ".csv", ".md", ".html", ".jsonl", "other"
+    ".pdf", ".doc", ".docx", ".pptx", ".ppt", ".txt", ".csv", ".md", ".html", ".jsonl", "other"
 ]
 
 ALLOW_OTHER = "other" in FORMATS
@@ -45,6 +44,7 @@ EXT_TO_PREFIX = {
     "pdf": "pdfs/",
     "doc": "docs/",
     "docx": "docs/",
+    "ppt": "ppts/",
     "pptx": "ppts/",
     "txt": "txts/",
     "csv": "csvs/",

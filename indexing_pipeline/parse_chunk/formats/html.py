@@ -6,41 +6,24 @@ import logging
 import hashlib
 import re
 import unicodedata
-from datetime import datetime
-from typing import Iterator, Dict, Any
+from datetime import datetime, timezone
+from typing import Iterator, Dict, Any, Optional, List
 import boto3
 import requests
 from botocore.exceptions import ClientError
-import trafilatura
-import tiktoken
 
 try:
-    import colorama
-    colorama.init()
+    import trafilatura
 except Exception:
-    pass
+    trafilatura = None
 
-RESET = "\033[0m"
-COLORS = {
-    logging.DEBUG: "\033[90m",
-    logging.INFO: "\033[97m",
-    logging.WARNING: "\033[33m",
-    logging.ERROR: "\033[31m",
-    logging.CRITICAL: "\033[1;41m"
-}
+try:
+    import tiktoken
+except Exception:
+    tiktoken = None
 
-class ColorFormatter(logging.Formatter):
-    def format(self, record):
-        color = COLORS.get(record.levelno, RESET)
-        message = super().format(record)
-        return f"{color}{message}{RESET}"
-
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("html_trafilatura")
-logger.setLevel(logging.INFO)
-handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(ColorFormatter("%(asctime)s %(levelname)s %(message)s"))
-logger.handlers[:] = [handler]
-log = logger
 
 S3_BUCKET = os.getenv("S3_BUCKET")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "").rstrip("/") + "/"
@@ -49,29 +32,39 @@ CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
 PARSER_VERSION = os.getenv("PARSER_VERSION_HTML", "trafilatura-only-v2")
 FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
 SAVE_SNAPSHOT = os.getenv("SAVE_SNAPSHOT", "false").lower() == "true"
-
 WINDOW_SIZE = int(os.getenv("HTML_WINDOW_SIZE", "2000"))
-OVERLAP_TOKENS = int(os.getenv("HTML_OVERLAP_TOKENS", "200"))
-SPLIT_THRESHOLD = int(os.getenv("SPLIT_THRESHOLD", str(WINDOW_SIZE)))
-
 ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "15"))
 FETCH_RETRIES = int(os.getenv("FETCH_RETRIES", "3"))
 FETCH_BACKOFF = float(os.getenv("FETCH_BACKOFF", "0.5"))
 
 s3 = boto3.client("s3")
-enc = tiktoken.get_encoding(ENC_NAME)
+ENCODER = None
+if tiktoken is not None:
+    try:
+        ENCODER = tiktoken.get_encoding(ENC_NAME)
+    except Exception:
+        ENCODER = None
 
 def sha256_hex(s: str) -> str:
-    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+    return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
-def canonicalize_text(s: str) -> str:
+def canonicalize_text(s: Any) -> str:
     if not isinstance(s, str):
         s = str(s or "")
     s = unicodedata.normalize("NFKC", s)
     s = s.replace("\r\n", "\n").replace("\r", "\n")
-    s = re.sub(r'\s+', ' ', s).strip()
+    s = re.sub(r"\s+", " ", s).strip()
     return s
+
+def s3_object_exists(key: str) -> bool:
+    try:
+        s3.head_object(Bucket=S3_BUCKET, Key=key)
+        return True
+    except ClientError:
+        return False
+    except Exception:
+        return False
 
 def fetch_html_with_retries(url: str, timeout: int = REQUEST_TIMEOUT, retries: int = FETCH_RETRIES, backoff: float = FETCH_BACKOFF) -> str:
     last_err = None
@@ -86,14 +79,16 @@ def fetch_html_with_retries(url: str, timeout: int = REQUEST_TIMEOUT, retries: i
                 time.sleep(backoff * attempt)
     raise last_err
 
-def upload_snapshot_to_s3(snapshot_html: str, doc_id: str, s3_key_prefix: str) -> str:
-    if not SAVE_SNAPSHOT:
-        return ""
-    key = f"{s3_key_prefix}{doc_id}.snapshot.html"
+def upload_snapshot_to_s3(snapshot_html: str, doc_id: str) -> Optional[str]:
+    if not SAVE_SNAPSHOT or not S3_BUCKET:
+        return None
+    key = f"{S3_CHUNKED_PREFIX}{doc_id}.snapshot.html"
     s3.put_object(Bucket=S3_BUCKET, Key=key, Body=snapshot_html.encode("utf-8"), ContentType="text/html")
     return f"s3://{S3_BUCKET}/{key}"
 
 def trafilatura_extract_markdown(html_text: str):
+    if trafilatura is None:
+        return None, {}
     md = trafilatura.extract(html_text, output_format="markdown", with_metadata=True)
     parsed = {}
     try:
@@ -104,47 +99,62 @@ def trafilatura_extract_markdown(html_text: str):
         parsed = {}
     return md, parsed
 
-def s3_object_exists(key: str) -> bool:
-    try:
-        s3.head_object(Bucket=S3_BUCKET, Key=key)
-        return True
-    except ClientError:
-        return False
-    except Exception:
-        return False
-
 def token_count_for(text: str) -> int:
-    return len(enc.encode(text))
+    if not text:
+        return 0
+    if ENCODER is not None:
+        try:
+            return len(ENCODER.encode(text))
+        except Exception:
+            pass
+    return len(text.split())
 
-def split_into_token_windows(text: str, doc_id: str, source_url: str, parser_version: str = PARSER_VERSION) -> Iterator[Dict[str, Any]]:
-    tokens = enc.encode(text)
+def split_into_token_windows(text: str, window_size: int = WINDOW_SIZE) -> Iterator[Dict[str, Any]]:
+    if not text:
+        yield {"window_index": 0, "text": "", "token_count": 0, "token_start": 0, "token_end": 0}
+        return
+    overlap = max(1, int(window_size * 0.1))
+    if ENCODER is None:
+        tokens = text.split()
+        total = len(tokens)
+        step = max(1, window_size - overlap)
+        idx = 0
+        for start in range(0, total, step):
+            end = min(start + window_size, total)
+            window_text = " ".join(tokens[start:end])
+            yield {"window_index": idx, "text": canonicalize_text(window_text), "token_count": end - start, "token_start": start, "token_end": end}
+            idx += 1
+            if end >= total:
+                break
+        return
+    tokens = ENCODER.encode(text)
     total = len(tokens)
-    step = WINDOW_SIZE - OVERLAP_TOKENS
-    if step <= 0:
-        raise ValueError("OVERLAP_TOKENS must be smaller than WINDOW_SIZE")
-    window_idx = 0
+    step = max(1, window_size - overlap)
+    idx = 0
     for start in range(0, total, step):
-        end = start + WINDOW_SIZE
-        window_tokens = tokens[start:end]
-        window_text = enc.decode(window_tokens)
-        yield {
-            "window_index": window_idx,
-            "text": canonicalize_text(window_text),
-            "token_count": len(window_tokens),
-            "token_start": start,
-            "token_end": min(end, total)
-        }
-        window_idx += 1
+        end = start + window_size
+        slice_tokens = tokens[start:end]
+        window_text = ENCODER.decode(slice_tokens)
+        yield {"window_index": idx, "text": canonicalize_text(window_text), "token_count": len(slice_tokens), "token_start": start, "token_end": min(end, total)}
+        idx += 1
         if end >= total:
             break
 
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
-    obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+    try:
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+    except Exception as e:
+        logger.error("Could not get S3 object %s: %s", s3_key, e)
+        return {"saved_chunks": 0, "total_parse_duration_ms": 0}
     raw_body = obj["Body"].read()
-    raw_text = raw_body.decode("utf-8", errors="replace")
-    doc_id = manifest.get("file_hash") or sha256_hex(s3_key + str(obj.get("LastModified", "")))
-    s3_path = f"s3://{S3_BUCKET}/{s3_key}"
+    try:
+        raw_text = raw_body.decode("utf-8", errors="replace")
+    except Exception:
+        raw_text = raw_body.decode("latin-1", errors="replace")
+    last_modified = obj.get("LastModified", "")
+    doc_id = manifest.get("file_hash") or sha256_hex(s3_key + str(last_modified or ""))
+    s3_path = f"s3://{S3_BUCKET}/{s3_key}" if S3_BUCKET else None
     stripped = raw_text.strip()
     use_remote_fetch = False
     remote_url = None
@@ -152,16 +162,20 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         use_remote_fetch = True
         remote_url = stripped.splitlines()[0].strip()
     if use_remote_fetch:
-        html_text = fetch_html_with_retries(remote_url)
-        source_url = remote_url
+        try:
+            html_text = fetch_html_with_retries(remote_url)
+            source_url = remote_url
+        except Exception:
+            html_text = raw_text
+            source_url = s3_path
     else:
         html_text = raw_text
         source_url = s3_path
-    snapshot_path = ""
+    snapshot = None
     try:
-        snapshot_path = upload_snapshot_to_s3(html_text, doc_id, S3_CHUNKED_PREFIX)
+        snapshot = upload_snapshot_to_s3(html_text, doc_id)
     except Exception:
-        snapshot_path = ""
+        snapshot = None
     t0_extract = time.perf_counter()
     md, parsed = trafilatura_extract_markdown(html_text)
     extract_duration_ms = int((time.perf_counter() - t0_extract) * 1000)
@@ -170,19 +184,14 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         fallback = re.sub(r'(?is)<.*?>', ' ', fallback)
         md = re.sub(r'\s+', ' ', fallback).strip()
     title = parsed.get("title") if isinstance(parsed, dict) else None
-    canonical_full = canonicalize_text(md)
+    canonical_full = canonicalize_text(md or "")
     token_ct = token_count_for(canonical_full)
     saved = 0
-    if token_ct <= SPLIT_THRESHOLD:
+    if token_ct <= WINDOW_SIZE:
         t0_chunk = time.perf_counter()
         chunk_index = 1
         chunk_id = f"{doc_id}_{chunk_index}"
-        # compute parse duration (include extract time)
-        parse_ms = extract_duration_ms + int((time.perf_counter() - t0_chunk) * 1000)
-        if parse_ms == 0:
-            parse_ms = 1
-
-        # universal schema payload (small page)
+        parse_ms = extract_duration_ms + int((time.perf_counter() - t0_chunk) * 1000) or 1
         payload = {
             "document_id": doc_id,
             "chunk_id": chunk_id,
@@ -191,127 +200,79 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             "token_count": int(token_ct),
             "embedding": None,
             "file_type": "text/html",
-            "source_path": s3_path,
             "source_url": source_url,
-            "snapshot_path": snapshot_path or "",
-            "text_checksum": sha256_hex(canonical_full),
             "page_number": None,
-            "slide_range_start": None,
-            "slide_range_end": None,
-            "row_range_start": None,
-            "row_range_end": None,
-            "token_start": None,
-            "token_end": None,
-            "audio_range_start": "",
-            "audio_range_end": "",
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "slide_range": None,
+            "row_range": None,
+            "token_range": None,
+            "audio_range": None,
+            "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
             "parser_version": PARSER_VERSION,
-            "token_encoder": ENC_NAME,
             "tags": [],
             "layout_tags": ["page"],
             "used_ocr": False,
             "parse_chunk_duration_ms": int(parse_ms),
-            "window_index": None,
             "heading_path": [],
             "headings": [title] if title else [],
-            "line_range_start": None,
-            "line_range_end": None,
-            "subchunk_index": None,
-            "commit_sha": manifest.get("commit_sha", "") if isinstance(manifest, dict) else "",
-            "model_compute": "",
-            "cpu_threads": None,
-            "beam_size": None,
-            "chunk_duration_ms": int(parse_ms),
-            "token_window_index": None,
-            "snapshot_id": "",
-            "source_bucket": S3_BUCKET,
-            "source_key": s3_key,
-            "source_format_hint": "text/html"
+            "line_range": None,
+            "chunk_duration_ms": None
         }
-
         ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
         out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
         if not FORCE_OVERWRITE and s3_object_exists(out_key):
-            log.info(f"Skipping existing chunk {payload['chunk_id']}")
+            logger.info("Skipping existing chunk %s", payload["chunk_id"])
         else:
             body = (json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode()
             s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body, ContentType="application/json")
-            log.info(f"Wrote page chunk {payload['chunk_id']} → {out_key}")
+            logger.info("Wrote page chunk %s → %s", payload["chunk_id"], out_key)
             saved += 1
     else:
-        t0_split_total = time.perf_counter()
-        windows = list(split_into_token_windows(canonical_full, doc_id, source_url, PARSER_VERSION))
+        windows = list(split_into_token_windows(canonical_full))
         for w in windows:
             t0_chunk = time.perf_counter()
-            window_idx = w.get("window_index", 0)
+            window_idx = int(w.get("window_index", 0))
             chunk_index = window_idx + 1
             chunk_id = f"{doc_id}_{chunk_index}"
-            wtext = w["text"]
-            w_token_count = w.get("token_count")
-            parse_ms = extract_duration_ms + int((time.perf_counter() - t0_chunk) * 1000)
-            if parse_ms == 0:
-                parse_ms = 1
-
-            # universal schema payload for token window
+            wtext = w.get("text", "")
+            w_token_count = int(w.get("token_count", 0))
+            parse_ms = extract_duration_ms + int((time.perf_counter() - t0_chunk) * 1000) or 1
+            token_range = [int(w.get("token_start")), int(w.get("token_end"))]
             payload = {
                 "document_id": doc_id,
                 "chunk_id": chunk_id,
                 "chunk_type": "token_window",
                 "text": wtext,
-                "token_count": int(w_token_count or 0),
+                "token_count": int(w_token_count),
                 "embedding": None,
                 "file_type": "text/html",
-                "source_path": s3_path,
                 "source_url": source_url,
-                "snapshot_path": snapshot_path or "",
-                "text_checksum": sha256_hex(wtext),
                 "page_number": None,
-                "slide_range_start": None,
-                "slide_range_end": None,
-                "row_range_start": None,
-                "row_range_end": None,
-                "token_start": int(w.get("token_start")),
-                "token_end": int(w.get("token_end")),
-                "audio_range_start": "",
-                "audio_range_end": "",
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "slide_range": None,
+                "row_range": None,
+                "token_range": token_range,
+                "audio_range": None,
+                "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
                 "parser_version": PARSER_VERSION,
-                "token_encoder": ENC_NAME,
                 "tags": [],
                 "layout_tags": ["page"],
                 "used_ocr": False,
                 "parse_chunk_duration_ms": int(parse_ms),
-                "window_index": int(window_idx),
                 "heading_path": [],
                 "headings": [title] if title else [],
-                "line_range_start": None,
-                "line_range_end": None,
-                "subchunk_index": None,
-                "commit_sha": manifest.get("commit_sha", "") if isinstance(manifest, dict) else "",
-                "model_compute": "",
-                "cpu_threads": None,
-                "beam_size": None,
-                "chunk_duration_ms": int(parse_ms),
-                "token_window_index": int(window_idx),
-                "snapshot_id": "",
-                "source_bucket": S3_BUCKET,
-                "source_key": s3_key,
-                "source_format_hint": "text/html"
+                "line_range": None,
+                "chunk_duration_ms": None
             }
-
             ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
             out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
             if not FORCE_OVERWRITE and s3_object_exists(out_key):
-                log.info(f"Skipping existing window chunk {payload['chunk_id']}")
+                logger.info("Skipping existing window chunk %s", payload["chunk_id"])
                 continue
             body = (json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode()
             s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body, ContentType="application/json")
-            log.info(f"Wrote window chunk {payload['chunk_id']} (window {window_idx}) → {out_key}")
+            logger.info("Wrote window chunk %s (window %d) → %s", payload["chunk_id"], window_idx, out_key)
             saved += 1
-        split_duration_ms = int((time.perf_counter() - t0_split_total) * 1000)
-        log.info(f"Split into windows in {split_duration_ms} ms (extraction took {extract_duration_ms} ms)")
     total_ms = int((time.perf_counter() - start_all) * 1000)
-    log.info(f"Completed parsing {saved} chunks for {s3_key} in {total_ms} ms total")
+    logger.info("Completed parsing %d chunks for %s in %d ms total", saved, s3_key, total_ms)
     return {"saved_chunks": saved, "total_parse_duration_ms": total_ms}
 
 if __name__ == "__main__":
@@ -321,7 +282,7 @@ if __name__ == "__main__":
             key = obj["Key"]
             if not (key.lower().endswith(".html") or key.lower().endswith(".htm")):
                 continue
-            log.info(f"Routing parse_file for s3://{S3_BUCKET}/{key}")
+            logger.info("Routing parse_file for s3://%s/%s", S3_BUCKET, key)
             manifest_key = key + ".manifest.json"
             try:
                 mf_obj = s3.get_object(Bucket=S3_BUCKET, Key=manifest_key)

@@ -60,66 +60,6 @@ assert CHUNK_FORMAT in ("json", "jsonl")
 
 s3 = boto3.client("s3")
 
-def _tesseract_ready():
-    try:
-        import pytesseract
-        pytesseract.get_tesseract_version()
-        proc = __import__("subprocess").run([pytesseract.pytesseract.tesseract_cmd, "--print-tessdata-dir"], capture_output=True, text=True)
-        tessdir = (proc.stdout or proc.stderr).strip()
-        if tessdir and os.path.isdir(tessdir):
-            for fname in ("eng.traineddata",):
-                if os.path.exists(os.path.join(tessdir, fname)):
-                    return True
-        return False
-    except Exception:
-        return False
-
-def _rapidocr_ready():
-    try:
-        from rapidocr_onnxruntime import RapidOCR
-        RapidOCR()
-        return True
-    except Exception:
-        return False
-
-TESSERACT_OK = False
-RAPID_OK = False
-if OCR_BACKEND == "tesseract":
-    TESSERACT_OK = _tesseract_ready()
-    if not TESSERACT_OK:
-        RAPID_OK = _rapidocr_ready()
-        if RAPID_OK:
-            OCR_BACKEND = "rapidocr"
-        else:
-            OCR_BACKEND = "none"
-elif OCR_BACKEND == "rapidocr":
-    RAPID_OK = _rapidocr_ready()
-    if not RAPID_OK:
-        TESSERACT_OK = _tesseract_ready()
-        if TESSERACT_OK:
-            OCR_BACKEND = "tesseract"
-        else:
-            OCR_BACKEND = "none"
-else:
-    OCR_BACKEND = "none"
-
-if OCR_BACKEND == "tesseract":
-    TESS_CONFIG = "--oem 1 --psm 6"
-    try:
-        import pytesseract
-    except Exception:
-        OCR_BACKEND = "none"
-
-if OCR_BACKEND == "rapidocr":
-    from rapidocr_onnxruntime import RapidOCR
-    ocr_rapid = RapidOCR()
-
-try:
-    import tiktoken
-    ENCODER = tiktoken.get_encoding(TOKEN_ENCODER)
-except Exception:
-    ENCODER = None
-
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
@@ -145,30 +85,29 @@ def dedupe_lines(lines: list[str]) -> list[str]:
 
 def do_ocr(img: np.ndarray) -> list[str]:
     lines = []
-    if OCR_BACKEND == "tesseract":
-        import cv2
-        from PIL import Image
-        import pytesseract
-        try:
+    try:
+        if OCR_BACKEND == "tesseract":
+            import cv2
+            from PIL import Image
+            import pytesseract
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             _, bin_img = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            raw = pytesseract.image_to_string(Image.fromarray(bin_img), config=TESS_CONFIG)
+            raw = pytesseract.image_to_string(Image.fromarray(bin_img), config="--oem 1 --psm 6")
             for l in raw.splitlines():
                 if is_ocr_line_valid(l):
                     lines.append(l.strip())
-        except Exception:
-            return []
-    elif OCR_BACKEND == "rapidocr":
-        try:
-            res = ocr_rapid(img)
+        elif OCR_BACKEND == "rapidocr":
+            from rapidocr_onnxruntime import RapidOCR
+            ocr = RapidOCR()
+            res = ocr(img)
             if res and isinstance(res[0], (list, tuple)):
                 for item in res[0]:
                     if len(item) >= 2:
                         text = item[1].strip()
                         if is_ocr_line_valid(text):
                             lines.append(text)
-        except Exception:
-            return []
+    except Exception:
+        return []
     return dedupe_lines(lines)
 
 def is_valid_table(table: list[list[str]]) -> bool:
@@ -198,21 +137,20 @@ def _extract_image_blob_from_shape(shape):
 def _count_tokens(text: str) -> int:
     if not text:
         return 0
-    if ENCODER is not None:
-        try:
-            return len(ENCODER.encode(text))
-        except Exception:
-            pass
-    return len(text.split())
+    try:
+        import tiktoken
+        enc = tiktoken.get_encoding(TOKEN_ENCODER)
+        return len(enc.encode(text))
+    except Exception:
+        return len(text.split())
 
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
     raw = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
-    doc_id = manifest.get("file_hash", "")
+    doc_id = manifest.get("file_hash", "") if isinstance(manifest, dict) else ""
     source = f"s3://{S3_BUCKET}/{s3_key}"
     try:
         from pptx import Presentation
-        from pptx.enum.shapes import MSO_SHAPE_TYPE
     except Exception as e:
         log.error(f"pptx import failed: {e}")
         return {"saved_chunks": 0, "total_parse_duration_ms": 0}
@@ -303,8 +241,6 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         token_count = _count_tokens(final_text)
         merge_write_ms = (time.perf_counter() - t_chunk_start) * 1000.0
         duration_ms = int(slides_sum_ms + merge_write_ms)
-
-        # universal schema payload
         payload = {
             "document_id": doc_id or "",
             "chunk_id": chunk_id or "",
@@ -313,42 +249,22 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             "token_count": int(token_count or 0),
             "embedding": None,
             "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            "source_path": source,
-            "source_url": None,
-            "snapshot_path": "",
-            "text_checksum": sha256_hex(final_text),
+            "source_url": source,
             "page_number": None,
-            "slide_range_start": int(start),
-            "slide_range_end": int(end),
-            "row_range_start": None,
-            "row_range_end": None,
-            "token_start": None,
-            "token_end": None,
-            "audio_range_start": "",
-            "audio_range_end": "",
+            "slide_range": [int(start), int(end)],
+            "row_range": None,
+            "token_range": None,
+            "audio_range": None,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "parser_version": PARSER_VERSION_PPTX,
-            "token_encoder": TOKEN_ENCODER,
-            "tags": [],
+            "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [],
             "layout_tags": ["slide"],
             "used_ocr": bool(used_ocr),
             "parse_chunk_duration_ms": int(duration_ms),
-            "window_index": None,
             "heading_path": [],
             "headings": [],
-            "line_range_start": None,
-            "line_range_end": None,
-            "subchunk_index": None,
-            "commit_sha": manifest.get("commit_sha", "") if isinstance(manifest, dict) else "",
-            "model_compute": "",
-            "cpu_threads": None,
-            "beam_size": None,
-            "chunk_duration_ms": int(duration_ms),
-            "token_window_index": None,
-            "snapshot_id": "",
-            "source_bucket": S3_BUCKET,
-            "source_key": s3_key,
-            "source_format_hint": "presentation"
+            "line_range": None,
+            "chunk_duration_ms": None
         }
         ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
         out_key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext}"

@@ -2,7 +2,6 @@ import os
 import io
 import json
 import time
-import math
 import logging
 import hashlib
 import unicodedata
@@ -10,9 +9,21 @@ from datetime import datetime
 from typing import Any, Dict, Iterator, Tuple, List
 import boto3
 import botocore
-import ray
-import pandas as pd
-import tiktoken
+
+try:
+    import ray
+except Exception:
+    ray = None
+
+try:
+    import pandas as pd
+except Exception:
+    pd = None
+
+try:
+    import tiktoken
+except Exception:
+    tiktoken = None
 
 try:
     import colorama
@@ -58,14 +69,19 @@ S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF", "0.5"))
 S3_RANGE_BYTES = int(os.getenv("S3_RANGE_BYTES", "131072"))
 
 s3 = boto3.client("s3")
-enc = tiktoken.get_encoding(ENC_NAME)
+ENCODER = None
+if tiktoken is not None:
+    try:
+        ENCODER = tiktoken.get_encoding(ENC_NAME)
+    except Exception:
+        ENCODER = None
 
 _RAY_CONNECTED = False
 
 def sha256_hex(s: str) -> str:
-    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+    return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
-def canonicalize_text(s: str) -> str:
+def canonicalize_text(s: Any) -> str:
     if not isinstance(s, str):
         s = str(s or "")
     s = unicodedata.normalize("NFKC", s)
@@ -84,27 +100,52 @@ def s3_object_exists(key: str) -> bool:
 def s3_put_object_with_retries(key: str, body: bytes, content_type: str = "application/json") -> Tuple[int, int]:
     attempt = 0
     t_start = time.perf_counter()
-    last_exc = None
     while True:
         try:
             attempt += 1
             s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body, ContentType=content_type)
-            t_end = time.perf_counter()
-            ms = int(round((t_end - t_start) * 1000))
+            ms = int(round((time.perf_counter() - t_start) * 1000))
             if ms == 0:
                 ms = 1
             return attempt, ms
-        except Exception as e:
-            last_exc = e
+        except Exception:
             if attempt >= max(1, S3_PUT_RETRIES):
                 raise
             time.sleep(S3_PUT_BACKOFF * attempt)
 
 def token_count_for(text: str) -> int:
-    return len(enc.encode(text))
+    if not text:
+        return 0
+    if ENCODER is not None:
+        try:
+            return len(ENCODER.encode(text))
+        except Exception:
+            pass
+    return len(text.split())
 
 def split_into_token_windows(text: str, window_tokens: int, overlap: int = 0) -> Iterator[Dict[str, Any]]:
-    tokens = enc.encode(text)
+    if ENCODER is None:
+        tokens = text.split()
+        total = len(tokens)
+        if window_tokens <= overlap:
+            raise ValueError("window_tokens must be greater than overlap")
+        step = window_tokens - overlap
+        idx = 0
+        for start in range(0, total, step):
+            end = min(start + window_tokens, total)
+            window_text = " ".join(tokens[start:end])
+            yield {
+                "window_index": idx,
+                "text": canonicalize_text(window_text),
+                "token_count": len(tokens[start:end]),
+                "token_start": start,
+                "token_end": end,
+            }
+            idx += 1
+            if end >= total:
+                break
+        return
+    tokens = ENCODER.encode(text)
     total = len(tokens)
     if window_tokens <= overlap:
         raise ValueError("window_tokens must be greater than overlap")
@@ -113,7 +154,7 @@ def split_into_token_windows(text: str, window_tokens: int, overlap: int = 0) ->
     for start in range(0, total, step):
         end = start + window_tokens
         window_slice = tokens[start:end]
-        window_text = enc.decode(window_slice)
+        window_text = ENCODER.decode(window_slice)
         yield {
             "window_index": idx,
             "text": canonicalize_text(window_text),
@@ -127,7 +168,7 @@ def split_into_token_windows(text: str, window_tokens: int, overlap: int = 0) ->
 
 def row_to_schema_text(row: Any) -> str:
     parts: List[str] = []
-    if isinstance(row, pd.Series):
+    if pd is not None and isinstance(row, pd.Series):
         for c, v in row.items():
             parts.append(f"{c}: {'' if pd.isna(v) else v}")
     elif isinstance(row, dict):
@@ -141,13 +182,18 @@ def ensure_ray() -> None:
     global _RAY_CONNECTED
     if _RAY_CONNECTED:
         return
+    if ray is None:
+        return
     addr = os.getenv("RAY_ADDRESS", "auto")
     try:
         ray.init(address=addr, ignore_reinit_error=True)
         log.info(f"Connected to Ray via address={addr}")
     except Exception:
-        ray.init(ignore_reinit_error=True, include_dashboard=False, configure_logging=False)
-        log.info("Started local Ray instance")
+        try:
+            ray.init(ignore_reinit_error=True, include_dashboard=False, configure_logging=False)
+            log.info("Started local Ray instance")
+        except Exception:
+            pass
     _RAY_CONNECTED = True
 
 def get_header_and_sample_tokens(s3_key: str) -> Tuple[str, int]:
@@ -174,7 +220,7 @@ def get_header_and_sample_tokens(s3_key: str) -> Tuple[str, int]:
             return "", 32
         keys = sorted(set().union(*(list(p.keys()) for p in parsed if isinstance(p, dict))))
         header_text = canonicalize_text(" | ".join(keys))
-        sample_obj = parsed[0] if parsed else parsed[0]
+        sample_obj = parsed[0]
         sample_text = row_to_schema_text(sample_obj)
         sample_tokens = max(1, token_count_for(sample_text))
         return header_text, sample_tokens
@@ -190,13 +236,21 @@ def _derive_source_key_from_path(s3_path: str) -> str:
         return s3_path[len(prefix):]
     return ""
 
+def _write_payload(out_key: str, payload: Dict[str, Any]) -> None:
+    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+    body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
+    if not FORCE_OVERWRITE and s3_object_exists(out_key):
+        return
+    s3_put_object_with_retries(out_key, body, content_type="application/json")
+
 def _flush_rows_chunk(
     doc_id: str,
     s3_path: str,
     chunk_index: int,
     header_text: str,
-    rows_text: list,
+    rows_text: List[str],
     start_row_num: int,
+    manifest_tags: List[str] = None,
 ) -> Tuple[int, int]:
     if not rows_text:
         return 0, chunk_index
@@ -206,10 +260,6 @@ def _flush_rows_chunk(
     chunk_text = header_text + "\n" + "\n".join(rows_text) if header_text else "\n".join(rows_text)
     token_ct = token_count_for(chunk_text)
     end_row_num = start_row_num + len(rows_text) - 1
-
-    source_key = _derive_source_key_from_path(s3_path)
-
-    # universal schema payload
     payload = {
         "document_id": doc_id or "",
         "chunk_id": chunk_id or "",
@@ -218,79 +268,47 @@ def _flush_rows_chunk(
         "token_count": int(token_ct or 0),
         "embedding": None,
         "file_type": "application/x-ndjson",
-        "source_path": s3_path,
-        "source_url": None,
-        "snapshot_path": "",
-        "text_checksum": sha256_hex(chunk_text),
+        "source_url": f"s3://{S3_BUCKET}/{s3_path}",
         "page_number": None,
-        "slide_range_start": None,
-        "slide_range_end": None,
-        "row_range_start": int(start_row_num),
-        "row_range_end": int(end_row_num),
-        "token_start": None,
-        "token_end": None,
-        "audio_range_start": "",
-        "audio_range_end": "",
+        "slide_range": None,
+        "row_range": [int(start_row_num), int(end_row_num)],
+        "token_range": None,
+        "audio_range": None,
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "parser_version": PARSER_VERSION or "",
-        "token_encoder": ENC_NAME or "",
-        "tags": [],
+        "tags": manifest_tags or [],
         "layout_tags": [],
         "used_ocr": False,
         "parse_chunk_duration_ms": None,
-        "window_index": None,
         "heading_path": [],
         "headings": [],
-        "line_range_start": None,
-        "line_range_end": None,
-        "subchunk_index": None,
-        "commit_sha": "",
-        "model_compute": "",
-        "cpu_threads": None,
-        "beam_size": None,
+        "line_range": None,
         "chunk_duration_ms": None,
-        "token_window_index": None,
-        "snapshot_id": "",
-        "source_bucket": S3_BUCKET,
-        "source_key": source_key,
-        "source_format_hint": "application/x-ndjson"
     }
-
-    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
-    out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
-    body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
-
+    out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ 'jsonl' if CHUNK_FORMAT == 'jsonl' else 'json'}"
     if not FORCE_OVERWRITE and s3_object_exists(out_key):
         t_after = time.perf_counter()
-        parse_ms = int(round((t_after - t0_chunk) * 1000))
-        if parse_ms == 0:
-            parse_ms = 1
+        parse_ms = int(round((t_after - t0_chunk) * 1000)) or 1
         payload["parse_chunk_duration_ms"] = parse_ms
+        payload["chunk_duration_ms"] = parse_ms
         log.info(f"Skipping existing chunk {payload['chunk_id']} (assembly {parse_ms} ms)")
         return 0, chunk_index
-
-    # write initial payload
     t_put_start = time.perf_counter()
-    s3_put_object_with_retries(out_key, body, content_type="application/json")
+    _write_payload(out_key, payload)
     t_put_end = time.perf_counter()
-    total_ms = int(round((t_put_end - t0_chunk) * 1000))
-    if total_ms == 0:
-        total_ms = 1
+    total_ms = int(round((t_put_end - t0_chunk) * 1000)) or 1
     payload["parse_chunk_duration_ms"] = total_ms
     payload["chunk_duration_ms"] = total_ms
-
-    # write payload again with duration metadata to preserve the original behavior
-    body_with_meta = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
-    s3_put_object_with_retries(out_key, body_with_meta, content_type="application/json")
-    log.info(f"Wrote JSONL chunk {payload['chunk_id']} → {out_key} ({total_ms} ms)")
+    _write_payload(out_key, payload)
+    log.info(f"Wrote chunk {payload['chunk_id']} → {out_key} ({total_ms} ms)")
     return 1, chunk_index
 
-def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text, next_row_num):
+def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text, next_row_num, manifest_tags: List[str] = None):
     saved = 0
-    rows_text = []
+    rows_text: List[str] = []
     start_row_of_current = next_row_num
     for _, row in rows_iterable:
-        if isinstance(row, pd.Series):
+        if pd is not None and isinstance(row, pd.Series):
             row_text = row_to_schema_text(row)
         elif isinstance(row, dict):
             row_text = canonicalize_text(" | ".join([f"{k}: {v}" for k, v in row.items()]))
@@ -300,12 +318,9 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
         next_row_num += 1
         row_tokens = token_count_for(row_text)
         header_tokens = token_count_for(header_text) if header_text else 0
-
-        source_key = _derive_source_key_from_path(s3_path)
-
         if row_tokens > TARGET_TOKENS_PER_CHUNK:
             if rows_text:
-                wrote, chunk_index = _flush_rows_chunk(doc_id, s3_path, chunk_index, header_text, rows_text, start_row_of_current)
+                wrote, chunk_index = _flush_rows_chunk(doc_id, s3_path, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags)
                 saved += wrote
                 rows_text = []
             windows = list(split_into_token_windows(row_text, TARGET_TOKENS_PER_CHUNK, overlap=int(TARGET_TOKENS_PER_CHUNK * 0.1)))
@@ -314,7 +329,6 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
                 chunk_id = f"{doc_id}_{chunk_index}"
                 candidate_text = header_text + "\n" + w["text"] if header_text and (header_tokens + w["token_count"] <= TARGET_TOKENS_PER_CHUNK) else w["text"]
                 token_ct = token_count_for(candidate_text)
-                # universal schema for token window
                 payload = {
                     "document_id": doc_id or "",
                     "chunk_id": chunk_id or "",
@@ -323,70 +337,40 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
                     "token_count": int(token_ct or 0),
                     "embedding": None,
                     "file_type": "application/x-ndjson",
-                    "source_path": s3_path,
-                    "source_url": None,
-                    "snapshot_path": "",
-                    "text_checksum": sha256_hex(candidate_text),
+                    "source_url": f"s3://{S3_BUCKET}/{s3_path}",
                     "page_number": None,
-                    "slide_range_start": None,
-                    "slide_range_end": None,
-                    "row_range_start": int(row_num),
-                    "row_range_end": int(row_num),
-                    "token_start": int(w.get("token_start")),
-                    "token_end": int(w.get("token_end")),
-                    "audio_range_start": "",
-                    "audio_range_end": "",
+                    "slide_range": None,
+                    "row_range": [int(row_num), int(row_num)],
+                    "token_range": [int(w.get("token_start")), int(w.get("token_end"))],
+                    "audio_range": None,
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                     "parser_version": PARSER_VERSION or "",
-                    "token_encoder": ENC_NAME or "",
-                    "tags": [],
+                    "tags": manifest_tags or [],
                     "layout_tags": [],
                     "used_ocr": False,
                     "parse_chunk_duration_ms": None,
-                    "window_index": int(w.get("window_index")),
                     "heading_path": [],
                     "headings": [],
-                    "line_range_start": None,
-                    "line_range_end": None,
-                    "subchunk_index": None,
-                    "commit_sha": "",
-                    "model_compute": "",
-                    "cpu_threads": None,
-                    "beam_size": None,
+                    "line_range": None,
                     "chunk_duration_ms": None,
-                    "token_window_index": int(w.get("window_index")),
-                    "snapshot_id": "",
-                    "source_bucket": S3_BUCKET,
-                    "source_key": source_key,
-                    "source_format_hint": "application/x-ndjson"
                 }
-
-                ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
-                out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
-                body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
+                out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ 'jsonl' if CHUNK_FORMAT == 'jsonl' else 'json'}"
                 t0_chunk = time.perf_counter()
                 if not FORCE_OVERWRITE and s3_object_exists(out_key):
                     t_after = time.perf_counter()
-                    parse_ms = int(round((t_after - t0_chunk) * 1000))
-                    if parse_ms == 0:
-                        parse_ms = 1
+                    parse_ms = int(round((t_after - t0_chunk) * 1000)) or 1
                     payload["parse_chunk_duration_ms"] = parse_ms
                     log.info(f"Skipping existing window chunk {payload['chunk_id']} (assembly {parse_ms} ms)")
                     continue
-                s3_put_object_with_retries(out_key, body, content_type="application/json")
+                _write_payload(out_key, payload)
                 t_put_end = time.perf_counter()
-                total_ms = int(round((t_put_end - t0_chunk) * 1000))
-                if total_ms == 0:
-                    total_ms = 1
+                total_ms = int(round((t_put_end - t0_chunk) * 1000)) or 1
                 payload["parse_chunk_duration_ms"] = total_ms
-                payload["chunk_duration_ms"] = total_ms
-                body_with_meta = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
-                s3_put_object_with_retries(out_key, body_with_meta, content_type="application/json")
-                log.info(f"Wrote JSONL token window {payload['chunk_id']} → {out_key} ({total_ms} ms)")
+                _write_payload(out_key, payload)
+                log.info(f"Wrote token window {payload['chunk_id']} → {out_key} ({total_ms} ms)")
                 saved += 1
             start_row_of_current = next_row_num
             continue
-
         candidate_text = header_text + "\n" + "\n".join(rows_text + [row_text]) if header_text else "\n".join(rows_text + [row_text])
         candidate_tokens = token_count_for(candidate_text)
         if candidate_tokens <= TARGET_TOKENS_PER_CHUNK:
@@ -395,12 +379,12 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
             rows_text.append(row_text)
             continue
         else:
-            wrote, chunk_index = _flush_rows_chunk(doc_id, s3_path, chunk_index, header_text, rows_text, start_row_of_current)
+            wrote, chunk_index = _flush_rows_chunk(doc_id, s3_path, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags)
             saved += wrote
             rows_text = [row_text]
             start_row_of_current = row_num
     if rows_text:
-        wrote, chunk_index = _flush_rows_chunk(doc_id, s3_path, chunk_index, header_text, rows_text, start_row_of_current)
+        wrote, chunk_index = _flush_rows_chunk(doc_id, s3_path, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags)
         saved += wrote
     return saved, chunk_index, next_row_num
 
@@ -413,7 +397,7 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
         return {"saved_chunks": 0, "total_parse_duration_ms": 0, "skipped": True, "error": str(e)}
     last_modified = head_obj.get("LastModified", "")
     doc_id = manifest.get("file_hash") or make_doc_id(s3_key, last_modified)
-    s3_path = f"s3://{S3_BUCKET}/{s3_key}"
+    s3_path = f"{s3_key}"
     header_text, sample_row_tokens = get_header_and_sample_tokens(s3_key)
     header_tokens = token_count_for(header_text) if header_text else 0
     if header_tokens >= TARGET_TOKENS_PER_CHUNK:
@@ -431,15 +415,19 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
     ensure_ray()
     chunk_index = 0
     next_row_num = 1
+    manifest_tags = manifest.get("tags", []) if isinstance(manifest, dict) else []
     try:
-        ds = ray.data.read_json(f"s3://{S3_BUCKET}/{s3_key}", file_extensions=["jsonl"])
-        batch_iter = ds.iter_batches(batch_size=rows_per_chunk, batch_format="pandas", prefetch_batches=2)
-        for batch in batch_iter:
-            if not isinstance(batch, pd.DataFrame) or batch.shape[0] == 0:
-                continue
-            saved_batch, chunk_index, next_row_num = _process_batch_rows(batch.iterrows(), doc_id, s3_path, chunk_index, header_text, next_row_num)
-            saved += saved_batch
-    except Exception as e_ray:
+        if ray is not None:
+            ds = ray.data.read_json(f"s3://{S3_BUCKET}/{s3_key}", file_extensions=["jsonl"])
+            batch_iter = ds.iter_batches(batch_size=rows_per_chunk, batch_format="pandas", prefetch_batches=2)
+            for batch in batch_iter:
+                if pd is None or not isinstance(batch, pd.DataFrame) or batch.shape[0] == 0:
+                    continue
+                saved_batch, chunk_index, next_row_num = _process_batch_rows(batch.iterrows(), doc_id, s3_path, chunk_index, header_text, next_row_num, manifest_tags)
+                saved += saved_batch
+        else:
+            raise Exception("ray-unavailable")
+    except Exception:
         try:
             obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
             body_bytes = obj.get("Body").read()
@@ -454,23 +442,22 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
                 buffer.append(rec)
                 if len(buffer) >= rows_per_chunk:
                     indexed_iter = ((i, row) for i, row in enumerate(buffer))
-                    saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, s3_path, chunk_index, header_text, next_row_num)
+                    saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, s3_path, chunk_index, header_text, next_row_num, manifest_tags)
                     saved += saved_chunk
                     buffer = []
             if buffer:
                 indexed_iter = ((i, row) for i, row in enumerate(buffer))
-                saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, s3_path, chunk_index, header_text, next_row_num)
+                saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, s3_path, chunk_index, header_text, next_row_num, manifest_tags)
                 saved += saved_chunk
         except Exception as e_pd:
             total_ms = int((time.perf_counter() - start_all) * 1000)
-            log.error(f"Skipping malformed or unreadable JSONL {s3_key} error_ray={str(e_ray)} error_pd={str(e_pd)}")
+            log.error(f"Skipping malformed or unreadable JSONL {s3_key} error={str(e_pd)}")
             return {
                 "saved_chunks": 0,
                 "total_parse_duration_ms": total_ms,
                 "skipped": True,
-                "error": f"{str(e_ray)} | {str(e_pd)}",
+                "error": str(e_pd),
             }
     total_ms = int((time.perf_counter() - start_all) * 1000)
-    log.info(f"{s3_key} sample_row_tokens={sample_row_tokens} header_tokens={header_tokens} rows_per_chunk={rows_per_chunk}")
     log.info(f"Completed parsing {saved} chunks for {s3_key} in {total_ms} ms total")
     return {"saved_chunks": saved, "total_parse_duration_ms": total_ms}

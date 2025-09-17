@@ -11,7 +11,7 @@ import unicodedata
 import re
 from datetime import datetime
 from botocore.exceptions import ClientError
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 try:
     import colorama
@@ -78,7 +78,7 @@ except Exception:
 md_parser = MarkdownIt()
 
 def sha256_hex(s: str) -> str:
-    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+    return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
 def canonicalize_text(s: str) -> str:
     if not isinstance(s, str):
@@ -125,15 +125,22 @@ def s3_put_object_with_retries(key: str, body: bytes) -> None:
                 time.sleep(S3_PUT_BACKOFF * attempt)
     raise Exception("s3 put failed after retries")
 
+def _is_rootish(h: Any) -> bool:
+    if h is None:
+        return True
+    try:
+        return str(h).strip().lower() in ("", "root")
+    except Exception:
+        return False
+
 def build_header_sections(raw_text: str) -> List[Dict[str, Any]]:
     lines = raw_text.splitlines(keepends=True)
     try:
         tokens = md_parser.parse(raw_text)
     except Exception:
-        return [{"heading_path": [], "heading": "root", "level": 0, "start_line": 0, "end_line": len(lines), "lines": lines}]
-    root_section = {"heading_path": [], "heading": "root", "level": 0, "start_line": None, "end_line": None}
-    stack = [root_section]
-    sections_out = []
+        return [{"heading_path": [], "heading": "", "level": 0, "start_line": 0, "end_line": len(lines), "lines": lines}]
+    stack = [{"heading_path": [], "heading": "", "level": 0, "start_line": None, "end_line": None}]
+    sections_out: List[Dict[str, Any]] = []
     i = 0
     while i < len(tokens):
         tok = tokens[i]
@@ -152,9 +159,9 @@ def build_header_sections(raw_text: str) -> List[Dict[str, Any]]:
                 completed = stack.pop()
                 if completed.get("start_line") is not None:
                     sections_out.append(completed)
-            parent_path = stack[-1]["heading_path"][:] if stack else []
-            new_path = parent_path + [heading_text or f"h{level}"]
-            sec = {"heading_path": new_path, "heading": heading_text or f"h{level}", "level": level, "start_line": None, "end_line": None}
+            parent_path = [p for p in (stack[-1]["heading_path"][:] if stack else []) if not _is_rootish(p)]
+            new_path = parent_path + ([] if _is_rootish(heading_text) else [heading_text])
+            sec = {"heading_path": new_path, "heading": "" if _is_rootish(heading_text) else heading_text, "level": level, "start_line": None, "end_line": None}
             if map_tuple:
                 sec["start_line"] = map_tuple[0]
                 sec["end_line"] = map_tuple[1]
@@ -185,25 +192,27 @@ def build_header_sections(raw_text: str) -> List[Dict[str, Any]]:
         e = min(total_lines, e)
         if s >= e and s < total_lines:
             e = s + 1
-        sec_copy = {"heading_path": sec.get("heading_path", []), "heading": sec.get("heading", ""), "level": sec.get("level", 0), "start_line": s, "end_line": e, "lines": lines[s:e]}
+        heading_path = [h for h in sec.get("heading_path", []) if not _is_rootish(h)]
+        heading = "" if _is_rootish(sec.get("heading", "")) else sec.get("heading", "")
+        sec_copy = {"heading_path": heading_path, "heading": heading, "level": sec.get("level", 0), "start_line": s, "end_line": e, "lines": lines[s:e]}
         normalized_sections.append(sec_copy)
     normalized_sections_sorted = sorted(normalized_sections, key=lambda x: (x["start_line"], x["end_line"]))
-    merged = []
+    merged: List[Dict[str, Any]] = []
     last_end = 0
     if normalized_sections_sorted:
         first_start = normalized_sections_sorted[0]["start_line"]
         if first_start > 0:
-            merged.append({"heading_path": [], "heading": "root", "level": 0, "start_line": 0, "end_line": first_start, "lines": lines[0:first_start]})
+            merged.append({"heading_path": [], "heading": "", "level": 0, "start_line": 0, "end_line": first_start, "lines": lines[0:first_start]})
     for sec in normalized_sections_sorted:
         if sec["start_line"] > last_end:
             gap_start = last_end
             gap_end = sec["start_line"]
             if gap_end > gap_start:
-                merged.append({"heading_path": [], "heading": "root", "level": 0, "start_line": gap_start, "end_line": gap_end, "lines": lines[gap_start:gap_end]})
+                merged.append({"heading_path": [], "heading": "", "level": 0, "start_line": gap_start, "end_line": gap_end, "lines": lines[gap_start:gap_end]})
         merged.append(sec)
         last_end = max(last_end, sec["end_line"])
     if last_end < total_lines:
-        merged.append({"heading_path": [], "heading": "root", "level": 0, "start_line": last_end, "end_line": total_lines, "lines": lines[last_end:total_lines]})
+        merged.append({"heading_path": [], "heading": "", "level": 0, "start_line": last_end, "end_line": total_lines, "lines": lines[last_end:total_lines]})
     return merged
 
 def merge_small_sections(sections: List[Dict[str, Any]], merge_threshold: int, max_tokens: int, line_token_cache: Dict[int, int], prevent_merge_across_level: bool = False) -> List[Dict[str, Any]]:
@@ -215,8 +224,8 @@ def merge_small_sections(sections: List[Dict[str, Any]], merge_threshold: int, m
         start_line = sec["start_line"]
         end_line = sec["end_line"]
         lines_acc = list(sec.get("lines", []))
-        headings_acc = [sec.get("heading", "root")]
-        heading_path = sec.get("heading_path", []) or []
+        headings_acc = [] if _is_rootish(sec.get("heading", "")) else [sec.get("heading", "")]
+        heading_path = [h for h in (sec.get("heading_path", []) or []) if not _is_rootish(h)]
         level = sec.get("level", 0)
         token_sum = 0
         for idx, l in enumerate(lines_acc):
@@ -231,7 +240,7 @@ def merge_small_sections(sections: List[Dict[str, Any]], merge_threshold: int, m
                 line_token_cache[abs_idx] = cnt
             token_sum += cnt
         if token_sum >= merge_threshold:
-            merged.append({"heading_path": heading_path, "headings": headings_acc, "level": level, "start_line": start_line, "end_line": end_line, "lines": lines_acc, "token_count": token_sum})
+            merged.append({"heading_path": heading_path, "headings": [h for h in headings_acc if not _is_rootish(h)], "level": level, "start_line": start_line, "end_line": end_line, "lines": lines_acc, "token_count": token_sum})
             i += 1
             continue
         j = i + 1
@@ -257,12 +266,14 @@ def merge_small_sections(sections: List[Dict[str, Any]], merge_threshold: int, m
                 break
             token_sum += next_tokens
             lines_acc = lines_acc + next_lines
-            headings_acc.append(next_sec.get("heading", "root"))
+            nh = next_sec.get("heading", "")
+            if not _is_rootish(nh):
+                headings_acc.append(nh)
             end_line = next_sec["end_line"]
             j += 1
             if token_sum >= merge_threshold:
                 break
-        merged.append({"heading_path": heading_path, "headings": headings_acc, "level": level, "start_line": start_line, "end_line": end_line, "lines": lines_acc, "token_count": token_sum})
+        merged.append({"heading_path": heading_path, "headings": [h for h in headings_acc if not _is_rootish(h)], "level": level, "start_line": start_line, "end_line": end_line, "lines": lines_acc, "token_count": token_sum})
         i = max(j, i + 1)
     return merged
 
@@ -320,7 +331,7 @@ def split_section_by_tokens_lines(section: Dict[str, Any], overlap_tokens: int, 
                 chunk_start_line = base_start_line + line_idx
                 chunk_end_line = chunk_start_line + 1
                 chunk_text = p["text"]
-                chunks.append({"text": canonicalize_text(chunk_text), "token_count": p["token_count"], "start_line": chunk_start_line, "end_line": chunk_end_line, "subchunk_index": idx})
+                chunks.append({"text": canonicalize_text(chunk_text), "token_count": p["token_count"], "start_line": chunk_start_line, "end_line": chunk_end_line, "subchunk_index": p["subchunk_index"]})
                 sub_idx += 1
             ptr = ptr + 1
             continue
@@ -351,7 +362,6 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
     raw_body = obj["Body"].read()
     raw_text = try_decode_bytes(raw_body)
     doc_id = manifest.get("file_hash") or sha256_hex(s3_key + str(obj.get("LastModified", "")))
-    commit_sha = manifest.get("commit_sha") or manifest.get("git_commit") or ""
     s3_path = f"s3://{S3_BUCKET}/{s3_key}"
     snapshot_path = ""
     if SAVE_SNAPSHOT:
@@ -373,28 +383,20 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             continue
         sec_text = "".join(sec_lines).strip()
         sec_token_count = sec.get("token_count", token_count_for(sec_text))
-        heading_path = sec.get("heading_path", [])
-        headings = sec.get("headings") or heading_path or [sec.get("heading", "root")]
-        if not isinstance(headings, list):
-            headings = [headings]
+        heading_path = [h for h in (sec.get("heading_path", []) or []) if not _is_rootish(h)]
+        headings_raw = sec.get("headings") or []
+        headings = [h for h in headings_raw if not _is_rootish(h)]
+        if not headings and heading_path:
+            headings = list(heading_path)
         sec_start_line = sec.get("start_line", 0)
         sec_end_line = sec.get("end_line", sec_start_line)
-        # Use 1-based lines in metadata like the previous behavior
-        start_line = sec_start_line + 1
-        end_line = sec_end_line
+        start_line_1b = sec_start_line + 1
+        end_line_1b = sec_end_line
         if sec_token_count <= MD_MAX_TOKENS_PER_CHUNK:
-            # small section -> one chunk
             chunk_id = f"{doc_id}_{chunk_index}"
             chunk_index += 1
             t0 = time.perf_counter()
-            checksum = sha256_hex(canonicalize_text(sec_text))
-            duration_ms = None
-            try:
-                duration_ms = int((time.perf_counter() - t0) * 1000)
-            except Exception:
-                duration_ms = None
-
-            # universal payload
+            duration_ms = int((time.perf_counter() - t0) * 1000)
             payload = {
                 "document_id": doc_id or "",
                 "chunk_id": chunk_id or "",
@@ -403,42 +405,22 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 "token_count": int(sec_token_count or 0),
                 "embedding": None,
                 "file_type": "text/markdown",
-                "source_path": s3_path,
-                "source_url": None,
-                "snapshot_path": snapshot_path or "",
-                "text_checksum": checksum or "",
+                "source_url": s3_path,
                 "page_number": None,
-                "slide_range_start": None,
-                "slide_range_end": None,
-                "row_range_start": None,
-                "row_range_end": None,
-                "token_start": None,
-                "token_end": None,
-                "audio_range_start": "",
-                "audio_range_end": "",
+                "slide_range": None,
+                "row_range": None,
+                "token_range": None,
+                "audio_range": None,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "parser_version": PARSER_VERSION or "",
-                "token_encoder": ENC_NAME or "",
-                "tags": [],
+                "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [],
                 "layout_tags": [],
                 "used_ocr": False,
-                "parse_chunk_duration_ms": duration_ms,
-                "window_index": None,
+                "parse_chunk_duration_ms": int(duration_ms),
                 "heading_path": heading_path or [],
                 "headings": headings or [],
-                "line_range_start": start_line,
-                "line_range_end": end_line,
-                "subchunk_index": None,
-                "commit_sha": commit_sha or "",
-                "model_compute": "",
-                "cpu_threads": None,
-                "beam_size": None,
-                "chunk_duration_ms": duration_ms,
-                "token_window_index": None,
-                "snapshot_id": "",
-                "source_bucket": S3_BUCKET,
-                "source_key": s3_key,
-                "source_format_hint": "markdown"
+                "line_range": [int(start_line_1b), int(end_line_1b)] if start_line_1b and end_line_1b is not None else None,
+                "chunk_duration_ms": None
             }
             ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
             out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
@@ -450,7 +432,6 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 log.info("Wrote chunk %s → %s", payload["chunk_id"], out_key)
                 saved += 1
         else:
-            # section too big -> split into subchunks
             subchunks = split_section_by_tokens_lines(sec, OVERLAP_TOKENS, MD_MAX_TOKENS_PER_CHUNK, line_token_cache)
             for sub in subchunks:
                 chunk_text = sub.get("text", "")
@@ -461,16 +442,9 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 chunk_id = f"{doc_id}_{chunk_index}"
                 chunk_index += 1
                 t0 = time.perf_counter()
-                checksum = sha256_hex(chunk_text or "")
-                duration_ms = None
-                try:
-                    duration_ms = int((time.perf_counter() - t0) * 1000)
-                except Exception:
-                    duration_ms = None
+                duration_ms = int((time.perf_counter() - t0) * 1000)
                 start_line_sub = sline + 1
                 end_line_sub = eline
-
-                # universal payload for subchunk
                 payload = {
                     "document_id": doc_id or "",
                     "chunk_id": chunk_id or "",
@@ -479,44 +453,23 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     "token_count": token_ct,
                     "embedding": None,
                     "file_type": "text/markdown",
-                    "source_path": s3_path,
-                    "source_url": None,
-                    "snapshot_path": snapshot_path or "",
-                    "text_checksum": checksum or "",
+                    "source_url": s3_path,
                     "page_number": None,
-                    "slide_range_start": None,
-                    "slide_range_end": None,
-                    "row_range_start": None,
-                    "row_range_end": None,
-                    "token_start": None,
-                    "token_end": None,
-                    "audio_range_start": "",
-                    "audio_range_end": "",
+                    "slide_range": None,
+                    "row_range": None,
+                    "token_range": None,
+                    "audio_range": None,
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                     "parser_version": PARSER_VERSION or "",
-                    "token_encoder": ENC_NAME or "",
-                    "tags": [],
+                    "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [],
                     "layout_tags": [],
                     "used_ocr": False,
-                    "parse_chunk_duration_ms": duration_ms,
-                    "window_index": None,
+                    "parse_chunk_duration_ms": int(duration_ms),
                     "heading_path": heading_path or [],
                     "headings": headings or [],
-                    "line_range_start": start_line_sub,
-                    "line_range_end": end_line_sub,
-                    "subchunk_index": int(sub_idx) if sub_idx is not None else None,
-                    "commit_sha": commit_sha or "",
-                    "model_compute": "",
-                    "cpu_threads": None,
-                    "beam_size": None,
-                    "chunk_duration_ms": duration_ms,
-                    "token_window_index": None,
-                    "snapshot_id": "",
-                    "source_bucket": S3_BUCKET,
-                    "source_key": s3_key,
-                    "source_format_hint": "markdown"
+                    "line_range": [int(start_line_sub), int(end_line_sub)] if start_line_sub and end_line_sub is not None else None,
+                    "chunk_duration_ms": None
                 }
-
                 ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
                 out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
                 if not FORCE_OVERWRITE and s3_object_exists(out_key):

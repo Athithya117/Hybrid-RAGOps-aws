@@ -6,12 +6,11 @@ import time
 import logging
 import hashlib
 import boto3
-import tiktoken
 import unicodedata
 import re
 from datetime import datetime
 from botocore.exceptions import ClientError
-from typing import List, Dict, Any, Iterator, Tuple
+from typing import List, Dict, Any
 
 try:
     import colorama
@@ -50,29 +49,24 @@ S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX").rstrip("/") + "/"
 CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
 assert CHUNK_FORMAT in ("json", "jsonl")
-
 TXT_MAX_TOKENS_PER_CHUNK = int(os.getenv("TXT_MAX_TOKENS_PER_CHUNK", os.getenv("MD_MAX_TOKENS_PER_CHUNK", "600")))
 DEFAULT_OVERLAP = max(1, int(TXT_MAX_TOKENS_PER_CHUNK * 0.1))
 OVERLAP_TOKENS = int(os.getenv("TXT_OVERLAP_TOKENS", str(DEFAULT_OVERLAP)))
 if OVERLAP_TOKENS >= TXT_MAX_TOKENS_PER_CHUNK:
     OVERLAP_TOKENS = max(1, TXT_MAX_TOKENS_PER_CHUNK - 1)
-
 ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
 PARSER_VERSION = os.getenv("PARSER_VERSION_TXT", "plain-txt-v1")
 FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
-SAVE_SNAPSHOT = os.getenv("SAVE_SNAPSHOT", "false").lower() == "true"
 S3_PUT_RETRIES = int(os.getenv("S3_PUT_RETRIES", "3"))
 S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF", "0.3"))
 
 s3 = boto3.client("s3")
 
 try:
+    import tiktoken
     enc = tiktoken.get_encoding(ENC_NAME)
 except Exception:
-    try:
-        enc = tiktoken.get_encoding("cl100k_base")
-    except Exception:
-        enc = None
+    enc = None
 
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
@@ -213,16 +207,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
     raw_body = obj["Body"].read()
     raw_text = try_decode_bytes(raw_body)
     doc_id = manifest.get("file_hash") or sha256_hex(s3_key + str(obj.get("LastModified", "")))
-    commit_sha = manifest.get("commit_sha") or manifest.get("git_commit") or ""
     s3_path = f"s3://{S3_BUCKET}/{s3_key}"
-    snapshot_path = ""
-    if SAVE_SNAPSHOT:
-        try:
-            key = f"{S3_CHUNKED_PREFIX}{doc_id}.snapshot.txt"
-            s3.put_object(Bucket=S3_BUCKET, Key=key, Body=raw_text.encode("utf-8"), ContentType="text/plain")
-            snapshot_path = f"s3://{S3_BUCKET}/{key}"
-        except Exception:
-            snapshot_path = ""
     canonical_full = canonicalize_text(raw_text)
     lines = [ln + ("\n" if not ln.endswith("\n") else "") for ln in canonical_full.split("\n")]
     full_token_count = token_count_for(canonical_full)
@@ -233,58 +218,35 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
     if full_token_count <= TXT_MAX_TOKENS_PER_CHUNK:
         chunk_id = f"{doc_id}_{chunk_index}"
         chunk_index += 1
-        checksum = sha256_hex(canonical_full)
         chunk_build_start = time.perf_counter()
         duration_ms = int((time.perf_counter() - chunk_build_start) * 1000)
         if duration_ms == 0:
             duration_ms = 1
-
         payload = {
             "document_id": doc_id or "",
             "chunk_id": chunk_id or "",
-            "chunk_type": "txt_section",
+            "chunk_type": "txt_subchunk",
             "text": canonical_full or "",
             "token_count": int(full_token_count or 0),
             "embedding": None,
             "file_type": "text/plain",
-            "source_path": s3_path,
             "source_url": s3_path,
-            "snapshot_path": snapshot_path or "",
-            "text_checksum": checksum,
             "page_number": None,
-            "slide_range_start": None,
-            "slide_range_end": None,
-            "row_range_start": None,
-            "row_range_end": None,
-            "token_start": None,
-            "token_end": None,
-            "audio_range_start": "",
-            "audio_range_end": "",
+            "slide_range": None,
+            "row_range": None,
+            "token_range": None,
+            "audio_range": None,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "parser_version": PARSER_VERSION,
-            "token_encoder": ENC_NAME,
-            "tags": [],
+            "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [],
             "layout_tags": [],
             "used_ocr": False,
             "parse_chunk_duration_ms": int(duration_ms),
-            "window_index": None,
             "heading_path": [],
             "headings": [],
-            "line_range_start": 1,
-            "line_range_end": len(lines),
-            "subchunk_index": None,
-            "commit_sha": commit_sha or "",
-            "model_compute": "",
-            "cpu_threads": None,
-            "beam_size": None,
-            "chunk_duration_ms": int(duration_ms),
-            "token_window_index": None,
-            "snapshot_id": "",
-            "source_bucket": S3_BUCKET,
-            "source_key": s3_key_derived,
-            "source_format_hint": "text/plain"
+            "line_range": [1, len(lines)],
+            "chunk_duration_ms": None
         }
-
         ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
         out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
         if not FORCE_OVERWRITE and s3_object_exists(out_key):
@@ -306,11 +268,9 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             chunk_index += 1
             start_line = sline + 1
             end_line = eline
-            checksum = sha256_hex(chunk_text)
             duration_ms = int((time.perf_counter() - chunk_build_start) * 1000)
             if duration_ms == 0:
                 duration_ms = 1
-
             payload = {
                 "document_id": doc_id or "",
                 "chunk_id": chunk_id or "",
@@ -319,44 +279,23 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 "token_count": int(token_ct or 0),
                 "embedding": None,
                 "file_type": "text/plain",
-                "source_path": s3_path,
                 "source_url": s3_path,
-                "snapshot_path": snapshot_path or "",
-                "text_checksum": checksum,
                 "page_number": None,
-                "slide_range_start": None,
-                "slide_range_end": None,
-                "row_range_start": None,
-                "row_range_end": None,
-                "token_start": None,
-                "token_end": None,
-                "audio_range_start": "",
-                "audio_range_end": "",
+                "slide_range": None,
+                "row_range": None,
+                "token_range": None,
+                "audio_range": None,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "parser_version": PARSER_VERSION,
-                "token_encoder": ENC_NAME,
-                "tags": [],
+                "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [],
                 "layout_tags": [],
                 "used_ocr": False,
                 "parse_chunk_duration_ms": int(duration_ms),
-                "window_index": None,
                 "heading_path": [],
                 "headings": [],
-                "line_range_start": int(start_line),
-                "line_range_end": int(end_line),
-                "subchunk_index": int(sub.get("subchunk_index", 0)),
-                "commit_sha": commit_sha or "",
-                "model_compute": "",
-                "cpu_threads": None,
-                "beam_size": None,
-                "chunk_duration_ms": int(duration_ms),
-                "token_window_index": None,
-                "snapshot_id": "",
-                "source_bucket": S3_BUCKET,
-                "source_key": s3_key_derived,
-                "source_format_hint": "text/plain"
+                "line_range": [int(start_line), int(end_line)],
+                "chunk_duration_ms": None
             }
-
             ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
             out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
             if not FORCE_OVERWRITE and s3_object_exists(out_key):

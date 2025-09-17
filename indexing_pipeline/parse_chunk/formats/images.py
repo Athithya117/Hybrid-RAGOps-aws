@@ -7,7 +7,7 @@ import hashlib
 import time
 from io import BytesIO
 from datetime import datetime
-from typing import Tuple, Optional, List, Dict
+from typing import Tuple, Optional, List, Dict, Any
 
 try:
     import boto3
@@ -29,6 +29,11 @@ try:
     from rapidocr_onnxruntime import RapidOCR
 except Exception:
     RapidOCR = None
+
+try:
+    import tiktoken
+except Exception:
+    tiktoken = None
 
 RESET = "\033[0m"
 COLORS = {
@@ -63,15 +68,14 @@ S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX").rstrip("/") + "/"
 CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
 assert CHUNK_FORMAT in ("json", "jsonl")
 
-# parser version (will be included in payload as parser_version)
 PARSER_VERSION = os.getenv("PARSER_VERSION_IMAGES", "images-parser-v1")
-
 OCR_ENGINE_DESIRED = os.getenv("IMAGE_OCR_ENGINE", "auto").lower()
 MIN_IMG_BYTES = int(os.getenv("IMAGE_MIN_IMG_SIZE_BYTES", "1024"))
 MIN_WIDTH = int(os.getenv("IMAGE_MIN_WIDTH", "1600"))
 TESSERACT_PSM = int(os.getenv("TESSERACT_PSM", "6"))
 OCR_CONFIDENCE_THRESHOLD = float(os.getenv("OCR_CONFIDENCE_THRESHOLD", "30.0"))
 S3_MAX_RETRIES = int(os.getenv("S3_MAX_RETRIES", "3"))
+TOKEN_ENCODER = os.getenv("TOKEN_ENCODER", "cl100k_base")
 
 boto_config = BotoConfig(retries={"max_attempts": S3_MAX_RETRIES, "mode": "standard"})
 s3 = boto3.client("s3", config=boto_config)
@@ -124,11 +128,18 @@ if OCR_BACKEND == "rapidocr":
 
 log.info(f"OCR backend: {OCR_BACKEND}")
 
+ENCODER = None
+if tiktoken is not None:
+    try:
+        ENCODER = tiktoken.get_encoding(TOKEN_ENCODER)
+    except Exception:
+        ENCODER = None
+
 def blob_hash(b: bytes) -> str:
     return hashlib.sha1(b).hexdigest()
 
 def sha256_hex(s: str) -> str:
-    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+    return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
 def pil_to_bgr(img: Image.Image) -> np.ndarray:
     arr = np.asarray(img.convert("RGB"))
@@ -161,22 +172,6 @@ def denoise_and_sharpen(img: np.ndarray) -> np.ndarray:
     kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
     sharp = cv2.filter2D(den, -1, kernel)
     return sharp
-
-def deskew(img_gray: np.ndarray) -> np.ndarray:
-    coords = np.column_stack(np.where(img_gray < 255))
-    if coords.size == 0:
-        return img_gray
-    rect = cv2.minAreaRect(coords)
-    angle = rect[-1]
-    if angle < -45:
-        angle = 90 + angle
-    if abs(angle) < 0.5:
-        return img_gray
-    (h, w) = img_gray.shape[:2]
-    center = (w // 2, h // 2)
-    M = cv2.getRotationMatrix2D(center, angle, 1.0)
-    rotated = cv2.warpAffine(img_gray, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-    return rotated
 
 def adaptive_threshold_gray(img_gray: np.ndarray) -> np.ndarray:
     return cv2.adaptiveThreshold(img_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 4)
@@ -216,8 +211,8 @@ def preprocess_variants(img_bgr: np.ndarray) -> List[np.ndarray]:
 
 def tesseract_extract_lines_and_conf(img_bgr: np.ndarray, psm: int = TESSERACT_PSM) -> tuple[List[str], float]:
     try:
-        from PIL import Image
-        pil = Image.fromarray(img_bgr[..., ::-1])
+        from PIL import Image as PILImage
+        pil = PILImage.fromarray(img_bgr[..., ::-1])
         config = f'--oem 1 --psm {psm}'
         data = pytesseract.image_to_data(pil, output_type=pytesseract.Output.DICT, config=config)
         texts = data.get("text", [])
@@ -235,12 +230,10 @@ def tesseract_extract_lines_and_conf(img_bgr: np.ndarray, psm: int = TESSERACT_P
                 conf = 0.0
             left = int(data.get("left", [0]*n)[i])
             top = int(data.get("top", [0]*n)[i])
-            w = int(data.get("width", [0]*n)[i])
-            h = int(data.get("height", [0]*n)[i])
             block = int(data.get("block_num", [0]*n)[i])
             par = int(data.get("par_num", [0]*n)[i])
             line = int(data.get("line_num", [0]*n)[i])
-            tokens.append({"text": txt, "conf": conf, "left": left, "top": top, "w": w, "h": h, "block": block, "par": par, "line": line})
+            tokens.append({"text": txt, "conf": conf, "left": left, "top": top, "block": block, "par": par, "line": line})
         groups: Dict[Tuple[int,int,int], List[dict]] = {}
         for t in tokens:
             key = (t["block"], t["par"], t["line"])
@@ -250,11 +243,10 @@ def tesseract_extract_lines_and_conf(img_bgr: np.ndarray, psm: int = TESSERACT_P
         for (block, par, line_idx), toks in groups.items():
             toks_sorted = sorted(toks, key=lambda x: x["left"])
             line_text = " ".join(t["text"] for t in toks_sorted)
-            avg_top = sum(t["top"] for t in toks_sorted) / len(toks_sorted)
             left_min = min(t["left"] for t in toks_sorted)
-            lines.append({"text": line_text, "block": block, "par": par, "top": avg_top, "left": left_min})
+            lines.append({"text": line_text, "block": block, "par": par, "left": left_min})
             all_confs.extend([t["conf"] for t in toks_sorted])
-        lines_sorted = sorted(lines, key=lambda x: (x["block"], x["par"], x["top"], x["left"]))
+        lines_sorted = sorted(lines, key=lambda x: (x["block"], x["par"], x["left"]))
         out_lines = [l["text"] for l in lines_sorted]
         avg_conf = (sum(all_confs) / len(all_confs)) if all_confs else 0.0
         return out_lines, float(avg_conf)
@@ -382,6 +374,16 @@ def _derive_source_key_from_path(s3_path: str) -> str:
         return s3_path[len(prefix):]
     return ""
 
+def _compute_token_count(text: str) -> int:
+    if not text:
+        return 0
+    if ENCODER is not None:
+        try:
+            return len(ENCODER.encode(text))
+        except Exception:
+            pass
+    return len(text.split())
+
 def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
     t_all = time.perf_counter()
     try:
@@ -413,67 +415,40 @@ def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
     else:
         log.warning(f"Cannot decode image {s3_key}")
     parse_ms = int((time.perf_counter() - start) * 1000)
-
-    # Universal schema payload (top-level fields)
-    text_checksum = sha256_hex(final_text or "")
-    source_path = f"s3://{S3_BUCKET}/{s3_key}"
-    source_key = _derive_source_key_from_path(source_path)
-    commit_sha = ""
-    if isinstance(manifest, dict):
-        commit_sha = manifest.get("commit_sha", "") or manifest.get("git_commit", "") or ""
-
+    token_ct = _compute_token_count(final_text)
+    source_url = f"s3://{S3_BUCKET}/{s3_key}"
+    manifest_tags = manifest.get("tags", []) if isinstance(manifest, dict) else []
     payload = {
-      "document_id": doc_id or "",
-      "chunk_id": chunk_id or "",
-      "chunk_type": "image",
-      "text": final_text or "",
-      "token_count": 0,
-      "embedding": None,
-      "file_type": content_type,
-      "source_path": source_path,
-      "source_url": None,
-      "snapshot_path": "",
-      "text_checksum": text_checksum,
-      "page_number": None,
-      "slide_range_start": None,
-      "slide_range_end": None,
-      "row_range_start": None,
-      "row_range_end": None,
-      "token_start": None,
-      "token_end": None,
-      "audio_range_start": "",
-      "audio_range_end": "",
-      "timestamp": datetime.utcnow().isoformat() + "Z",
-      "parser_version": PARSER_VERSION or "",
-      "token_encoder": "",
-      "tags": [],
-      "layout_tags": ["image"],
-      "used_ocr": bool(used_ocr),
-      "parse_chunk_duration_ms": int(parse_ms) if parse_ms is not None else None,
-      "window_index": None,
-      "heading_path": [],
-      "headings": [],
-      "line_range_start": None,
-      "line_range_end": None,
-      "subchunk_index": None,
-      "commit_sha": commit_sha or "",
-      "model_compute": "",
-      "cpu_threads": None,
-      "beam_size": None,
-      "chunk_duration_ms": int(parse_ms) if parse_ms is not None else None,
-      "token_window_index": None,
-      "snapshot_id": "",
-      "source_bucket": S3_BUCKET,
-      "source_key": source_key,
-      "source_format_hint": content_type or ""
+        "document_id": doc_id or "",
+        "chunk_id": chunk_id or "",
+        "chunk_type": "image",
+        "text": final_text or "",
+        "token_count": int(token_ct or 0),
+        "embedding": None,
+        "file_type": content_type,
+        "source_url": source_url,
+        "page_number": None,
+        "slide_range": None,
+        "row_range": None,
+        "token_range": None,
+        "audio_range": None,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "parser_version": PARSER_VERSION or "",
+        "tags": manifest_tags or [],
+        "layout_tags": ["image"],
+        "used_ocr": bool(used_ocr),
+        "parse_chunk_duration_ms": int(parse_ms) if parse_ms is not None else None,
+        "heading_path": [],
+        "headings": [],
+        "line_range": None,
+        "chunk_duration_ms": None,
     }
-
     ext_out = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
     out_key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext_out}"
     body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8") if ext_out == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"))
     try:
         s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body, ContentType="application/json")
-        log.info(f"Saved chunk for {s3_key} -> {out_key} (ocr_used={used_ocr}, parse_ms={parse_ms})")
+        log.info(f"Saved chunk for {s3_key} -> {out_key} (ocr_used={used_ocr}, parse_ms={parse_ms}, tokens={token_ct})")
         return {"saved_chunks": 1, "parse_ms": parse_ms}
     except ClientError as e:
         log.error(f"S3 PUT error for {out_key}: {e}")
@@ -498,11 +473,12 @@ def parse_file(s3_key: str, manifest: Optional[dict] = None) -> dict:
         manifest = {}
     start = time.perf_counter()
     result = parse_image_s3_object(s3_key, manifest)
-    manifest.setdefault("parsed_by", []).append({"module": "images", "timestamp": datetime.utcnow().isoformat() + "Z"})
-    manifest["parsed_chunks"] = manifest.get("parsed_chunks", 0) + result.get("saved_chunks", 0)
-    manifest["parse_completed_at"] = datetime.utcnow().isoformat() + "Z"
-    duration_ms = int((time.perf_counter() - start) * 1000)
-    manifest["parse_duration_ms"] = manifest.get("parse_duration_ms", 0) + duration_ms
+    if isinstance(manifest, dict):
+        manifest.setdefault("parsed_by", []).append({"module": "images", "timestamp": datetime.utcnow().isoformat() + "Z"})
+        manifest["parsed_chunks"] = manifest.get("parsed_chunks", 0) + result.get("saved_chunks", 0)
+        manifest["parse_completed_at"] = datetime.utcnow().isoformat() + "Z"
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        manifest["parse_duration_ms"] = manifest.get("parse_duration_ms", 0) + duration_ms
     return result
 
 def main():

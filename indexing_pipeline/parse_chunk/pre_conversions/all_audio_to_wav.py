@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# Don't create python venv this is meant to run in a container
 import os
 import sys
 import json
@@ -12,23 +12,28 @@ import boto3
 from botocore.exceptions import ClientError
 from botocore.config import Config as BotoConfig
 from boto3.s3.transfer import TransferConfig
+
 S3_BUCKET = os.getenv("S3_BUCKET")
-S3_PREFIX = os.getenv("S3_PREFIX", "data/raw/").lstrip("/").rstrip("/") + "/"
+S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/").lstrip("/").rstrip("/") + "/"
 FORCE = os.getenv("FORCE_CONVERT", "0").lower() in ("1", "true", "yes")
 OVERWRITE_ALL_AUDIO_FILES = os.getenv("OVERWRITE_ALL_AUDIO_FILES", "false").lower() in ("1", "true", "yes")
 AWS_REGION = os.getenv("AWS_REGION")
 FFMPEG_BIN = os.getenv("FFMPEG_PATH", "ffmpeg")
 FFPROBE_BIN = os.getenv("FFPROBE_PATH", "ffprobe")
 TMP_DIR = os.getenv("TMP_DIR", "/tmp")
+
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
 logger = logging.getLogger("all_audio_to_wav")
+
 if not S3_BUCKET:
     logger.error("S3_BUCKET env var is required")
     sys.exit(2)
+
 botocore_cfg = BotoConfig(connect_timeout=30, read_timeout=300, retries={"max_attempts": 3, "mode": "standard"})
 session = boto3.Session(region_name=AWS_REGION) if AWS_REGION else boto3.Session()
 s3 = session.client("s3", config=botocore_cfg)
 TRANSFER_CFG = TransferConfig(multipart_threshold=8 * 1024 * 1024, max_concurrency=4, use_threads=False)
+
 AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus", ".webm", ".amr", ".wma", ".aiff", ".aif"}
 
 def run_cmd(cmd: list) -> Tuple[int, str]:
@@ -84,11 +89,8 @@ def convert_to_wav(src: Path, dst: Path, sample_rate: int = 16000) -> None:
     if rc != 0:
         raise RuntimeError(f"ffmpeg failed converting {src} -> {dst}: {out}")
 
-def target_key_for_wav(original_key: str) -> str:
-    key = original_key
-    while key.lower().endswith(".wav"):
-        key = key[:-4]
-    return f"{key}.wav"
+def strip_extension(name: str) -> str:
+    return os.path.splitext(name)[0]
 
 def already_ok_wav(path: Path) -> bool:
     try:
@@ -108,8 +110,11 @@ def delete_s3_key(bucket: str, key: str) -> bool:
         logger.exception("Failed to delete s3://%s/%s: %s", bucket, key, e)
         return False
 
-def process_key(bucket: str, key: str, tmp_root: Path) -> bool:
-    target_key = target_key_for_wav(key)
+def convert_and_upload_single(bucket: str, key: str, tmp_root: Path) -> bool:
+    basename = os.path.basename(key)
+    name_no_ext = strip_extension(basename)
+    out_prefix = S3_RAW_PREFIX.rstrip('/') + "/audio/"
+    target_key = f"{out_prefix}{name_no_ext}.wav"
     logger.info("Processing s3://%s/%s (target=%s OVERWRITE_ALL_AUDIO_FILES=%s FORCE=%s)", bucket, key, target_key, OVERWRITE_ALL_AUDIO_FILES, FORCE)
     target_exists = False
     try:
@@ -127,8 +132,8 @@ def process_key(bucket: str, key: str, tmp_root: Path) -> bool:
                 logger.exception("Failed to delete original after skipping upload for %s", key)
                 return False
         return False
-    local_src = tmp_root / "src" / Path(key).name
-    local_dst = tmp_root / "dst" / Path(target_key).name
+    local_src = tmp_root / "src" / basename
+    local_dst = tmp_root / "dst" / f"{name_no_ext}.wav"
     try:
         s3_download(bucket, key, local_src)
     except Exception as e:
@@ -179,9 +184,9 @@ def main():
     if rc != 0:
         logger.warning("ffmpeg not found or failing: %s", out)
     try:
-        for key in list_audio_keys(S3_BUCKET, S3_PREFIX):
+        for key in list_audio_keys(S3_BUCKET, S3_RAW_PREFIX):
             try:
-                ok = process_key(S3_BUCKET, key, tmp_root)
+                ok = convert_and_upload_single(S3_BUCKET, key, tmp_root)
                 if ok:
                     processed += 1
                 else:
@@ -198,5 +203,6 @@ def main():
         except Exception:
             logger.exception("Failed to remove tmp dir %s", tmp_root)
     logger.info("Done. processed=%d skipped=%d failed=%d", processed, skipped, failed)
+
 if __name__ == "__main__":
     main()

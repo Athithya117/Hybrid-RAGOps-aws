@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 
 S3_BUCKET = env_or_fail("S3_BUCKET")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/")
-OVERWRITE_OTHER_TO_PDF = os.getenv("OVERWRITE_DOC_DOCX_TO_PDF", "true").lower() == "true"
+OVERWRITE_OTHER_TO_PPTX = os.getenv("OVERWRITE_PPT_WITH_PPTS", "false").lower() == "true"
 LIBREOFFICE_PORTS = os.getenv("LIBREOFFICE_PORTS", "7003")
 CONNECT_RETRIES = int(os.getenv("UNO_CONNECT_RETRIES", "6"))
 CONNECT_DELAY_SECONDS = float(os.getenv("UNO_CONNECT_DELAY_SECONDS", "1.0"))
@@ -29,8 +29,11 @@ SOFFICE_BIN = os.getenv("LIBREOFFICE_BIN", shutil.which("soffice") or "/usr/bin/
 
 s3 = boto3.client("s3")
 
-PDF_FILTER_OPTIONS = "EmbedStandardFonts=true;SelectPdfVersion=1;ReduceImageResolution=false;Quality=100"
-PDF_FILTER_NAME = "writer_pdf_Export"
+PPTX_FILTERS = [
+    "Impress MS PowerPoint 2007 XML",
+    "Impress Office Open XML",
+    "Impress MS PowerPoint 2007 XML VBA",
+]
 
 
 def _parse_ports(ports_str: str) -> List[str]:
@@ -92,10 +95,12 @@ def connect_uno(ports: Optional[List[str]] = None,
             last_exc = e
             log(f"Failed to start soffice on port {p}: {e}", level="WARNING")
             continue
+        connected = False
         for wait in range(1, int(retries * 2) + 1):
             try:
                 ctx = resolver.resolve(f"uno:socket,host=127.0.0.1,port={p};urp;StarOffice.ComponentContext")
                 log(f"Connected to UNO (spawned soffice) on port {p}")
+                connected = True
                 return ctx
             except Exception:
                 time.sleep(delay)
@@ -106,7 +111,7 @@ def connect_uno(ports: Optional[List[str]] = None,
     raise RuntimeError(f"Unable to connect to UNO server on ports {ports}") from last_exc
 
 
-def store_to_pdf(component_ctx, input_path: str, output_path: str, options: str = PDF_FILTER_OPTIONS):
+def store_to_pptx(component_ctx, input_path: str, output_path: str, filter_name: str):
     smgr = component_ctx.ServiceManager
     desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", component_ctx)
     in_url = uno.systemPathToFileUrl(str(Path(input_path).resolve()))
@@ -114,7 +119,7 @@ def store_to_pdf(component_ctx, input_path: str, output_path: str, options: str 
     load_props = (PropertyValue("Hidden", 0, True, 0),)
     doc = desktop.loadComponentFromURL(in_url, "_blank", 0, load_props)
     try:
-        store_props = (_make_prop("FilterName", PDF_FILTER_NAME), _make_prop("FilterOptions", options))
+        store_props = (_make_prop("FilterName", filter_name),)
         doc.storeToURL(out_url, store_props)
     finally:
         try:
@@ -130,34 +135,37 @@ def download_from_s3(key: str, tmp_dir: str) -> str:
 
 
 def upload_to_s3(local_path: str, key: str):
-    content_type = "application/pdf"
+    content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     with open(local_path, "rb") as f:
         body = f.read()
     retry(lambda: s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body, ContentType=content_type))
-    log(f"Uploaded PDF to s3://{S3_BUCKET}/{key}")
+    log(f"Uploaded PPTX to s3://{S3_BUCKET}/{key}")
 
 
 def libreoffice_convert_uno(component_ctx, input_path: str, output_dir: str) -> str:
-    base_name = Path(input_path).stem
-    out_pdf = os.path.join(output_dir, f"{base_name}.pdf")
+    orig_name = os.path.basename(input_path)
+    desired_out = os.path.join(output_dir, f"{orig_name}.pptx")
     last_exc = None
-    for attempt in range(1, CONVERT_RETRIES + 1):
-        try:
-            store_to_pdf(component_ctx, input_path, out_pdf)
-            if os.path.exists(out_pdf) and os.path.getsize(out_pdf) > 512:
-                return out_pdf
-            last_exc = RuntimeError("Converted file missing or too small")
-            log(f"UNO produced file but it was missing or too small: {out_pdf}", level="WARNING")
-        except Exception as e:
-            last_exc = e
-            log(f"UNO conversion failed (attempt {attempt}) for {input_path}: {e}", level="WARNING")
-        time.sleep(0.5 * attempt)
+    for filter_name in PPTX_FILTERS:
+        for attempt in range(1, CONVERT_RETRIES + 1):
+            try:
+                log(f"UNO: attempt store with filter '{filter_name}' (attempt {attempt})", level="DEBUG")
+                store_to_pptx(component_ctx, input_path, desired_out, filter_name)
+                if os.path.exists(desired_out) and os.path.getsize(desired_out) > 512:
+                    return desired_out
+                last_exc = RuntimeError("Converted file missing or too small")
+                log(f"UNO produced file but it was missing or too small: {desired_out}", level="WARNING")
+            except Exception as e:
+                last_exc = e
+                log(f"UNO conversion failed with filter '{filter_name}' (attempt {attempt}): {e}", level="WARNING")
+            time.sleep(0.5 * attempt)
     raise RuntimeError("UNO conversion failed") from last_exc
 
 
 def fallback_subprocess_convert(input_path: str, output_dir: str) -> str:
-    base_name = os.path.splitext(os.path.basename(input_path))[0]
-    out_path = os.path.join(output_dir, f"{base_name}.pdf")
+    base = os.path.splitext(os.path.basename(input_path))[0]
+    soffice_out = os.path.join(output_dir, f"{base}.pptx")
+    desired_out = os.path.join(output_dir, f"{os.path.basename(input_path)}.pptx")
     if not SOFFICE_BIN or not os.path.exists(SOFFICE_BIN):
         raise FileNotFoundError(f"soffice binary not found at '{SOFFICE_BIN}'")
     cmd = [
@@ -169,19 +177,24 @@ def fallback_subprocess_convert(input_path: str, output_dir: str) -> str:
         "--nofirststartwizard",
         "--nologo",
         "--convert-to",
-        "pdf:writer_pdf_Export",
+        "pptx",
         "--outdir",
         output_dir,
         input_path,
     ]
     log(f"Running subprocess fallback: {' '.join(cmd)}", level="DEBUG")
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if os.path.exists(out_path):
-        return out_path
+    if os.path.exists(desired_out):
+        return desired_out
+    if os.path.exists(soffice_out):
+        os.replace(soffice_out, desired_out)
+        return desired_out
     for fname in os.listdir(output_dir):
-        if fname.lower().endswith(".pdf") and fname.startswith(base_name):
-            return os.path.join(output_dir, fname)
-    raise FileNotFoundError("PDF not created by subprocess fallback")
+        if fname.lower().endswith(".pptx") and fname.startswith(base):
+            found = os.path.join(output_dir, fname)
+            os.replace(found, desired_out)
+            return desired_out
+    raise FileNotFoundError("PPTX not created by subprocess fallback")
 
 
 def convert_and_upload(key: str):
@@ -189,8 +202,8 @@ def convert_and_upload(key: str):
         try:
             local_input = download_from_s3(key, tmp)
             ext = key.split(".")[-1].lower()
-            if ext not in {"doc", "docx"}:
-                log(f"Skipping non-doc {key}")
+            if ext != "ppt":
+                log(f"Skipping non-ppt {key}")
                 return
             component_ctx = None
             try:
@@ -198,37 +211,37 @@ def convert_and_upload(key: str):
             except Exception as e:
                 log(f"Unable to connect to UNO server: {e}", level="WARNING")
                 component_ctx = None
-            pdf_path = None
+            pptx_path = None
             if component_ctx is not None:
                 try:
-                    pdf_path = libreoffice_convert_uno(component_ctx, local_input, tmp)
+                    pptx_path = libreoffice_convert_uno(component_ctx, local_input, tmp)
                 except Exception as e:
-                    log(f"UNO conversion failed for {key}: {e}", level="WARNING")
-                    pdf_path = None
-            if pdf_path is None:
+                    log(f"UNO conversion attempts failed for {key}: {e}", level="WARNING")
+                    pptx_path = None
+            if pptx_path is None:
                 try:
-                    pdf_path = fallback_subprocess_convert(local_input, tmp)
+                    pptx_path = fallback_subprocess_convert(local_input, tmp)
                 except Exception as sb_e:
                     raise RuntimeError(f"Both UNO and subprocess conversion failed: {sb_e}") from sb_e
-            out_prefix = S3_RAW_PREFIX.rstrip('/') + "/pdfs/"
-            out_key = f"{out_prefix}{os.path.basename(key)}.pdf"
-            upload_to_s3(pdf_path, out_key)
-            if OVERWRITE_OTHER_TO_PDF:
-                log(f"OVERWRITE_OTHER_TO_PDF=true → deleting original {key}")
+            out_prefix = S3_RAW_PREFIX.rstrip('/') + "/ppts/"
+            out_key = f"{out_prefix}{os.path.basename(key)}.pptx"
+            upload_to_s3(pptx_path, out_key)
+            if OVERWRITE_OTHER_TO_PPTX:
+                log(f"OVERWRITE_OTHER_TO_PPTX=true → deleting original {key}")
                 retry(lambda: s3.delete_object(Bucket=S3_BUCKET, Key=key))
         except Exception as e:
             log(f"Conversion failed for {key}: {e}", level="ERROR")
 
 
 def main():
-    log("Running doc_to_pdf_uno.py conversion pass")
-    log(f"OVERWRITE_OTHER_TO_PDF={OVERWRITE_OTHER_TO_PDF}")
+    log("Running ppt_to_pptx_uno.py conversion pass")
+    log(f"OVERWRITE_OTHER_TO_PPTX={OVERWRITE_OTHER_TO_PPTX}")
     keys = list(list_raw_files())
     log(f"Scanning {len(keys)} files in s3://{S3_BUCKET}/{S3_RAW_PREFIX}")
     for key in keys:
         ext = key.split(".")[-1].lower()
-        if ext in {"doc", "docx"}:
-            log(f"Converting '{key}' to PDF with UNO server")
+        if ext == "ppt":
+            log(f"Converting '{key}' to PPTX with UNO server")
             convert_and_upload(key)
 
 
