@@ -137,6 +137,8 @@ python3 /opt/download_models.py || {
   LOG "Model download failed (non-fatal). Continuing - check logs for details."
 }
 
+docker pull athithya324/indexing-embedder-gpu@sha256:4b238ceff0e42dda21373585c4ea174b4e4541f04ace61363ef1be5b52a7ddac
+
 LOG "Setting permissions on $WORKSPACE_MODELS"
 chown -R 1000:1000 "$WORKSPACE_MODELS" || true
 chmod -R 755 "$WORKSPACE_MODELS" || true

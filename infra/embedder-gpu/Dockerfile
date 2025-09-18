@@ -43,7 +43,9 @@ ENV PYTHONUNBUFFERED=1 \
     ORT_INTER_THREADS=1 \
     CUDA_DEVICE=0 \
     FORCE_CPU=0 \
-    LOG_LEVEL=INFO
+    LOG_LEVEL=INFO \
+    PLACEMENT_RESOURCE=embedder_gpu_node \
+    PLACEMENT_RESOURCE_UNITS=1
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends python3 python3-pip ca-certificates libsndfile1 libgomp1 && \

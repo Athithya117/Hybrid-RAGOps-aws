@@ -398,12 +398,14 @@ export PPTX_OCR_ENGINE=rapidocr                  # 'tesseract' (faster), 'rapido
 # infra 
 
 ```sh
+export PULUMI_CONFIG_PASSPHRASE=myPulumipassword    # For headless automation
+export QDRANT_PRIVATE_IP="10.0.1.10"          # Deterministic private IP for Qdrant ec2 that only ray clusters can access
+export QDRANT_INSTANCE_TYPE="c8g.medium"      # EC2 instance type for Qdrant, c8g preferred. 
+export QDRANT_API_KEY="myStrongsecret134"     # Create a strong password for accessing qdrant db from the ray clusters
+export QDRANT_PORT="6333"                     # Default port for qdrant is 6333. Modify for security or convenience 
+export QDRANT_DATA_DIR="/mnt/qdrant"          # Host path where Qdrant data is mounted. Inside qdrant container mounted as /qdrant/storage
+export QDRANT_COLLECTION_NAME="my_documents"  # Any name for qdrant collection
 
-export QDRANT_PRIVATE_IP="10.0.1.10"          # Deterministic private IP for Qdrant that only ray clusters can access
-export QDRANT_INSTANCE_TYPE="t3.medium"       # EC2 instance type for Qdrant
-
-
-export PULUMI_CONFIG_PASSPHRASE=mypassword    # For headless automation
 
 export AWS_ACCESS_KEY_ID="AKIA.."
 export AWS_SECRET_ACCESS_KEY=""
@@ -414,8 +416,6 @@ export STACK="prod"                          # Any name for pulumi stack
 export MY_SSH_CIDR="203.0.113.42/32"                       # operator SSH CIDR (single IP recommended)
 export PUBLIC_SUBNET_CIDRS="10.0.1.0/24,10.0.2.0/24"       # comma-separated public subnets
 export VPC_CIDR="10.0.0.0/16"                             # VPC range
-
-
 
 # Retrieval fusion weights (tune by devset; relative importance)
 export W_VEC=0.6                                      # range: 0.0-1.0; raise if domain embeddings are highly accurate

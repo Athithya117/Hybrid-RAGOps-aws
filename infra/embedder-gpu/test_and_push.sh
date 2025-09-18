@@ -10,7 +10,7 @@ fi
 
 DOCKER_USERNAME="${DOCKER_USERNAME:-athithya324}"
 DOCKER_PASSWORD="${DOCKER_PASSWORD:-}"
-IMAGE_NAME="${IMAGE_NAME:-$DOCKER_USERNAME/indexing-embedder-gpu:v1}"
+IMAGE_NAME="${IMAGE_NAME:-$DOCKER_USERNAME/indexing-embedder-gpu:linux-x86_64}"
 MODEL_HOST_PATH="${MODEL_HOST_PATH:-/workspace/models}"
 CONTAINER_NAME_BASE="${CONTAINER_NAME:-embedder-gpu-test-run}"
 CONTAINER_NAME="${CONTAINER_NAME_BASE}-${MODE_LOWER}"
@@ -34,6 +34,8 @@ docker build --build-arg CUDA_TAG="${CUDA_TAG}" -t "${IMAGE_NAME}" .
 docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
 
 RUN_FLAGS=(--name "${CONTAINER_NAME}" -d -p "${APP_PORT}:${APP_PORT}" --shm-size=1.8g -v "${MODEL_HOST_PATH}:/workspace/models:ro" -e "PORT=${APP_PORT}")
+
+RUN_FLAGS+=(-e "PLACEMENT_RESOURCE=embedder_gpu_node" -e "PLACEMENT_RESOURCE_UNITS=1")
 
 if [ "$MODE_LOWER" = "gpu" ]; then
   RUN_FLAGS+=(--gpus all -e "FORCE_CPU=0" -e "REPLICA_GPUS=1.0")

@@ -30,7 +30,6 @@ while true; do
   fi
 done
 
-# push
 if [ -z "${DOCKER_PASSWORD:-}" ]; then
   echo "ERROR: DOCKER_PASSWORD not set. Set it to push."
   exit 1

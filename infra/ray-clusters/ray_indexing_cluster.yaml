@@ -1,0 +1,186 @@
+# ray_indexing_cluster.yaml
+# Ray autoscaler config for the Batch Indexing Ray cluster (indexing-only).
+# - CPU node type: indexing_pipeline_cpu (parsing, chunking, batching, upserts)
+# - GPU node type: embedder_gpu_node (ONNX / GPU embedder Serve replicas)
+#
+# IMPORTANT: Replace all <...> placeholders with real values.
+
+cluster_name: rag-indexing-cluster
+minimal: false
+
+provider:
+  type: aws
+  region: <AWS_REGION>                # e.g., us-east-1
+  availability_zone: <AZ>            # optional, e.g., us-east-1a
+  cache_stopped_nodes: false
+
+auth:
+  ssh_user: ec2-user
+  ssh_private_key: /path/to/your.pem  # path on the machine running ray up
+
+# ========== HEAD NODE ==========
+head_node:
+  InstanceType: m5.large
+  ImageId: <CPU_AMI_ID>               # CPU AMI (preloaded with runtime / models path if desired)
+  KeyName: <KEY_PAIR_NAME>
+  SubnetId: <SUBNET_ID>
+  SecurityGroupIds:
+    - <RAY_WORKERS_SG_ID>             # SG used by Ray nodes (must be allowed in Qdrant SG)
+  tags:
+    Name: ray-indexing-head
+    RayCluster: rag-indexing
+  BlockDeviceMappings:
+    - DeviceName: /dev/xvda
+      Ebs:
+        VolumeSize: 40
+        VolumeType: gp3
+
+# Commands run on head at startup
+setup_commands:
+  - sudo yum -y update || true
+  - mkdir -p /workspace/models || true
+
+head_start_ray_commands:
+  - ray stop || true
+  - ulimit -n 65536
+  - ray start --head --port=6379 --block --include-dashboard false
+
+# ========== COMMON ENV FILE (created on head and workers) ==========
+# The indexing tasks read /etc/rag_indexing_env to find Qdrant and model path info.
+# Replace <QDRANT_PRIVATE_IP> and <QDRANT_API_KEY> with your values (or set via secrets management).
+head_setup_commands:
+  - |
+    cat >/etc/rag_indexing_env <<'EOF'
+    QDRANT_HOST=<QDRANT_PRIVATE_IP>      # e.g., 10.0.2.15
+    QDRANT_PORT=6333
+    QDRANT_API_KEY=<QDRANT_API_KEY>
+    MODELS_PATH=/workspace/models
+    CHUNK_ID_NAMESPACE=indexing-batch
+    EOF
+  - chmod 600 /etc/rag_indexing_env || true
+
+# ========== AVAILABLE NODE TYPES ==========
+available_node_types:
+
+  indexing_pipeline_cpu:
+    # CPU workers used for parsing, chunking, orchestrating embedding calls, and upserting to Qdrant.
+    node_config:
+      InstanceType: m5.2xlarge
+      ImageId: <CPU_AMI_ID>             # same cpu-ami or another cpu-ami
+      KeyName: <KEY_PAIR_NAME>
+      SubnetId: <SUBNET_ID>
+      SecurityGroupIds:
+        - <RAY_WORKERS_SG_ID>
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 120
+            VolumeType: gp3
+      tags:
+        Name: ray-indexing-cpu
+        RayCluster: rag-indexing
+    min_workers: 0
+    max_workers: 12
+    # Run-time setup for CPU workers
+    node_setup_commands:
+      - sudo yum -y install docker || true
+      - sudo systemctl enable docker || true
+      - sudo systemctl start docker || true
+      - mkdir -p /workspace/models || true
+      - |
+        # Create env file for tasks to read Qdrant & model path info
+        cat >/etc/rag_indexing_env <<'EOF'
+        QDRANT_HOST=<QDRANT_PRIVATE_IP>
+        QDRANT_PORT=6333
+        QDRANT_API_KEY=<QDRANT_API_KEY>
+        MODELS_PATH=/workspace/models
+        CHUNK_ID_NAMESPACE=indexing-batch
+        EOF
+      - chmod 600 /etc/rag_indexing_env || true
+    # start ray on the worker and advertise a soft "indexing_pipeline_cpu" label (fractional)
+    # Use a small fractional unit so this label behaves like an affinity tag (not a strict capacity limit).
+    start_ray_commands:
+      - ray stop || true
+      - ulimit -n 65536
+      - ray start --address=$RAY_HEAD_IP:6379 --resources='{"indexing_pipeline_cpu": 0.001}'
+    # How many parallel tasks this node type can run is controlled by Ray's scheduling and your task resource requests.
+    # Use resources={"indexing_pipeline_cpu": 0.001} in @ray.remote or to schedule tasks onto this node-type.
+
+  embedder_gpu_node:
+    # GPU workers used for embedder (ONNXRuntime CUDA) and Ray Serve replicas.
+    node_config:
+      InstanceType: g4dn.xlarge        # choose GPU instance family to match model memory needs
+      ImageId: <GPU_AMI_ID>            # gpu-ami (CUDA drivers, NVIDIA runtime, models preloaded if desired)
+      KeyName: <KEY_PAIR_NAME>
+      SubnetId: <SUBNET_ID>
+      SecurityGroupIds:
+        - <RAY_WORKERS_SG_ID>
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 200
+            VolumeType: gp3
+      tags:
+        Name: ray-embedder-gpu
+        RayCluster: rag-indexing
+    min_workers: 0
+    max_workers: 8
+    node_setup_commands:
+      - sudo yum -y install docker || true
+      - sudo systemctl enable docker || true
+      - sudo systemctl start docker || true
+      - mkdir -p /workspace/models || true
+      - chmod 755 /workspace/models || true
+      - |
+        cat >/etc/rag_indexing_env <<'EOF'
+        QDRANT_HOST=<QDRANT_PRIVATE_IP>
+        QDRANT_PORT=6333
+        QDRANT_API_KEY=<QDRANT_API_KEY>
+        MODELS_PATH=/workspace/models
+        CHUNK_ID_NAMESPACE=indexing-batch
+        EOF
+      - chmod 600 /etc/rag_indexing_env || true
+    # advertise a strict placement resource so each GPU node equals one unit -> good for deterministic 1:1 placement
+    start_ray_commands:
+      - ray stop || true
+      - ulimit -n 65536
+      - ray start --address=$RAY_HEAD_IP:6379 --resources='{"embedder_gpu_node": 1}' --num-gpus=1
+
+# ========== AUTOSCALING ==========
+max_workers: 20
+initial_workers: 0
+idle_timeout_minutes: 10
+
+# ========== FILES / MOUNTS ==========
+# If you prefer to mount a shared EBS model volume instead of baking models into AMIs,
+# add an attach/mount step to node_setup_commands above and mount /workspace/models.
+
+file_mounts: {}
+cluster_synced_files: {}
+
+# ========== USAGE NOTES ==========
+# - To schedule CPU indexing tasks to CPU nodes, use:
+#     @ray.remote(resources={"indexing_pipeline_cpu": 0.001})
+#   OR simply default (no resource) if you prefer Ray to place anywhere.
+#
+# - To schedule GPU embedder tasks or to deploy the embedder Serve replicas deterministically,
+#   request the placement resource on the actor/deployment:
+#     ray_actor_options = {"num_gpus": 1, "resources": {"embedder_gpu_node": 1}}
+#
+# - Example patterns:
+#   - Indexing driver runs on head (or CPU worker). It:
+#       1) reads docs from S3
+#       2) splits to deterministic chunks (IDs)
+#       3) calls embedder via Serve handle: handle.embed.remote(batch) or embed_remote = ray.remote(... resources={"embedder_gpu_node":1, "GPU":1})
+#       4) receives embeddings and upserts to Qdrant using the QDRANT_ envs from /etc/rag_indexing_env
+#       5) after success, invoke snapshot automation to create an EBS snapshot of Qdrant EC2 volume
+#
+# - Security:
+#   - Ensure your Qdrant EC2 security group allows inbound port 6333 only from the Ray workers' SGs.
+#   - Do not expose Qdrant publicly.
+#
+# - Deterministic placement:
+#   - embedder_gpu_node uses unit=1 -> one replica requesting embedder_gpu_node:1 lands on one GPU node.
+#   - indexing_pipeline_cpu uses fractional 0.001 -> acts as a soft label so many CPU tasks can colocate.
+#
+# ========== END ==========

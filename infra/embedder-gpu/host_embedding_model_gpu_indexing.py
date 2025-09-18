@@ -44,6 +44,9 @@ SKIP_SERVE = os.environ.get("SKIP_SERVE", "") in ("1", "true", "True")
 FORCE_CPU = os.environ.get("FORCE_CPU", "") in ("1", "true", "True")
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 
+PLACEMENT_RESOURCE = os.environ.get("PLACEMENT_RESOURCE", "embedder_gpu_node")
+PLACEMENT_RESOURCE_UNITS = float(os.environ.get("PLACEMENT_RESOURCE_UNITS", "1"))
+
 logging.basicConfig(stream=sys.stdout, level=LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("embedder-prod")
 
@@ -336,7 +339,7 @@ class AsyncBatcher:
                 requested = req.get("max_length", None)
                 effective_for_req = clamp_max_length(requested, self.server_max, self.abs_max)
                 all_texts.append(str(req["text"]))
-                per_text_maxes.append(effective_for_req)
+                per_text_maxes.extend([effective_for_req])
                 slices.append((start, 1))
             else:
                 requested = None
@@ -531,15 +534,39 @@ def serve_deploy(ray_address: Optional[str] = None):
     except Exception:
         available = {}
     logger.info("Ray available resources: %s", available)
+
+    # Build ray_actor_options deterministically, requesting placement resource label if present.
     ray_actor_options: Dict[str, Any] = {"num_cpus": REPLICA_CPUS}
     try:
         if REPLICA_GPUS > 0:
             ray_actor_options["num_gpus"] = REPLICA_GPUS
     except Exception:
         pass
+
+    # Merge custom resource if present and available
+    resources_dict: Dict[str, float] = {}
     if CUSTOM_RESOURCE:
         if CUSTOM_RESOURCE in available and available.get(CUSTOM_RESOURCE, 0) >= CUSTOM_RESOURCE_UNITS:
-            ray_actor_options["resources"] = {CUSTOM_RESOURCE: CUSTOM_RESOURCE_UNITS}
+            resources_dict[CUSTOM_RESOURCE] = CUSTOM_RESOURCE_UNITS
+        else:
+            logger.warning("Requested CUSTOM_RESOURCE=%s not available (available=%s). Skipping it.", CUSTOM_RESOURCE, available.get(CUSTOM_RESOURCE))
+
+    # Add placement resource only if cluster advertises it, otherwise log & skip.
+    if PLACEMENT_RESOURCE in available and available.get(PLACEMENT_RESOURCE, 0) >= PLACEMENT_RESOURCE_UNITS:
+        resources_dict[PLACEMENT_RESOURCE] = PLACEMENT_RESOURCE_UNITS
+        logger.info("Requesting placement resource %s=%s for Serve replicas", PLACEMENT_RESOURCE, PLACEMENT_RESOURCE_UNITS)
+    else:
+        logger.warning(
+            "PLACEMENT_RESOURCE=%s not found or insufficient in cluster resources (available=%s). "
+            "Not requesting it; serve replicas may be scheduled on any node with GPUs.",
+            PLACEMENT_RESOURCE, available
+        )
+
+    if resources_dict:
+        ray_actor_options["resources"] = resources_dict
+
+    logger.info("Final ray_actor_options used for Serve replicas: %s", ray_actor_options)
+
     serve.start(detached=True, http_options={"host": HOST, "port": PORT})
     app = Embedder.options(num_replicas=max(1, NUM_REPLICAS), ray_actor_options=ray_actor_options).bind()
     serve.run(app, route_prefix="/")

@@ -15,7 +15,6 @@ PULUMI_VERSION="3.196.0"
 log(){ printf '%s %s\n' "$(date --iso-8601=seconds)" "$*"; }
 require_sudo(){ if ! sudo -n true 2>/dev/null; then log "sudo access required: you'll be prompted for password..."; fi }
 
-# --- Small helpers ---
 append_if_missing(){ local line="$1" target="$2"; if ! grep -Fxq "$line" "$target" 2>/dev/null; then printf '%s\n' "$line" >> "$target"; fi }
 
 setup_dirs(){
@@ -134,10 +133,10 @@ if ! command -v libreoffice >/dev/null 2>&1; then
   sudo apt-get install -yq libreoffice-core libreoffice-writer libreoffice-calc --no-install-recommends || true
 fi
 
-docker pull athithya324/embedder-cpu-inference:linux-amd64-arm64 >/dev/null 2>&1 || true
+docker pull athithya324/embedder-cpu-inference:linux-amd64-arm64
 
-pip install pulumi==3.196.0 pulumi-aws==7.7.0
-pulumi plugin install resource aws v7.7.0
+pip install pulumi==3.196.0 pulumi-aws==7.7.0 
+pulumi plugin install resource aws v7.7.0 
 
 clear
 
