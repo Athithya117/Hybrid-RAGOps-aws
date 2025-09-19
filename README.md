@@ -1,35 +1,6 @@
-## **RAG8s** is a **production-ready** e2e RAG platform with hybrid retrieval (vector + keyword + graph), GeAR multihop reasoning engineered for high throughput, low-latency retrieval, and adaptive scaling. It is organized into **three main components**—`infra/`, `indexing_pipeline/`, and `inference_pipeline/`—each responsible for a distinct set of concerns (platform, data ingestion/indexing, and online query serving + evaluation).
 
----
 
-## 1) infra/  (Infrastructure & Platform)
-
-**Provides the cloud-native foundation that runs and scales the system. **It's currently aws native** but is extensible to other cloud like Azure and GCP**
-
-**Core responsibilities**
-* Fully self hosted infra: **EKS (Kubernetes)**, **Karpenter** for CPU/GPU/spot node pools, autoscaling.  
-* Distributed serving & batch: **KubeRay** (RayService, RayJob).  
-* IaC & provisioning: **Pulumi**, **AWS Image Builder** (model paths, AMI IDs).  
-* GitOps & packaging: **ArgoCD**, **Helm** charts (per-env `values.kind.yaml` / `values.eks.yaml`).  
-* Networking & access: **Traefik** ingress, **Cloudflare** DNS, optional **OIDC/Keycloak** for federated auth, **gRPC + rayserve** endpoints.
-
-**Storage & utilities**
-* **S3** for raw data, chunk caches, backups; presigned URLs for secure access.  
-* **jsonlines / .jsonl** for stage logs/audits and replay.
-
-**Observability & evaluation**
-* **Prometheus** + **Alertmanager** → TSDB, alerting.  
-* **Grafana** → dashboards and SLO/SLA visualization.  
-* **OpenTelemetry Collector** (DaemonSet) → unified pipeline for metrics, logs, traces.  
-* **OpenLLMetry** → online + offline evaluation, tracing, guardrails, experiment management (self-hosted in cluster).  
-
-**CI/CD**
-* **Makefile** → lint, tests, Docker builds, Helm validation.  
-* **ArgoCD** → declarative sync of manifests into cluster.
-
----
-
-## 2) indexing_pipeline/  (Indexing & Ingestion)
+## indexing_pipeline/  (Indexing & Ingestion)
 
 **Ingests raw sources, extracts structured content, produces chunked artifacts and embeddings, and populates graph/vector stores**
 
@@ -43,9 +14,8 @@
 
 > “Page-level chunking is the overall winner: Our experiments clearly show that page-level chunking achieved the highest average accuracy (0.648) across all datasets and the lowest standard deviation (0.107), showing more consistent performance across different content types. Page-level chunking demonstrated superior overall performance when compared to both token-based chunking and section-level chunking.” 
 
-#### RAG8s implements page-wise chunking and similar chunking for scalability without losing accuracy
 
-```go
+```c
 {
   "document_id": "doc-12345", // All: global document identifier (filename or UUID)
   "chunk_id": "chunk-0001", // All: unique chunk id (doc-scoped index or UUID)
@@ -163,151 +133,14 @@ Serves queries end-to-end: retrieval (vector + keyword + graph), multi-hop reaso
 * Ensures graceful degradation and deterministic reproducibility when generation is unavailable.
 
 
-
 ---
 ---
-<details>
-<summary> RAG8s tree structure/codebase layout for quick overview </summary>
-
-```sh
-RAG8s/
-├── data/                                 # Local directory that syncs with s3://<bucket_name>/data
-│   ├── raw/                              # Raw document files 
-│   └── chunked/                          # Chunks in json/jsonl format
-│
-├── indexing_pipeline/
-│   ├── index/
-│   │   ├── __main__.py                   # CLI entrypoint for indexing jobs  # observe: logs, metrics, traces
-│   │   ├── arrangodb_indexer.py          # Indexer: writes chunks/entities into ArangoDB with FAISS integration  # observe: logs, metrics
-│   │   ├── config.py                     # Indexing configuration (paths, batch sizes, env)
-│   │   └── utils.py                      # Utility helpers used by indexers (parsers, serializers)
-│   ├── parse_chunk/
-│   │   ├── __init__.py                   # parse_chunk package initializer
-│   │   ├── doc_docx_to_pdf.py            # Converts .doc/.docx to PDF (LibreOffice headless flow)
-│   │   ├── formats/
-│   │   │   ├── __init__.py               # Format module initializer
-│   │   │   ├── csv.py                    # CSV reader & chunker logic
-│   │   │   ├── html.py                   # HTML -> Markdown chunker and DOM processing
-│   │   │   ├── json.py                   # JSON/JSONL flattening and chunking routines
-│   │   │   ├── md.py                     # Markdown chunking and normalization
-│   │   │   ├── mp3.py                    # Audio preprocessing wrapper (slicing metadata)
-│   │   │   ├── pdf.py                    # PDF page extraction and layout-aware parsing
-│   │   │   ├── png_jpeg_jpg.py           # Image OCR pipeline wrapper
-│   │   │   ├── ppt_pptx.py               # PPTX slide extractor (n slide = 1 chunk)
-│   │   │   ├── spreadsheets.py           # Spreadsheet row/column chunking logic
-│   │   │   └── txt.py                    # Plaintext chunkers (paragraph/sentence/window)
-│   │   └── router.py                     # Dispatcher to select parser based on MIME/extension
-│   └── relik.sh                          # Helper script to run ReLiK entity/triplet extraction
-│
-├── inference_pipeline/
-│   ├── auth_control.py                   # Auth 2.0, authorization middleware and rate limiting for APIs  # observe: logs, metrics
-│   ├── eval.py                           # OpenLLMetry coherence checks, hit@K monitoring, hallucination detection  # observe: logs, metrics
-│   ├── main.py                           # Inference service entrypoint (REST/gRPC server)  # observe: logs, metrics, traces
-│   ├── llm_retrieval.py        # Retrieval orchestration (hybrid BM25 + vector + graph + GeAR lightweight multihop)  # observe: logs, metrics
-│   ├── llmless_retrieval.py              # Returns only raw chunks/triplets and source urls from arangodb when rate limit exceeded
-│   └── trace_file.py             # View or download Presigned urls for the raw docs as source link s3://<bucket_name>data/raw/<file_name>.<format>
-|
-├── infra/
-│   ├── karpenter-nodepool-cpu/                         
-│   │   ├── Chart.lock                        # Helm lockfile: pins exact versions of dependencies (auto-generated)
-│   │   ├── Chart.yaml                        # Helm chart metadata & dependencies (kuberay, kube-prometheus-stack)
-│   │   ├── charts/
-│   │   │   ├── kube-prometheus-stack-76.4.0.tgz   # Vendored Helm chart for monitoring stack (Prometheus, Grafana, Alertmanager)
-│   │   │   └── kuberay-operator-1.4.2.tgz         # Vendored Helm chart for Ray cluster/operator
-│   │   ├── images/
-│   │   │   ├── frontend/
-│   │   │   │   ├── Dockerfile                 # Build recipe for RAG frontend container
-│   │   │   │   ├── main.py                    # Python app entrypoint for UI; imports deps from requirements-cpu.txt
-│   │   │   │   └── cpu-requirements-cpu.txt       # Frontend Python dependencies; installed inside Dockerfile
-│   │   │   ├── indexing_rayjob/
-│   │   │   │   ├── Dockerfile                 # Build recipe for Ray indexing job container
-│   │   │   │   └── cpu-requirements.txt       # Python dependencies for indexing Ray job
-│   │   │   └── onnx-embedder-reranker/
-│   │   │       ├── Dockerfile                 # Build recipe for ONNX embedder+reranker model server
-│   │   │       ├── download_hf.py             # Script to pull HuggingFace models at build/runtime
-│   │   │       ├── grpc.proto                 # Protobuf service definition for embedder/reranker API
-│   │   │       ├── rayserve_embedder_reranker.py  # RayServe deployment code for ONNX embedder & reranker
-│   │   │       ├── rayserve_entrypoint.py     # Entrypoint to launch RayServe app; imports above module
-│   │   │       ├── cpu-requirements.txt       # Python dependencies for embedder/reranker service
-│   │   │       └── run_and_test_local.sh      # Local test script to validate container works pre-deploy
-│   │   ├── rendered-kind.yaml                 # Rendered manifest snapshot for local testing (kind cluster)
-│   │   ├── templates/
-│   │   │   ├── _helpers.tpl                   # Helm template helpers (common labels, naming functions)
-│   │   │   ├── graphana-datasource.yaml       # Configures Grafana datasource (Prometheus + OTEL); depends on values.yaml
-│   │   │   ├── karpenter-nodepool.yaml        # Defines Karpenter NodePool/Provisioner for autoscaling CPU nodes
-│   │   │   ├── namespace.yaml                 # Creates namespace for this chart; all resources scoped here
-│   │   │   ├── networkpolicy.yaml             # NetworkPolicies: secure traffic between frontend, Ray, DB
-│   │   │   ├── otel-collector-configmap.yaml  # ConfigMap for OpenTelemetry Collector pipelines (logs, metrics, traces)
-│   │   │   ├── otel-collector-daemonset.yaml  # DaemonSet: deploys OTEL Collector agent to all nodes
-│   │   │   ├── otel-collector-service.yaml    # Service exposing OTEL Collector for scraping/export
-│   │   │   ├── pdbs.yaml                      # PodDisruptionBudgets to ensure availability during upgrades
-│   │   │   ├── prometheus-pvc.yaml            # PersistentVolumeClaim for Prometheus TSDB; depends on values.eks.yaml
-│   │   │   ├── pvc.yaml                       # PVCs for stateful workloads (embedding/reranker cache, frontend state)
-│   │   │   ├── rayservice.yaml                # RayService definition for embedding + reranker workloads
-│   │   │   ├── role.yaml                      # RBAC Role for workloads needing cluster-scoped API access
-│   │   │   ├── rolebinding.yaml               # RoleBinding linking Role to service account
-│   │   │   ├── service-monitor.yaml           # ServiceMonitor CRD for Prometheus to scrape this app’s metrics
-│   │   │   ├── service.yaml                   # Kubernetes Services exposing frontend & model containers
-│   │   │   ├── serviceaccount.yaml            # ServiceAccount for pods; referenced in RoleBinding and workloads
-│   │   │   └── templates/
-│   │   │       └── grafana-dashboard-indexing.json  # JSON Grafana dashboard for indexing/embedding job metrics
-│   │   ├── values.eks.yaml                    # Helm values for production EKS deployment (CPU/GPU node config, storage)
-│   │   └── values.yaml                        # Default Helm values (resource requests, OTEL config, monitoring toggles)
-│   ├── karpenter-nodepool-gpu/                # Sglang GPU based similar deployment
-│   ├── statefulset-nodegroup/                 # EKS nodegroup for stable statefulsets like arangodb , valkey
-│   └── pulumi-aws/                            
-│       ├── config.py                 # Global variables & Pulumi config
-│       ├── vpc.py                    # Networking must exist before cluster
-│       ├── iam_roles_pre_eks.py      # IAM roles required to create EKS
-│       ├── eks_cluster.py            # EKS cluster depends on VPC + pre-EKS IAM
-│       ├── nodegroups.py             # Nodegroups depend on cluster + IAM
-│       ├── iam_roles_post_eks.py     # IAM roles for workloads (Ray, Karpenter, Valkeye)
-│       ├── karpenter.py              # Karpenter provisioning depends on cluster + nodegroups + IAM
-│       ├── cloudflare.py             # DNS records, depends on cluster endpoint
-│       ├── indexing_ami.py           # Indexing AMIs, depends on cluster/nodegroups
-│       ├── inference_ami.py          # Inference/GPU AMIs, depends on cluster/nodegroups
-│       ├── db_backup.py              # CronJobs or backup jobs, depends on DB running in cluster
-│       ├── ___main__.py                  # Orchestrates imports & execution
-│       └── pulumi.yaml                   # Pulumi project manifest for infra code
-|
-└── utils/                                   
-|    ├── archive/                           # Files no longer maintained
-|    ├── bootstrap-dev.sh                   # Installs all the required tools for development and testing
-|    ├── bootstrap-prod.sh                  # Installs minimal tools for prod
-|    ├── force_sync_data_with_s3.py         # sync/force sync the data/ in local fs/ with s3://<bucket_name>/data/
-|    ├── lc.sh                              # Local kind cluster for testing rag8s
-|    └── s3_bucket.py                       # Create/delete s3 bucket 
-|    
-├── scripts/
-│   ├── build_and_push.sh                   # Builds container images and pushes to registry
-│   ├── dynamic-values.yaml.sh              # Generates dynamic Helm values (env-specific)
-│   ├── helm-deploy.sh                      # Wrapper to deploy Helm charts via CI or locally
-│   ├── pulumi-set-configs.sh               # Sets Pulumi configuration and secrets
-│   └── pulumi-set-secret.sh                # Stores secrets into Pulumi secret store
-│
-├── .devcontainer/
-│   ├── Dockerfile                          # Devcontainer image build for local development environment
-│   └── devcontainer.json                   # VS Code devcontainer configuration (mounts, settings)
-|
-├── .dockerignore                           # Files/dirs excluded from Docker build context
-├── .gitignore                              # Git ignore rules
-├── Makefile                                # Convenience targets for build/test/deploy tasks
-├── README.md                               # Project overview, setup and usage instructions
-└── backups/                                # Local directory that syncs with s3://<bucket_name>/backups
-    └── dbs/
-        └── arrangodb/
-
-```
-</details>
-
----
----
-# Get started with RAG8s
+# Get started
 
 ## Prerequesities
  1. Docker enabled on boot and is running
  2. Vscode with `Dev Containers` extension installed
- 3. AWS root account or IAM user with admin access for S3, EKS, and IAM role management(free tier sufficient if trying RAG8s locally)
+ 3. AWS root account or IAM user with admin access for S3, EC2 and IAM role management(free tier sufficient if trying RAG8s locally)
 
 ## STEP 0/3 environment setup
 
@@ -337,7 +170,7 @@ gh auth login
 ```
 #### Create a private repo in your gh account
 ```sh
-export REPO_NAME="rag8s"
+export REPO_NAME="rag-45"
 
 git remote remove origin 2>/dev/null || true
 gh repo create "$REPO_NAME" --private >/dev/null 2>&1
@@ -360,7 +193,6 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 
 ```sh
 
-
 export PYTHONUNBUFFERED=1                             # To force Python to display logs/output immediately instead of buffering
 export S3_BUCKET=e2e-rag-system-42                    # Set any globally unique complex name, Pulumi S3 backend -> s3://$S3_BUCKET/pulumi/
 export S3_RAW_PREFIX=data/raw/                        # raw ingest prefix (change to isolate datasets)
@@ -372,7 +204,7 @@ export OVERWRITE_ALL_AUDIO_FILES=true                 # true to delete and repla
 export OVERWRITE_SPREADSHEETS_WITH_CSV=true           # true to delete and replace .xls, .xlsx, .ods, etc as .csv files, false to keep the originals
 export OVERWRITE_PPT_WITH_PPTS=true                  # true to delete and replace .ppt files as .pptx, false to keep the originals
 
-export PDF_PAGE_THRESHOLD=1800                   # Threshold to detect very large pages and split them into subchunks 
+export PDF_PAGE_THRESHOLD=1200                   # Threshold to detect very large pages and split them into subchunks 
 export PDF_WINDOW_SIZE=600                       # Default is page wise chunking, for large page 600 tokens per chunk with 10% token overlap
 export PDF_DISABLE_OCR=false                              # true to skip OCR (very fast) or false to extract text from images
 export PDF_OCR_ENGINE=rapidocr                            # 'tesseract' (faster) or 'rapidocr' (high accuracy , slightly slower)
@@ -392,31 +224,64 @@ export TXT_MAX_TOKENS_PER_CHUNK=800              # Simple token based chunking w
 export PPTX_SLIDES_PER_CHUNK=5                   # Number of slides per chunk. Increase for cost or decrease for precision
 export PPTX_OCR_ENGINE=rapidocr                  # 'tesseract' (faster), 'rapidocr' (high accuracy , slightly slower)
 
+export MAX_LENGTH=1200           # range: 600-8000, Max tokens of indexing embedder-gpu model, should be higher than all max tokens.                            
+export INDEXING_RAY_OBJECT_STORE_MEMORY=4294967296  # 4GB, increase for larger batch/seq/concurrency/raw-text, decrease for smaller batch/compact inputs
+export EMBED_BATCH_SIZE=512    # 512 chunks per embedding call; fixed, increase for throughput if memory allows, decrease for latency or object store limits
 
-```
 
-# infra 
+export INDEXING_PIPELINE_MAX_DURATION=36000      # Max indexing job runtime (s); raise for longer batches
+export AWS_REGION=ap-south-1                      # AWS region; change for different geography
+export AVAILABILITY_ZONE=ap-south-1a              # AZ for AZ-bound resources (EBS/placement)
+export INDEXING_CLUSTER_HEAD_INSTANCE_TYPE=m5.large       # Ray head EC2 type; vertically scale up if orchestration heavy
+export INDEXING_CLUSTER_HEAD_AMI=$CPU_AMI_ID              # Head AMI (region-scoped); update when AMI changes
+export INDEXING_PIPELINE_CPU_WORKER_INSTANCE_TYPE=c8g.large  # CPU worker type for parsing/upserts
+export INDEXING_PIPELINE_CPU_AMI=$CPU_AMI_ID      # CPU worker AMI; keep synced with your CPU image
+export INDEXING_HEAD_EBS_GP3_VOLUME_SIZE=12      # Head root EBS size (GB); increase if logs/artifacts grow
+export INDEXING_PIPELINE_CPU_MAX_WORKERS=5        # Max CPU worker nodes (autoscaler); raise to parallelize more
+export INDEXING_PIPELINE_CPU_AMI_ID=$CPU_AMI_ID   # Duplicate AMI var for templates; keep in sync
+export INDEXING_PIPELINE_EBS_GP3_VOLUME_SIZE=15   # indexing_cpu node EBS size (GB) for model storage; increase if needed
+export EMBEDDER_GPU_INSTANCE_TYPE=g6f.large       # GPU instance type; choose for onnx 150MB embedding model 728 dim
+export EMBEDDER_GPU_AMI_ID=$GPU_AMI_ID            # GPU AMI with NVIDIA drivers/CUDA; must match onnxruntime
+export EMBEDDER_GPU_MAX_WORKERS=2                 # Max GPU worker nodes; adjust for throughput vs cost
+export EMBEDDER_GPU_EBS_GP3_VOLUME_SIZE=30            # GPU node EBS size (GB) for model storage; increase if needed
 
-```sh
+
 export PULUMI_CONFIG_PASSPHRASE=myPulumipassword    # For headless automation
+export PULUMI_PUBLIC_SUBNET_COUNT=2                        # Number of public subnets to create/use
 export QDRANT_PRIVATE_IP="10.0.1.10"          # Deterministic private IP for Qdrant ec2 that only ray clusters can access
-export QDRANT_INSTANCE_TYPE="c8g.medium"      # EC2 instance type for Qdrant, c8g preferred. 
+export QDRANT_INSTANCE_TYPE="c8g.4xlarge"      # EC2 instance type for Qdrant, c8g preferred. 
 export QDRANT_API_KEY="myStrongsecret134"     # Create a strong password for accessing qdrant db from the ray clusters
 export QDRANT_PORT="6333"                     # Default port for qdrant is 6333. Modify for security or convenience 
 export QDRANT_DATA_DIR="/mnt/qdrant"          # Host path where Qdrant data is mounted. Inside qdrant container mounted as /qdrant/storage
 export QDRANT_COLLECTION_NAME="my_documents"  # Any name for qdrant collection
-
+export QDRANT_UPSERT_BATCH_SIZES=
 
 export AWS_ACCESS_KEY_ID="AKIA.."
 export AWS_SECRET_ACCESS_KEY=""
 export AWS_REGION="ap-south-1"               # AWS region to create resources
 export S3_BUCKET=e2e-rag-system-42           # Set any globally unique complex name, Pulumi S3 backend -> s3://$S3_BUCKET/pulumi/
 export STACK="prod"                          # Any name for pulumi stack
-
-export MY_SSH_CIDR="203.0.113.42/32"                       # operator SSH CIDR (single IP recommended)
+export MY_SSH_CIDR="203.0.113.42/32"                       # operator SSH CIDR (single IP required)
 export PUBLIC_SUBNET_CIDRS="10.0.1.0/24,10.0.2.0/24"       # comma-separated public subnets
 export VPC_CIDR="10.0.0.0/16"                             # VPC range
 
+
+# Auto generated configs
+export PULUMI_EC2_KEY_NAME='pulumi-aws-rag-prod-ec2-key'    # EC2 keypair name in AWS; change when rotating keys
+export PULUMI_EC2_KEY_PATH=infra/pulumi-aws/pulumi-aws-rag-prod-ec2-key.pem  # Local SSH private key path. 
+export PULUMI_PUBLIC_SUBNET_AZ_0='ap-south-1a'             # AZ for public subnet 0; change to target AZ
+export PULUMI_PUBLIC_SUBNET_AZ_1='ap-south-1b'             # AZ for public subnet 1; change to target AZ
+export PULUMI_PUBLIC_SUBNET_ID_0='subnet-0a5cd959dae3fe2c8' # Public subnet ID 0 for qdrant ec2 and ray indexing cluster
+export PULUMI_PUBLIC_SUBNET_ID_1='subnet-0e69988a2705b4d5a' # Public subnet ID 1 for ray inference cluster
+export PULUMI_QDRANT_SECURITY_GROUP_ID='sg-0238bc8ad23f18e61'  # SG for Qdrant EC2; allow only Ray SG on port 6333
+export PULUMI_RAY_SECURITY_GROUP_ID='sg-085065680b7853b67'     # SG for Ray nodes; used in cluster security rules
+export PULUMI_VPC_ID='vpc-0e8a95be8839cc299'                   # VPC ID where infra is provisioned; change for other VPCs
+
+
+
+
+
+```py
 # Retrieval fusion weights (tune by devset; relative importance)
 export W_VEC=0.6                                      # range: 0.0-1.0; raise if domain embeddings are highly accurate
 export W_BM25=0.3                                     # range: 0.0-1.0; raise if exact keyword matches are critical

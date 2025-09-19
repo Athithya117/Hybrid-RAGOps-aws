@@ -11,6 +11,7 @@ else
   exit 1
 fi
 
+
 # Determine AMI: prefer CUSTOM_AMI_ID from .env; allow arg override
 if [ "${1:-}" != "" ]; then
   CUSTOM_AMI="$1"

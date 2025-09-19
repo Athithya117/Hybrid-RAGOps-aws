@@ -85,12 +85,8 @@ if command -v cloud-init >/dev/null 2>&1; then cloud-init clean -s -l || true; f
 truncate -s 0 /var/log/*log || true
 rm -rf /tmp/hf_download || true
 docker --version || true
-IM1="athithya324/frontend-streamlit:v1"
-IM2="athithya324/embedder-cpu-inference:linux-amd64-arm64"
-docker pull --platform=linux/arm64 "$IM1" || docker pull "$IM1" || true
-arch1="$(docker image inspect --format '{{.Architecture}}' "$IM1" 2>/dev/null || true)"
-if [ "$arch1" != "arm64" ]; then echo "WARNING: $IM1 is $arch1 (no arm64 manifest). It may not run on this host without emulation."; fi
-docker pull --platform=linux/arm64 "$IM2" || docker pull "$IM2" || true
-arch2="$(docker image inspect --format '{{.Architecture}}' "$IM2" 2>/dev/null || true)"
-if [ "$arch2" != "arm64" ]; then echo "WARNING: $IM2 is $arch2 (no arm64 manifest)."; fi
-exit 0
+
+
+docker pull qdrant/qdrant:v1.15.4
+docker pull athithya324/embedder-cpu-inference:linux-amd64-arm64
+docker pull athithya324/frontend-streamlit:v1
