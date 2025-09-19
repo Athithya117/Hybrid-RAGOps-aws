@@ -6,7 +6,6 @@ import json
 import logging
 import re
 from typing import Iterable, Dict, List, Any, Optional
-
 import boto3
 import ray
 from ray import serve

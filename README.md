@@ -142,7 +142,7 @@ Serves queries end-to-end: retrieval (vector + keyword + graph), multi-hop reaso
  2. Vscode with `Dev Containers` extension installed
  3. AWS root account or IAM user with admin access for S3, EC2 and IAM role management(free tier sufficient if trying RAG8s locally)
 
-## STEP 0/3 environment setup
+# STEP 0/3 environment setup
 
 #### Clone the repo and build the devcontainer
 ```sh 
@@ -186,12 +186,43 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 
 ---
 
-## STEP 2/3 - indexing_pipeline
+export AWS_ACCESS_KEY_ID="AKIA.."                      # AWS access key
+export AWS_SECRET_ACCESS_KEY=""                        # AWS secret access key
 
-
-### Export the neccessary configs.
-
+# STEP 1/3 INFRA
 ```sh
+
+
+
+export AWS_REGION="ap-south-1"                         # AWS region to create resources
+export VPC_CIDR="10.0.0.0/16"                          # VPC range
+export PUBLIC_SUBNET_CIDRS="10.0.1.0/24,10.0.2.0/24"   # comma-separated public subnets
+export MY_SSH_CIDR="203.0.113.42/32"                   # operator SSH CIDR (single IP required)
+export STACK="prod"                                    # Any name for pulumi stack
+
+export PULUMI_CONFIG_PASSPHRASE=mypassword       # For headless automation
+export PULUMI_PUBLIC_SUBNET_COUNT=2                    # Number of public subnets to create/use
+export INDEXING_CLUSTER_MAX_DURATION=36000      # Max indexing job runtime (s); raise for longer batches
+export INDEXING_CLUSTER_HEAD_INSTANCE_TYPE=m5.large       # Ray head EC2 type; vertically scale up if orchestration heavy
+export INDEXING_CLUSTER_HEAD_AMI=$CPU_AMI_ID              # Head AMI (region-scoped); update when AMI changes
+export INDEXING_PIPELINE_CPU_WORKER_INSTANCE_TYPE=c8g.large  # CPU worker type for parsing/upserts
+export INDEXING_PIPELINE_CPU_AMI=$CPU_AMI_ID              # CPU worker AMI; keep synced with your CPU image
+export INDEXING_HEAD_EBS_GP3_VOLUME_SIZE=12              # Head root EBS size (GB); increase if logs/artifacts grow
+export INDEXING_PIPELINE_CPU_MAX_WORKERS=5               # Max CPU worker nodes (autoscaler); raise to parallelize more
+export INDEXING_PIPELINE_CPU_AMI_ID=$CPU_AMI_ID          # Duplicate AMI var for templates; keep in sync
+export INDEXING_PIPELINE_EBS_GP3_VOLUME_SIZE=15         # indexing_cpu node EBS size (GB) for model storage; increase if needed
+export INDEXING_RAY_OBJECT_STORE_MEMORY=4294967296  # 4GB, increase for larger batch/seq/concurrency/raw-text, decrease for smaller batch/compact inputs
+export EMBEDDER_GPU_INSTANCE_TYPE=g6f.large             # GPU instance type; choose for onnx 150MB embedding model 728 dim
+export EMBEDDER_GPU_AMI_ID=$GPU_AMI_ID                  # GPU AMI with NVIDIA drivers/CUDA; must match onnxruntime
+export EMBEDDER_GPU_MAX_WORKERS=2                       # Max GPU worker nodes; adjust for throughput vs cost
+export EMBEDDER_GPU_EBS_GP3_VOLUME_SIZE=30              # GPU node EBS size (GB) for model storage; increase if needed
+
+export QDRANT_PRIVATE_IP="10.0.1.10"                    # Deterministic private IP for Qdrant ec2 that only ray clusters can access
+export QDRANT_INSTANCE_TYPE="t2.micro"               # EC2 instance type for Qdrant, c8g preferred for prod. 
+export QDRANT_API_KEY="myStrongsecret134"     # Create a strong password for accessing qdrant db from the ray cluster
+export QDRANT_EBS_TYPE=gp2                    # gp2 for dev, gp3 for prod
+export QDRANT_EBS_SIZE=8                      # minimal ebs size since storage is local NVMe based
+export CPU_AMI_ARCH=amd
 
 export PYTHONUNBUFFERED=1                             # To force Python to display logs/output immediately instead of buffering
 export S3_BUCKET=e2e-rag-system-42                    # Set any globally unique complex name, Pulumi S3 backend -> s3://$S3_BUCKET/pulumi/
@@ -202,142 +233,58 @@ export STORE_ONE_FILE_PER_CHUNK=false            # true for faster parallelism(s
 export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to delete and replace docx with PDF, false to keep the originals
 export OVERWRITE_ALL_AUDIO_FILES=true                 # true to delete and replace .mp3, .m4a, .aac, etc as .mav 16khz, false to keep the originals
 export OVERWRITE_SPREADSHEETS_WITH_CSV=true           # true to delete and replace .xls, .xlsx, .ods, etc as .csv files, false to keep the originals
-export OVERWRITE_PPT_WITH_PPTS=true                  # true to delete and replace .ppt files as .pptx, false to keep the originals
+export OVERWRITE_PPT_WITH_PPTS=true                   # true to delete and replace .ppt files as .pptx, false to keep the originals
 
-export PDF_PAGE_THRESHOLD=1200                   # Threshold to detect very large pages and split them into subchunks 
-export PDF_WINDOW_SIZE=600                       # Default is page wise chunking, for large page 600 tokens per chunk with 10% token overlap
-export PDF_DISABLE_OCR=false                              # true to skip OCR (very fast) or false to extract text from images
-export PDF_OCR_ENGINE=rapidocr                            # 'tesseract' (faster) or 'rapidocr' (high accuracy , slightly slower)
-export PDF_FORCE_OCR=false                                # true to always OCR(use if source text unreliable but not recommended for scaling)
-export PDF_OCR_RENDER_DPI=400                             # increase for detecting tiny text; lower for speed/cost
-export PDF_MIN_IMG_SIZE_BYTES=3072                        # ignore images smaller than 3KB (often unneccessary black images)
-export IMAGE_OCR_ENGINE=rapidocr                          # or 'tesseract' for image formats .png, .jpeg, .jpg, .tiff, .webp
+export PDF_PAGE_THRESHOLD=1200                        # Threshold to detect very large pages and split them into subchunks 
+export PDF_WINDOW_SIZE=600                            # Default is page wise chunking, for large page 600 tokens per chunk with 10% token overlap
+export PDF_DISABLE_OCR=false                          # true to skip OCR (very fast) or false to extract text from images
+export PDF_OCR_ENGINE=rapidocr                        # 'tesseract' (faster) or 'rapidocr' (high accuracy , slightly slower)
+export PDF_FORCE_OCR=false                            # true to always OCR(use if source text unreliable but not recommended for scaling)
+export PDF_OCR_RENDER_DPI=400                         # increase for detecting tiny text; lower for speed/cost
+export PDF_MIN_IMG_SIZE_BYTES=3072                    # ignore images smaller than 3KB (often unneccessary black images)
+export IMAGE_OCR_ENGINE=rapidocr                      # or 'tesseract' for image formats .png, .jpeg, .jpg, .tiff, .webp
 
-export HTML_WINDOW_SIZE=800                     # Default is page wise chunking, for large page 500 tokens per chunk with 10% token overlap
-export CSV_TARGET_TOKENS_PER_CHUNK=600           # Increase if very large .csv or Decrease if higher precision required
-export JSONL_TARGET_TOKENS_PER_CHUNK=600         # Increase if very large .jsonl or Decrease if higher precision required
-export MD_MAX_TOKENS_PER_CHUNK=800               # Threshold for split headers in header wise chunking with 10% overlap
-export MD_MERGE_HEADER_THRESHOLD_TOKENS=200     # Threshold to cummulatively merge small headers with their next header(s) till MD_MAX_TOKENS_PER_CHUNK
-export AUDIO_SLICE_SECONDS=30                    # Audio slices in seconds with 10% overlap. Increase or decrease based on AUDIO_MAX_TOKENS_PER_CHUNK
-export AUDIO_MAX_TOKENS_PER_CHUNK=800            # Limit to cummulatively merge text from audio slices with next audio slices
-export TXT_MAX_TOKENS_PER_CHUNK=800              # Simple token based chunking with 10% overlap. Increase for cost or decrease for precision
-export PPTX_SLIDES_PER_CHUNK=5                   # Number of slides per chunk. Increase for cost or decrease for precision
-export PPTX_OCR_ENGINE=rapidocr                  # 'tesseract' (faster), 'rapidocr' (high accuracy , slightly slower)
+export HTML_WINDOW_SIZE=800                           # Default is page wise chunking, for large page 500 tokens per chunk with 10% token overlap
+export CSV_TARGET_TOKENS_PER_CHUNK=600                # Increase if very large .csv or Decrease if higher precision required
+export JSONL_TARGET_TOKENS_PER_CHUNK=600              # Increase if very large .jsonl or Decrease if higher precision required
+export MD_MAX_TOKENS_PER_CHUNK=800                    # Threshold for split headers in header wise chunking with 10% overlap
+export MD_MERGE_HEADER_THRESHOLD_TOKENS=200           # Threshold to cummulatively merge small headers with their next header(s) till MD_MAX_TOKENS_PER_CHUNK
+export AUDIO_SLICE_SECONDS=30                         # Audio slices in seconds with 10% overlap. Increase or decrease based on AUDIO_MAX_TOKENS_PER_CHUNK
+export AUDIO_MAX_TOKENS_PER_CHUNK=800                 # Limit to cummulatively merge text from audio slices with next audio slices
+export TXT_MAX_TOKENS_PER_CHUNK=800                   # Simple token based chunking with 10% overlap. Increase for cost or decrease for precision
+export PPTX_SLIDES_PER_CHUNK=5                        # Number of slides per chunk. Increase for cost or decrease for precision
+export PPTX_OCR_ENGINE=rapidocr                       # 'tesseract' (faster), 'rapidocr' (high accuracy , slightly slower)
 
 export MAX_LENGTH=1200           # range: 600-8000, Max tokens of indexing embedder-gpu model, should be higher than all max tokens.                            
-export INDEXING_RAY_OBJECT_STORE_MEMORY=4294967296  # 4GB, increase for larger batch/seq/concurrency/raw-text, decrease for smaller batch/compact inputs
-export EMBED_BATCH_SIZE=512    # 512 chunks per embedding call; fixed, increase for throughput if memory allows, decrease for latency or object store limits
-
-
-export INDEXING_PIPELINE_MAX_DURATION=36000      # Max indexing job runtime (s); raise for longer batches
-export AWS_REGION=ap-south-1                      # AWS region; change for different geography
-export AVAILABILITY_ZONE=ap-south-1a              # AZ for AZ-bound resources (EBS/placement)
-export INDEXING_CLUSTER_HEAD_INSTANCE_TYPE=m5.large       # Ray head EC2 type; vertically scale up if orchestration heavy
-export INDEXING_CLUSTER_HEAD_AMI=$CPU_AMI_ID              # Head AMI (region-scoped); update when AMI changes
-export INDEXING_PIPELINE_CPU_WORKER_INSTANCE_TYPE=c8g.large  # CPU worker type for parsing/upserts
-export INDEXING_PIPELINE_CPU_AMI=$CPU_AMI_ID      # CPU worker AMI; keep synced with your CPU image
-export INDEXING_HEAD_EBS_GP3_VOLUME_SIZE=12      # Head root EBS size (GB); increase if logs/artifacts grow
-export INDEXING_PIPELINE_CPU_MAX_WORKERS=5        # Max CPU worker nodes (autoscaler); raise to parallelize more
-export INDEXING_PIPELINE_CPU_AMI_ID=$CPU_AMI_ID   # Duplicate AMI var for templates; keep in sync
-export INDEXING_PIPELINE_EBS_GP3_VOLUME_SIZE=15   # indexing_cpu node EBS size (GB) for model storage; increase if needed
-export EMBEDDER_GPU_INSTANCE_TYPE=g6f.large       # GPU instance type; choose for onnx 150MB embedding model 728 dim
-export EMBEDDER_GPU_AMI_ID=$GPU_AMI_ID            # GPU AMI with NVIDIA drivers/CUDA; must match onnxruntime
-export EMBEDDER_GPU_MAX_WORKERS=2                 # Max GPU worker nodes; adjust for throughput vs cost
-export EMBEDDER_GPU_EBS_GP3_VOLUME_SIZE=30            # GPU node EBS size (GB) for model storage; increase if needed
-
-
-export PULUMI_CONFIG_PASSPHRASE=myPulumipassword    # For headless automation
-export PULUMI_PUBLIC_SUBNET_COUNT=2                        # Number of public subnets to create/use
-export QDRANT_PRIVATE_IP="10.0.1.10"          # Deterministic private IP for Qdrant ec2 that only ray clusters can access
-export QDRANT_INSTANCE_TYPE="c8g.4xlarge"      # EC2 instance type for Qdrant, c8g preferred. 
-export QDRANT_API_KEY="myStrongsecret134"     # Create a strong password for accessing qdrant db from the ray clusters
-export QDRANT_PORT="6333"                     # Default port for qdrant is 6333. Modify for security or convenience 
-export QDRANT_DATA_DIR="/mnt/qdrant"          # Host path where Qdrant data is mounted. Inside qdrant container mounted as /qdrant/storage
+export EMBED_BATCH_SIZE=512    # 512 chunks per embedding call; fixed, increase for throughput if memory allows, decrease for latency or object store limit
 export QDRANT_COLLECTION_NAME="my_documents"  # Any name for qdrant collection
-export QDRANT_UPSERT_BATCH_SIZES=
-
-export AWS_ACCESS_KEY_ID="AKIA.."
-export AWS_SECRET_ACCESS_KEY=""
-export AWS_REGION="ap-south-1"               # AWS region to create resources
-export S3_BUCKET=e2e-rag-system-42           # Set any globally unique complex name, Pulumi S3 backend -> s3://$S3_BUCKET/pulumi/
-export STACK="prod"                          # Any name for pulumi stack
-export MY_SSH_CIDR="203.0.113.42/32"                       # operator SSH CIDR (single IP required)
-export PUBLIC_SUBNET_CIDRS="10.0.1.0/24,10.0.2.0/24"       # comma-separated public subnets
-export VPC_CIDR="10.0.0.0/16"                             # VPC range
+export QDRANT_UPSERT_BATCH_SIZES=128                        
 
 
-# Auto generated configs
-export PULUMI_EC2_KEY_NAME='pulumi-aws-rag-prod-ec2-key'    # EC2 keypair name in AWS; change when rotating keys
-export PULUMI_EC2_KEY_PATH=infra/pulumi-aws/pulumi-aws-rag-prod-ec2-key.pem  # Local SSH private key path. 
-export PULUMI_PUBLIC_SUBNET_AZ_0='ap-south-1a'             # AZ for public subnet 0; change to target AZ
-export PULUMI_PUBLIC_SUBNET_AZ_1='ap-south-1b'             # AZ for public subnet 1; change to target AZ
-export PULUMI_PUBLIC_SUBNET_ID_0='subnet-0a5cd959dae3fe2c8' # Public subnet ID 0 for qdrant ec2 and ray indexing cluster
-export PULUMI_PUBLIC_SUBNET_ID_1='subnet-0e69988a2705b4d5a' # Public subnet ID 1 for ray inference cluster
-export PULUMI_QDRANT_SECURITY_GROUP_ID='sg-0238bc8ad23f18e61'  # SG for Qdrant EC2; allow only Ray SG on port 6333
-export PULUMI_RAY_SECURITY_GROUP_ID='sg-085065680b7853b67'     # SG for Ray nodes; used in cluster security rules
-export PULUMI_VPC_ID='vpc-0e8a95be8839cc299'                   # VPC ID where infra is provisioned; change for other VPCs
+export QDRANT__STORAGE__ON_DISK=true  # Store full vectors on disk (memmap). Default: false (in-RAM). Change to false if you have ample RAM and need fastest write/search speed.
+export QDRANT__STORAGE__PAYLOAD_ON_DISK=true  # Store payloads on disk. Default: false. Change to false if payloads are tiny and you want in-memory filtering for speed.
+export QDRANT__STORAGE__SNAPSHOTS_PATH=/workspace/qdrant/backups/snapshots/  # Path to store snapshots for backup. Default is local ./snapshots. Change if you use a custom backup path or S3 sync.
+export QDRANT__QUANTIZATION__SCALAR_TYPE=INT8  # Scalar quantization type: INT8. Options: INT8, INT4. Improves RAM usage with minor accuracy loss. Change if you want higher compression or lower accuracy acceptable.
+export QDRANT__QUANTIZATION__SCALAR_QUANTILE=0.99  # Drop top 1% of extreme values during quantization. Default: 0.99. Change to 1.0 if you want exact preservation of outliers (slightly larger memory).
+export QDRANT__QUANTIZATION__SCALAR_ALWAYS_RAM=true # Keep quantized vectors in RAM for faster search. Default: false. Change to false if RAM is very limited.
+export QDRANT__QUANTIZATION__BINARY_ENCODING=two_bits # Binary quantization: one/two bits. Default: none. Use two_bits for high-dim embeddings to save memory. Change if extreme compression required.
+export QDRANT__QUANTIZATION__BINARY_ALWAYS_RAM=true  # Keep binary-quantized vectors in RAM. Default: false. Change to false if memory constrained.
+export QDRANT__HNSW__M=32       # Number of edges per HNSW node. Default: 16. Increase for higher recall (slower build). Decrease if speed prioritized.
+export QDRANT__HNSW__EF_CONSTRUCT=200    # Candidate pool size for index building. Default: 100. Increase for higher recall; decrease for faster builds.
+export QDRANT__OPTIMIZER__MAX_SEGMENT_SIZE=5000000  # Max segment size (bytes). Default: 2e6. Larger segments = fewer merges, better throughput.
+export QDRANT__OPTIMIZER__DEFAULT_SEGMENT_NUMBER=2  # Number of segments to create. Default: auto. Reduce to 2 for fewer large segments to maximize throughput.
+export QDRANT__OPTIMIZER__MAX_INDEXING_THREADS=0    # Number of indexing threads. Default 0 = auto. Set to 8-16 for fixed CPU allocation and predictable performance.
+export QDRANT__HNSW__EF=200                         # Search-time candidate pool for HNSW. Default: 100. Higher = higher recall, slower search; lower = faster, less accurate.
+export QDRANT__HNSW__ON_DISK=false                  # Keep HNSW graph in RAM for faster search. Default: false. Change to true if RAM is extremely limited, at cost of search latency.
+export QDRANT__SEARCH__RERANK_CROSS_ENCODER=false   # Use cross-encoder for re-ranking. Default: false. Change to true if higher search precision is needed at cost of latency.
+export QDRANT__SEARCH__TOP_K=10                     # Number of vectors returned per search. Default: 10. Change to higher number if reranking or further filtering is needed.
+export QDRANT__SEARCH__PAYLOAD_FIELDS=indexed_field1,indexed_field2
+# Fields to index for filtering. Default: none. Change to include payload keys used in filters to speed up search.
+export QDRANT__SEARCH__MAX_CONCURRENT_QUERIES=16   # Maximum simultaneous search requests. Default: 8. Increase if CPU supports higher concurrency for multiple Ray inference nodes.
+export QDRANT__PROMETHEUS__ENABLED=true             # Enable metrics export for external Prometheus monitoring. Default: false. Change to true if you want observability.
 
-
-
-
-
-```py
-# Retrieval fusion weights (tune by devset; relative importance)
-export W_VEC=0.6                                      # range: 0.0-1.0; raise if domain embeddings are highly accurate
-export W_BM25=0.3                                     # range: 0.0-1.0; raise if exact keyword matches are critical
-export W_GRAPH=0.1                                    # range: 0.0-1.0; raise if graph/triplet hits are very high precision
-
-# Candidate fanout & GeAR
-export N_VEC=15                                       # range: 5-100; top-K vector candidates (raise for recall on large corpora)
-export N_BM25=15                                      # range: 5-100; top-K BM25 candidates
-export N_GRAPH=5                                      # range: 1-10; graph neighbor limit (keep small to control DB load)
-export MAX_GEARS_HOPS=1                               # range: 1-2; 1 default; enable 2 behind feature flag for deeper multi-hop
-export GEAR_BEAM_WIDTH=3                              # range: 1-5; beam width for GeAR expansion; increase with caution
-
-# Pre-fusion thresholds (filters to reduce noise)
-export VEC_SCORE_THRESH=0.20                          # range: 0.05-0.40; min vector similarity to keep a candidate (raise for precision)
-export BM25_SCORE_THRESH=1.50                         # range: 0.5-3.0; min BM25 to keep (raise to filter weak keyword hits)
-export GRAPH_SCORE_THRESH=0.0                         # range: 0.0-0.5; min graph edge confidence (set >0 if confidences provided)
-
-
-export META_BOOST_FIELD="timestamp"                   # range: metadata key name; metadata key to bias ranking (e.g., timestamp, source_score)
-export META_BOOST_WEIGHT=0.20                         # range: 0.0-1.0; raise if metadata should strongly affect ranking
-
-# Timeouts / concurrency / performance
-export RETRIEVAL_TIMEOUT=5                            # seconds; increase if backing systems are slower
-export RETRIEVAL_BATCH_SIZE=4                         # parallelism for retrieval calls; increase with CPU/network capacity
-export MAX_CONCURRENT_QUERIES=32                      # throttle to protect DBs; scale with infra
-# Arango general performance / logging
-export ARANGO_STORAGE_CACHE_SIZE=2048                 # set ~20-30% host RAM for read-heavy nodes
-export ARANGO_QUERY_MEMORY_LIMIT=1024                 # raise if AQL traversals need more memory
-
-# Observability / app logging
-export APP_LOG_LEVEL="info"                           # 'debug' only temporarily for troubleshooting
 
 ```
-
-
-
-```sh
-
-User query
-    │
-    ├─→ arangosearch → candidates
-    ├─→ Vector search → semantically similar candidates
-    └─→ Graph (ArangoDB) + GeAR → multi-hop linked candidates
-            ↓
-        Candidate merger & reranker (optional)
-            ↓
-        LLM generation / RAG output
-
-Graph traversal → “Follow the edges and return everything connected.”
-
-GeAR reasoning → “Use the graph + triplets to infer which paths and nodes are actually relevant to the query, even if not directly connected.”
-FAISS handles “meaning in text,” GeAR handles “meaning in structure.” Both are needed for a hybrid RAG.
-
-```
-
-
 ## 🔗 **References & specialties of the default models in RAG8s**
 
 ---
@@ -355,7 +302,19 @@ FAISS handles “meaning in text,” GeAR handles “meaning in structure.” Bo
 
 ---
 
-### 🔹 **\[2] Qwen3-4B-AWQ**
+### 🔹 **\[2] gte-reranker-modernbert-base**
+
+* **Cross-encoder reranker** for re-ranking retrieved docs
+* High BEIR benchmark score (**nDCG\@10 ≈ 90.7%**)
+* Same architecture & size as embedding model (149M), supports **8192 tokens**
+* Fast GPU inference with ONNX (FlashAttention 2)
+  🔗 [https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base)
+
+> **Use case**: Ideal for **re-ranking top-k retrieved passages** after dense retrieval to improve precision in RAG answer selection.
+
+---
+
+### 🔹 **\[3] Qwen/Qwen3-4B-AWQ**
 
 A compact, high-throughput **instruction-tuned LLM** quantized using **AWQ**. Built on **Qwen3-4B**, this variant supports **32,768-token context** natively and achieves performance comparable to models 10× its size (e.g., Qwen2.5-72B). Optimized for **SGLang inference**, it balances **speed, memory efficiency, and accuracy**, running seamlessly on GPUs like A10G, L4, and L40S.
 
