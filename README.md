@@ -217,11 +217,11 @@ export EMBEDDER_GPU_AMI_ID=$GPU_AMI_ID                  # GPU AMI with NVIDIA dr
 export EMBEDDER_GPU_MAX_WORKERS=2                       # Max GPU worker nodes; adjust for throughput vs cost
 export EMBEDDER_GPU_EBS_GP3_VOLUME_SIZE=30              # GPU node EBS size (GB) for model storage; increase if needed
 
-export QDRANT_PRIVATE_IP="10.0.1.10"                    # Deterministic private IP for Qdrant ec2 that only ray clusters can access
-export QDRANT_INSTANCE_TYPE="t2.micro"               # EC2 instance type for Qdrant, c8g preferred for prod. 
-export QDRANT_API_KEY="myStrongsecret134"     # Create a strong password for accessing qdrant db from the ray cluster
-export QDRANT_EBS_TYPE=gp2                    # gp2 for dev, gp3 for prod
-export QDRANT_EBS_SIZE=8                      # minimal ebs size since storage is local NVMe based
+export QDRANT_PRIVATE_IP="10.0.1.10"                 # Deterministic and resiliant private IP for Qdrant ASG ENI that only ray clusters can access
+export QDRANT_INSTANCE_TYPE="t2.micro"     # Only local NVMe EC2 is required for Qdrant, c8gd is the most appropriate type. Increase/Decrease size if required
+export QDRANT_API_KEY="myStrongsecret134"     # Create a strong password for accessing qdrant db from the ray clusters
+export QDRANT_EBS_TYPE=gp3                    # gp3's baseline 3000 iops is sufficient. set gp2 if dev
+export QDRANT_EBS_SIZE=8                     # minimal ebs size since storage is local NVMe based
 export CPU_AMI_ARCH=amd
 
 export PYTHONUNBUFFERED=1                             # To force Python to display logs/output immediately instead of buffering
@@ -258,7 +258,7 @@ export PPTX_OCR_ENGINE=rapidocr                       # 'tesseract' (faster), 'r
 export MAX_LENGTH=1200           # range: 600-8000, Max tokens of indexing embedder-gpu model, should be higher than all max tokens.                            
 export EMBED_BATCH_SIZE=512    # 512 chunks per embedding call; fixed, increase for throughput if memory allows, decrease for latency or object store limit
 export QDRANT_COLLECTION_NAME="my_documents"  # Any name for qdrant collection
-export QDRANT_UPSERT_BATCH_SIZES=128                        
+export QDRANT_UPSERT_BATCH_SIZES=128                             
 
 
 export QDRANT__STORAGE__ON_DISK=true  # Store full vectors on disk (memmap). Default: false (in-RAM). Change to false if you have ample RAM and need fastest write/search speed.

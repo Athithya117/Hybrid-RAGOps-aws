@@ -54,7 +54,7 @@ export BASE_AMI_ID="$AMI"
 if [ ! -d "$VENV_DIR" ]; then
   python3 -m venv "$VENV_DIR"
 fi
-
+# shellcheck disable=SC1090
 source "${VENV_DIR}/bin/activate"
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
 if [ -f "${PROJECT_DIR_ABS}/requirements.txt" ]; then
@@ -82,9 +82,8 @@ if [ "$CMD" = "up" ]; then
   pulumi up --stack "$STACK" --yes
 elif [ "$CMD" = "destroy" ]; then
   pulumi destroy --stack "$STACK" --yes || true
-  rm -f infra/pulumi-aws/pulumi-aws-rag-prod-ec2-key.pem || true
-  rm -f infra/pulumi-aws/pulumi-exports.sh || true
-  rm -f infra/pulumi-aws/pulumi-outputs.json || true
+  rm -f "$PROJECT_DIR_ABS/pulumi-aws-rag-prod-ec2-key.pem" || true
+  rm -f "$OUTPUT_SH" || true
 elif [ "$CMD" = "preview" ]; then
   pulumi preview --stack "$STACK"
 else
@@ -99,36 +98,39 @@ else
   printf '{ }\n' > "$OUTPUT_JSON"
   rm -f "$TMP_OUT" || true
 fi
-if command -v jq >/dev/null 2>&1 && jq -e . "$OUTPUT_JSON" >/dev/null 2>&1; then
-  {
-    printf '%s\n' '#!/usr/bin/env bash'
-    printf '%s\n' '# Generated pulumi exports (safe to source)'
-    jq -r '
-      to_entries
-      | map({
-          k: ("PULUMI_" + (.key | ascii_upcase | gsub("-"; "_"))),
-          v: (.value | if type=="string" then . else tostring end)
-        })
-      | .[] | "export \(.k)=\"" + ( .v | gsub("\""; "\\\"") ) + "\""
-    ' "$OUTPUT_JSON"
-  } > "$OUTPUT_SH" || {
+if [ "$CMD" = "up" ]; then
+  if command -v jq >/dev/null 2>&1 && jq -e . "$OUTPUT_JSON" >/dev/null 2>&1; then
+    {
+      printf '%s\n' '#!/usr/bin/env bash'
+      printf '%s\n' '# Generated pulumi exports for ray cluster provisioning'
+      jq -r '
+        to_entries
+        | map({
+            k: ("PULUMI_" + (.key | ascii_upcase | gsub("-"; "_"))),
+            v: (.value | if type=="string" then . else tostring end)
+          })
+        | .[] | "export \(.k)=\"" + ( .v | gsub("\""; "\\\"") ) + "\""
+      ' "$OUTPUT_JSON"
+    } > "$OUTPUT_SH" || {
+      printf '%s\n' '#!/usr/bin/env bash' > "$OUTPUT_SH"
+    }
+  else
     printf '%s\n' '#!/usr/bin/env bash' > "$OUTPUT_SH"
-  }
-else
-  printf '%s\n' '#!/usr/bin/env bash' > "$OUTPUT_SH"
+  fi
+  if [ -f "$OUTPUT_SH" ]; then
+    chmod +x "$OUTPUT_SH" || true
+  fi
+  printf '\n\n'
+  printf '%s\n' "[INFO] Run the following command block to persist env variables for ray (idempotent):"
+  printf '\n'
+  cat <<'BLOCK'
+for f in ~/.bashrc ~/.profile; do
+  grep -qxF 'if [ -f "/workspace/infra/pulumi-aws/pulumi-exports.sh" ]; then source "/workspace/infra/pulumi-aws/pulumi-exports.sh"; fi' "$f" || \
+  echo 'if [ -f "/workspace/infra/pulumi-aws/pulumi-exports.sh" ]; then source "/workspace/infra/pulumi-aws/pulumi-exports.sh"; fi' >> "$f"
+done && exec bash -l
+BLOCK
+  printf '\n\n'
 fi
-
-
-chmod +x infra/pulumi-aws/pulumi-exports.sh || true
-printf '\n\n'
-printf '%s\n' "[INFO] Run this following command block to persist env variables for ray:"
-printf '\n'
-printf '%s\n' "for f in ~/.bashrc ~/.profile; do
-  grep -qxF 'if [ -f \"/workspace/infra/pulumi-aws/pulumi-exports.sh\" ]; then source \"/workspace/infra/pulumi-aws/pulumi-exports.sh\"; fi' \"\$f\" || \
-  echo 'if [ -f \"/workspace/infra/pulumi-aws/pulumi-exports.sh\" ]; then source \"/workspace/infra/pulumi-aws/pulumi-exports.sh\"; fi' >> \"\$f\"
-done && exec bash -l"
-printf '\n\n'
-
 if [ -n "${VIRTUAL_ENV:-}" ]; then
   deactivate || true
 fi

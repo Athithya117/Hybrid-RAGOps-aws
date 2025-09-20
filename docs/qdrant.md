@@ -1,212 +1,220 @@
-# Connections, ports, IPs, endpoints, and backups with qdrant
+# Connections, security and backups with qdrant
 
-Qdrant runs as a Docker container on a single EC2 with a fixed private IP in a VPC. Ray cluster does not handles stateful workloads like hosting databases well. Vertical scaling with c8g instance is sufficient for most of the RAG use cases. 
-
----
-
-# 1) Networking & IPs — how you make connectivity deterministic
-
-* **EC2 private IP:** launch the Qdrant EC2 with a *fixed private IP* (assign at launch or attach an ENI with a fixed private IP). Example: `10.0.2.15`. Your Ray clusters will use that private IP to talk to Qdrant.
-* **Security groups:** Qdrant EC2 SG must allow inbound **TCP 6333** only from the Ray clusters’ SG(s) (use SG IDs, not CIDR). No public inbound rules. Example inbound rule:
-
-  * Protocol: TCP, Port: 6333, Source: `sg-INDEXING-RAY` (and/or `sg-INFERENCE-RAY`)
-* **VPC/subnet:** Put Qdrant and Ray nodes in the same VPC and (preferably) the same subnet or peered subnets so private IP routing works without NAT.
+Qdrant runs as a Docker container on a single EC2 with a fixed private IP (ENI) in a VPC. Ray clusters use that private IP to reach Qdrant. Vertical scaling with local NVMe based VM(c8gd family) is typical for most RAG workloads.
 
 ---
 
-# 2) Docker run & port binding — binding to the private IP
+## 1) Networking & IPs — deterministic connectivity
 
-Run Qdrant with the data directory on an EBS-mounted host path and bind the host private IP to port 6333.
+* **Deterministic endpoint (ENI):** create an ENI with a fixed private IP (example `10.0.2.15`) and attach it to the Qdrant EC2 via the Launch Template. When ASG replaces the instance the ENI (and its private IP) is re-attached so the endpoint stays stable.
+* **Security groups:** Qdrant SG must allow inbound **TCP 6333** only from Ray SG(s) (use SG IDs) and a Qdrant API key is required. No public inbound rules. 
+* **VPC/subnet:** Qdrant and Ray indexing cluster are in the same VPC and subnet for lower network latency. 
 
-Example:
+---
+
+## 2) Docker run & port binding — binding to the private IP
+
+Run Qdrant on the host, mount a persistent host path for storage (NVMe or EBS as your node storage), and bind the host private IP:
 
 ```bash
-# assume /mnt/qdrant is your EBS mount on the EC2 host
-sudo mkdir -p /mnt/qdrant
-sudo chown 1000:1000 /mnt/qdrant   # ensure permissions for Qdrant container user
+sudo mkdir -p /workspace/qdrant/data
+sudo chown 1000:1000 /workspace/qdrant/data
 
-# run Qdrant, binding to the host private IP
+# bind to the deterministic ENI private IP
 docker run -d --name qdrant \
-  -p 10.0.2.15:6333:6333 \                    # bind host private IP -> container port
-  -v /mnt/qdrant:/qdrant/storage \            # persistent storage on EBS
-  -e QDRANT__HTTP__API_KEY="$QDRANT_API_KEY" \# set API key via env
+  -p 10.0.2.15:6333:6333 \
+  -v /workspace/qdrant/data:/qdrant/storage \
+  -e QDRANT__HTTP__API_KEY="$QDRANT_API_KEY" \
   qdrant/qdrant:latest
 ```
 
 Notes:
 
-* `-p <HOST_IP>:6333:6333` binds only the host private IP. If you use `-p 0.0.0.0:6333:6333`, the port is reachable from any interface on the host (still gated by SG).
-* Mount host path (`/mnt/qdrant`) to container storage path (`/qdrant/storage`) so data persists on the EBS volume.
+* `-p <HOST_IP>:6333:6333` binds only that host private IP. `0.0.0.0` would make it listen on all host interfaces (still gated by SG).
+* Storage must persist on the host at `/workspace/qdrant/data`. Backups are to S3 (see §6).
 
 ---
 
-# 3) Qdrant endpoints & API key usage
+## 3) Qdrant endpoints & API key usage
 
-* **HTTP API** default: `http://<QDRANT_PRIVATE_IP>:6333`
+* API endpoint: `http://<QDRANT_PRIVATE_IP>:6333`
 
-  * Health: `GET http://10.0.2.15:6333/health`
-  * Upsert (vectors): `POST /collections/<collection>/points?wait=true` or the modern `PUT /collections/<col>/points` depending on client library version.
-  * Search: `POST /collections/<collection>/point_search` or `POST /collections/<collection>/search` (use the version matching your Qdrant release).
-* **API key**: include header `api-key: <QDRANT_API_KEY>` in every request (or `--header "api-key: $QDRANT_API_KEY"` for curl).
-* Example curl (health):
+  * Health: `GET /health`
+  * Upsert: `PUT /collections/<col>/points` (or the endpoint matching your Qdrant version)
+  * Search: `POST /collections/<col>/search` (or versioned path)
+* Always include `api-key` header: `api-key: <QDRANT_API_KEY>`.
+
+Example health check:
 
 ```bash
 curl -s -H "api-key: $QDRANT_API_KEY" http://10.0.2.15:6333/health
 ```
 
-* Example curl (search):
+---
 
-```bash
-curl -s -H "Content-Type: application/json" -H "api-key: $QDRANT_API_KEY" \
-  -d '{
-    "vector": [0.1, 0.2, ...],
-    "top": 5
-  }' \
-  http://10.0.2.15:6333/collections/my_collection/points/search
-```
+## 4) How Ray clusters connect
 
-(If you use a Qdrant client SDK in Python/Go, configure the host/port and API key accordingly.)
+* **Indexing cluster (writes):** call `http://10.0.2.15:6333` with API key to upsert batches. Use deterministic chunk IDs for idempotency.
+* **Inference cluster (reads):** same endpoint for searches. Use a read-only discipline or separate API key where possible.
 
 ---
 
-# 4) How Ray clusters connect
+## 5) Example upsert payload (batched, deterministic IDs)
 
-* **Indexing cluster (writes):** tasks call `http://10.0.2.15:6333` with `api-key` to upsert vectors in batches. Use deterministic chunk IDs in the upsert payload to make operations idempotent.
-* **Inference cluster (reads):** tasks call the same endpoint for search — read-only behavior. Keep the same `api-key` that has appropriate permissions.
-* **No database modification by inference cluster:** enforce this by issuing only `search` requests from inference code and/or by using a separate API key scoped to read-only (if you can enforce read-only in your environment; otherwise rely on app-level discipline).
+(unchanged — keep using SHA256(doc\_id + chunk\_index) style IDs). Example same as before.
 
 ---
 
-# 5) Example upsert payload (batched, deterministic IDs)
+## 6) Backups → **S3-based snapshots (new plan)**
 
-When you upsert use deterministic id generation (e.g., SHA256 of doc-id+chunk-index). Example JSON payload (simplified):
+**Overview:** Use Qdrant’s snapshot API to produce a local snapshot, compress it to `.tar.zst`, upload to S3 with multipart concurrency, compute SHA256, and publish an atomic manifest `latest_qdrant_backup.manifest.json` in the bucket. Don’t rely on EBS snapshots for backups.
 
-```json
-{
-  "points": [
-    {
-      "id": "chunk::doc123::0",       // deterministic chunk id
-      "vector": [0.12, 0.31, ...],
-      "payload": {"doc_id":"doc123","chunk_idx":0,"text":"..."}
-    },
-    {
-      "id": "chunk::doc123::1",
-      "vector": [0.22, 0.11, ...],
-      "payload": {"doc_id":"doc123","chunk_idx":1,"text":"..."}
-    }
-  ]
-}
-```
+**Why:** `.tar.zst` is fast to compress/decompress and efficient for large backups; multipart uploads saturate network and are resumable; manifest ensures atomic pointer to latest snapshot.
 
-Curl example:
+### Recommended, robust sequence (atomic & idempotent)
 
-```bash
-curl -X PUT "http://10.0.2.15:6333/collections/my_collection/points?wait=true" \
-  -H "Content-Type: application/json" -H "api-key: $QDRANT_API_KEY" \
-  --data-binary @batch.json
-```
-
-Batching: push many points per request (tune for memory/throughput). Deterministic IDs mean rerunning the same batch will upsert/overwrite rather than creating duplicates.
-
----
-
-# 6) Backups with EBS snapshots — how to make them consistent
-
-Your approach: Qdrant data is stored on an **EBS volume** mounted at `/mnt/qdrant` on the EC2 host. Use **EBS snapshots** for point-in-time full-node backup.
-
-Best-practice procedure for a consistent snapshot:
-
-1. **Pause or stop writers** (recommended):
-
-   * During indexing, at the end of the batch you already control the indexing job — ensure it finishes and no upserts are in flight.
-2. **Stop the Qdrant container** (fast and safe):
+1. **Quiesce writers**: ensure indexing batch finished and no in-flight upserts.
+2. **Trigger Qdrant snapshot** via API:
 
    ```bash
-   docker stop qdrant
+   curl -X POST -H "api-key: $QDRANT_API_KEY" \
+     http://127.0.0.1:6333/collections/<collection>/snapshots
    ```
 
-   Stopping the container flushes/cleanly closes WAL and files to disk.
-3. **Create EBS snapshot** (AWS CLI example — replace `<VOLUME_ID>`):
+   or Qdrant's global snapshot endpoint if available. Poll `GET /snapshots` or collection snapshot status until `completed`.
+3. **Package snapshot**:
 
    ```bash
-   aws ec2 create-snapshot --volume-id vol-0abcdef12345 --description "qdrant backup $(date -u +%Y%m%dT%H%M%SZ)" \
-     --tag-specifications 'ResourceType=snapshot,Tags=[{Key=Name,Value=qdrant-backup},{Key=batch_id,Value=INDEX_BATCH_123}]'
+   SNAP_DIR=/workspace/qdrant/backups/snapshots/<snapshot_folder>
+   OUT=/workspace/qdrant/backups/qdrant_snapshot_$(date -u +%Y%m%dT%H%M%SZ).tar.zst
+   tar -C "$SNAP_DIR" -I 'zstd -T0 -19' -cf "$OUT" .
    ```
-4. **Restart Qdrant**:
+4. **Compute checksum**:
 
    ```bash
-   docker start qdrant
+   sha256sum "$OUT" > "$OUT.sha256"
    ```
-5. **Verify snapshot success** and tag retention policy (automate deletion after N days if desired).
+5. **Upload to S3 (multipart recommended)**:
 
-Why stop the container?
+   * **Simple** (AWS CLI automatically does multipart for big files):
 
-* Stopping ensures all in-memory state and WALs are flushed; snapshotting a live DB risks corruption or partial writes. You *can* snapshot a live volume but then must ensure DB supports consistent online snapshots — Qdrant does not document that as a guaranteed safe approach for hot snapshots, so stopping is the safest.
+     ```bash
+     aws s3 cp "$OUT" "s3://$S3_BUCKET/qdrant/backups/$(basename $OUT)" --storage-class STANDARD
+     ```
+   * **Controlled (recommended for large files)** — use Python/boto3 with `TransferConfig` to set `multipart_chunksize` and `max_concurrency`:
 
-Automating snapshot:
+     ```python
+     import boto3
+     from boto3.s3.transfer import TransferConfig
+     import hashlib, json, time
+     s3 = boto3.client("s3", region_name="ap-south-1")
+     cfg = TransferConfig(multipart_chunksize=50*1024*1024, max_concurrency=8)
+     s3.upload_file(OUT, S3_BUCKET, S3_KEY, Config=cfg)
 
-* Indexing job (at end) can call AWS CLI (with appropriate IAM role) to snapshot the attached volume.
-* Alternatively, use an AWS Lambda or Step Function triggered by a message produced by the indexing job.
+     ```
+6. **Write manifest locally (manifest.tmp)** including:
 
-Restoring from snapshot:
+   ```json
+   {
+     "backup_and_restore_path": "/workspace/qdrant/data/",
+     "latest_snapshot": "qdrant_snapshot_2025-09-19T15-30-00.snapshot.zst",
+     "latest_snapshot_from_path": "/workspace/qdrant/backups/snapshots/",
+     "latest_snapshot_to_path": "s3://<bucket>/qdrant/backups/qdrant_snapshot_2025-09-19T15-30-00.snapshot.zst",
+     "latest_snapshot_size_in_mb": 20000,
+     "multipart_upload_concurrency": 8,
+     "latest_snapshot_upload_duration_in_seconds": 120,
+   }
 
-1. Create a new volume from snapshot.
-2. Attach volume to new EC2 (or replace old volume).
-3. Mount it to `/mnt/qdrant`.
-4. Run the Qdrant container with `-v /mnt/qdrant:/qdrant/storage` — you get the full node restored.
+  ```
 
-Commands:
+7. **Atomically publish/overwrite manifest**:
+
+   ```bash
+   aws s3 cp manifest.tmp s3://$S3_BUCKET/latest_qdrant_backup.manifest.json.tmp
+   aws s3 mv s3://$S3_BUCKET/latest_qdrant_backup.manifest.json.tmp s3://$S3_BUCKET/latest_qdrant_backup.manifest.json
+   ```
+
+   (or `aws s3 cp manifest.tmp s3://$S3_BUCKET/latest_qdrant_backup.manifest.json && rm manifest.tmp` — but atomic `mv` from a temp key is preferred).
+8. **Local cleanup**: rotate or delete local tarball per retention policy.
+
+### Manifest is authoritative
+
+Boot/restore logic should consult `s3://$S3_BUCKET/latest_qdrant_backup.manifest.json` first. It contains the upload path, checksum, concurrency hint and metadata.
+
+### Fallback
+
+If manifest missing, UserData can call Qdrant `GET /snapshots` and pick the newest snapshot by creation\_time or ISO8601 name — but manifest is preferred.
+
+---
+
+## 7) Restore workflow (on first time provisioning / ASG replacement)
+
+1. Instance boots; UserData reads `s3://$S3_BUCKET/latest_qdrant_backup.manifest.json`.
+2. If present, verify checksum; **multipart-download** snapshot (or `aws s3 cp`) to `/workspace/qdrant/backups/`.
+
+   * Use boto3 TransferConfig for concurrency if large.
+3. Extract:
+
+   ```bash
+   tar -I 'zstd -d -T0' -xvf /workspace/qdrant/backups/<snapshot>.tar.zst -C /workspace/qdrant/backups/snapshots/
+   # then copy/extract into /workspace/qdrant/data/ as needed
+   tar -C /workspace/qdrant/backups/snapshots -xvf ...
+   chown -R 1000:1000 /workspace/qdrant/data /workspace/qdrant/backups/snapshots
+   ```
+4. Start Qdrant container (bind to ENI IP), wait for `/health` OK.
+5. Run warm-up queries to populate page-cache; then mark instance healthy for traffic.
+
+---
+
+## 8) Monitoring, alerts & runbook changes
+
+* Alert on: snapshot upload failures, manifest not updated, checksum mismatch, low local disk space, Qdrant `/health` failing, ASG replacement events.
+* Restore drills: monthly automated restore-to-staging using the manifest (download → extract → start → verify collection counts & sample queries).
+* IAM: Instance role needs read access to snapshot prefix and `latest_qdrant_backup.manifest.json` for restore; snapshot job needs write access to that prefix.
+
+---
+
+## 9) Security & operational guardrails
+
+* Keep `QDRANT_API_KEY` in Secrets Manager/SSM and inject into instances securely.
+* S3: use SSE (KMS), bucket policies restricting writes to snapshot prefix, lifecycle rules to age snapshots.
+* Atomic manifests: write `manifest.tmp` then `mv` to `latest_qdrant_backup.manifest.json`.
+
+---
+
+## 10) Example scripts (quick)
+
+Create snapshot + tar + upload (bash + boto3 recommended for concurrency):
 
 ```bash
-# create volume from snapshot
-aws ec2 create-volume --snapshot-id snap-0123456789abcdef0 --availability-zone us-east-1a --volume-type gp3
+# 1. trigger snapshot via API (example)
+curl -s -X POST -H "api-key: $QDRANT_API_KEY" http://127.0.0.1:6333/collections/my_collection/snapshots
 
-# attach to instance (then mount)
-aws ec2 attach-volume --volume-id vol-0abcd... --instance-id i-0123abcd --device /dev/sdf
+# 2. wait for completion (polling omitted here)
+
+# 3. tar + zstd
+SNAP_DIR=/workspace/qdrant/backups/snapshots/<snap>
+OUT=/workspace/qdrant/backups/qdrant_snapshot_$(date -u +%Y%m%dT%H%M%SZ).tar.zst
+tar -C "$SNAP_DIR" -I 'zstd -T0 -19' -cf "$OUT" .
+
+# 4. upload with aws cli (or use boto3 for TransferConfig)
+aws s3 cp "$OUT" "s3://$S3_BUCKET/qdrant/backups/$(basename $OUT)"
+sha256sum "$OUT" > "$OUT.sha256"
+
+# 5. manifest.tmp creation + upload + atomic move (see §6)
 ```
 
----
-
-# 7) Additional operational tips & hardening
-
-* **IAM & secrets:** Store `QDRANT_API_KEY` in AWS Secrets Manager or SSM Parameter Store; inject into Ray nodes securely (avoid plaintext in user-data). Use instance profiles for snapshot permissions.
-* **Health checks & monitoring:** poll `http://<ip>:6333/health` and expose metrics to Prometheus (Qdrant exposes prometheus metrics optionally).
-* **Firewall on host:** rely on SGs; optionally install host-level firewall (ufw/iptables) to further restrict access to `10.0.2.0/24` or the Ray SGs.
-* **Read-only / principle of least privilege:** if possible consider separate API keys (or app-layer enforcement) for indexing vs inference.
-* **Disk capacity planning:** monitor `/mnt/qdrant` usage; keep headroom so Qdrant WAL and merges don’t run out of space.
-* **Multiple replicas / HA:** single EC2 + EBS is simple but single-point-of-failure. EBS snapshots are your backup; if you need HA consider Qdrant clustering or multi-node architecture later.
-* **Docker restart policy:** set `--restart unless-stopped` so a host reboot restarts Qdrant automatically.
-* **Bind to localhost alternatives:** binding to `10.0.2.15` is fine. If you want even stricter control, bind to `127.0.0.1` + use a host proxy with auth — but for Ray cluster access across hosts a private IP is typical.
+For high-volume snapshots use the boto3 `TransferConfig` snippet earlier to control `multipart_chunksize` and `max_concurrency`.
 
 ---
 
-# 8) Example end-to-end script (indexing job triggers snapshot)
+## Quick checklist (updated)
 
-Pseudo-steps your indexing job runs after finishing a successful upsert batch:
-
-```bash
-# 1) ensure no upserts in flight
-# 2) signal Qdrant host or run a command via SSH / SSM to stop container
-ssh ec2-user@10.0.2.15 'docker stop qdrant'
-
-# 3) create snapshot of the EBS volume (using instance role or IAM creds)
-aws ec2 create-snapshot --volume-id vol-0abcdef... --description "qdrant backup $BATCH_ID" --tag-specifications 'ResourceType=snapshot,Tags=[{Key=batch,Value='$BATCH_ID'}]'
-
-# 4) restart qdrant
-ssh ec2-user@10.0.2.15 'docker start qdrant'
-```
-
-(Use Systems Manager Run Command instead of SSH for better automation.)
+* [ ] ENI created and attached -> `QDRANT_PRIVATE_IP` exported.
+* [ ] Docker Qdrant launched: bound to that IP and mounted host storage `/workspace/qdrant/data`.
+* [ ] SG inbound allows only Ray SG(s) to 6333.
+* [ ] Indexing job uses deterministic IDs and emits success marker for backup trigger.
+* [ ] Snapshot automation: snapshot via Qdrant API → `.tar.zst` → multipart upload to S3 → `latest_qdrant_backup.manifest.json` updated atomically.
+* [ ] Restore drill scheduled monthly to verify end-to-end S3 restore works.
 
 ---
-
-# Quick checklist to verify correct setup
-
-* [ ] EC2 has fixed private IP or ENI attached.
-* [ ] Docker Qdrant launched with `-p <PRIVATE_IP>:6333:6333` and `-v /mnt/qdrant:/qdrant/storage`.
-* [ ] Qdrant responds: `curl -H "api-key: $QDRANT_API_KEY" http://10.0.2.15:6333/health`
-* [ ] SG inbound rule allows only Ray clusters SG(s) to 6333.
-* [ ] Indexing job uses deterministic IDs and batches upserts.
-* [ ] Snapshot automation in place to stop container, snapshot EBS, restart container.
-* [ ] Secrets and snapshot IAM permissions are set up securely.
-

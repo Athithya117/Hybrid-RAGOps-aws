@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-"""
-AWS networking stack for RAG platform (VPC + Security Groups + EC2 KeyPair).
-
-"""
-
 import os
 import stat
 import pulumi
@@ -174,3 +168,4 @@ aws_key.key_name.apply(lambda val: print(f'export PULUMI_EC2_KEY_NAME="{val}"'))
 pem_path.apply(lambda val: print(f'export PULUMI_EC2_KEY_PATH="{val}"'))
 
 pulumi.export("public_subnet_count", len(public_subnets))
+

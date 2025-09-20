@@ -16,6 +16,9 @@ infra/pulumi-aws/pulumi-exports.sh
 infra/pulumi-aws/pulumi-outputs.json
 *.pem
 
+qdrant/
+qdrant
+
 trust-spotfleet.json
 
 # Python cache
@@ -50,3 +53,4 @@ tmp.md
 # Development files not needed in Docker image
 notebooks/
 *.zip
+commands.sh

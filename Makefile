@@ -22,4 +22,23 @@ clean:
 
 
 
+SHELL := /bin/bash -lc
+.PHONY: host-qdrant-locally host-qdrant-locally-foreground write-env stop-qdrant
 
+QDRANT_PRIVATE_IP ?= 127.0.0.1
+QDRANT_PORT ?= 6333
+QDRANT_IMAGE ?= qdrant/qdrant:v1.15.4
+QDRANT_HOST_DATA ?= /workspace/qdrant/data
+QDRANT_HOST_BACKUPS ?= /workspace/qdrant/backups
+
+host-qdrant-locally-foreground:
+	sudo mkdir -p $(QDRANT_HOST_DATA) $(QDRANT_HOST_BACKUPS)/snapshots && \
+	sudo chown -R 1000:1000 $(QDRANT_HOST_DATA) $(QDRANT_HOST_BACKUPS) && \
+	docker rm -f qdrant_local 2>/dev/null || true && \
+	docker run --rm --name qdrant_local -p $(QDRANT_PRIVATE_IP):$(QDRANT_PORT):$(QDRANT_PORT) -v $(QDRANT_HOST_DATA):/qdrant/storage -v $(QDRANT_HOST_BACKUPS):/qdrant/backups -e QDRANT__STORAGE__SNAPSHOTS_PATH=/qdrant/backups/snapshots $(QDRANT_IMAGE)
+
+host-qdrant-locally:
+	sudo mkdir -p $(QDRANT_HOST_DATA) $(QDRANT_HOST_BACKUPS)/snapshots && \
+	sudo chown -R 1000:1000 $(QDRANT_HOST_DATA) $(QDRANT_HOST_BACKUPS) && \
+	docker rm -f qdrant_local 2>/dev/null || true && \
+	docker run -d --name qdrant_local -p $(QDRANT_PRIVATE_IP):$(QDRANT_PORT):$(QDRANT_PORT) -v $(QDRANT_HOST_DATA):/qdrant/storage -v $(QDRANT_HOST_BACKUPS):/qdrant/backups -e QDRANT__STORAGE__SNAPSHOTS_PATH=/qdrant/backups/snapshots $(QDRANT_IMAGE)

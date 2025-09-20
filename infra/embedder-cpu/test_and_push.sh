@@ -122,4 +122,3 @@ wait
 curl -s -X POST "http://127.0.0.1:${APP_PORT}/embed" -H "Content-Type: application/json" -d '{"text":"hello world","max_length":50}' | head -n 60
 if [ -n "${DOCKER_PASSWORD:-}" ]; then docker logout || true; fi
 
-# curl -s -X POST "http://127.0.0.1:8000/embed" -H "Content-Type: application/json" -d '{"text":"hello world","max_length":8000}' | head -n 60
