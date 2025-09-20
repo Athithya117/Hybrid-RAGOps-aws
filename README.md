@@ -193,6 +193,13 @@ export AWS_SECRET_ACCESS_KEY=""                        # AWS secret access key
 ```sh
 
 
+export ENABLE_QDRANT_SNAPSHOT="false"
+# export SNAPSHOT_S3_BUCKET=$S3_BUCKET
+# export SNAPSHOT_S3_PREFIX="qdrant/backups/"
+
+export RAY_ADDRESS="auto"
+export EMBEDDER_ACTOR_NAME="embedder-actor"
+# or export EMBEDDER_SERVE_DEPLOYMENT="Embedder"
 
 export AWS_REGION="ap-south-1"                         # AWS region to create resources
 export VPC_CIDR="10.0.0.0/16"                          # VPC range
@@ -220,7 +227,7 @@ export EMBEDDER_GPU_EBS_GP3_VOLUME_SIZE=30              # GPU node EBS size (GB)
 export QDRANT_PRIVATE_IP="10.0.1.10"                 # Deterministic and resiliant private IP for Qdrant ASG ENI that only ray clusters can access
 export QDRANT_INSTANCE_TYPE="t2.micro"     # Only local NVMe EC2 is required for Qdrant, c8gd is the most appropriate type. Increase/Decrease size if required
 export QDRANT_API_KEY="myStrongsecret134"     # Create a strong password for accessing qdrant db from the ray clusters
-export QDRANT_EBS_TYPE=gp3                    # gp3's baseline 3000 iops is sufficient. set gp2 if dev
+export QDRANT_EBS_TYPE=gp2                    # gp3's baseline 3000 iops is sufficient. set gp2 if dev
 export QDRANT_EBS_SIZE=8                     # minimal ebs size since storage is local NVMe based
 export CPU_AMI_ARCH=amd
 

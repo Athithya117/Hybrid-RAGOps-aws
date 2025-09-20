@@ -13,7 +13,7 @@ rapidocr-onnxruntime==1.4.4
 lxml==5.4.0
 lxml_html_clean==0.4.2
 pandas==2.3.2
-ray==2.49.1
+ray==2.49.2
 pyarrow==21.0.0
 ijson==3.4.0
 markdown-it-py==4.0.0
@@ -23,3 +23,4 @@ soundfile==0.13.1
 python-pptx==1.0.2
 qdrant-client==1.15.1
 virtualenv==20.34.0
+ray[serve]==2.49.2
