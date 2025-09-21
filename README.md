@@ -251,7 +251,6 @@ export EMBEDDER_ACTOR_NAME="embedder-actor"
 # or export EMBEDDER_SERVE_DEPLOYMENT="Embedder"
 
 
-
 export PYTHONUNBUFFERED=1                             # To force Python to display logs/output immediately instead of buffering
 export S3_BUCKET=e2e-rag-system-42                    # Set any globally unique complex name, Pulumi S3 backend -> s3://$S3_BUCKET/pulumi/
 export S3_RAW_PREFIX=data/raw/                        # raw ingest prefix (change to isolate datasets)
@@ -288,27 +287,33 @@ export QDRANT_COLLECTION_NAME="my_documents"  # Any name for qdrant collection
 export QDRANT_UPSERT_BATCH_SIZES=128                             
 
 
-export QDRANT__STORAGE__ON_DISK=true  # Store full vectors on disk (memmap). Default: false (in-RAM). Change to false if you have ample RAM and need fastest write/search speed.
-export QDRANT__STORAGE__PAYLOAD_ON_DISK=true  # Store payloads on disk. Default: false. Change to false if payloads are tiny and you want in-memory filtering for speed.
-export QDRANT__STORAGE__SNAPSHOTS_PATH=/workspace/qdrant/backups/snapshots/  # Path to store snapshots for backup. Default is local ./snapshots. Change if you use a custom backup path or S3 sync.
-export QDRANT__QUANTIZATION__SCALAR_TYPE=INT8  # Scalar quantization type: INT8. Options: INT8, INT4. Improves RAM usage with minor accuracy loss. Change if you want higher compression or lower accuracy acceptable.
-export QDRANT__QUANTIZATION__SCALAR_QUANTILE=0.99  # Drop top 1% of extreme values during quantization. Default: 0.99. Change to 1.0 if you want exact preservation of outliers (slightly larger memory).
-export QDRANT__QUANTIZATION__SCALAR_ALWAYS_RAM=true # Keep quantized vectors in RAM for faster search. Default: false. Change to false if RAM is very limited.
-export QDRANT__QUANTIZATION__BINARY_ENCODING=two_bits # Binary quantization: one/two bits. Default: none. Use two_bits for high-dim embeddings to save memory. Change if extreme compression required.
-export QDRANT__QUANTIZATION__BINARY_ALWAYS_RAM=true  # Keep binary-quantized vectors in RAM. Default: false. Change to false if memory constrained.
-export QDRANT__HNSW__M=32       # Number of edges per HNSW node. Default: 16. Increase for higher recall (slower build). Decrease if speed prioritized.
-export QDRANT__HNSW__EF_CONSTRUCT=200    # Candidate pool size for index building. Default: 100. Increase for higher recall; decrease for faster builds.
-export QDRANT__OPTIMIZER__MAX_SEGMENT_SIZE=5000000  # Max segment size (bytes). Default: 2e6. Larger segments = fewer merges, better throughput.
-export QDRANT__OPTIMIZER__DEFAULT_SEGMENT_NUMBER=2  # Number of segments to create. Default: auto. Reduce to 2 for fewer large segments to maximize throughput.
-export QDRANT__OPTIMIZER__MAX_INDEXING_THREADS=0    # Number of indexing threads. Default 0 = auto. Set to 8-16 for fixed CPU allocation and predictable performance.
-export QDRANT__HNSW__EF=200                         # Search-time candidate pool for HNSW. Default: 100. Higher = higher recall, slower search; lower = faster, less accurate.
-export QDRANT__HNSW__ON_DISK=false                  # Keep HNSW graph in RAM for faster search. Default: false. Change to true if RAM is extremely limited, at cost of search latency.
-export QDRANT__SEARCH__RERANK_CROSS_ENCODER=false   # Use cross-encoder for re-ranking. Default: false. Change to true if higher search precision is needed at cost of latency.
-export QDRANT__SEARCH__TOP_K=10                     # Number of vectors returned per search. Default: 10. Change to higher number if reranking or further filtering is needed.
-export QDRANT__SEARCH__PAYLOAD_FIELDS=indexed_field1,indexed_field2
-# Fields to index for filtering. Default: none. Change to include payload keys used in filters to speed up search.
-export QDRANT__SEARCH__MAX_CONCURRENT_QUERIES=16   # Maximum simultaneous search requests. Default: 8. Increase if CPU supports higher concurrency for multiple Ray inference nodes.
-export QDRANT__PROMETHEUS__ENABLED=true             # Enable metrics export for external Prometheus monitoring. Default: false. Change to true if you want observability.
+# Arango / vector index toggles
+export ARANGO_VECTOR_INDEX_ENABLE=true                # range: true|false; false to disable vector ops (read-only or minimal infra)
+export ARANGO_VECTOR_INDEX_TYPE="ivf+pq"                 # range: 'hnsw'|'ivf'|'ivf+pq'; choose 'hnsw' (<100k docs), 'ivf' (>=100k), 'ivf+pq' for huge corpora
+export ARANGO_VECTOR_INDEX_MAX_MEMORY_MB=2048         # range: 512-65536 MB; soft cap for index memory on node; increase with corpus size
+
+# IVF-specific (only if using ivf)
+export ARANGO_VECTOR_INDEX_IVF_NLIST=1000             # range: 256-16384; set ~sqrt(N_vectors); increase for very large corpora
+export ARANGO_VECTOR_INDEX_IVF_NPROBE=10              # range: 4-128; raise for recall at cost of latency
+
+# PQ (only if using ivf+pq/pq)
+export ARANGO_VECTOR_INDEX_PQ_M=16                    # range: 8-32; PQ segments; must divide embedding dim; tune for memory vs accuracy
+
+# HNSW-specific (only if using hnsw)
+export ARANGO_VECTOR_INDEX_HNSW_M=32                  # range: 16-64; higher => more memory but higher recall
+export ARANGO_VECTOR_INDEX_HNSW_EFCONSTRUCTION=200    # range: 100-800; raise for better index build quality
+export ARANGO_VECTOR_INDEX_HNSW_EFSEARCH=50           # range: 40-300; raise for higher query recall (latency ↑)
+
+# FAISS sidecar / local index
+export FAISS_INDEX_PATH="/mnt/faiss/index.ivf"        # range: filesystem path|"empty"; local index path (empty if not used)
+export FAISS_INDEX_DIM=768                            # range: embedding dim; must match embedding model output
+export FAISS_NLIST=256                                # range: 128-16384; local FAISS nlist; increase for large indices
+export FAISS_NPROBE=10                                # range: 1-128; raise for recall at latency cost
+
+# Arango general performance / logging
+export ARANGO_STORAGE_CACHE_SIZE=2048                 # set ~20-30% host RAM for read-heavy nodes
+export ARANGO_QUERY_MEMORY_LIMIT=1024                 # raise if AQL traversals need more memory
+
 
 
 ```
@@ -337,7 +342,7 @@ export QDRANT__PROMETHEUS__ENABLED=true             # Enable metrics export for 
 * Fast GPU inference with ONNX (FlashAttention 2)
   🔗 [https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-reranker-modernbert-base)
 
-> **Use case**: Ideal for **re-ranking top-k retrieved passages** after dense retrieval to improve precision in RAG answer selection.
+> **Use case**: Ideal for **re-ranking top-k retrieved passages** after dense and sparse retrieval to improve precision in RAG answer selection.
 
 ---
 

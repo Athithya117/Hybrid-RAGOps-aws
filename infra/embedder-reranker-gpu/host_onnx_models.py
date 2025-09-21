@@ -1,5 +1,3 @@
-
-#!/usr/bin/env python3
 from __future__ import annotations
 import os
 import sys
@@ -18,15 +16,11 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
 
-# -------------------------
-# Hardcoded deterministic paths (user-provided)
-# -------------------------
-EMBEDDER_MODEL_DIR = "/workspace/models/gte-modernbert-base-onnx-fp16/gte-modernbert-base-onnx-fp16"
-EMBEDDER_MODEL_PATH = os.path.join(EMBEDDER_MODEL_DIR, "onnx", "model_fp16.onnx")
-RERANKER_MODEL_DIR = "/workspace/models/gte-reranker-modernbert-base-onnx-fp16/gte-reranker-modernbert-base-onnx-fp16"
-RERANKER_MODEL_PATH = os.path.join(RERANKER_MODEL_DIR, "onnx", "model_fp16.onnx")
+EMBEDDER_MODEL_DIR = os.environ.get("EMBEDDER_MODEL_DIR", "/opt/models/gte-modernbert-base")
+EMBEDDER_MODEL_PATH = os.environ.get("EMBEDDER_MODEL_PATH", os.path.join(EMBEDDER_MODEL_DIR, "model_fp16.onnx"))
+RERANKER_MODEL_DIR = os.environ.get("RERANKER_MODEL_DIR", "/opt/models/gte-reranker-modernbert-base")
+RERANKER_MODEL_PATH = os.environ.get("RERANKER_MODEL_PATH", os.path.join(RERANKER_MODEL_DIR, "model_fp16.onnx"))
 
-# runtime-config via env
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8001"))
 SERVER_DEFAULT_MAX_LENGTH = int(os.environ.get("MAX_LENGTH") or "512")
@@ -45,10 +39,6 @@ os.environ.setdefault("OMP_NUM_THREADS", os.environ.get("OMP_NUM_THREADS", "1"))
 os.environ.setdefault("OPENBLAS_NUM_THREADS", os.environ.get("OPENBLAS_NUM_THREADS", "1"))
 os.environ.setdefault("MKL_NUM_THREADS", os.environ.get("MKL_NUM_THREADS", "1"))
 
-
-# -------------------------
-# CUDA helpers
-# -------------------------
 def _cuda_visible_via_env() -> List[str]:
     v = os.environ.get("CUDA_VISIBLE_DEVICES")
     if not v:
@@ -57,7 +47,6 @@ def _cuda_visible_via_env() -> List[str]:
     if v == "":
         return []
     return [p.strip() for p in v.split(",") if p.strip() not in ("", "-1")]
-
 
 def _nvidia_smi_device_count() -> int:
     if not shutil.which("nvidia-smi"):
@@ -70,7 +59,6 @@ def _nvidia_smi_device_count() -> int:
     except Exception:
         return 0
 
-
 def _cuda_device_count_fallback() -> int:
     env_list = _cuda_visible_via_env()
     if env_list:
@@ -79,7 +67,6 @@ def _cuda_device_count_fallback() -> int:
     if nvidia_count > 0:
         return nvidia_count
     return 0
-
 
 def _get_allocated_cuda_device_index() -> int:
     env_list = _cuda_visible_via_env()
@@ -93,10 +80,6 @@ def _get_allocated_cuda_device_index() -> int:
     except Exception:
         return 0
 
-
-# -------------------------
-# Helper: read json if exists
-# -------------------------
 def _read_json_if_exists(p: str) -> Optional[Dict[str, Any]]:
     if os.path.exists(p):
         try:
@@ -106,36 +89,22 @@ def _read_json_if_exists(p: str) -> Optional[Dict[str, Any]]:
             return None
     return None
 
-
-# -------------------------
-# Ensure tokenizer has a pad token (fixes your observed error)
-# -------------------------
 def _ensure_pad_token(tokenizer: Any) -> Any:
-    """
-    Ensure tokenizer.pad_token is present. If absent:
-      - prefer tokenizer.eos_token, then cls_token
-      - otherwise add a special '[PAD]' token
-    Modifies tokenizer in-place and returns it.
-    """
     try:
         if getattr(tokenizer, "pad_token", None) is not None:
             return tokenizer
-        # prefer eos_token
         if getattr(tokenizer, "eos_token", None) is not None:
             tokenizer.pad_token = tokenizer.eos_token
             logger.info("pad_token set to eos_token for tokenizer")
             return tokenizer
-        # fallback to cls_token
         if getattr(tokenizer, "cls_token", None) is not None:
             tokenizer.pad_token = tokenizer.cls_token
             logger.info("pad_token set to cls_token for tokenizer")
             return tokenizer
-        # otherwise add special pad token
         try:
             tokenizer.add_special_tokens({"pad_token": "[PAD]"})
             logger.info("Added special token '[PAD]' and set as pad_token")
         except Exception:
-            # some tokenizer objects require explicit attribute set
             try:
                 tokenizer.pad_token = "[PAD]"
                 logger.info("Set pad_token to literal '[PAD]'")
@@ -145,40 +114,21 @@ def _ensure_pad_token(tokenizer: Any) -> Any:
         logger.warning("ensure_pad_token error: %s", e)
     return tokenizer
 
-
-# -------------------------
-# Tokenizer loader (fast/path-based, robust)
-# -------------------------
 def load_tokenizer_from_dir(model_dir: str) -> Optional[Any]:
-    """
-    Try to load tokenizer deterministically from model_dir.
-    Prefer tokenizer.json + PreTrainedTokenizerFast (direct, no conversion).
-    Fallbacks:
-      - SentencePiece (tokenizer.model) using use_fast=False AutoTokenizer
-      - AutoTokenizer.from_pretrained(use_fast=True) (last resort)
-    Returns tokenizer instance or None (server will still start and expose ID endpoints).
-    """
     tok_json = os.path.join(model_dir, "tokenizer.json")
     sp_model = os.path.join(model_dir, "tokenizer.model")
     special_tokens_map = os.path.join(model_dir, "special_tokens_map.json")
     tokenizer_config = os.path.join(model_dir, "tokenizer_config.json")
-
-    # 1) tokenizer.json (fast)
     if os.path.exists(tok_json):
         try:
             logger.info("Loading fast tokenizer from tokenizer.json at %s", tok_json)
             tok = PreTrainedTokenizerFast(tokenizer_file=tok_json)
-            # apply special tokens if provided
             stm = _read_json_if_exists(special_tokens_map)
             if isinstance(stm, dict) and stm:
                 try:
-                    # convert map to HF add_special_tokens format if needed
-                    # e.g. {"pad_token":"[PAD]"} or {"unk_token":"<unk>"}
                     tok.add_special_tokens(stm)
                 except Exception:
-                    # ignore if incompatible
                     logger.debug("special_tokens_map apply ignored or failed")
-            # if tokenizer_config exists, try to set model_max_length
             cfg = _read_json_if_exists(tokenizer_config)
             if isinstance(cfg, dict):
                 mml = cfg.get("model_max_length")
@@ -191,8 +141,6 @@ def load_tokenizer_from_dir(model_dir: str) -> Optional[Any]:
             return tok
         except Exception as e:
             logger.warning("PreTrainedTokenizerFast(tokenizer.json) failed: %s", e)
-
-    # 2) SentencePiece fallback (slow)
     if os.path.exists(sp_model):
         try:
             logger.info("Loading SentencePiece tokenizer from %s (use_fast=False)", model_dir)
@@ -201,8 +149,6 @@ def load_tokenizer_from_dir(model_dir: str) -> Optional[Any]:
             return tok
         except Exception as e:
             logger.warning("SentencePiece AutoTokenizer failed: %s", e)
-
-    # 3) Try AutoTokenizer fast (may attempt conversion)
     try:
         logger.info("Attempting AutoTokenizer.from_pretrained(use_fast=True) for %s", model_dir)
         tok = AutoTokenizer.from_pretrained(model_dir, local_files_only=True, use_fast=True)
@@ -210,14 +156,9 @@ def load_tokenizer_from_dir(model_dir: str) -> Optional[Any]:
         return tok
     except Exception as e:
         logger.warning("AutoTokenizer(use_fast=True) fallback failed: %s", e)
-
     logger.warning("Could not load tokenizer from %s; continuing without tokenizer (use ID endpoints).", model_dir)
     return None
 
-
-# -------------------------
-# ONNX session creator (GPU-aware)
-# -------------------------
 def create_onnx_session(model_path: str, prefer_cuda: bool = True) -> Tuple[ort.InferenceSession, str]:
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"ONNX model not found at {model_path}")
@@ -250,10 +191,6 @@ def create_onnx_session(model_path: str, prefer_cuda: bool = True) -> Tuple[ort.
     logger.info("Created ONNX CPUExecutionProvider")
     return sess, provider_used
 
-
-# -------------------------
-# Pooling, mapping, embedding extraction
-# -------------------------
 def mean_pooling(hidden_states: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
     mask = attention_mask.astype(np.float32)[..., :, None]
     masked = hidden_states * mask
@@ -261,7 +198,6 @@ def mean_pooling(hidden_states: np.ndarray, attention_mask: np.ndarray) -> np.nd
     counts = mask.sum(axis=1)
     counts = np.maximum(counts, 1e-9)
     return sums / counts
-
 
 def pick_embedding_from_outputs(outputs: List[np.ndarray], sess: ort.InferenceSession, tokenized: Dict[str, np.ndarray]) -> np.ndarray:
     output_names = [o.name for o in sess.get_outputs()]
@@ -291,7 +227,6 @@ def pick_embedding_from_outputs(outputs: List[np.ndarray], sess: ort.InferenceSe
     embeddings = np.asarray(embeddings).astype(float)
     return embeddings
 
-
 def map_inputs(sess: ort.InferenceSession, tokenized: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
     sess_input_names = [i.name for i in sess.get_inputs()]
     lowered = {k.lower(): v for k, v in tokenized.items()}
@@ -315,10 +250,6 @@ def map_inputs(sess: ort.InferenceSession, tokenized: Dict[str, np.ndarray]) -> 
         raise RuntimeError("Could not map tokenizer outputs to ONNX inputs")
     return feed
 
-
-# -------------------------
-# AsyncBatcher (batching for embedder)
-# -------------------------
 class AsyncBatcher:
     def __init__(self, sess: ort.InferenceSession, tokenizer: Any, abs_max: int, server_max: int, max_batch: int = MAX_BATCH, batch_wait_s: float = BATCH_WAIT_S):
         self.sess = sess
@@ -441,10 +372,6 @@ class AsyncBatcher:
                 results.append({"embeddings": slice_emb.tolist(), "onnx_output": None, "used_max_length": used_for_request})
         return results
 
-
-# -------------------------
-# Rerank + run helper
-# -------------------------
 def rerank_pairs(sess: ort.InferenceSession, tokenizer: Any, query: str, passages: List[str], max_length: Optional[int], abs_max: int, server_max: int) -> List[float]:
     if not passages:
         return []
@@ -491,7 +418,6 @@ def rerank_pairs(sess: ort.InferenceSession, tokenizer: Any, query: str, passage
         scores = chosen.reshape((chosen.shape[0], -1)).mean(axis=1).astype(float).tolist()
     return scores
 
-
 def run_session_with_token_arrays(sess: ort.InferenceSession, arrays: Dict[str, List[List[int]]]) -> List[List[float]]:
     np_inputs: Dict[str, np.ndarray] = {}
     for k, v in arrays.items():
@@ -506,17 +432,12 @@ def run_session_with_token_arrays(sess: ort.InferenceSession, arrays: Dict[str, 
     emb = pick_embedding_from_outputs(outputs, sess, np_inputs)
     return emb.tolist()
 
-
-# -------------------------
-# small helpers
-# -------------------------
 def get_abs_max_from_tokenizer(tok: Any) -> int:
     try:
         m = int(getattr(tok, "model_max_length", 0) or 0)
         return 8192 if (m <= 0 or m > 1_000_000) else m
     except Exception:
         return 8192
-
 
 def clamp_max_length(requested: Optional[int], server_default: int, abs_max: int) -> int:
     if requested is None:
@@ -528,10 +449,6 @@ def clamp_max_length(requested: Optional[int], server_default: int, abs_max: int
             v = int(server_default)
     return max(1, min(v, abs_max))
 
-
-# -------------------------
-# FastAPI app & lifespan
-# -------------------------
 app = FastAPI()
 
 embedder_sess: Optional[ort.InferenceSession] = None
@@ -545,13 +462,11 @@ reranker_tok: Optional[Any] = None
 reranker_abs_max: int = 8192
 reranker_server_max: int = SERVER_DEFAULT_MAX_LENGTH
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global embedder_sess, embedder_tok, embedder_abs_max, embedder_server_max, embedder_batcher
     global reranker_sess, reranker_tok, reranker_abs_max, reranker_server_max
 
-    # Embedder
     try:
         logger.info("Loading embedder tokenizer (hardcoded path)...")
         embedder_tok = load_tokenizer_from_dir(EMBEDDER_MODEL_DIR)
@@ -568,7 +483,6 @@ async def lifespan(app: FastAPI):
         logger.exception("Failed to load embedder: %s", e)
         raise
 
-    # Reranker
     try:
         logger.info("Loading reranker tokenizer (hardcoded path)...")
         reranker_tok = load_tokenizer_from_dir(RERANKER_MODEL_DIR)
@@ -587,10 +501,7 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Shutting down host_onnx_models")
 
-
-# replace app with one that uses the lifespan context
 app = FastAPI(lifespan=lifespan)
-
 
 @app.get("/health")
 async def health():
@@ -606,7 +517,6 @@ async def health():
         "reranker_tokenizer_present": bool(reranker_tok),
     })
 
-
 @app.post("/embed")
 async def embed(request: Request):
     if embedder_tok is None:
@@ -620,7 +530,6 @@ async def embed(request: Request):
     except Exception as e:
         logger.exception("embed handler failed: %s", e)
         return JSONResponse({"error": str(e)}, status_code=500)
-
 
 @app.post("/embed_with_ids")
 async def embed_with_ids(request: Request):
@@ -642,7 +551,6 @@ async def embed_with_ids(request: Request):
         logger.exception("embed_with_ids failed: %s", e)
         return JSONResponse({"error": str(e)}, status_code=500)
 
-
 @app.post("/rerank")
 async def rerank(request: Request):
     if reranker_tok is None:
@@ -661,7 +569,6 @@ async def rerank(request: Request):
     except Exception as e:
         logger.exception("rerank failed: %s", e)
         return JSONResponse({"error": str(e)}, status_code=500)
-
 
 @app.post("/rerank_with_ids")
 async def rerank_with_ids(request: Request):
@@ -682,10 +589,6 @@ async def rerank_with_ids(request: Request):
         logger.exception("rerank_with_ids failed: %s", e)
         return JSONResponse({"error": str(e)}, status_code=500)
 
-
-# -------------------------
-# main
-# -------------------------
 def _install_signal_handlers():
     def _term(signum, frame):
         logger.info("Received signal %s, exiting", signum)
@@ -695,7 +598,6 @@ def _install_signal_handlers():
             pass
     signal.signal(signal.SIGTERM, _term)
     signal.signal(signal.SIGINT, _term)
-
 
 if __name__ == "__main__":
     _install_signal_handlers()

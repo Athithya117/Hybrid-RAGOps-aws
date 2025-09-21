@@ -1,6 +1,5 @@
-#!/usr/bin/env bash
 set -euo pipefail
-MODE="${1:-gpu}"
+MODE="${1:-cpu}"
 MODE_LOWER="$(printf '%s' "$MODE" | tr '[:upper:]' '[:lower:]')"
 if [ "$MODE_LOWER" != "gpu" ] && [ "$MODE_LOWER" != "cpu" ]; then
   echo "Usage: $0 <cpu|gpu>"
@@ -15,19 +14,12 @@ APP_PORT="${APP_PORT:-8001}"
 HEALTH_PATH="${HEALTH_PATH:-/health}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-60}"
 CUDA_TAG="${CUDA_TAG:-12.2.0}"
-MODEL_HOST_PATH="${MODEL_HOST_PATH:-/workspace/models}"
-if [ ! -f "${MODEL_HOST_PATH}/gte-modernbert-base-onnx-fp16/gte-modernbert-base-onnx-fp16/onnx/model_fp16.onnx" ]; then
-  echo "WARNING: embedder model not found at expected path: ${MODEL_HOST_PATH}/gte-modernbert-base-onnx-fp16/gte-modernbert-base-onnx-fp16/onnx/model_fp16.onnx"
-fi
-if [ ! -f "${MODEL_HOST_PATH}/gte-reranker-modernbert-base-onnx-fp16/gte-reranker-modernbert-base-onnx-fp16/onnx/model_fp16.onnx" ]; then
-  echo "WARNING: reranker model not found at expected path: ${MODEL_HOST_PATH}/gte-reranker-modernbert-base-onnx-fp16/gte-reranker-modernbert-base-onnx-fp16/onnx/model_fp16.onnx"
-fi
 if [ -n "${DOCKER_PASSWORD:-}" ]; then
   echo "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USERNAME}" --password-stdin
 fi
-docker build --build-arg CUDA_TAG="${CUDA_TAG}" -t "${IMAGE_NAME}" .
+docker build --no-cache --pull --build-arg CUDA_TAG="${CUDA_TAG}" -f infra/embedder-reranker-gpu/Dockerfile -t "${IMAGE_NAME}" .
 docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
-RUN_FLAGS=(--name "${CONTAINER_NAME}" -d -p "${APP_PORT}:${APP_PORT}" --shm-size=1.8g -v "${MODEL_HOST_PATH}:/workspace/models:ro" -e "PORT=${APP_PORT}")
+RUN_FLAGS=(--name "${CONTAINER_NAME}" -d -p "${APP_PORT}:${APP_PORT}" --shm-size=1.8g -e "PORT=${APP_PORT}")
 if [ "$MODE_LOWER" = "gpu" ]; then
   RUN_FLAGS+=(--gpus all -e "FORCE_CPU=0")
   SAMPLE_TEXT='hello gpu'
@@ -85,7 +77,3 @@ if [ -n "${DOCKER_PASSWORD:-}" ]; then
   docker logout || true
 fi
 echo "Done."
-
-
-
-
