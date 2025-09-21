@@ -193,23 +193,42 @@ export AWS_SECRET_ACCESS_KEY=""                        # AWS secret access key
 ```sh
 
 
-export ENABLE_QDRANT_SNAPSHOT="false"
-# export SNAPSHOT_S3_BUCKET=$S3_BUCKET
-# export SNAPSHOT_S3_PREFIX="qdrant/backups/"
-
-export RAY_ADDRESS="auto"
-export EMBEDDER_ACTOR_NAME="embedder-actor"
-# or export EMBEDDER_SERVE_DEPLOYMENT="Embedder"
-
+export STACK="prod"                                    # Any name for pulumi stack
+export QDRANT_EBS_TYPE=gp2                    # gp3's baseline 3000 iops is sufficient. set gp2 if dev
+export QDRANT_EBS_SIZE=8                     # minimal ebs size since storage is local NVMe based
+export CPU_AMI_ARCH=amd                      # arm instances are faster and cost efficient. choose amd only if absolutely neccessary. 
 export AWS_REGION="ap-south-1"                         # AWS region to create resources
+export S3_BUCKET=e2e-rag-system-42                    # Set any globally unique complex name, Pulumi S3 backend -> s3://$S3_BUCKET/pulumi/
+export MULTI_AZ_QDRANT_DEPLOYMENT=false     # set true if high availability required or false for lower cost(no NLB/extra ENI cost) and lower network latency
 export VPC_CIDR="10.0.0.0/16"                          # VPC range
 export PUBLIC_SUBNET_CIDRS="10.0.1.0/24,10.0.2.0/24"   # comma-separated public subnets
 export MY_SSH_CIDR="203.0.113.42/32"                   # operator SSH CIDR (single IP required)
-export STACK="prod"                                    # Any name for pulumi stack
-
-export PULUMI_CONFIG_PASSPHRASE=mypassword       # For headless automation
 export PULUMI_PUBLIC_SUBNET_COUNT=2                    # Number of public subnets to create/use
-export INDEXING_CLUSTER_MAX_DURATION=36000      # Max indexing job runtime (s); raise for longer batches
+export QDRANT_PRIVATE_IPS="10.0.1.10,10.0.2.10"  # one or more depending on MULTI_AZ_QDRANT_DEPLOYMENT=false/true
+export PULUMI_CONFIG_PASSPHRASE=mypassword       # Set a pulumi password required for headless automation
+export QDRANT_INSTANCE_TYPE="t2.micro"     # t2.micro for testing, for prod Only local NVMe EC2 is required for Qdrant, c8gd is the most appropriate type. Increase/Decrease size if required
+export QDRANT_API_KEY="myStrongsecret134"     # Create a strong password for accessing qdrant db from the ray clusters
+
+                  
+export STACK="prod"                                 # Pulumi stack name (env: dev/staging/prod)
+export QDRANT_EBS_TYPE="gp2"                        # EBS root volume type for EC2 (gp2/gp3)
+export QDRANT_EBS_SIZE="8"                          # Root EBS size (GiB)
+export CPU_AMI_ARCH="amd"                           # AMI arch choice: "arm" (Graviton) or "amd"
+export AWS_REGION="ap-south-1"                      # AWS region to create resources in
+export S3_BUCKET="e2e-rag-system-42"                # Pulumi backend S3 bucket (must be globally unique)
+export MULTI_AZ_QDRANT_DEPLOYMENT="false"           # true => internal NLB + multi-AZ ASG, false => single-AZ cheaper mode
+export VPC_CIDR="10.0.0.0/16"                       # VPC CIDR block
+export PUBLIC_SUBNET_CIDRS="10.0.1.0/24,10.0.2.0/24" # Comma-separated public subnet CIDRs (order matters)
+export MY_SSH_CIDR="203.0.113.42/32"                # Operator SSH CIDR (use a single /32 IP)
+export PULUMI_PUBLIC_SUBNET_COUNT="2"               # Number of public subnets to create/use
+export QDRANT_PRIVATE_IPS="10.0.1.10,10.0.2.10"     # Deterministic private IP(s) — supply one per subnet when MULTI_AZ=true
+export PULUMI_CONFIG_PASSPHRASE="mypassword"        # Pulumi secrets passphrase (treat as secret)
+export QDRANT_INSTANCE_TYPE="t2.micro"              # EC2 instance type for Qdrant (dev: t2.micro; prod: choose NVMe-capable type)
+export QDRANT_API_KEY="myStrongsecret134"           # Qdrant HTTP API key (treat as secret; use secret manager in prod)
+
+
+
+export INDEXING_CLUSTER_MAX_DURATION=36000  # Max indexing job runtime if not auto deleted
 export INDEXING_CLUSTER_HEAD_INSTANCE_TYPE=m5.large       # Ray head EC2 type; vertically scale up if orchestration heavy
 export INDEXING_CLUSTER_HEAD_AMI=$CPU_AMI_ID              # Head AMI (region-scoped); update when AMI changes
 export INDEXING_PIPELINE_CPU_WORKER_INSTANCE_TYPE=c8g.large  # CPU worker type for parsing/upserts
@@ -223,13 +242,15 @@ export EMBEDDER_GPU_INSTANCE_TYPE=g6f.large             # GPU instance type; cho
 export EMBEDDER_GPU_AMI_ID=$GPU_AMI_ID                  # GPU AMI with NVIDIA drivers/CUDA; must match onnxruntime
 export EMBEDDER_GPU_MAX_WORKERS=2                       # Max GPU worker nodes; adjust for throughput vs cost
 export EMBEDDER_GPU_EBS_GP3_VOLUME_SIZE=30              # GPU node EBS size (GB) for model storage; increase if needed
+export ENABLE_QDRANT_SNAPSHOT="true"
+export SNAPSHOT_S3_BUCKET=$S3_BUCKET
+export SNAPSHOT_S3_PREFIX="qdrant/backups/"
 
-export QDRANT_PRIVATE_IP="10.0.1.10"                 # Deterministic and resiliant private IP for Qdrant ASG ENI that only ray clusters can access
-export QDRANT_INSTANCE_TYPE="t2.micro"     # Only local NVMe EC2 is required for Qdrant, c8gd is the most appropriate type. Increase/Decrease size if required
-export QDRANT_API_KEY="myStrongsecret134"     # Create a strong password for accessing qdrant db from the ray clusters
-export QDRANT_EBS_TYPE=gp2                    # gp3's baseline 3000 iops is sufficient. set gp2 if dev
-export QDRANT_EBS_SIZE=8                     # minimal ebs size since storage is local NVMe based
-export CPU_AMI_ARCH=amd
+export RAY_ADDRESS="auto"
+export EMBEDDER_ACTOR_NAME="embedder-actor"
+# or export EMBEDDER_SERVE_DEPLOYMENT="Embedder"
+
+
 
 export PYTHONUNBUFFERED=1                             # To force Python to display logs/output immediately instead of buffering
 export S3_BUCKET=e2e-rag-system-42                    # Set any globally unique complex name, Pulumi S3 backend -> s3://$S3_BUCKET/pulumi/
@@ -241,7 +262,6 @@ export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to delete and repla
 export OVERWRITE_ALL_AUDIO_FILES=true                 # true to delete and replace .mp3, .m4a, .aac, etc as .mav 16khz, false to keep the originals
 export OVERWRITE_SPREADSHEETS_WITH_CSV=true           # true to delete and replace .xls, .xlsx, .ods, etc as .csv files, false to keep the originals
 export OVERWRITE_PPT_WITH_PPTS=true                   # true to delete and replace .ppt files as .pptx, false to keep the originals
-
 export PDF_PAGE_THRESHOLD=1200                        # Threshold to detect very large pages and split them into subchunks 
 export PDF_WINDOW_SIZE=600                            # Default is page wise chunking, for large page 600 tokens per chunk with 10% token overlap
 export PDF_DISABLE_OCR=false                          # true to skip OCR (very fast) or false to extract text from images
@@ -292,7 +312,7 @@ export QDRANT__PROMETHEUS__ENABLED=true             # Enable metrics export for 
 
 
 ```
-## 🔗 **References & specialties of the default models in RAG8s**
+## 🔗 **References & specialties of the default models**
 
 ---
 

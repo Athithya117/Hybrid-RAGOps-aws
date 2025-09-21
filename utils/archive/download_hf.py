@@ -1,3 +1,5 @@
+# python3 -m spacy download en_core_web_lg --target /workspace/models/spacy
+
 import os
 import sys
 import logging
@@ -17,18 +19,19 @@ FORCE = os.getenv("FORCE_DOWNLOAD", "0").lower() in ("1", "true", "yes")
 
 MODELS = [
     {
-        "repo_id": "RAG8s/gte-modernbert-base-onnx-int8",
-        "name": "gte-modernbert-base-onnx-int8",
-        "base": "onnx",
+        "repo_id": "Alibaba-NLP/gte-modernbert-base",
+        "name": "gte-modernbert-base-onnx-fp16",
+        "base": "gte-modernbert-base-onnx-fp16",
         "items": [
-            "model.onnx",
+            "onnx/model_fp16.onnx",
             "config.json",
             "tokenizer.json",
             "tokenizer_config.json",
             "special_tokens_map.json",
+            ".gitattributes",
         ],
     },
-    {
+    {  
         "repo_id": "Systran/faster-whisper-base",
         "name": "faster-whisper-base",
         "base": "faster_whisper",
@@ -38,6 +41,19 @@ MODELS = [
             "tokenizer.json",
             "vocabulary.txt",
             "README.md",
+        ],
+    },
+        {
+        "repo_id": "Alibaba-NLP/gte-reranker-modernbert-base",
+        "name": "gte-reranker-modernbert-base-onnx-fp16",
+        "base": "gte-reranker-modernbert-base-onnx-fp16",
+        "items": [
+            "onnx/model_fp16.onnx",
+            "config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+            ".gitattributes",
         ],
     },
 ]

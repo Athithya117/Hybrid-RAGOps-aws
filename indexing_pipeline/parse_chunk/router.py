@@ -18,6 +18,7 @@ try:
 except Exception:
     pass
 
+
 RESET = "\033[0m"
 COLORS = {
     logging.DEBUG: "\033[90m",
