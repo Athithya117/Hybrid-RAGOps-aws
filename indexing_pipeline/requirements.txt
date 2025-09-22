@@ -21,7 +21,7 @@ colorama==0.4.6
 faster-whisper==1.2.0
 soundfile==0.13.1
 python-pptx==1.0.2
-qdrant-client==1.15.1
 virtualenv==20.34.0
 ray[serve]==2.49.2
 spacy==3.8.7
+typing==3.7.4.3

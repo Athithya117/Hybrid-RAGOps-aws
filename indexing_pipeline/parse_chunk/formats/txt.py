@@ -57,7 +57,7 @@ if OVERLAP_TOKENS >= TXT_MAX_TOKENS_PER_CHUNK:
 ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
 PARSER_VERSION = os.getenv("PARSER_VERSION_TXT", "plain-txt-v1")
 FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
-STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "true").lower() == "true"
+STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "false").lower() == "true"
 S3_PUT_RETRIES = int(os.getenv("S3_PUT_RETRIES", "3"))
 S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF", "0.3"))
 

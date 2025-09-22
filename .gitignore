@@ -15,6 +15,7 @@ backups
 infra/pulumi-aws/pulumi-exports.sh
 infra/pulumi-aws/pulumi-outputs.json
 *.pem
+venv
 
 qdrant/
 qdrant

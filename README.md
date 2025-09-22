@@ -16,6 +16,8 @@
 
 
 ```c
+
+// chunks(document collection)
 {
   "document_id": "doc-12345", // All: global document identifier (filename or UUID)
   "chunk_id": "chunk-0001", // All: unique chunk id (doc-scoped index or UUID)
@@ -40,7 +42,23 @@
   "headings": ["Introduction"], // md: flattened list of headings present inside chunk
   "line_range": [1, 20], // txt,md: [start_line, end_line] inclusive for subchunk (replaces line_range_start/line_range_end)
   "chunk_duration_ms": 5000, // for wav: audio chunk duration in ms since parsing is seperate
+
+  // new fields needed to be added right before indexing
+  "vector_id": 1234567890, // FAISS/ANN: stable int64 id mapped to this chunk (required for Faiss lookup)
+  "deleted": false // Soft-delete flag (true if logically deleted/tombstoned)
 }
+
+// chunk_edges(edge collection)
+{
+  "_key": "edge-00001", // ArangoDB: optional unique edge key (useful for updates)
+  "_from": "chunks/doc-12345_chunk-0001", // required: source vertex (ArangoDB _id)
+  "_to": "chunks/doc-12345_chunk-0002", // required: target vertex (ArangoDB _id)
+  "type": "knn", // knn | adjacent | same_doc | citation | metadata
+  "weight": 0.92, // normalized 0..1 (strength of link; higher = stronger)
+  "created_at": "2025-09-22T12:40:00Z", // ISO8601 when edge created
+  "active": true // soft-delete flag for edge (false means edge is archived/disabled)
+}
+
 
 ```
 
@@ -256,13 +274,11 @@ export S3_BUCKET=e2e-rag-system-42                    # Set any globally unique 
 export S3_RAW_PREFIX=data/raw/                        # raw ingest prefix (change to isolate datasets)
 export S3_CHUNKED_PREFIX=data/chunked/                # chunked output prefix (change to separate processed data)
 export CHUNK_FORMAT=json                              # 'json' (readable) or 'jsonl' (stream/space efficient)
-export STORE_ONE_FILE_PER_CHUNK=false            # true for faster parallelism(small-mid scale data) or 'false' 1 raw data file = 1 json/jsonl (if large scale)
 export OVERWRITE_DOC_DOCX_TO_PDF=true                 # true to delete and replace docx with PDF, false to keep the originals
 export OVERWRITE_ALL_AUDIO_FILES=true                 # true to delete and replace .mp3, .m4a, .aac, etc as .mav 16khz, false to keep the originals
 export OVERWRITE_SPREADSHEETS_WITH_CSV=true           # true to delete and replace .xls, .xlsx, .ods, etc as .csv files, false to keep the originals
 export OVERWRITE_PPT_WITH_PPTS=true                   # true to delete and replace .ppt files as .pptx, false to keep the originals
-export PDF_PAGE_THRESHOLD=1200                        # Threshold to detect very large pages and split them into subchunks 
-export PDF_WINDOW_SIZE=600                            # Default is page wise chunking, for large page 600 tokens per chunk with 10% token overlap
+export PDF_WINDOW_SIZE=512                            # Default is page wise chunking, for large page 600 tokens per chunk with 10% token overlap
 export PDF_DISABLE_OCR=false                          # true to skip OCR (very fast) or false to extract text from images
 export PDF_OCR_ENGINE=rapidocr                        # 'tesseract' (faster) or 'rapidocr' (high accuracy , slightly slower)
 export PDF_FORCE_OCR=false                            # true to always OCR(use if source text unreliable but not recommended for scaling)
@@ -270,21 +286,19 @@ export PDF_OCR_RENDER_DPI=400                         # increase for detecting t
 export PDF_MIN_IMG_SIZE_BYTES=3072                    # ignore images smaller than 3KB (often unneccessary black images)
 export IMAGE_OCR_ENGINE=rapidocr                      # or 'tesseract' for image formats .png, .jpeg, .jpg, .tiff, .webp
 
-export HTML_WINDOW_SIZE=800                           # Default is page wise chunking, for large page 500 tokens per chunk with 10% token overlap
-export CSV_TARGET_TOKENS_PER_CHUNK=600                # Increase if very large .csv or Decrease if higher precision required
-export JSONL_TARGET_TOKENS_PER_CHUNK=600              # Increase if very large .jsonl or Decrease if higher precision required
-export MD_MAX_TOKENS_PER_CHUNK=800                    # Threshold for split headers in header wise chunking with 10% overlap
+export HTML_WINDOW_SIZE=512                           # Default is page wise chunking, for large page 500 tokens per chunk with 10% token overlap
+export CSV_TARGET_TOKENS_PER_CHUNK=512                # Increase if very large .csv or Decrease if higher precision required
+export JSONL_TARGET_TOKENS_PER_CHUNK=512              # Increase if very large .jsonl or Decrease if higher precision required
+export MD_MAX_TOKENS_PER_CHUNK=512                    # Threshold for split headers in header wise chunking with 10% overlap
 export MD_MERGE_HEADER_THRESHOLD_TOKENS=200           # Threshold to cummulatively merge small headers with their next header(s) till MD_MAX_TOKENS_PER_CHUNK
 export AUDIO_SLICE_SECONDS=30                         # Audio slices in seconds with 10% overlap. Increase or decrease based on AUDIO_MAX_TOKENS_PER_CHUNK
-export AUDIO_MAX_TOKENS_PER_CHUNK=800                 # Limit to cummulatively merge text from audio slices with next audio slices
-export TXT_MAX_TOKENS_PER_CHUNK=800                   # Simple token based chunking with 10% overlap. Increase for cost or decrease for precision
-export PPTX_SLIDES_PER_CHUNK=5                        # Number of slides per chunk. Increase for cost or decrease for precision
+export AUDIO_MAX_TOKENS_PER_CHUNK=512                 # Limit to cummulatively merge text from audio slices with next audio slices
+export TXT_MAX_TOKENS_PER_CHUNK=512                   # Simple token based chunking with 10% overlap. Increase for cost or decrease for precision
+export PPTX_SLIDES_PER_CHUNK=7                        # Number of slides per chunk. Increase for cost or decrease for precision
 export PPTX_OCR_ENGINE=rapidocr                       # 'tesseract' (faster), 'rapidocr' (high accuracy , slightly slower)
-
-export MAX_LENGTH=1200           # range: 600-8000, Max tokens of indexing embedder-gpu model, should be higher than all max tokens.                            
-export EMBED_BATCH_SIZE=512    # 512 chunks per embedding call; fixed, increase for throughput if memory allows, decrease for latency or object store limit
-export QDRANT_COLLECTION_NAME="my_documents"  # Any name for qdrant collection
-export QDRANT_UPSERT_BATCH_SIZES=128                             
+export MAX_LENGTH=550           # range: 100-8000, Max tokens of indexing embedder-gpu model, should be higher than all max tokens.                            
+export EMBED_BATCH_SIZE=    # 512 chunks per embedding call; fixed, increase for throughput if memory allows, decrease for latency or object store limit
+export INDEX_BATCH_SIZES=128                             
 
 
 # Arango / vector index toggles
@@ -364,4 +378,18 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **AWQ**. Bu
 > **Use case**: Smaller models (e.g., Qwen3-4B-AWQ or 30B-A3B) **fit on a single VM** , making them better suited for data-parallel engines like **SGLang**  than tensor-parallel engine like **vLLM**.
 
 ---
+
+
+```sh
+export MAX_QUERY_EMBED_TOKENS=60    # Expected max tokens of end user prompt. Lower = faster embedd
+export META_DATA_FILTERING_FIELDS=
+export BM25_TOP_K=40
+export VECTOR_TOP_K=100
+export TOP_N_FOR_GRAPH_TRAVERSAL=20  # RRF top 20 chunks out of BM25_TOP_K+VECTOR_TOP_K(140) for graph expansion
+export NUMBER_OF_HOPS=2             # 2 avoids noise, can set 3 only if latency acceptable or if large c8g/c8gd instance
+export TOP_M=50      # top 50 after second RRF(deduplicating TOP_M=50 is likely reduced to 20-40) out of (140 TOP_K + chunks from graph traversal)
+export MAX_CHUNKS_TO_RERANKER=15 # top 15 chunks from TOP_M 20-40 chunks. 
+export MAX_CHUNKS_TO_LLM=5    # Top 5 chunks from cross encoder to LLM(32K context).Increase if latency acceptable or if large gpu instance
+```
+
 

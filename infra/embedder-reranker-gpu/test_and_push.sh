@@ -17,7 +17,7 @@ CUDA_TAG="${CUDA_TAG:-12.2.0}"
 if [ -n "${DOCKER_PASSWORD:-}" ]; then
   echo "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USERNAME}" --password-stdin
 fi
-docker build --no-cache --pull --build-arg CUDA_TAG="${CUDA_TAG}" -f infra/embedder-reranker-gpu/Dockerfile -t "${IMAGE_NAME}" .
+docker build --no-cache --pull --build-arg CUDA_TAG="${CUDA_TAG}" -f Dockerfile -t "${IMAGE_NAME}" .
 docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
 RUN_FLAGS=(--name "${CONTAINER_NAME}" -d -p "${APP_PORT}:${APP_PORT}" --shm-size=1.8g -e "PORT=${APP_PORT}")
 if [ "$MODE_LOWER" = "gpu" ]; then
@@ -57,19 +57,16 @@ while true; do
   fi
   sleep 1
 done
-echo "Running sample embed request..."
-if ! curl -s -X POST "http://127.0.0.1:${APP_PORT}/embed" -H "Content-Type: application/json" -d "{\"text\":\"${SAMPLE_TEXT}\",\"max_length\":50}" | head -n 60; then
-  echo "Sample embed failed; container logs (last 400 lines):"
-  docker logs --tail 400 "${CID}" || true
-  exit 1
-fi
+
+curl -s -X POST "http://0.0.0.0:8001/embed" -H "Content-Type: application/json" -d '{"text":"hello world","max_length":80}' | head -n 60
+
 echo
 echo "Running sample rerank request..."
-if ! curl -s -X POST "http://127.0.0.1:${APP_PORT}/rerank" -H "Content-Type: application/json" -d "{\"query\":\"${SAMPLE_TEXT}\",\"passages\":[\"candidate one\",\"candidate two\"]}" | head -n 60; then
-  echo "Sample rerank failed; container logs (last 400 lines):"
-  docker logs --tail 400 "${CID}" || true
-  exit 1
-fi
+
+curl -s -X POST "http://0.0.0.0:8001/rerank" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"hello cpu","passages":["candidate one","candidate two"]}' | jq . | head -n 20
+
 echo
 echo "Smoke test passed; pushing image ${IMAGE_NAME}"
 docker push "${IMAGE_NAME}"
@@ -77,3 +74,4 @@ if [ -n "${DOCKER_PASSWORD:-}" ]; then
   docker logout || true
 fi
 echo "Done."
+

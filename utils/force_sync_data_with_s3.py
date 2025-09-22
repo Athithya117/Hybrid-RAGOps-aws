@@ -17,6 +17,7 @@ aws s3 ls "s3://$S3_BUCKET/data/" --recursive | tail -n 100
 
 from __future__ import annotations
 import argparse
+import hashlib
 import os
 import sys
 import time
@@ -71,8 +72,30 @@ def get_s3_client(region: Optional[str] = None):
     )
 
 
+def compute_md5(path: str, chunk_size: int = 8 * 1024 * 1024) -> str:
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def compute_sha256(path: str, chunk_size: int = 8 * 1024 * 1024) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
 @ray.remote(max_retries=3)
-def upload_file_remote(local_path: str, rel_path: str, bucket: str, prefix: str, chunksize_mb: int, max_concurrency: int, region: Optional[str]):
+def upload_file_remote(local_path: str, rel_path: str, bucket: str, prefix: str, chunksize_mb: int, max_concurrency: int, region: Optional[str], sha256: Optional[str]):
     s3 = get_s3_client(region)
     key = f"{prefix.rstrip('/')}/{rel_path}".lstrip('/')
     config = TransferConfig(
@@ -81,22 +104,28 @@ def upload_file_remote(local_path: str, rel_path: str, bucket: str, prefix: str,
         max_concurrency=max(1, max_concurrency),
         use_threads=True,
     )
+    extra = {"ContentType": "application/octet-stream"}
+    if sha256:
+        extra["Metadata"] = {"sha256": sha256}
     start = time.time()
-    try:
-        s3.upload_file(Filename=local_path, Bucket=bucket, Key=key, Config=config, ExtraArgs={"ContentType": "application/octet-stream"})
-    except Exception as e:
-        raise
+    s3.upload_file(Filename=local_path, Bucket=bucket, Key=key, Config=config, ExtraArgs=extra)
     end = time.time()
     return {"rel_path": rel_path, "s3_key": key, "duration_seconds": int(end - start)}
 
 
 @ray.remote(max_retries=3)
-def download_file_remote(bucket: str, s3_key: str, rel_path: str, local_base: str, region: Optional[str]):
+def download_file_remote(bucket: str, s3_key: str, rel_path: str, local_base: str, region: Optional[str], chunksize_mb: int, max_concurrency: int):
     s3 = get_s3_client(region)
     target = Path(local_base) / rel_path
     target.parent.mkdir(parents=True, exist_ok=True)
+    config = TransferConfig(
+        multipart_chunksize=chunksize_mb * 1024 * 1024,
+        multipart_threshold=chunksize_mb * 1024 * 1024,
+        max_concurrency=max(1, max_concurrency),
+        use_threads=True,
+    )
     start = time.time()
-    s3.download_file(Bucket=bucket, Key=s3_key, Filename=str(target))
+    s3.download_file(Bucket=bucket, Key=s3_key, Filename=str(target), Config=config)
     end = time.time()
     return {"rel_path": rel_path, "s3_key": s3_key, "duration_seconds": int(end - start)}
 
@@ -123,9 +152,9 @@ def list_local_files(base_dir: str) -> List[Tuple[str, str]]:
     return out
 
 
-def list_s3_objects(bucket: str, prefix: str, region: Optional[str]) -> List[Tuple[str, str]]:
+def list_s3_objects(bucket: str, prefix: str, region: Optional[str]) -> List[Tuple[str, str, int, str]]:
     s3 = get_s3_client(region)
-    out: List[Tuple[str, str]] = []
+    out: List[Tuple[str, str, int, str]] = []
     paginator = s3.get_paginator("list_objects_v2")
     prefix_key = prefix.rstrip("/") + "/"
     try:
@@ -135,39 +164,115 @@ def list_s3_objects(bucket: str, prefix: str, region: Optional[str]) -> List[Tup
                 if key.endswith("/"):
                     continue
                 rel = key[len(prefix_key):] if key.startswith(prefix_key) else key
-                out.append((key, rel))
-    except ClientError as e:
+                size = int(obj.get("Size", 0))
+                etag = obj.get("ETag", "").strip('"')
+                out.append((key, rel, size, etag))
+    except ClientError:
         raise
     return out
 
 
+def head_object_metadata(bucket: str, key: str, region: Optional[str]) -> Dict[str, str]:
+    s3 = get_s3_client(region)
+    try:
+        ho = s3.head_object(Bucket=bucket, Key=key)
+        meta = ho.get("Metadata", {}) or {}
+        return {k.lower(): v for k, v in meta.items()}
+    except ClientError:
+        return {}
+
+
 def upload_directory(base_dir: str, bucket: str, prefix: str, concurrency: int, chunksize_mb: int, force: bool, region: Optional[str]):
     local = dict(list_local_files(base_dir))
-    remote = dict(list_s3_objects(bucket, prefix, region)) if force else {}
-    if force and remote:
-        stale_keys = [k for k, rel in remote.items() if rel not in local.values()]
+    remote_entries = list_s3_objects(bucket, prefix, region)
+    remote_map: Dict[str, Dict[str, object]] = {}
+    for key, rel, size, etag in remote_entries:
+        remote_map[rel] = {"key": key, "size": size, "etag": etag, "metadata_sha256": None}
+    for rel, info in list(remote_map.items()):
+        meta = head_object_metadata(bucket, info["key"], region)
+        if meta.get("sha256"):
+            remote_map[rel]["metadata_sha256"] = meta.get("sha256")
+    if force:
+        stale_keys = [info["key"] for rel, info in remote_map.items() if rel not in local.values()]
         if stale_keys:
             deletes = [delete_s3_file_remote.remote(bucket, key, region) for key in stale_keys]
             ray.get(deletes)
-            print(f"Removed {len(stale_keys)} stale object(s) from S3.")
+        remote_entries = list_s3_objects(bucket, prefix, region)
+        remote_map = {}
+        for key, rel, size, etag in remote_entries:
+            remote_map[rel] = {"key": key, "size": size, "etag": etag, "metadata_sha256": None}
+        for rel, info in list(remote_map.items()):
+            meta = head_object_metadata(bucket, info["key"], region)
+            if meta.get("sha256"):
+                remote_map[rel]["metadata_sha256"] = meta.get("sha256")
     ongoing = []
     submitted = 0
+    skipped = 0
+    successes = 0
+    failures = 0
+    errors: List[str] = []
     for local_path, rel in local.items():
-        fut = upload_file_remote.options(num_cpus=1).remote(local_path, rel, bucket, prefix, chunksize_mb, concurrency, region)
+        remote_info = remote_map.get(rel)
+        should_upload = True
+        local_sha = None
+        if remote_info is not None:
+            remote_size = int(remote_info["size"])
+            remote_etag = str(remote_info.get("etag", ""))
+            remote_meta_sha = remote_info.get("metadata_sha256")
+            try:
+                local_size = Path(local_path).stat().st_size
+            except Exception:
+                local_size = None
+            if remote_meta_sha:
+                local_sha = compute_sha256(local_path)
+                if local_sha == remote_meta_sha:
+                    should_upload = False
+            elif local_size is not None and local_size == remote_size and "-" not in remote_etag and remote_etag != "":
+                local_md5 = compute_md5(local_path)
+                if local_md5 == remote_etag:
+                    should_upload = False
+        if not should_upload:
+            skipped += 1
+            continue
+        if local_sha is None:
+            local_sha = compute_sha256(local_path)
+        fut = upload_file_remote.options(num_cpus=1).remote(local_path, rel, bucket, prefix, chunksize_mb, concurrency, region, local_sha)
         ongoing.append(fut)
         submitted += 1
         if len(ongoing) >= concurrency:
             done, ongoing = ray.wait(ongoing, num_returns=1)
+            for d in done:
+                try:
+                    _ = ray.get(d)
+                    successes += 1
+                except Exception as e:
+                    failures += 1
+                    errors.append(str(e))
     if ongoing:
-        ray.get(ongoing)
-    print(f"Upload complete. Files uploaded: {submitted}")
+        try:
+            done_results = ray.get(ongoing)
+            successes += len(done_results)
+        except Exception as e:
+            failures += 1
+            errors.append(str(e))
+    print(f"Upload scheduled: {submitted}, skipped: {skipped}, succeeded: {successes}, failed: {failures}")
+    if errors:
+        for e in errors[:20]:
+            print(e)
 
 
-def download_directory(bucket: str, base_dir: str, prefix: str, concurrency: int, force: bool, region: Optional[str]):
-    remote = dict(list_s3_objects(bucket, prefix, region))
-    local = dict(list_local_files(base_dir)) if force else {}
-    if force and local:
-        stale_paths = [str(Path(base_dir) / rel) for rel in local.values() if rel not in remote.values()]
+def download_directory(bucket: str, base_dir: str, prefix: str, concurrency: int, force: bool, region: Optional[str], chunksize_mb: int):
+    remote_entries = list_s3_objects(bucket, prefix, region)
+    remote_map: Dict[str, Dict[str, object]] = {}
+    for key, rel, size, etag in remote_entries:
+        remote_map[rel] = {"key": key, "size": size, "etag": etag, "metadata_sha256": None}
+    for rel, info in list(remote_map.items()):
+        meta = head_object_metadata(bucket, info["key"], region)
+        if meta.get("sha256"):
+            remote_map[rel]["metadata_sha256"] = meta.get("sha256")
+    local_map = dict(list_local_files(base_dir))
+    if force:
+        stale_paths = [str(Path(base_dir) / rel) for rel in local_map.values() if rel not in remote_map]
         removed = 0
         for path in stale_paths:
             try:
@@ -175,19 +280,58 @@ def download_directory(bucket: str, base_dir: str, prefix: str, concurrency: int
                 removed += 1
             except FileNotFoundError:
                 pass
-        if removed:
-            print(f"Removed {removed} stale local file(s).")
     ongoing = []
     submitted = 0
-    for key, rel in remote.items():
-        fut = download_file_remote.options(num_cpus=1).remote(bucket, key, rel, base_dir, region)
+    skipped = 0
+    successes = 0
+    failures = 0
+    errors: List[str] = []
+    for rel, info in remote_map.items():
+        key = info["key"]
+        remote_size = int(info["size"])
+        remote_etag = str(info.get("etag", ""))
+        remote_meta_sha = info.get("metadata_sha256")
+        local_path = Path(base_dir) / rel
+        should_download = True
+        if local_path.exists():
+            try:
+                local_size = local_path.stat().st_size
+            except Exception:
+                local_size = None
+            if remote_meta_sha:
+                local_sha = compute_sha256(str(local_path))
+                if local_sha == remote_meta_sha:
+                    should_download = False
+            elif local_size is not None and local_size == remote_size and "-" not in remote_etag and remote_etag != "":
+                local_md5 = compute_md5(str(local_path))
+                if local_md5 == remote_etag:
+                    should_download = False
+        if not should_download:
+            skipped += 1
+            continue
+        fut = download_file_remote.options(num_cpus=1).remote(bucket, key, rel, base_dir, region, chunksize_mb, concurrency)
         ongoing.append(fut)
         submitted += 1
         if len(ongoing) >= concurrency:
             done, ongoing = ray.wait(ongoing, num_returns=1)
+            for d in done:
+                try:
+                    _ = ray.get(d)
+                    successes += 1
+                except Exception as e:
+                    failures += 1
+                    errors.append(str(e))
     if ongoing:
-        ray.get(ongoing)
-    print(f"Download complete. Files downloaded: {submitted}")
+        try:
+            done_results = ray.get(ongoing)
+            successes += len(done_results)
+        except Exception as e:
+            failures += 1
+            errors.append(str(e))
+    print(f"Download scheduled: {submitted}, skipped: {skipped}, succeeded: {successes}, failed: {failures}")
+    if errors:
+        for e in errors[:20]:
+            print(e)
 
 
 def try_init_ray():
@@ -214,7 +358,7 @@ def main() -> None:
     if args.upload:
         upload_directory(LOCAL_BASE, bucket, prefix, concurrency, args.multipart_chunksize_mb, args.force, region)
     elif args.download:
-        download_directory(bucket, LOCAL_BASE, prefix, concurrency, args.force, region)
+        download_directory(bucket, LOCAL_BASE, prefix, concurrency, args.force, region, args.multipart_chunksize_mb)
     else:
         print("Please specify --upload or --download", file=sys.stderr)
         sys.exit(1)

@@ -30,7 +30,7 @@ S3_BUCKET = os.getenv("S3_BUCKET")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "").rstrip("/") + "/"
 CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
-PARSER_VERSION = os.getenv("PARSER_VERSION_HTML", "trafilatura-only-v2")
+PARSER_VERSION = os.getenv("PARSER_VERSION_HTML", "trafilatura-v1")
 FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
 SAVE_SNAPSHOT = os.getenv("SAVE_SNAPSHOT", "false").lower() == "true"
 WINDOW_SIZE = int(os.getenv("HTML_WINDOW_SIZE", "2000"))
@@ -38,7 +38,7 @@ ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "15"))
 FETCH_RETRIES = int(os.getenv("FETCH_RETRIES", "3"))
 FETCH_BACKOFF = float(os.getenv("FETCH_BACKOFF", "0.5"))
-STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "true").lower() == "true"
+STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "false").lower() == "true"
 S3_PUT_RETRIES = int(os.getenv("S3_PUT_RETRIES", "3"))
 S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF", "0.3"))
 

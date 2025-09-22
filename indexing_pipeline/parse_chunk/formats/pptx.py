@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import sys
 import json
@@ -10,6 +11,8 @@ from io import BytesIO
 from datetime import datetime
 from botocore.exceptions import ClientError
 from tempfile import NamedTemporaryFile
+from typing import Optional
+import builtins
 
 try:
     import colorama
@@ -17,20 +20,24 @@ try:
 except Exception:
     pass
 
+builtins.Optional = Optional
+
 RESET = "\033[0m"
 COLORS = {
     logging.DEBUG: "\033[90m",
     logging.INFO: "\033[37m",
     logging.WARNING: "\033[33m",
     logging.ERROR: "\033[31m",
-    logging.CRITICAL: "\033[1;41m"
+    logging.CRITICAL: "\033[1;41m",
 }
+
 
 class ColorFormatter(logging.Formatter):
     def format(self, record):
         color = COLORS.get(record.levelno, RESET)
         message = super().format(record)
         return f"{color}{message}{RESET}"
+
 
 log = logging.getLogger("pptx_parser")
 log.setLevel(logging.INFO)
@@ -39,8 +46,12 @@ handler.setFormatter(ColorFormatter("%(asctime)s %(levelname)s %(message)s"))
 log.handlers[:] = [handler]
 
 REQUIRED = [
-    "S3_BUCKET", "S3_RAW_PREFIX", "S3_CHUNKED_PREFIX",
-    "CHUNK_FORMAT", "PPTX_SLIDES_PER_CHUNK", "PPTX_OCR_ENGINE"
+    "S3_BUCKET",
+    "S3_RAW_PREFIX",
+    "S3_CHUNKED_PREFIX",
+    "CHUNK_FORMAT",
+    "PPTX_SLIDES_PER_CHUNK",
+    "PPTX_OCR_ENGINE",
 ]
 missing = [v for v in REQUIRED if os.getenv(v) is None]
 if missing:
@@ -55,19 +66,28 @@ DISABLE_OCR = os.getenv("PPTX_DISABLE_OCR", "false").lower() == "true"
 FORCE_OCR = os.getenv("PPTX_FORCE_OCR", "false").lower() == "true"
 OCR_BACKEND = os.getenv("PPTX_OCR_ENGINE", "tesseract").lower()
 MIN_IMG_BYTES = int(os.getenv("PPTX_MIN_IMG_SIZE_BYTES", "3072"))
-PARSER_VERSION_PPTX = os.getenv("PARSER_VERSION_PPTX", "pptx-parser-v1")
+PARSER_VERSION_PPTX = os.getenv("PARSER_VERSION_PPTX", "py-pptx-v1")
 TOKEN_ENCODER = os.getenv("TOKEN_ENCODER", "cl100k_base")
-STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "true").lower() == "true"
+STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "false").lower() == "true"
 assert CHUNK_FORMAT in ("json", "jsonl")
 
 s3 = boto3.client("s3")
 
+
+def sha256_hex_str_of_bytes(b: bytes) -> str:
+    h = hashlib.sha256()
+    h.update(b)
+    return h.hexdigest()
+
+
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
+
 
 def is_valid_text(text: str) -> bool:
     t = (text or "").strip()
     return len(t) > 20 and any(c.isalpha() for c in t)
+
 
 def is_ocr_line_valid(text: str, min_ratio: float = 0.6) -> bool:
     t = (text or "").strip()
@@ -75,6 +95,7 @@ def is_ocr_line_valid(text: str, min_ratio: float = 0.6) -> bool:
         return False
     alnum = sum(c.isalnum() for c in t)
     return (alnum / len(t)) >= min_ratio
+
 
 def dedupe_lines(lines: list[str]) -> list[str]:
     seen, out = set(), []
@@ -84,6 +105,7 @@ def dedupe_lines(lines: list[str]) -> list[str]:
             seen.add(key)
             out.append(l)
     return out
+
 
 def do_ocr(img: np.ndarray) -> list[str]:
     lines = []
@@ -112,12 +134,14 @@ def do_ocr(img: np.ndarray) -> list[str]:
         return []
     return dedupe_lines(lines)
 
+
 def is_valid_table(table: list[list[str]]) -> bool:
     if len(table) < 2 or len(table[0]) < 2:
         return False
     total_cells = sum(len(r) for r in table)
     alpha_cells = sum(1 for row in table for cell in row if any(c.isalpha() for c in (cell or "")))
     return total_cells > 0 and (alpha_cells / total_cells) >= 0.5
+
 
 def _extract_image_blob_from_shape(shape):
     try:
@@ -136,6 +160,7 @@ def _extract_image_blob_from_shape(shape):
         pass
     return None
 
+
 def _count_tokens(text: str) -> int:
     if not text:
         return 0
@@ -145,6 +170,16 @@ def _count_tokens(text: str) -> int:
         return len(enc.encode(text))
     except Exception:
         return len(text.split())
+
+
+def _s3_object_metadata_sha256(bucket: str, key: str) -> Optional[str]:
+    try:
+        ho = s3.head_object(Bucket=bucket, Key=key)
+        meta = ho.get("Metadata", {}) or {}
+        return meta.get("sha256")
+    except ClientError:
+        return None
+
 
 class LocalChunkAppender:
     def __init__(self, chunk_format: str, doc_id: str):
@@ -156,16 +191,27 @@ class LocalChunkAppender:
         self.count = 0
     def append(self, payload: dict):
         if self.chunk_format == "jsonl":
-            line = json.dumps(payload, ensure_ascii=False)
+            line = json.dumps(payload, ensure_ascii=False, sort_keys=True)
             self.temp.write(line + "\n")
         else:
-            pretty = json.dumps(payload, indent=2, ensure_ascii=False)
+            pretty = json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True)
             self.temp.write(pretty + "\n")
         self.count += 1
         self.temp.flush()
     def finalize_and_upload(self, s3_bucket: str, s3_key: str):
         self.temp.close()
-        extra = {"ContentType": "application/json"}
+        with open(self.path, "rb") as f:
+            body_bytes = f.read()
+        body_sha = sha256_hex_str_of_bytes(body_bytes)
+        existing_sha = _s3_object_metadata_sha256(s3_bucket, s3_key)
+        if existing_sha and existing_sha == body_sha:
+            try:
+                os.remove(self.path)
+            except Exception:
+                pass
+            log.info(f"Skipping upload for {self.doc_id} → s3://{s3_bucket}/{s3_key} (identical)")
+            return
+        extra = {"ContentType": "application/json", "Metadata": {"sha256": body_sha}}
         try:
             s3.upload_file(self.path, s3_bucket, s3_key, ExtraArgs=extra)
             log.info(f"Uploaded combined chunks for {self.doc_id} → s3://{s3_bucket}/{s3_key} ({self.count} chunks)")
@@ -174,6 +220,7 @@ class LocalChunkAppender:
                 os.remove(self.path)
             except Exception:
                 pass
+
 
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
@@ -252,7 +299,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             "has_text": bool(text_items),
             "has_images_text": bool(img_texts),
             "tables": table_items,
-            "parse_duration_ms": slide_parse_ms
+            "parse_duration_ms": slide_parse_ms,
         })
     saved = 0
     total_slides = len(slides_content)
@@ -311,17 +358,26 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             "heading_path": [],
             "headings": [],
             "line_range": None,
-            "chunk_duration_ms": None
+            "chunk_duration_ms": None,
         }
         if STORE_ONE_FILE_PER_CHUNK:
             out_key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext}"
-            body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode())
-            try:
-                s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body, ContentType="application/json")
-                log.info(f"Parsed slides {start}-{end} in {duration_ms} ms (tokens={token_count}) → {out_key}")
+            if ext == "jsonl":
+                body_bytes = (json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n").encode()
+            else:
+                body_bytes = json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True).encode()
+            body_sha = sha256_hex_str_of_bytes(body_bytes)
+            existing_sha = _s3_object_metadata_sha256(S3_BUCKET, out_key)
+            if existing_sha and existing_sha == body_sha:
+                log.info(f"Skipping upload for {out_key} (identical)")
                 saved += 1
-            except ClientError as e:
-                log.error(f"Failed to write {out_key}: {e}")
+            else:
+                try:
+                    s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body_bytes, ContentType="application/json", Metadata={"sha256": body_sha})
+                    log.info(f"Parsed slides {start}-{end} in {duration_ms} ms (tokens={token_count}) → {out_key}")
+                    saved += 1
+                except ClientError as e:
+                    log.error(f"Failed to write {out_key}: {e}")
         else:
             try:
                 combined_appender.append(payload)
@@ -338,6 +394,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
     log.info(f"Completed parsing {saved} chunks ({total_slides} slides) in {total_ms} ms total")
     return {"saved_chunks": saved, "total_parse_duration_ms": total_ms}
 
+
 if __name__ == "__main__":
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=S3_BUCKET, Prefix=S3_RAW_PREFIX):
@@ -349,7 +406,7 @@ if __name__ == "__main__":
             manifest_key = key + ".manifest.json"
             try:
                 mf = s3.get_object(Bucket=S3_BUCKET, Key=manifest_key)
-                manifest = json.load(mf["Body"])
+                manifest = json.loads(mf["Body"].read().decode("utf-8"))
             except Exception:
                 manifest = {}
             parse_file(key, manifest)

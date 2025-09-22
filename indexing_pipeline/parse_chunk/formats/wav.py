@@ -42,11 +42,11 @@ WHISPER_BEAM = int(os.getenv("WHISPER_BEAM_SIZE", "1"))
 FFMPEG = os.getenv("FFMPEG_PATH", "ffmpeg")
 FW_COMPUTE = os.getenv("FW_COMPUTE", "int8")
 FW_CPU_THREADS = int(os.getenv("FW_CPU_THREADS", str(max(1, (os.cpu_count() or 1) // 2))))
-WORKSPACE_MODELS = Path(os.getenv("WORKSPACE_MODELS", "/workspace/models"))
-FW_MODEL_PATH = WORKSPACE_MODELS / "faster-whisper-base"
-FW_MODEL_BIN = FW_MODEL_PATH / "model.bin"
+WORKSPACE_MODELS: Path = Path(os.getenv("WORKSPACE_MODELS", "/workspace/models")).resolve()
+FW_MODEL_PATH: Path = WORKSPACE_MODELS / "faster_whisper" / "faster-whisper-base"
+FW_MODEL_BIN: Path = FW_MODEL_PATH / "model.bin"
 PARSER_VERSION = os.getenv("PARSER_VERSION_WAV", "faster-whisper-v1")
-STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "true").lower() == "true"
+STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "false").lower() == "true"
 
 s3 = boto3.client("s3")
 enc: Optional[Any] = None

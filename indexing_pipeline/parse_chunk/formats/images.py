@@ -1,5 +1,8 @@
 from __future__ import annotations
 import os
+os.environ.setdefault("MPLBACKEND", "Agg")
+os.environ.setdefault("DISPLAY", "")
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import sys
 import json
 import logging
@@ -9,28 +12,50 @@ from io import BytesIO
 from datetime import datetime
 from typing import Tuple, Optional, List, Dict, Any
 from tempfile import NamedTemporaryFile
+from pathlib import Path
 
 try:
     import boto3
     from botocore.config import Config as BotoConfig
     from botocore.exceptions import ClientError
-    from PIL import Image, ImageSequence
-    import numpy as np
-    import cv2
 except Exception as e:
-    print(f"[FATAL] Missing dependency: {e}. Install boto3 pillow numpy opencv-python.", file=sys.stderr)
+    print(f"[FATAL] Missing dependency: {e}. Install boto3 pillow numpy.", file=sys.stderr)
     raise
 
+try:
+    from PIL import Image, ImageSequence, ImageFilter, ImageOps
+except Exception as e:
+    print(f"[FATAL] Missing dependency: {e}. Install pillow.", file=sys.stderr)
+    raise
+
+try:
+    import numpy as np
+except Exception as e:
+    print(f"[FATAL] Missing dependency: {e}. Install numpy.", file=sys.stderr)
+    raise
+
+log = logging.getLogger("images_parser")
+log.setLevel(logging.INFO)
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+log.handlers[:] = [handler]
+
+CV2_AVAILABLE = False
+cv2 = None
+try:
+    import cv2 as _cv2
+    cv2 = _cv2
+    CV2_AVAILABLE = True
+except Exception as e:
+    log.warning("cv2 not available or failed to load: %s", e)
 try:
     import pytesseract
 except Exception:
     pytesseract = None
-
 try:
     from rapidocr_onnxruntime import RapidOCR
 except Exception:
     RapidOCR = None
-
 try:
     import tiktoken
 except Exception:
@@ -51,9 +76,6 @@ class ColorFormatter(logging.Formatter):
         message = super().format(record)
         return f"{color}{message}{RESET}"
 
-log = logging.getLogger("images_parser")
-log.setLevel(logging.INFO)
-handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(ColorFormatter("%(asctime)s %(levelname)s %(message)s"))
 log.handlers[:] = [handler]
 
@@ -68,7 +90,6 @@ S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX").rstrip("/") + "/"
 CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
 assert CHUNK_FORMAT in ("json", "jsonl")
-PARSER_VERSION = os.getenv("PARSER_VERSION_IMAGES", "images-parser-v1")
 OCR_ENGINE_DESIRED = os.getenv("IMAGE_OCR_ENGINE", "auto").lower()
 MIN_IMG_BYTES = int(os.getenv("IMAGE_MIN_IMG_SIZE_BYTES", "1024"))
 MIN_WIDTH = int(os.getenv("IMAGE_MIN_WIDTH", "1600"))
@@ -76,7 +97,7 @@ TESSERACT_PSM = int(os.getenv("TESSERACT_PSM", "6"))
 OCR_CONFIDENCE_THRESHOLD = float(os.getenv("OCR_CONFIDENCE_THRESHOLD", "30.0"))
 S3_MAX_RETRIES = int(os.getenv("S3_MAX_RETRIES", "3"))
 TOKEN_ENCODER = os.getenv("TOKEN_ENCODER", "cl100k_base")
-STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "true").lower() == "true"
+STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "false").lower() == "true"
 
 boto_config = BotoConfig(retries={"max_attempts": S3_MAX_RETRIES, "mode": "standard"})
 s3 = boto3.client("s3", config=boto_config)
@@ -124,8 +145,15 @@ else:
     else:
         OCR_BACKEND = "none"
 
-if OCR_BACKEND == "rapidocr":
-    ocr_rapid = RapidOCR()
+ocr_rapid = None
+if RapidOCR is not None:
+    try:
+        ocr_rapid = RapidOCR()
+    except Exception as e:
+        log.warning("RapidOCR initialization failed: %s", e)
+        ocr_rapid = None
+
+PARSER_VERSION = OCR_BACKEND + "-v1"
 
 log.info(f"OCR backend: {OCR_BACKEND}")
 
@@ -166,47 +194,87 @@ def upscale_if_needed(img: np.ndarray, min_w: int = MIN_WIDTH) -> np.ndarray:
     scale = min_w / w
     new_w = int(round(w * scale))
     new_h = int(round(h * scale))
-    return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+    if CV2_AVAILABLE:
+        return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+    else:
+        pil = Image.fromarray(img[..., ::-1])
+        pil = pil.resize((new_w, new_h), resample=Image.BICUBIC)
+        arr = np.asarray(pil)[..., ::-1].copy()
+        return arr
 
 def denoise_and_sharpen(img: np.ndarray) -> np.ndarray:
-    den = cv2.fastNlMeansDenoisingColored(img, None, 10, 10, 7, 21)
-    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-    sharp = cv2.filter2D(den, -1, kernel)
-    return sharp
+    if CV2_AVAILABLE:
+        den = cv2.fastNlMeansDenoisingColored(img, None, 10, 10, 7, 21)
+        kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+        sharp = cv2.filter2D(den, -1, kernel)
+        return sharp
+    else:
+        pil = Image.fromarray(img[..., ::-1])
+        pil = pil.filter(ImageFilter.MedianFilter(size=3))
+        pil = pil.filter(ImageFilter.SHARPEN)
+        arr = np.asarray(pil)[..., ::-1].copy()
+        return arr
 
 def adaptive_threshold_gray(img_gray: np.ndarray) -> np.ndarray:
-    return cv2.adaptiveThreshold(img_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 4)
+    if CV2_AVAILABLE:
+        return cv2.adaptiveThreshold(img_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 4)
+    else:
+        mean = int(np.mean(img_gray))
+        return (img_gray > mean).astype("uint8") * 255
 
 def _apply_clahe(gray: np.ndarray) -> np.ndarray:
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    return clahe.apply(gray)
+    if CV2_AVAILABLE:
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        return clahe.apply(gray)
+    else:
+        pil = Image.fromarray(gray)
+        pil = ImageOps.equalize(pil)
+        return np.asarray(pil)
 
 def _gamma_correction(img: np.ndarray, gamma: float) -> np.ndarray:
     inv = 1.0 / gamma
     table = np.array([((i / 255.0) ** inv) * 255 for i in np.arange(0, 256)]).astype("uint8")
-    return cv2.LUT(img, table)
+    if CV2_AVAILABLE:
+        return cv2.LUT(img, table)
+    else:
+        lut = table.astype("uint8")
+        img_uint = img.astype("uint8")
+        flat = lut[img_uint]
+        return flat
 
 def _morph_close(bin_img: np.ndarray, k=3) -> np.ndarray:
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k,k))
-    return cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel)
+    if CV2_AVAILABLE:
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k,k))
+        return cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel)
+    else:
+        pil = Image.fromarray(bin_img)
+        pil = pil.filter(ImageFilter.MinFilter(size=k))
+        return np.asarray(pil)
 
 def preprocess_variants(img_bgr: np.ndarray) -> List[np.ndarray]:
     pre = upscale_if_needed(img_bgr, MIN_WIDTH)
     pre = denoise_and_sharpen(pre)
-    gray = cv2.cvtColor(pre, cv2.COLOR_BGR2GRAY)
-    variants = []
+    if pre.ndim == 3:
+        gray = (0.2989 * pre[...,0] + 0.5870 * pre[...,1] + 0.1140 * pre[...,2]).astype("uint8")
+    else:
+        gray = pre
+    variants: List[np.ndarray] = []
     v1 = _apply_clahe(gray)
     v1t = adaptive_threshold_gray(v1)
-    variants.append(cv2.cvtColor(v1t, cv2.COLOR_GRAY2BGR))
+    variants.append(np.stack([v1t, v1t, v1t], axis=-1))
     g = _gamma_correction(gray, 0.8)
-    _, v2t = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    variants.append(cv2.cvtColor(v2t, cv2.COLOR_GRAY2BGR))
-    mb = cv2.medianBlur(gray, 3)
+    _, v2t = (0, g) if not CV2_AVAILABLE else cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    variants.append(np.stack([v2t, v2t, v2t], axis=-1))
+    mb = gray if not CV2_AVAILABLE else cv2.medianBlur(gray, 3)
     v3t = adaptive_threshold_gray(mb)
-    variants.append(cv2.cvtColor(v3t, cv2.COLOR_GRAY2BGR))
-    _, ots = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    close = _morph_close(ots, k=3)
-    variants.append(cv2.cvtColor(close, cv2.COLOR_GRAY2BGR))
+    variants.append(np.stack([v3t, v3t, v3t], axis=-1))
+    if CV2_AVAILABLE:
+        _, ots = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        close = _morph_close(ots, k=3)
+    else:
+        ots = (gray > np.mean(gray)).astype("uint8") * 255
+        close = _morph_close(ots, k=3)
+    variants.append(np.stack([close, close, close], axis=-1))
     variants.append(pre)
     return variants
 
@@ -256,6 +324,15 @@ def tesseract_extract_lines_and_conf(img_bgr: np.ndarray, psm: int = TESSERACT_P
 
 def rapidocr_extract_lines_with_boxes(img_bgr: np.ndarray) -> List[str]:
     try:
+        global ocr_rapid
+        if ocr_rapid is None and RapidOCR is not None:
+            try:
+                ocr_rapid = RapidOCR()
+            except Exception as e:
+                log.debug("RapidOCR lazy init failed: %s", e)
+                return []
+        if ocr_rapid is None:
+            return []
         res = ocr_rapid(img_bgr)
         items = []
         if not res:
@@ -330,6 +407,9 @@ def dedupe_lines(lines: List[str]) -> List[str]:
     return out
 
 def do_ocr(img_bgr: np.ndarray) -> List[str]:
+    if OCR_BACKEND == "none":
+        log.warning("No OCR backend available, skipping OCR for this image")
+        return []
     variants = preprocess_variants(img_bgr)
     best_lines: List[str] = []
     best_conf = -1.0
@@ -347,16 +427,17 @@ def do_ocr(img_bgr: np.ndarray) -> List[str]:
                 break
         if best_conf >= OCR_CONFIDENCE_THRESHOLD and best_lines:
             return fix_hyphenation(dedupe_lines(best_lines))
-        if RapidOCR is not None:
+        if RapidOCR is not None and (_rapidocr_ready() and ocr_rapid is not None):
             rr = rapidocr_extract_lines_with_boxes(variants[0])
             if rr:
                 return fix_hyphenation(dedupe_lines(rr))
         return fix_hyphenation(dedupe_lines(best_lines))
     elif OCR_BACKEND == "rapidocr":
         pre = variants[0]
-        rr = rapidocr_extract_lines_with_boxes(pre)
-        if rr:
-            return fix_hyphenation(dedupe_lines(rr))
+        if _rapidocr_ready() and ocr_rapid is not None:
+            rr = rapidocr_extract_lines_with_boxes(pre)
+            if rr:
+                return fix_hyphenation(dedupe_lines(rr))
         if _tesseract_ready():
             for v in variants:
                 lines, conf = tesseract_extract_lines_and_conf(v, psm=TESSERACT_PSM)
@@ -364,9 +445,8 @@ def do_ocr(img_bgr: np.ndarray) -> List[str]:
                     best_conf = conf
                     best_lines = lines
             return fix_hyphenation(dedupe_lines(best_lines))
-    else:
-        log.error("No OCR backend available")
-        return []
+    log.warning("OCR attempted but no lines extracted")
+    return []
 
 def _derive_source_key_from_path(s3_path: str) -> str:
     prefix = f"s3://{S3_BUCKET}/"
@@ -554,7 +634,10 @@ def main():
         manifest_key = key + ".manifest.json"
         try:
             mf = s3.get_object(Bucket=S3_BUCKET, Key=manifest_key)
-            manifest = json.load(mf["Body"])
+            try:
+                manifest = json.loads(mf["Body"].read().decode("utf-8"))
+            except Exception:
+                manifest = {}
         except Exception:
             manifest = {}
         try:

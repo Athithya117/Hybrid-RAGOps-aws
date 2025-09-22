@@ -33,7 +33,7 @@ S3_BUCKET = os.getenv("S3_BUCKET")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "").rstrip("/") + "/"
 CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
-PARSER_VERSION = os.getenv("PARSER_VERSION_CSV", "ray-csv-firstrow-auto-v1")
+PARSER_VERSION = os.getenv("PARSER_VERSION_CSV", "ray-csv-v1")
 FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
 ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
 TARGET_TOKENS_PER_CHUNK = int(os.getenv("CSV_TARGET_TOKENS_PER_CHUNK", "1000"))
@@ -43,7 +43,7 @@ MAX_ROWS_PER_CHUNK = int(os.getenv("CSV_MAX_ROWS_PER_CHUNK", "100"))
 S3_PUT_RETRIES = int(os.getenv("S3_PUT_RETRIES", "3"))
 S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF", "0.5"))
 S3_RANGE_BYTES = int(os.getenv("S3_RANGE_BYTES", "131072"))
-STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "true").lower() == "true"
+STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "false").lower() == "true"
 
 s3 = boto3.client("s3")
 ENCODER = None
