@@ -1,7 +1,7 @@
 {
   "file_hash": "38c0a2a9ba805775a602cf8ce3ba89a7",
   "s3_key": "data/raw/jsonls/ai_news_latest.jsonl",
-  "pipeline_run_id": "a7f343d4-f7e8-4ddf-811a-957191cdc537",
+  "pipeline_run_id": "579a0568-0797-41d6-aa21-834a202783c6",
   "mime_type": "application/octet-stream",
-  "timestamp": "2025-09-17T12:51:46.138360Z"
+  "timestamp": "2025-09-23T02:05:00.855186Z"
 }

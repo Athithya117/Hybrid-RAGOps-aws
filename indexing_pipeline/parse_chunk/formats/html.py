@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import sys
 import json
@@ -6,9 +7,9 @@ import logging
 import hashlib
 import re
 import unicodedata
+import tempfile
 from datetime import datetime, timezone
-from typing import Iterator, Dict, Any, Optional, List
-from tempfile import NamedTemporaryFile
+from typing import Iterator, Dict, Any, Optional, List, Tuple
 import boto3
 import requests
 from botocore.exceptions import ClientError
@@ -30,7 +31,7 @@ S3_BUCKET = os.getenv("S3_BUCKET")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "").rstrip("/") + "/"
 CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
-PARSER_VERSION = os.getenv("PARSER_VERSION_HTML", "trafilatura-v1")
+PARSER_VERSION = os.getenv("PARSER_VERSION_HTML", "trafilatura-only-v2")
 FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
 SAVE_SNAPSHOT = os.getenv("SAVE_SNAPSHOT", "false").lower() == "true"
 WINDOW_SIZE = int(os.getenv("HTML_WINDOW_SIZE", "2000"))
@@ -38,9 +39,6 @@ ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "15"))
 FETCH_RETRIES = int(os.getenv("FETCH_RETRIES", "3"))
 FETCH_BACKOFF = float(os.getenv("FETCH_BACKOFF", "0.5"))
-STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "false").lower() == "true"
-S3_PUT_RETRIES = int(os.getenv("S3_PUT_RETRIES", "3"))
-S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF", "0.3"))
 
 s3 = boto3.client("s3")
 ENCODER = None
@@ -144,34 +142,44 @@ def split_into_token_windows(text: str, window_size: int = WINDOW_SIZE) -> Itera
         if end >= total:
             break
 
-class LocalChunkAppender:
-    def __init__(self, chunk_format: str, doc_id: str):
-        self.chunk_format = chunk_format
+class S3DocWriter:
+    def __init__(self, doc_id: str, s3_path: Optional[str], ext: str, content_type: str = "application/json"):
         self.doc_id = doc_id
-        suffix = f".{chunk_format}"
-        self.temp = NamedTemporaryFile(delete=False, mode="w", encoding="utf-8", suffix=suffix)
-        self.path = self.temp.name
+        self.s3_path = s3_path or ""
+        self.ext = ext
+        self.content_type = content_type
+        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False)
         self.count = 0
-    def append(self, payload: dict):
-        if self.chunk_format == "jsonl":
-            line = json.dumps(payload, ensure_ascii=False)
-            self.temp.write(line + "\n")
-        else:
-            pretty = json.dumps(payload, indent=2, ensure_ascii=False)
-            self.temp.write(pretty + "\n")
+        self._first = True
+        if self.ext == "json":
+            self.temp.write(b"[")
+    def write_payload(self, payload: Dict[str, Any]) -> int:
         self.count += 1
+        if self.ext == "jsonl":
+            line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+            self.temp.write(line)
+        else:
+            j = json.dumps(payload, ensure_ascii=False)
+            if not self._first:
+                self.temp.write(b",")
+            self.temp.write(j.encode("utf-8"))
+            self._first = False
+        return 1
+    def finalize_and_upload(self, out_key: str) -> Tuple[int, str]:
+        if self.ext == "json":
+            self.temp.write(b"]")
         self.temp.flush()
-    def finalize_and_upload(self, s3_bucket: str, s3_key: str):
         self.temp.close()
-        extra = {"ContentType": "application/json"}
         try:
-            s3.upload_file(self.path, s3_bucket, s3_key, ExtraArgs=extra)
-            logger.info("Uploaded combined chunks for %s → s3://%s/%s (%d chunks)", self.doc_id, s3_bucket, s3_key, self.count)
-        finally:
+            s3.upload_file(self.temp.name, S3_BUCKET, out_key)
+            os.unlink(self.temp.name)
+            return self.count, out_key
+        except Exception:
             try:
-                os.remove(self.path)
+                os.unlink(self.temp.name)
             except Exception:
                 pass
+            raise
 
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
@@ -221,122 +229,113 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
     token_ct = token_count_for(canonical_full)
     saved = 0
     ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
-    combined_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
-    combined_appender = None
-    if not STORE_ONE_FILE_PER_CHUNK:
-        if not FORCE_OVERWRITE and s3_object_exists(combined_key):
-            logger.info("Skipping file %s because combined target exists and FORCE_OVERWRITE is false → %s", s3_key, combined_key)
-            return {"saved_chunks": 0, "total_parse_duration_ms": int((time.perf_counter() - start_all) * 1000)}
-        combined_appender = LocalChunkAppender(ext, doc_id)
-        logger.info("Using combined chunk file mode for %s → s3://%s/%s", doc_id, S3_BUCKET, combined_key)
-    if token_ct <= WINDOW_SIZE:
-        t0_chunk = time.perf_counter()
-        chunk_index = 1
-        chunk_id = f"{doc_id}_{chunk_index}"
-        parse_ms = extract_duration_ms + int((time.perf_counter() - t0_chunk) * 1000) or 1
-        payload = {
-            "document_id": doc_id,
-            "chunk_id": chunk_id,
-            "chunk_type": "page",
-            "text": canonical_full,
-            "token_count": int(token_ct),
-            "embedding": None,
-            "file_type": "text/html",
-            "source_url": source_url,
-            "page_number": None,
-            "slide_range": None,
-            "row_range": None,
-            "token_range": None,
-            "audio_range": None,
-            "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-            "parser_version": PARSER_VERSION,
-            "tags": [],
-            "layout_tags": ["page"],
-            "used_ocr": False,
-            "parse_chunk_duration_ms": int(parse_ms),
-            "heading_path": [],
-            "headings": [title] if title else [],
-            "line_range": None,
-            "chunk_duration_ms": None,
-            "snapshot_url": snapshot
-        }
-        out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
-        if STORE_ONE_FILE_PER_CHUNK:
-            if not FORCE_OVERWRITE and s3_object_exists(out_key):
-                logger.info("Skipping existing chunk %s", payload["chunk_id"])
-            else:
-                body = (json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode()
-                s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body, ContentType="application/json")
-                logger.info("Wrote page chunk %s → %s", payload["chunk_id"], out_key)
-                saved += 1
-        else:
-            try:
-                combined_appender.append(payload)
-                logger.info("Appended page chunk %s → %s", payload["chunk_id"], combined_key)
-                saved += 1
-            except Exception as e:
-                logger.error("Failed to append payload for %s: %s", payload["chunk_id"], e)
-    else:
-        windows = list(split_into_token_windows(canonical_full))
-        for w in windows:
-            t0_chunk = time.perf_counter()
-            window_idx = int(w.get("window_index", 0))
-            chunk_index = window_idx + 1
+    out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+    if not FORCE_OVERWRITE and s3_object_exists(out_key):
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        logger.info("Skipping entire file because chunked file exists: %s", out_key)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms}
+    writer = S3DocWriter(doc_id=doc_id, s3_path=s3_path, ext=ext)
+    try:
+        if token_ct <= WINDOW_SIZE:
+            chunk_index = 1
             chunk_id = f"{doc_id}_{chunk_index}"
-            wtext = w.get("text", "")
-            w_token_count = int(w.get("token_count", 0))
-            parse_ms = extract_duration_ms + int((time.perf_counter() - t0_chunk) * 1000) or 1
-            token_range = [int(w.get("token_start")), int(w.get("token_end"))]
             payload = {
                 "document_id": doc_id,
                 "chunk_id": chunk_id,
-                "chunk_type": "token_window",
-                "text": wtext,
-                "token_count": int(w_token_count),
+                "chunk_type": "page",
+                "text": canonical_full,
+                "token_count": int(token_ct),
                 "embedding": None,
                 "file_type": "text/html",
                 "source_url": source_url,
                 "page_number": None,
                 "slide_range": None,
                 "row_range": None,
-                "token_range": token_range,
+                "token_range": None,
                 "audio_range": None,
                 "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
                 "parser_version": PARSER_VERSION,
                 "tags": [],
                 "layout_tags": ["page"],
                 "used_ocr": False,
-                "parse_chunk_duration_ms": int(parse_ms),
                 "heading_path": [],
                 "headings": [title] if title else [],
-                "line_range": None,
-                "chunk_duration_ms": None,
-                "snapshot_url": snapshot
+                "line_range": None
             }
-            out_key = f"{S3_CHUNKED_PREFIX}{payload['chunk_id']}.{ext}"
-            if STORE_ONE_FILE_PER_CHUNK:
-                if not FORCE_OVERWRITE and s3_object_exists(out_key):
-                    logger.info("Skipping existing window chunk %s", payload["chunk_id"])
-                    continue
-                body = (json.dumps(payload, ensure_ascii=False) + "\n").encode() if ext == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode()
-                s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body, ContentType="application/json")
-                logger.info("Wrote window chunk %s (window %d) → %s", payload["chunk_id"], window_idx, out_key)
+            writer.write_payload(payload)
+            saved += 1
+        else:
+            windows = list(split_into_token_windows(canonical_full))
+            for w in windows:
+                window_idx = int(w.get("window_index", 0))
+                chunk_index = window_idx + 1
+                chunk_id = f"{doc_id}_{chunk_index}"
+                wtext = w.get("text", "")
+                w_token_count = int(w.get("token_count", 0))
+                token_range = [int(w.get("token_start")), int(w.get("token_end"))]
+                payload = {
+                    "document_id": doc_id,
+                    "chunk_id": chunk_id,
+                    "chunk_type": "token_window",
+                    "text": wtext,
+                    "token_count": int(w_token_count),
+                    "embedding": None,
+                    "file_type": "text/html",
+                    "source_url": source_url,
+                    "page_number": None,
+                    "slide_range": None,
+                    "row_range": None,
+                    "token_range": token_range,
+                    "audio_range": None,
+                    "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                    "parser_version": PARSER_VERSION,
+                    "tags": [],
+                    "layout_tags": ["page"],
+                    "used_ocr": False,
+                    "heading_path": [],
+                    "headings": [title] if title else [],
+                    "line_range": None
+                }
+                writer.write_payload(payload)
                 saved += 1
-            else:
-                try:
-                    combined_appender.append(payload)
-                    logger.info("Appended window chunk %s (window %d) → %s", payload["chunk_id"], window_idx, combined_key)
-                    saved += 1
-                except Exception as e:
-                    logger.error("Failed to append payload for %s: %s", payload["chunk_id"], e)
-    if not STORE_ONE_FILE_PER_CHUNK and combined_appender is not None:
+    except Exception as e:
         try:
-            combined_appender.finalize_and_upload(S3_BUCKET, combined_key)
-        except Exception as e:
-            logger.error("Failed uploading combined file for %s: %s", doc_id, e)
-    total_ms = int((time.perf_counter() - start_all) * 1000)
-    logger.info("Completed parsing %d chunks for %s in %d ms total", saved, s3_key, total_ms)
-    return {"saved_chunks": saved, "total_parse_duration_ms": total_ms}
+            if writer and writer.temp:
+                try:
+                    os.unlink(writer.temp.name)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        logger.error("Error while buffering chunks for %s: %s", s3_key, str(e))
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+    try:
+        if saved == 0:
+            try:
+                if writer and writer.temp:
+                    os.unlink(writer.temp.name)
+            except Exception:
+                pass
+            total_ms = int((time.perf_counter() - start_all) * 1000)
+            logger.info("No chunks produced for %s", s3_key)
+            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms}
+        count, uploaded_key = writer.finalize_and_upload(out_key)
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        logger.info("Wrote %d chunks for %s → %s (%d ms)", count, s3_key, uploaded_key, total_ms)
+        return {"saved_chunks": count, "total_parse_duration_ms": total_ms}
+    except Exception as e_up:
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        try:
+            if writer and writer.temp:
+                try:
+                    os.unlink(writer.temp.name)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        logger.error("Failed to upload chunked file for %s error=%s", s3_key, str(e_up))
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
 
 if __name__ == "__main__":
     paginator = s3.get_paginator("list_objects_v2")

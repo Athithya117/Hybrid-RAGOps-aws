@@ -4,51 +4,26 @@ import sys
 import json
 import logging
 import boto3
+import fitz
+import pdfplumber
 import numpy as np
 import time
-import hashlib
+import tempfile
 from io import BytesIO
 from datetime import datetime
+from typing import Tuple, Optional
 from botocore.exceptions import ClientError
-from tempfile import NamedTemporaryFile
-from typing import Optional
 
-try:
-    import colorama
-    colorama.init()
-except Exception:
-    pass
-
-RESET = "\033[0m"
-COLORS = {
-    logging.DEBUG: "\033[90m",
-    logging.INFO: "\033[37m",
-    logging.WARNING: "\033[33m",
-    logging.ERROR: "\033[31m",
-    logging.CRITICAL: "\033[1;41m",
-}
-
-
-class ColorFormatter(logging.Formatter):
-    def format(self, record):
-        color = COLORS.get(record.levelno, RESET)
-        message = super().format(record)
-        return f"{color}{message}{RESET}"
-
-
-log = logging.getLogger("pptx_parser")
+log = logging.getLogger("pdf_parser_minimal_schema")
 log.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(ColorFormatter("%(asctime)s %(levelname)s %(message)s"))
+handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 log.handlers[:] = [handler]
 
 REQUIRED = [
-    "S3_BUCKET",
-    "S3_RAW_PREFIX",
-    "S3_CHUNKED_PREFIX",
-    "CHUNK_FORMAT",
-    "PPTX_SLIDES_PER_CHUNK",
-    "PPTX_OCR_ENGINE",
+    "S3_BUCKET", "S3_RAW_PREFIX", "S3_CHUNKED_PREFIX",
+    "CHUNK_FORMAT", "PDF_DISABLE_OCR", "PDF_OCR_ENGINE", "PDF_FORCE_OCR",
+    "PDF_OCR_RENDER_DPI", "PDF_MIN_IMG_SIZE_BYTES"
 ]
 missing = [v for v in REQUIRED if os.getenv(v) is None]
 if missing:
@@ -58,33 +33,96 @@ S3_BUCKET = os.getenv("S3_BUCKET")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX").rstrip("/") + "/"
 CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
-SLIDES_PER_CHUNK = int(os.getenv("PPTX_SLIDES_PER_CHUNK", "3"))
-DISABLE_OCR = os.getenv("PPTX_DISABLE_OCR", "false").lower() == "true"
-FORCE_OCR = os.getenv("PPTX_FORCE_OCR", "false").lower() == "true"
-OCR_BACKEND = os.getenv("PPTX_OCR_ENGINE", "tesseract").lower()
-MIN_IMG_BYTES = int(os.getenv("PPTX_MIN_IMG_SIZE_BYTES", "3072"))
-PARSER_VERSION_PPTX = os.getenv("PARSER_VERSION_PPTX", "py-pptx-v1")
-TOKEN_ENCODER = os.getenv("TOKEN_ENCODER", "cl100k_base")
-STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "false").lower() == "true"
+DISABLE_OCR = os.getenv("PDF_DISABLE_OCR", "false").lower() == "true"
+FORCE_OCR = os.getenv("PDF_FORCE_OCR", "false").lower() == "true"
+OCR_BACKEND = os.getenv("PDF_OCR_ENGINE", "tesseract").lower()
+RENDER_DPI = int(os.getenv("PDF_OCR_RENDER_DPI", "500"))
+MIN_IMG_BYTES = int(os.getenv("PDF_MIN_IMG_SIZE_BYTES", "3072"))
 assert CHUNK_FORMAT in ("json", "jsonl")
+
+PDF_WINDOW_SIZE = int(os.getenv("PDF_WINDOW_SIZE", "800"))
+PDF_PAGE_THRESHOLD = PDF_WINDOW_SIZE
+PDF_WINDOW_OVERLAP = float(os.getenv("PDF_WINDOW_OVERLAP", "0.1"))
+FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
 
 s3 = boto3.client("s3")
 
+try:
+    import tiktoken
+    TOKENIZER_MODEL = os.getenv("TOKENIZER_MODEL") or os.getenv("EMBEDDING_MODEL")
+    if TOKENIZER_MODEL:
+        enc = tiktoken.encoding_for_model(TOKENIZER_MODEL)
+    else:
+        enc = tiktoken.get_encoding("cl100k_base")
+    def count_tokens(text: str) -> int:
+        if not text:
+            return 0
+        return len(enc.encode(text))
+    def encode_tokens(text: str):
+        return enc.encode(text)
+    def decode_tokens(token_list) -> str:
+        return enc.decode(token_list)
+except Exception:
+    enc = None
+    def count_tokens(text: str) -> int:
+        if not text:
+            return 0
+        return len(text.split())
+    def encode_tokens(text: str):
+        return text.split()
+    def decode_tokens(token_list) -> str:
+        return " ".join(token_list)
 
-def sha256_hex_str_of_bytes(b: bytes) -> str:
-    h = hashlib.sha256()
-    h.update(b)
-    return h.hexdigest()
+def _tesseract_ready():
+    try:
+        import pytesseract
+        pytesseract.get_tesseract_version()
+        return True
+    except Exception:
+        return False
 
+def _rapidocr_ready():
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+        RapidOCR()
+        return True
+    except Exception:
+        return False
 
-def sha256_hex(s: str) -> str:
-    return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
+TESSERACT_OK = False
+RAPID_OK = False
+if OCR_BACKEND == "tesseract":
+    TESSERACT_OK = _tesseract_ready()
+    if not TESSERACT_OK:
+        RAPID_OK = _rapidocr_ready()
+        if RAPID_OK:
+            OCR_BACKEND = "rapidocr"
+        else:
+            OCR_BACKEND = "none"
+elif OCR_BACKEND == "rapidocr":
+    RAPID_OK = _rapidocr_ready()
+    if not RAPID_OK:
+        TESSERACT_OK = _tesseract_ready()
+        if TESSERACT_OK:
+            OCR_BACKEND = "tesseract"
+        else:
+            OCR_BACKEND = "none"
+else:
+    OCR_BACKEND = "none"
 
+if OCR_BACKEND == "tesseract":
+    try:
+        import pytesseract
+    except Exception:
+        OCR_BACKEND = "none"
+
+if OCR_BACKEND == "rapidocr":
+    from rapidocr_onnxruntime import RapidOCR
+    ocr_rapid = RapidOCR()
 
 def is_valid_text(text: str) -> bool:
     t = (text or "").strip()
     return len(t) > 20 and any(c.isalpha() for c in t)
-
 
 def is_ocr_line_valid(text: str, min_ratio: float = 0.6) -> bool:
     t = (text or "").strip()
@@ -93,8 +131,7 @@ def is_ocr_line_valid(text: str, min_ratio: float = 0.6) -> bool:
     alnum = sum(c.isalnum() for c in t)
     return (alnum / len(t)) >= min_ratio
 
-
-def dedupe_lines(lines: list[str]) -> list[str]:
+def dedupe_lines(lines: list) -> list:
     seen, out = set(), []
     for l in lines:
         key = (l or "").strip().lower()
@@ -103,307 +140,320 @@ def dedupe_lines(lines: list[str]) -> list[str]:
             out.append(l)
     return out
 
-
-def do_ocr(img: np.ndarray) -> list[str]:
+def do_ocr(img: "np.ndarray") -> list:
     lines = []
-    try:
-        if OCR_BACKEND == "tesseract":
-            import cv2
-            from PIL import Image
-            import pytesseract
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            _, bin_img = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            raw = pytesseract.image_to_string(Image.fromarray(bin_img), config="--oem 1 --psm 6")
-            for l in raw.splitlines():
-                if is_ocr_line_valid(l):
-                    lines.append(l.strip())
-        elif OCR_BACKEND == "rapidocr":
-            from rapidocr_onnxruntime import RapidOCR
-            ocr = RapidOCR()
-            res = ocr(img)
-            if res and isinstance(res[0], (list, tuple)):
-                for item in res[0]:
-                    if len(item) >= 2:
-                        text = item[1].strip()
-                        if is_ocr_line_valid(text):
-                            lines.append(text)
-    except Exception:
-        return []
+    if OCR_BACKEND == "tesseract":
+        from PIL import Image
+        import pytesseract
+        import cv2
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        _, bin_img = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        raw = pytesseract.image_to_string(Image.fromarray(bin_img))
+        for l in raw.splitlines():
+            if is_ocr_line_valid(l):
+                lines.append(l.strip())
+    elif OCR_BACKEND == "rapidocr":
+        res = ocr_rapid(img)
+        if res and isinstance(res[0], (list, tuple)):
+            for item in res[0]:
+                if len(item) >= 2:
+                    text = item[1].strip()
+                    if is_ocr_line_valid(text):
+                        lines.append(text)
     return dedupe_lines(lines)
 
-
-def is_valid_table(table: list[list[str]]) -> bool:
+def is_valid_table(table: list) -> bool:
     if len(table) < 2 or len(table[0]) < 2:
         return False
     total_cells = sum(len(r) for r in table)
     alpha_cells = sum(1 for row in table for cell in row if any(c.isalpha() for c in (cell or "")))
     return total_cells > 0 and (alpha_cells / total_cells) >= 0.5
 
-
-def _extract_image_blob_from_shape(shape):
-    try:
-        img = getattr(shape, "image", None)
-        if img and getattr(img, "blob", None):
-            return img.blob
-    except Exception:
-        pass
-    try:
-        fill = getattr(shape, "fill", None)
-        if fill is not None and getattr(fill, "type", None) is not None:
-            pic = getattr(fill, "picture", None)
-            if pic and getattr(pic, "image", None) and getattr(pic.image, "blob", None):
-                return pic.image.blob
-    except Exception:
-        pass
-    return None
-
-
-def _count_tokens(text: str) -> int:
-    if not text:
-        return 0
-    try:
-        import tiktoken
-        enc = tiktoken.get_encoding(TOKEN_ENCODER)
-        return len(enc.encode(text))
-    except Exception:
-        return len(text.split())
-
-
-def _s3_object_metadata_sha256(bucket: str, key: str) -> Optional[str]:
-    try:
-        ho = s3.head_object(Bucket=bucket, Key=key)
-        meta = ho.get("Metadata", {}) or {}
-        return meta.get("sha256")
-    except ClientError:
-        return None
-
-
-class LocalChunkAppender:
-    def __init__(self, chunk_format: str, doc_id: str):
-        self.chunk_format = chunk_format
+class S3DocWriter:
+    def __init__(self, doc_id: str, s3_path: str, ext: str, content_type: str = "application/json"):
         self.doc_id = doc_id
-        suffix = f".{chunk_format}"
-        self.temp = NamedTemporaryFile(delete=False, mode="w", encoding="utf-8", suffix=suffix)
-        self.path = self.temp.name
+        self.s3_path = s3_path or ""
+        self.ext = ext
+        self.content_type = content_type
+        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False)
         self.count = 0
-    def append(self, payload: dict):
-        if self.chunk_format == "jsonl":
-            line = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-            self.temp.write(line + "\n")
-        else:
-            pretty = json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True)
-            self.temp.write(pretty + "\n")
+        self._first = True
+        if self.ext == "json":
+            self.temp.write(b"[")
+    def write_payload(self, payload: dict) -> int:
         self.count += 1
+        if self.ext == "jsonl":
+            line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+            self.temp.write(line)
+        else:
+            j = json.dumps(payload, ensure_ascii=False)
+            if not self._first:
+                self.temp.write(b",")
+            self.temp.write(j.encode("utf-8"))
+            self._first = False
+        return 1
+    def finalize_and_upload(self, out_key: str) -> Tuple[int, str]:
+        if self.ext == "json":
+            self.temp.write(b"]")
         self.temp.flush()
-    def finalize_and_upload(self, s3_bucket: str, s3_key: str):
         self.temp.close()
-        with open(self.path, "rb") as f:
-            body_bytes = f.read()
-        body_sha = sha256_hex_str_of_bytes(body_bytes)
-        existing_sha = _s3_object_metadata_sha256(s3_bucket, s3_key)
-        if existing_sha and existing_sha == body_sha:
-            try:
-                os.remove(self.path)
-            except Exception:
-                pass
-            log.info(f"Skipping upload for {self.doc_id} → s3://{s3_bucket}/{s3_key} (identical)")
-            return
-        extra = {"ContentType": "application/json", "Metadata": {"sha256": body_sha}}
         try:
-            s3.upload_file(self.path, s3_bucket, s3_key, ExtraArgs=extra)
-            log.info(f"Uploaded combined chunks for {self.doc_id} → s3://{s3_bucket}/{s3_key} ({self.count} chunks)")
-        finally:
+            s3.upload_file(self.temp.name, S3_BUCKET, out_key, ExtraArgs={"ContentType": "application/json"})
             try:
-                os.remove(self.path)
+                os.unlink(self.temp.name)
             except Exception:
                 pass
+            return self.count, out_key
+        except Exception:
+            try:
+                os.unlink(self.temp.name)
+            except Exception:
+                pass
+            raise
 
+def s3_object_exists(key: str) -> bool:
+    try:
+        s3.head_object(Bucket=S3_BUCKET, Key=key)
+        return True
+    except ClientError:
+        return False
+    except Exception:
+        return False
 
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
-    try:
-        raw = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
-    except Exception as e:
-        log.error(f"Failed to read {s3_key} from S3: {e}")
-        return {"saved_chunks": 0, "total_parse_duration_ms": 0}
-    doc_id = manifest.get("file_hash") if isinstance(manifest, dict) else None
-    if not doc_id:
-        doc_id = os.path.basename(s3_key) or sha256_hex(s3_key)
+    raw = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
+    doc_id = manifest.get("file_hash") or os.path.basename(s3_key)
     source = f"s3://{S3_BUCKET}/{s3_key}"
+    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+    out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+
+    # If chunked file already exists and we are not forcing overwrite, skip early.
+    if not FORCE_OVERWRITE and s3_object_exists(out_key):
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        log.info(f"Skipping entire file because chunked file exists: {out_key}")
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
+    mp = fitz.open(stream=raw, filetype="pdf")
+    pp = pdfplumber.open(BytesIO(raw))
+    saved = 0
+    writer = S3DocWriter(doc_id=doc_id, s3_path=s3_key, ext=ext)
     try:
-        from pptx import Presentation
-    except Exception as e:
-        log.error(f"pptx import failed: {e}")
-        return {"saved_chunks": 0, "total_parse_duration_ms": 0}
-    try:
-        prs = Presentation(BytesIO(raw))
-    except Exception as e:
-        log.error(f"Failed to parse PPTX {s3_key}: {e}")
-        return {"saved_chunks": 0, "total_parse_duration_ms": 0}
-    slides_content = []
-    for idx, slide in enumerate(prs.slides):
-        slide_num = idx + 1
-        t_slide_start = time.perf_counter()
-        text_items = []
-        table_items = []
-        img_texts = []
-        for shape in slide.shapes:
+        for idx, page in enumerate(mp):
+            page_num = idx + 1
+            page_chunk_id = f"{doc_id}_page_{page_num}"
+            t0 = time.perf_counter()
+            pl = pp.pages[idx]
+            raw_words = pl.extract_words(use_text_flow=True) or []
+            lines_map = {}
+            for w in raw_words:
+                top = round(w["top"], 1)
+                lines_map.setdefault(top, []).append(w)
+            line_items = [(top, " ".join(w["text"] for w in sorted(ws, key=lambda x: x["x0"]))) for top, ws in sorted(lines_map.items())]
+            static_txt = "\n".join(t for _, t in line_items)
+            needs_ocr = not DISABLE_OCR and (FORCE_OCR or not is_valid_text(static_txt))
+            pix = page.get_pixmap(dpi=RENDER_DPI) if needs_ocr else None
+            used_ocr = False
+            if needs_ocr and pix:
+                arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+                if pix.n == 4:
+                    import cv2
+                    arr = cv2.cvtColor(arr, cv2.COLOR_BGRA2BGR)
+                ocr_lines = do_ocr(arr)
+                if ocr_lines:
+                    line_items = [(0.0, "\n".join(ocr_lines))]
+                    used_ocr = True
+            img_items = []
+            if pl.images:
+                if not pix:
+                    pix = page.get_pixmap(dpi=RENDER_DPI)
+                full = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+                if pix.n == 4:
+                    import cv2
+                    full = cv2.cvtColor(full, cv2.COLOR_BGRA2BGR)
+                for img in pl.images:
+                    x0, y0, x1, y1 = img.get("x0"), img.get("top"), img.get("x1"), img.get("bottom")
+                    px0 = int(x0 * pix.width / page.rect.width)
+                    py0 = int(y0 * pix.height / page.rect.height)
+                    px1 = int(x1 * pix.width / page.rect.width)
+                    py1 = int(y1 * pix.height / page.rect.height)
+                    crop = full[py0:py1, px0:px1]
+                    if crop.size >= MIN_IMG_BYTES and crop.shape[0] >= 50 and crop.shape[1] >= 50:
+                        pieces = do_ocr(crop)
+                        if pieces:
+                            img_items.append((y0, "\n".join(pieces)))
+                            used_ocr = True
+            table_items = []
             try:
-                if getattr(shape, "has_text_frame", False):
-                    txt = shape.text or ""
-                    if txt.strip():
-                        for ln in txt.splitlines():
-                            if ln.strip():
-                                text_items.append(ln.strip())
-                if getattr(shape, "has_table", False):
-                    tbl = shape.table
-                    rows = []
-                    for r in tbl.rows:
-                        cols = []
-                        for c in r.cells:
-                            cols.append((c.text or "").replace("\n", " ").strip())
-                        rows.append(cols)
-                    norm = [[cell for cell in row] for row in rows]
-                    if is_valid_table(norm):
+                raw_tables = pl.extract_tables() or []
+            except Exception as e:
+                log.warning(f"Table extraction error on p{page_num}: {e}")
+                raw_tables = []
+            for tbl in raw_tables:
+                norm = [[(cell or "").replace("\n", " ").strip() for cell in row] for row in tbl]
+                if is_valid_table(norm):
+                    if len(norm) >= 2:
                         header = "| " + " | ".join(norm[0]) + " |"
                         sep = "| " + " | ".join(["---"] * len(norm[0])) + " |"
-                        rows_md = ["| " + " | ".join(r) + " |" for r in norm[1:]] if len(norm) > 1 else ["\t".join(r) for r in norm]
-                        md_table = "\n".join([header, sep] + rows_md) if len(norm) > 1 else "\n".join(rows_md)
-                        table_items.append(md_table)
-                blob = _extract_image_blob_from_shape(shape)
-                if blob and len(blob) >= MIN_IMG_BYTES:
-                    from PIL import Image
-                    img = Image.open(BytesIO(blob)).convert("RGB")
-                    arr = np.array(img)[:, :, ::-1]
-                    ocr_lines = do_ocr(arr)
-                    if ocr_lines:
-                        img_texts.append("\n".join(ocr_lines))
-            except Exception:
-                continue
-        merged_lines = []
-        if text_items:
-            merged_lines.extend(text_items)
-        if table_items:
-            merged_lines.extend(table_items)
-        if img_texts:
-            merged_lines.extend(img_texts)
-        merged_lines = [ln for ln in merged_lines if is_ocr_line_valid(ln)]
-        merged_lines = dedupe_lines(merged_lines)
-        slide_parse_ms = (time.perf_counter() - t_slide_start) * 1000.0
-        slides_content.append({
-            "slide_number": slide_num,
-            "raw_lines": merged_lines,
-            "has_text": bool(text_items),
-            "has_images_text": bool(img_texts),
-            "tables": table_items,
-            "parse_duration_ms": slide_parse_ms,
-        })
-    saved = 0
-    total_slides = len(slides_content)
-    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
-    combined_appender = None
-    combined_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
-    if not STORE_ONE_FILE_PER_CHUNK:
-        combined_appender = LocalChunkAppender(ext, doc_id)
-        log.info(f"Using combined chunk file mode for {doc_id} → s3://{S3_BUCKET}/{combined_key}")
-    for i in range(0, total_slides, SLIDES_PER_CHUNK):
-        chunk_slides = slides_content[i:i + SLIDES_PER_CHUNK]
-        start = chunk_slides[0]["slide_number"]
-        end = chunk_slides[-1]["slide_number"]
-        chunk_id = f"{doc_id}_slides_{start}_{end}"
-        t_chunk_start = time.perf_counter()
-        merged = []
-        used_ocr = False
-        slides_sum_ms = 0.0
-        for slide in chunk_slides:
-            merged.append(f"## Slide {slide['slide_number']}")
-            for ln in slide["raw_lines"]:
-                merged.append(ln)
-            if slide["tables"]:
-                merged.extend(slide["tables"])
-            if slide["has_images_text"]:
-                used_ocr = True
-            if not slide["has_text"] and slide["has_images_text"]:
-                used_ocr = True
-            slides_sum_ms += float(slide.get("parse_duration_ms", 0.0))
-        clean = [ln for ln in merged if is_ocr_line_valid(ln)]
-        clean = dedupe_lines(clean)
-        final_text = "\n\n".join(clean)
-        token_count = _count_tokens(final_text)
-        merge_write_ms = (time.perf_counter() - t_chunk_start) * 1000.0
-        duration_ms = int(slides_sum_ms + merge_write_ms)
-        payload = {
-            "document_id": doc_id or "",
-            "chunk_id": chunk_id or "",
-            "chunk_type": "slides",
-            "text": final_text or "",
-            "token_count": int(token_count or 0),
-            "embedding": None,
-            "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            "source_url": source,
-            "page_number": None,
-            "slide_range": [int(start), int(end)],
-            "row_range": None,
-            "token_range": None,
-            "audio_range": None,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "parser_version": PARSER_VERSION_PPTX,
-            "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [],
-            "layout_tags": ["slide"],
-            "used_ocr": bool(used_ocr),
-            "parse_chunk_duration_ms": int(duration_ms),
-            "heading_path": [],
-            "headings": [],
-            "line_range": None,
-            "chunk_duration_ms": None,
-        }
-        if STORE_ONE_FILE_PER_CHUNK:
-            out_key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext}"
-            if ext == "jsonl":
-                body_bytes = (json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n").encode()
-            else:
-                body_bytes = json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True).encode()
-            body_sha = sha256_hex_str_of_bytes(body_bytes)
-            existing_sha = _s3_object_metadata_sha256(S3_BUCKET, out_key)
-            if existing_sha and existing_sha == body_sha:
-                log.info(f"Skipping upload for {out_key} (identical)")
-                saved += 1
-            else:
-                try:
-                    s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body_bytes, ContentType="application/json", Metadata={"sha256": body_sha})
-                    log.info(f"Parsed slides {start}-{end} in {duration_ms} ms (tokens={token_count}) → {out_key}")
-                    saved += 1
-                except ClientError as e:
-                    log.error(f"Failed to write {out_key}: {e}")
-        else:
+                        rows = ["| " + " | ".join(r) + " |" for r in norm[1:]]
+                        md_table = "\n".join([header, sep] + rows)
+                    else:
+                        md_table = "\n".join(["\t".join(r) for r in norm])
+                    table_items.append((0.0, md_table))
+            merged = line_items + img_items + table_items
+            merged.sort(key=lambda x: x[0])
+            raw_lines = [l for _, l in merged]
+            md_lines = [f"## Page {page_num}"]
+            for l in raw_lines:
+                for ln in l.split("\n"):
+                    if ln.strip():
+                        md_lines.append(ln.strip())
+            clean = [ln for ln in md_lines if is_ocr_line_valid(ln)]
+            clean = dedupe_lines(clean)
+            final_text = "\n\n".join(clean)
+            duration_ms = int((time.perf_counter() - t0) * 1000)
             try:
-                combined_appender.append(payload)
-                log.info(f"Appended slides {start}-{end} in {duration_ms} ms (tokens={token_count}) → {combined_key}")
-                saved += 1
+                token_count = count_tokens(final_text) if final_text and final_text.strip() else 0
+            except Exception:
+                token_count = len(final_text.split()) if final_text and final_text.strip() else 0
+            page_payload = {
+                "document_id": doc_id or None,
+                "chunk_id": page_chunk_id,
+                "chunk_type": "page",
+                "text": final_text or None,
+                "token_count": token_count if token_count is not None else None,
+                "embedding": None,
+                "file_type": "application/pdf",
+                "source_url": source,
+                "page_number": page_num,
+                "slide_range": None,
+                "row_range": None,
+                "token_range": [0, token_count - 1] if token_count and token_count > 0 else None,
+                "audio_range": None,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "parser_version": manifest.get("parser_version") if isinstance(manifest, dict) else None,
+                "tags": manifest.get("tags") if isinstance(manifest, dict) else [],
+                "layout_tags": ["page"],
+                "used_ocr": bool(used_ocr),
+                "heading_path": [],
+                "headings": [],
+                "line_range": None
+            }
+            writer.write_payload(page_payload)
+            log.info(f"Buffered parsed page {page_num} (tokens={token_count}, ocr_used={used_ocr})")
+            saved += 1
+            try:
+                if token_count and token_count > PDF_PAGE_THRESHOLD:
+                    encoded = encode_tokens(final_text)
+                    total_tokens = len(encoded)
+                    window_size = int(PDF_WINDOW_SIZE)
+                    overlap = int(max(1, window_size * PDF_WINDOW_OVERLAP))
+                    step = window_size - overlap
+                    if step <= 0:
+                        step = window_size
+                    sub_index = 0
+                    start_t = 0
+                    while start_t < total_tokens:
+                        end_t = min(start_t + window_size, total_tokens)
+                        window_tokens = encoded[start_t:end_t]
+                        try:
+                            window_text = decode_tokens(window_tokens)
+                        except Exception:
+                            if isinstance(window_tokens, list) and window_tokens and isinstance(window_tokens[0], str):
+                                window_text = " ".join(window_tokens)
+                            else:
+                                window_text = final_text
+                        sub_chunk_id = f"{doc_id}_page_{page_num}_sub_{sub_index}"
+                        sub_token_count = end_t - start_t
+                        sub_payload = {
+                            "document_id": doc_id or None,
+                            "chunk_id": sub_chunk_id,
+                            "chunk_type": "page_subchunk",
+                            "text": window_text or None,
+                            "token_count": sub_token_count,
+                            "embedding": None,
+                            "file_type": "application/pdf",
+                            "source_url": source,
+                            "page_number": page_num,
+                            "slide_range": None,
+                            "row_range": None,
+                            "token_range": [start_t, end_t - 1],
+                            "audio_range": None,
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "parser_version": manifest.get("parser_version") if isinstance(manifest, dict) else None,
+                            "tags": manifest.get("tags") if isinstance(manifest, dict) else [],
+                            "layout_tags": ["page", "subchunk"],
+                            "used_ocr": bool(used_ocr),
+                            "heading_path": [],
+                            "headings": [],
+                            "line_range": None
+                        }
+                        writer.write_payload(sub_payload)
+                        log.info(f"Buffered subchunk {sub_chunk_id} tokens {start_t}-{end_t-1}")
+                        saved += 1
+                        sub_index += 1
+                        start_t += step
             except Exception as e:
-                log.error(f"Failed to append payload for {chunk_id}: {e}")
-    if not STORE_ONE_FILE_PER_CHUNK and combined_appender is not None:
+                log.warning(f"Failed to produce subchunks for page {page_num}: {e}")
+    except Exception as e:
         try:
-            combined_appender.finalize_and_upload(S3_BUCKET, combined_key)
-        except Exception as e:
-            log.error(f"Failed uploading combined file for {doc_id}: {e}")
-    total_ms = int((time.perf_counter() - start_all) * 1000)
-    log.info(f"Completed parsing {saved} chunks ({total_slides} slides) in {total_ms} ms total")
-    return {"saved_chunks": saved, "total_parse_duration_ms": total_ms}
-
+            if writer and writer.temp:
+                try:
+                    os.unlink(writer.temp.name)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        mp.close()
+        pp.close()
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        log.exception("Fatal error while parsing %s: %s", s3_key, str(e))
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+    try:
+        if saved == 0:
+            try:
+                if writer and writer.temp:
+                    os.unlink(writer.temp.name)
+            except Exception:
+                pass
+            total_ms = int((time.perf_counter() - start_all) * 1000)
+            log.info("No chunks produced for %s", s3_key)
+            mp.close()
+            pp.close()
+            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms}
+        count, uploaded_key = writer.finalize_and_upload(out_key)
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        mp.close()
+        pp.close()
+        log.info(f"Wrote {count} chunks for {s3_key} → {uploaded_key} ({total_ms} ms total) ocr_used=%s", bool(True))
+        return {"saved_chunks": count, "total_parse_duration_ms": total_ms}
+    except Exception as e_up:
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        try:
+            if writer and writer.temp:
+                try:
+                    os.unlink(writer.temp.name)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        mp.close()
+        pp.close()
+        log.error(f"Failed to upload chunked file for {s3_key} error={str(e_up)}")
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
 
 if __name__ == "__main__":
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=S3_BUCKET, Prefix=S3_RAW_PREFIX):
         for obj in page.get("Contents", []):
-            key = obj["Key"]
-            if not key.lower().endswith(".pptx"):
+            key = obj.get("Key")
+            if not key or not key.lower().endswith(".pdf"):
                 continue
             log.info(f"Routing parse_file for s3://{S3_BUCKET}/{key}")
             manifest_key = key + ".manifest.json"
             try:
                 mf = s3.get_object(Bucket=S3_BUCKET, Key=manifest_key)
-                manifest = json.loads(mf["Body"].read().decode("utf-8"))
+                manifest = json.load(mf["Body"])
             except Exception:
                 manifest = {}
             parse_file(key, manifest)

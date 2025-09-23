@@ -87,5 +87,4 @@ rm -rf /tmp/hf_download || true
 docker --version || true
 
 
-docker pull athithya324/embedder-cpu-inference:linux-amd64-arm64
 docker pull athithya324/frontend-streamlit:v1

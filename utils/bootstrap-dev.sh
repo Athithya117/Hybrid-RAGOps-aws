@@ -184,6 +184,21 @@ if curl -I -s https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-sta
 fi
 cd - >/dev/null 2>&1 || true
 
+apt-get update && apt-get install -y libgl1-mesa-glx libglib2.0-0 libsm6 libxrender1 libxext6
+
+
+echo "[libreoffice-server] Installing LibreOffice (headless) + UNO bridge..."
+sudo add-apt-repository ppa:libreoffice/ppa -y || true
+sudo apt-get update -yq
+sudo apt-get install -y \
+  libreoffice-script-provider-python \
+  libreoffice-core \
+  libreoffice-writer \
+  libreoffice-calc \
+  python3-uno \
+  --no-install-recommends || true
+
+
 docker pull athithya324/embedder-cpu-inference:linux-amd64-arm64 || true
 
 pulumi plugin install resource aws v7.7.0 2>/dev/null || true

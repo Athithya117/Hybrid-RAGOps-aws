@@ -1,4 +1,6 @@
-# python3 indexing_pipeline/ray_indexing_pipeline.py --libreoffice-ready-timeout 30
+# python3 indexing_pipeline/ray_indexing_pipeline.py --libreoffice-ready-timeout 600
+# Works only in containers or without virtual environment if all dependencies are installed system-wide. 
+
 
 from __future__ import annotations
 import argparse
@@ -13,7 +15,6 @@ import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-
 import ray
 from ray.util.placement_group import placement_group, remove_placement_group
 
@@ -24,17 +25,51 @@ PRE_CONVERSION_SCRIPTS = [
     "parse_chunk/pre_conversions/all_audio_to_wav.py",
     "parse_chunk/pre_conversions/doc_docx_to_pdf.py",
     "parse_chunk/pre_conversions/spreadsheets_to_csv.py",
+    "parse_chunk/pre_conversions/ppt_to_pptx.py"
 ]
 ROUTER = "parse_chunk/router.py"
 INDEX = "index.py"
 LIBREOFFICE_LOG = "/tmp/libreoffice.log"
 SOFFICE_LOG = "/tmp/libreoffice_soffice.log"
 
-# logging to stdout so wrapper doesn't re-label as ERROR
+
+class ColoredFormatter(logging.Formatter):
+    """
+    ANSI-colored formatter that preserves the base formatting (timestamp, msecs, message).
+    Colors are automatically disabled if the stream is not a TTY.
+    """
+    RESET = "\x1b[0m"
+    COLORS = {
+        "DEBUG": "\x1b[38;20m",      # dim white
+        "INFO": "\x1b[32;20m",       # green
+        "WARNING": "\x1b[33;20m",    # yellow
+        "ERROR": "\x1b[31;20m",      # red
+        "CRITICAL": "\x1b[41;30;20m" # red background
+    }
+
+    def __init__(self, fmt=None, datefmt=None, use_colors: Optional[bool] = None):
+        super().__init__(fmt=fmt, datefmt=datefmt)
+        if use_colors is None:
+            use_colors = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+        self.use_colors = use_colors
+
+    def format(self, record):
+        levelname = record.levelname
+        if self.use_colors and levelname in self.COLORS:
+            color = self.COLORS[levelname]
+            record.levelname = f"{color}{levelname}{self.RESET}"
+        # preserve original formatting for other fields
+        return super().format(record)
+
+
+# Set up root logger + colored handler
 handler = logging.StreamHandler(sys.stdout)
-formatter = logging.Formatter("%(asctime)s.%(msecs)03d %(levelname)s %(message)s")
+# keep the same timestamp+millis format as original
+base_fmt = "%(asctime)s.%(msecs)03d %(levelname)s %(message)s"
+formatter = ColoredFormatter(fmt=base_fmt)
 handler.setFormatter(formatter)
 root = logging.getLogger()
+# remove existing handlers (as in original)
 for h in list(root.handlers):
     root.removeHandler(h)
 root.addHandler(handler)
@@ -472,4 +507,3 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, _handler)
     signal.signal(signal.SIGTERM, _handler)
     main()
-

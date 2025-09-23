@@ -1,61 +1,36 @@
 from __future__ import annotations
 import os
-os.environ.setdefault("MPLBACKEND", "Agg")
-os.environ.setdefault("DISPLAY", "")
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import sys
 import json
 import logging
 import hashlib
 import time
+import tempfile
 from io import BytesIO
 from datetime import datetime
 from typing import Tuple, Optional, List, Dict, Any
-from tempfile import NamedTemporaryFile
-from pathlib import Path
 
 try:
     import boto3
     from botocore.config import Config as BotoConfig
     from botocore.exceptions import ClientError
-except Exception as e:
-    print(f"[FATAL] Missing dependency: {e}. Install boto3 pillow numpy.", file=sys.stderr)
-    raise
-
-try:
-    from PIL import Image, ImageSequence, ImageFilter, ImageOps
-except Exception as e:
-    print(f"[FATAL] Missing dependency: {e}. Install pillow.", file=sys.stderr)
-    raise
-
-try:
+    from PIL import Image, ImageSequence
     import numpy as np
+    import cv2
 except Exception as e:
-    print(f"[FATAL] Missing dependency: {e}. Install numpy.", file=sys.stderr)
+    print(f"[FATAL] Missing dependency: {e}. Install boto3 pillow numpy opencv-python.", file=sys.stderr)
     raise
 
-log = logging.getLogger("images_parser")
-log.setLevel(logging.INFO)
-handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-log.handlers[:] = [handler]
-
-CV2_AVAILABLE = False
-cv2 = None
-try:
-    import cv2 as _cv2
-    cv2 = _cv2
-    CV2_AVAILABLE = True
-except Exception as e:
-    log.warning("cv2 not available or failed to load: %s", e)
 try:
     import pytesseract
 except Exception:
     pytesseract = None
+
 try:
     from rapidocr_onnxruntime import RapidOCR
 except Exception:
     RapidOCR = None
+
 try:
     import tiktoken
 except Exception:
@@ -76,6 +51,9 @@ class ColorFormatter(logging.Formatter):
         message = super().format(record)
         return f"{color}{message}{RESET}"
 
+log = logging.getLogger("images_parser")
+log.setLevel(logging.INFO)
+handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(ColorFormatter("%(asctime)s %(levelname)s %(message)s"))
 log.handlers[:] = [handler]
 
@@ -90,6 +68,8 @@ S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX").rstrip("/") + "/"
 CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
 assert CHUNK_FORMAT in ("json", "jsonl")
+
+PARSER_VERSION = os.getenv("PARSER_VERSION_IMAGES", "images-parser-v1")
 OCR_ENGINE_DESIRED = os.getenv("IMAGE_OCR_ENGINE", "auto").lower()
 MIN_IMG_BYTES = int(os.getenv("IMAGE_MIN_IMG_SIZE_BYTES", "1024"))
 MIN_WIDTH = int(os.getenv("IMAGE_MIN_WIDTH", "1600"))
@@ -97,7 +77,7 @@ TESSERACT_PSM = int(os.getenv("TESSERACT_PSM", "6"))
 OCR_CONFIDENCE_THRESHOLD = float(os.getenv("OCR_CONFIDENCE_THRESHOLD", "30.0"))
 S3_MAX_RETRIES = int(os.getenv("S3_MAX_RETRIES", "3"))
 TOKEN_ENCODER = os.getenv("TOKEN_ENCODER", "cl100k_base")
-STORE_ONE_FILE_PER_CHUNK = os.getenv("STORE_ONE_FILE_PER_CHUNK", "false").lower() == "true"
+FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
 
 boto_config = BotoConfig(retries={"max_attempts": S3_MAX_RETRIES, "mode": "standard"})
 s3 = boto3.client("s3", config=boto_config)
@@ -145,15 +125,8 @@ else:
     else:
         OCR_BACKEND = "none"
 
-ocr_rapid = None
-if RapidOCR is not None:
-    try:
-        ocr_rapid = RapidOCR()
-    except Exception as e:
-        log.warning("RapidOCR initialization failed: %s", e)
-        ocr_rapid = None
-
-PARSER_VERSION = OCR_BACKEND + "-v1"
+if OCR_BACKEND == "rapidocr":
+    ocr_rapid = RapidOCR()
 
 log.info(f"OCR backend: {OCR_BACKEND}")
 
@@ -170,7 +143,7 @@ def blob_hash(b: bytes) -> str:
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
-def pil_to_bgr(img) -> np.ndarray:
+def pil_to_bgr(img: Image.Image) -> np.ndarray:
     arr = np.asarray(img.convert("RGB"))
     return arr[..., ::-1].copy()
 
@@ -194,87 +167,47 @@ def upscale_if_needed(img: np.ndarray, min_w: int = MIN_WIDTH) -> np.ndarray:
     scale = min_w / w
     new_w = int(round(w * scale))
     new_h = int(round(h * scale))
-    if CV2_AVAILABLE:
-        return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
-    else:
-        pil = Image.fromarray(img[..., ::-1])
-        pil = pil.resize((new_w, new_h), resample=Image.BICUBIC)
-        arr = np.asarray(pil)[..., ::-1].copy()
-        return arr
+    return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
 
 def denoise_and_sharpen(img: np.ndarray) -> np.ndarray:
-    if CV2_AVAILABLE:
-        den = cv2.fastNlMeansDenoisingColored(img, None, 10, 10, 7, 21)
-        kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-        sharp = cv2.filter2D(den, -1, kernel)
-        return sharp
-    else:
-        pil = Image.fromarray(img[..., ::-1])
-        pil = pil.filter(ImageFilter.MedianFilter(size=3))
-        pil = pil.filter(ImageFilter.SHARPEN)
-        arr = np.asarray(pil)[..., ::-1].copy()
-        return arr
+    den = cv2.fastNlMeansDenoisingColored(img, None, 10, 10, 7, 21)
+    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+    sharp = cv2.filter2D(den, -1, kernel)
+    return sharp
 
 def adaptive_threshold_gray(img_gray: np.ndarray) -> np.ndarray:
-    if CV2_AVAILABLE:
-        return cv2.adaptiveThreshold(img_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 4)
-    else:
-        mean = int(np.mean(img_gray))
-        return (img_gray > mean).astype("uint8") * 255
+    return cv2.adaptiveThreshold(img_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 4)
 
 def _apply_clahe(gray: np.ndarray) -> np.ndarray:
-    if CV2_AVAILABLE:
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-        return clahe.apply(gray)
-    else:
-        pil = Image.fromarray(gray)
-        pil = ImageOps.equalize(pil)
-        return np.asarray(pil)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    return clahe.apply(gray)
 
 def _gamma_correction(img: np.ndarray, gamma: float) -> np.ndarray:
     inv = 1.0 / gamma
     table = np.array([((i / 255.0) ** inv) * 255 for i in np.arange(0, 256)]).astype("uint8")
-    if CV2_AVAILABLE:
-        return cv2.LUT(img, table)
-    else:
-        lut = table.astype("uint8")
-        img_uint = img.astype("uint8")
-        flat = lut[img_uint]
-        return flat
+    return cv2.LUT(img, table)
 
 def _morph_close(bin_img: np.ndarray, k=3) -> np.ndarray:
-    if CV2_AVAILABLE:
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k,k))
-        return cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel)
-    else:
-        pil = Image.fromarray(bin_img)
-        pil = pil.filter(ImageFilter.MinFilter(size=k))
-        return np.asarray(pil)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k,k))
+    return cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel)
 
 def preprocess_variants(img_bgr: np.ndarray) -> List[np.ndarray]:
     pre = upscale_if_needed(img_bgr, MIN_WIDTH)
     pre = denoise_and_sharpen(pre)
-    if pre.ndim == 3:
-        gray = (0.2989 * pre[...,0] + 0.5870 * pre[...,1] + 0.1140 * pre[...,2]).astype("uint8")
-    else:
-        gray = pre
-    variants: List[np.ndarray] = []
+    gray = cv2.cvtColor(pre, cv2.COLOR_BGR2GRAY)
+    variants = []
     v1 = _apply_clahe(gray)
     v1t = adaptive_threshold_gray(v1)
-    variants.append(np.stack([v1t, v1t, v1t], axis=-1))
+    variants.append(cv2.cvtColor(v1t, cv2.COLOR_GRAY2BGR))
     g = _gamma_correction(gray, 0.8)
-    _, v2t = (0, g) if not CV2_AVAILABLE else cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    variants.append(np.stack([v2t, v2t, v2t], axis=-1))
-    mb = gray if not CV2_AVAILABLE else cv2.medianBlur(gray, 3)
+    _, v2t = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    variants.append(cv2.cvtColor(v2t, cv2.COLOR_GRAY2BGR))
+    mb = cv2.medianBlur(gray, 3)
     v3t = adaptive_threshold_gray(mb)
-    variants.append(np.stack([v3t, v3t, v3t], axis=-1))
-    if CV2_AVAILABLE:
-        _, ots = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        close = _morph_close(ots, k=3)
-    else:
-        ots = (gray > np.mean(gray)).astype("uint8") * 255
-        close = _morph_close(ots, k=3)
-    variants.append(np.stack([close, close, close], axis=-1))
+    variants.append(cv2.cvtColor(v3t, cv2.COLOR_GRAY2BGR))
+    _, ots = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    close = _morph_close(ots, k=3)
+    variants.append(cv2.cvtColor(close, cv2.COLOR_GRAY2BGR))
     variants.append(pre)
     return variants
 
@@ -298,23 +231,24 @@ def tesseract_extract_lines_and_conf(img_bgr: np.ndarray, psm: int = TESSERACT_P
             except Exception:
                 conf = 0.0
             left = int(data.get("left", [0]*n)[i])
+            top = int(data.get("top", [0]*n)[i])
             block = int(data.get("block_num", [0]*n)[i])
             par = int(data.get("par_num", [0]*n)[i])
             line = int(data.get("line_num", [0]*n)[i])
-            tokens.append({"text": txt, "conf": conf, "left": left, "block": block, "par": par, "line": line})
+            tokens.append({"text": txt, "conf": conf, "left": left, "top": top, "block": block, "par": par, "line": line})
         groups: Dict[Tuple[int,int,int], List[dict]] = {}
         for t in tokens:
             key = (t["block"], t["par"], t["line"])
             groups.setdefault(key, []).append(t)
         lines = []
         all_confs = []
-        for toks in groups.values():
+        for (block, par, line_idx), toks in groups.items():
             toks_sorted = sorted(toks, key=lambda x: x["left"])
             line_text = " ".join(t["text"] for t in toks_sorted)
             left_min = min(t["left"] for t in toks_sorted)
-            lines.append({"text": line_text, "left": left_min})
+            lines.append({"text": line_text, "block": block, "par": par, "left": left_min})
             all_confs.extend([t["conf"] for t in toks_sorted])
-        lines_sorted = sorted(lines, key=lambda x: x["left"])
+        lines_sorted = sorted(lines, key=lambda x: (x["block"], x["par"], x["left"]))
         out_lines = [l["text"] for l in lines_sorted]
         avg_conf = (sum(all_confs) / len(all_confs)) if all_confs else 0.0
         return out_lines, float(avg_conf)
@@ -324,15 +258,6 @@ def tesseract_extract_lines_and_conf(img_bgr: np.ndarray, psm: int = TESSERACT_P
 
 def rapidocr_extract_lines_with_boxes(img_bgr: np.ndarray) -> List[str]:
     try:
-        global ocr_rapid
-        if ocr_rapid is None and RapidOCR is not None:
-            try:
-                ocr_rapid = RapidOCR()
-            except Exception as e:
-                log.debug("RapidOCR lazy init failed: %s", e)
-                return []
-        if ocr_rapid is None:
-            return []
         res = ocr_rapid(img_bgr)
         items = []
         if not res:
@@ -407,9 +332,6 @@ def dedupe_lines(lines: List[str]) -> List[str]:
     return out
 
 def do_ocr(img_bgr: np.ndarray) -> List[str]:
-    if OCR_BACKEND == "none":
-        log.warning("No OCR backend available, skipping OCR for this image")
-        return []
     variants = preprocess_variants(img_bgr)
     best_lines: List[str] = []
     best_conf = -1.0
@@ -427,17 +349,16 @@ def do_ocr(img_bgr: np.ndarray) -> List[str]:
                 break
         if best_conf >= OCR_CONFIDENCE_THRESHOLD and best_lines:
             return fix_hyphenation(dedupe_lines(best_lines))
-        if RapidOCR is not None and (_rapidocr_ready() and ocr_rapid is not None):
+        if RapidOCR is not None:
             rr = rapidocr_extract_lines_with_boxes(variants[0])
             if rr:
                 return fix_hyphenation(dedupe_lines(rr))
         return fix_hyphenation(dedupe_lines(best_lines))
     elif OCR_BACKEND == "rapidocr":
         pre = variants[0]
-        if _rapidocr_ready() and ocr_rapid is not None:
-            rr = rapidocr_extract_lines_with_boxes(pre)
-            if rr:
-                return fix_hyphenation(dedupe_lines(rr))
+        rr = rapidocr_extract_lines_with_boxes(pre)
+        if rr:
+            return fix_hyphenation(dedupe_lines(rr))
         if _tesseract_ready():
             for v in variants:
                 lines, conf = tesseract_extract_lines_and_conf(v, psm=TESSERACT_PSM)
@@ -445,8 +366,9 @@ def do_ocr(img_bgr: np.ndarray) -> List[str]:
                     best_conf = conf
                     best_lines = lines
             return fix_hyphenation(dedupe_lines(best_lines))
-    log.warning("OCR attempted but no lines extracted")
-    return []
+    else:
+        log.error("No OCR backend available")
+        return []
 
 def _derive_source_key_from_path(s3_path: str) -> str:
     prefix = f"s3://{S3_BUCKET}/"
@@ -464,36 +386,55 @@ def _compute_token_count(text: str) -> int:
             pass
     return len(text.split())
 
-class LocalChunkAppender:
-    def __init__(self, chunk_format: str, doc_id: str):
-        self.chunk_format = chunk_format
+def s3_object_exists(key: str) -> bool:
+    try:
+        s3.head_object(Bucket=S3_BUCKET, Key=key)
+        return True
+    except ClientError:
+        return False
+    except Exception:
+        return False
+
+class S3DocWriter:
+    def __init__(self, doc_id: str, s3_path: str, ext: str, content_type: str = "application/json"):
         self.doc_id = doc_id
-        suffix = f".{chunk_format}"
-        self.temp = NamedTemporaryFile(delete=False, mode="w", encoding="utf-8", suffix=suffix)
-        self.path = self.temp.name
+        self.s3_path = s3_path or ""
+        self.ext = ext
+        self.content_type = content_type
+        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False)
         self.count = 0
-    def append(self, payload: dict):
-        if self.chunk_format == "jsonl":
-            line = json.dumps(payload, ensure_ascii=False)
-            self.temp.write(line + "\n")
-        else:
-            pretty = json.dumps(payload, indent=2, ensure_ascii=False)
-            self.temp.write(pretty + "\n")
+        self._first = True
+        if self.ext == "json":
+            self.temp.write(b"[")
+    def write_payload(self, payload: Dict[str, Any]) -> int:
         self.count += 1
+        if self.ext == "jsonl":
+            line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+            self.temp.write(line)
+        else:
+            j = json.dumps(payload, ensure_ascii=False)
+            if not self._first:
+                self.temp.write(b",")
+            self.temp.write(j.encode("utf-8"))
+            self._first = False
+        return 1
+    def finalize_and_upload(self, out_key: str) -> Tuple[int, str]:
+        if self.ext == "json":
+            self.temp.write(b"]")
         self.temp.flush()
-    def finalize_and_upload(self, s3_bucket: str, s3_key: str):
         self.temp.close()
-        extra = {"ContentType": "application/json"}
         try:
-            s3.upload_file(self.path, s3_bucket, s3_key, ExtraArgs=extra)
-            log.info("Uploaded combined chunks for %s → s3://%s/%s (%d chunks)", self.doc_id, s3_bucket, s3_key, self.count)
-        finally:
+            s3.upload_file(self.temp.name, S3_BUCKET, out_key)
+            os.unlink(self.temp.name)
+            return self.count, out_key
+        except Exception:
             try:
-                os.remove(self.path)
+                os.unlink(self.temp.name)
             except Exception:
                 pass
+            raise
 
-def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None, combined_appender: Optional[LocalChunkAppender] = None) -> dict:
+def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
     t_all = time.perf_counter()
     try:
         obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
@@ -508,7 +449,15 @@ def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None, combined
     _, ext = os.path.splitext(s3_key.lower())
     content_type = EXT_MAP.get(ext, "application/octet-stream")
     doc_id = (manifest.get("file_hash") if isinstance(manifest, dict) and manifest.get("file_hash") else blob_hash(raw))
-    chunk_id = f"{doc_id}_1"
+    s3_path = f"s3://{S3_BUCKET}/{s3_key}"
+    ext_out = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+    out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext_out}"
+    if not FORCE_OVERWRITE and s3_object_exists(out_key):
+        total_ms = int((time.perf_counter() - t_all) * 1000)
+        log.info("Skipping entire file because chunked file exists: %s", out_key)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+    chunk_index = 0
+    saved = 0
     start = time.perf_counter()
     img_bgr, _ = load_image_bytes_to_bgr(raw)
     used_ocr = False
@@ -525,58 +474,74 @@ def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None, combined
         log.warning(f"Cannot decode image {s3_key}")
     parse_ms = int((time.perf_counter() - start) * 1000)
     token_ct = _compute_token_count(final_text)
-    source_url = f"s3://{S3_BUCKET}/{s3_key}"
     manifest_tags = manifest.get("tags", []) if isinstance(manifest, dict) else []
-    payload = {
-        "document_id": doc_id or "",
-        "chunk_id": chunk_id or "",
-        "chunk_type": "image",
-        "text": final_text or "",
-        "token_count": int(token_ct or 0),
-        "embedding": None,
-        "file_type": content_type,
-        "source_url": source_url,
-        "page_number": None,
-        "slide_range": None,
-        "row_range": None,
-        "token_range": None,
-        "audio_range": None,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "parser_version": PARSER_VERSION or "",
-        "tags": manifest_tags or [],
-        "layout_tags": ["image"],
-        "used_ocr": bool(used_ocr),
-        "parse_chunk_duration_ms": int(parse_ms) if parse_ms is not None else None,
-        "heading_path": [],
-        "headings": [],
-        "line_range": None,
-        "chunk_duration_ms": None,
-    }
-    ext_out = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
-    out_key = f"{S3_CHUNKED_PREFIX}{chunk_id}.{ext_out}"
-    if combined_appender is None or STORE_ONE_FILE_PER_CHUNK:
-        body = ((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8") if ext_out == "jsonl" else json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"))
+    writer = S3DocWriter(doc_id=doc_id, s3_path=s3_key, ext=ext_out)
+    try:
+        chunk_index += 1
+        chunk_id = f"{doc_id}_{chunk_index}"
+        payload = {
+            "document_id": doc_id or "",
+            "chunk_id": chunk_id or "",
+            "chunk_type": "image",
+            "text": final_text or "",
+            "token_count": int(token_ct or 0),
+            "embedding": None,
+            "file_type": content_type,
+            "source_url": s3_path,
+            "page_number": None,
+            "slide_range": None,
+            "row_range": None,
+            "token_range": None,
+            "audio_range": None,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "parser_version": PARSER_VERSION or "",
+            "tags": manifest_tags or [],
+            "layout_tags": ["image"],
+            "used_ocr": bool(used_ocr),
+            "heading_path": [],
+            "headings": [],
+            "line_range": None
+        }
+        writer.write_payload(payload)
+        saved += 1
+    except Exception as e:
         try:
-            s3.put_object(Bucket=S3_BUCKET, Key=out_key, Body=body, ContentType="application/json")
-            log.info(f"Saved chunk for {s3_key} -> {out_key} (ocr_used={used_ocr}, parse_ms={parse_ms}, tokens={token_ct})")
-            return {"saved_chunks": 1, "parse_ms": parse_ms}
-        except ClientError as e:
-            log.error(f"S3 PUT error for {out_key}: {e}")
-            return {"saved_chunks": 0, "error": str(e)}
-        finally:
+            if writer and writer.temp:
+                try:
+                    os.unlink(writer.temp.name)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        total_ms = int((time.perf_counter() - t_all) * 1000)
+        log.error(f"Error while buffering chunks for {s3_key}: {e}")
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+    try:
+        if saved == 0:
+            try:
+                if writer and writer.temp:
+                    os.unlink(writer.temp.name)
+            except Exception:
+                pass
             total_ms = int((time.perf_counter() - t_all) * 1000)
-            log.debug(f"Total processing time for {s3_key}: {total_ms} ms")
-    else:
+            log.info("No chunks produced for %s", s3_key)
+            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms}
+        count, uploaded_key = writer.finalize_and_upload(out_key)
+        total_ms = int((time.perf_counter() - t_all) * 1000)
+        log.info("Wrote %d chunks for %s → %s (%d ms) ocr_used=%s parse_ms=%d tokens=%d", count, s3_key, uploaded_key, total_ms, used_ocr, parse_ms, token_ct)
+        return {"saved_chunks": count, "total_parse_duration_ms": total_ms}
+    except Exception as e_up:
+        total_ms = int((time.perf_counter() - t_all) * 1000)
         try:
-            combined_appender.append(payload)
-            log.info(f"Appended chunk for {s3_key} -> combined {combined_appender.doc_id} (ocr_used={used_ocr}, parse_ms={parse_ms}, tokens={token_ct})")
-            return {"saved_chunks": 1, "parse_ms": parse_ms}
-        except Exception as e:
-            log.error(f"Failed to append payload for {s3_key}: {e}")
-            return {"saved_chunks": 0, "error": str(e)}
-        finally:
-            total_ms = int((time.perf_counter() - t_all) * 1000)
-            log.debug(f"Total processing time for {s3_key}: {total_ms} ms")
+            if writer and writer.temp:
+                try:
+                    os.unlink(writer.temp.name)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        log.error("Failed to upload chunked file for %s error=%s", s3_key, str(e_up))
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
 
 def list_image_keys(prefix: str) -> List[str]:
     keys: List[str] = []
@@ -593,25 +558,7 @@ def parse_file(s3_key: str, manifest: Optional[dict] = None) -> dict:
     if manifest is None:
         manifest = {}
     start = time.perf_counter()
-    if STORE_ONE_FILE_PER_CHUNK:
-        result = parse_image_s3_object(s3_key, manifest, combined_appender=None)
-    else:
-        ext_out = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
-        doc_id = (manifest.get("file_hash") if isinstance(manifest, dict) and manifest.get("file_hash") else None)
-        if not doc_id:
-            try:
-                obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
-                raw = obj["Body"].read()
-                doc_id = blob_hash(raw)
-            except Exception:
-                doc_id = sha256_hex(s3_key)
-        combined_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext_out}"
-        appender = LocalChunkAppender(ext_out, doc_id)
-        result = parse_image_s3_object(s3_key, manifest, combined_appender=appender)
-        try:
-            appender.finalize_and_upload(S3_BUCKET, combined_key)
-        except Exception as e:
-            log.error("Failed uploading combined file for %s: %s", doc_id, e)
+    result = parse_image_s3_object(s3_key, manifest)
     if isinstance(manifest, dict):
         manifest.setdefault("parsed_by", []).append({"module": "images", "timestamp": datetime.utcnow().isoformat() + "Z"})
         manifest["parsed_chunks"] = manifest.get("parsed_chunks", 0) + result.get("saved_chunks", 0)
@@ -634,23 +581,16 @@ def main():
         manifest_key = key + ".manifest.json"
         try:
             mf = s3.get_object(Bucket=S3_BUCKET, Key=manifest_key)
-            try:
-                manifest = json.loads(mf["Body"].read().decode("utf-8"))
-            except Exception:
-                manifest = {}
+            manifest = json.load(mf["Body"])
         except Exception:
             manifest = {}
-        try:
-            res = parse_file(key, manifest)
-            total_saved += res.get("saved_chunks", 0)
-            if res.get("error"):
-                errors += 1
-                log.warning("Error for %s: %s", key, res.get("error"))
-        except Exception as e:
-            errors += 1
-            log.exception("Failed to parse %s: %s", key, e)
+        res = parse_image_s3_object(key, manifest)
         processed += 1
-    log.info("Completed. Processed: %d, Saved chunks: %d, Errors: %d", processed, total_saved, errors)
+        total_saved += res.get("saved_chunks", 0)
+        if res.get("error"):
+            errors += 1
+            log.warning(f"Error for {key}: {res.get('error')}")
+    log.info(f"Completed. Processed: {processed}, Saved chunks: {total_saved}, Errors: {errors}")
 
 if __name__ == "__main__":
     main()
