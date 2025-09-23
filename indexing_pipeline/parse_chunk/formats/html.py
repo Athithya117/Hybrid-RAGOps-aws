@@ -9,7 +9,7 @@ import re
 import unicodedata
 import tempfile
 from datetime import datetime, timezone
-from typing import Iterator, Dict, Any, Optional, List, Tuple
+from typing import Iterator, Dict, Any, Optional, Tuple
 import boto3
 import requests
 from botocore.exceptions import ClientError
@@ -48,8 +48,10 @@ if tiktoken is not None:
     except Exception:
         ENCODER = None
 
+
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
+
 
 def canonicalize_text(s: Any) -> str:
     if not isinstance(s, str):
@@ -59,6 +61,7 @@ def canonicalize_text(s: Any) -> str:
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
+
 def s3_object_exists(key: str) -> bool:
     try:
         s3.head_object(Bucket=S3_BUCKET, Key=key)
@@ -67,6 +70,7 @@ def s3_object_exists(key: str) -> bool:
         return False
     except Exception:
         return False
+
 
 def fetch_html_with_retries(url: str, timeout: int = REQUEST_TIMEOUT, retries: int = FETCH_RETRIES, backoff: float = FETCH_BACKOFF) -> str:
     last_err = None
@@ -81,12 +85,14 @@ def fetch_html_with_retries(url: str, timeout: int = REQUEST_TIMEOUT, retries: i
                 time.sleep(backoff * attempt)
     raise last_err
 
+
 def upload_snapshot_to_s3(snapshot_html: str, doc_id: str) -> Optional[str]:
     if not SAVE_SNAPSHOT or not S3_BUCKET:
         return None
     key = f"{S3_CHUNKED_PREFIX}{doc_id}.snapshot.html"
     s3.put_object(Bucket=S3_BUCKET, Key=key, Body=snapshot_html.encode("utf-8"), ContentType="text/html")
     return f"s3://{S3_BUCKET}/{key}"
+
 
 def trafilatura_extract_markdown(html_text: str):
     if trafilatura is None:
@@ -101,6 +107,7 @@ def trafilatura_extract_markdown(html_text: str):
         parsed = {}
     return md, parsed
 
+
 def token_count_for(text: str) -> int:
     if not text:
         return 0
@@ -110,6 +117,7 @@ def token_count_for(text: str) -> int:
         except Exception:
             pass
     return len(text.split())
+
 
 def split_into_token_windows(text: str, window_size: int = WINDOW_SIZE) -> Iterator[Dict[str, Any]]:
     if not text:
@@ -142,37 +150,53 @@ def split_into_token_windows(text: str, window_size: int = WINDOW_SIZE) -> Itera
         if end >= total:
             break
 
+
 class S3DocWriter:
+    """
+    Aggregates chunks into a single per-source temporary file (in /tmp) and uploads once.
+    Supports json (pretty array) and jsonl (one JSON object per line).
+    """
     def __init__(self, doc_id: str, s3_path: Optional[str], ext: str, content_type: str = "application/json"):
         self.doc_id = doc_id
         self.s3_path = s3_path or ""
         self.ext = ext
         self.content_type = content_type
-        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False)
+        # ensure temp file in /tmp
+        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=f".{ext}", dir="/tmp")
         self.count = 0
         self._first = True
         if self.ext == "json":
-            self.temp.write(b"[")
+            # begin array with newline for nicer formatting
+            self.temp.write(b"[\n")
+            self.temp.flush()
+
     def write_payload(self, payload: Dict[str, Any]) -> int:
         self.count += 1
         if self.ext == "jsonl":
             line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
             self.temp.write(line)
         else:
-            j = json.dumps(payload, ensure_ascii=False)
+            pretty = json.dumps(payload, ensure_ascii=False, indent=2)
+            # indent inner object for readability
+            indented = ("\n".join("  " + ln for ln in pretty.splitlines()) + "\n").encode("utf-8")
             if not self._first:
-                self.temp.write(b",")
-            self.temp.write(j.encode("utf-8"))
+                self.temp.write(b",\n")
+            self.temp.write(indented)
             self._first = False
+        self.temp.flush()
         return 1
+
     def finalize_and_upload(self, out_key: str) -> Tuple[int, str]:
         if self.ext == "json":
-            self.temp.write(b"]")
+            self.temp.write(b"]\n")
         self.temp.flush()
         self.temp.close()
         try:
-            s3.upload_file(self.temp.name, S3_BUCKET, out_key)
-            os.unlink(self.temp.name)
+            s3.upload_file(self.temp.name, S3_BUCKET, out_key, ExtraArgs={"ContentType": self.content_type})
+            try:
+                os.unlink(self.temp.name)
+            except Exception:
+                pass
             return self.count, out_key
         except Exception:
             try:
@@ -181,8 +205,51 @@ class S3DocWriter:
                 pass
             raise
 
+
+def _derive_file_name_from_source(source: Optional[str], s3_key: str) -> str:
+    # source might be a URL or s3 path; prefer basename of source if meaningful
+    if source:
+        try:
+            # strip query params for URLs
+            base = source.split("?")[0].rstrip("/")
+            base_name = os.path.basename(base)
+            if base_name:
+                return base_name
+        except Exception:
+            pass
+    # fallback to s3_key basename
+    return os.path.basename(s3_key)
+
+
 def parse_file(s3_key: str, manifest: dict) -> dict:
+    """
+    Fast-skip behavior:
+      * HEAD the source S3 object to get LastModified (no download).
+      * Compute doc_id (manifest.file_hash || sha256(s3_key+LastModified)).
+      * Check if chunked out_key exists; skip (fast) if present and not FORCE_OVERWRITE.
+      * Only then GET the source body and continue parsing.
+    """
     start_all = time.perf_counter()
+
+    # 1) HEAD source object (fast) to derive doc_id without downloading body
+    try:
+        head = s3.head_object(Bucket=S3_BUCKET, Key=s3_key)
+    except Exception as e:
+        logger.error("Could not head S3 object %s: %s", s3_key, e)
+        return {"saved_chunks": 0, "total_parse_duration_ms": 0}
+
+    last_modified = head.get("LastModified", "")
+    doc_id = manifest.get("file_hash") or sha256_hex(s3_key + str(last_modified or ""))
+    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+    out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+
+    # 2) fast skip: if output already exists and we're not forcing, skip without downloading
+    if not FORCE_OVERWRITE and s3_object_exists(out_key):
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        logger.info("Skipping entire file because chunked file exists: %s", out_key)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
+    # 3) fetch the object body now (we know we need to process)
     try:
         obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
     except Exception as e:
@@ -193,15 +260,19 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         raw_text = raw_body.decode("utf-8", errors="replace")
     except Exception:
         raw_text = raw_body.decode("latin-1", errors="replace")
-    last_modified = obj.get("LastModified", "")
-    doc_id = manifest.get("file_hash") or sha256_hex(s3_key + str(last_modified or ""))
+
+    # (re-)compute doc_id using manifest or head.LastModified (kept for backwards compatibility)
+    # doc_id is already computed above; keep consistent
     s3_path = f"s3://{S3_BUCKET}/{s3_key}" if S3_BUCKET else None
+
+    # If file contains a URL, optionally fetch remote HTML
     stripped = raw_text.strip()
     use_remote_fetch = False
     remote_url = None
     if stripped.startswith("http://") or stripped.startswith("https://"):
         use_remote_fetch = True
         remote_url = stripped.splitlines()[0].strip()
+
     if use_remote_fetch:
         try:
             html_text = fetch_html_with_retries(remote_url)
@@ -212,11 +283,13 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
     else:
         html_text = raw_text
         source_url = s3_path
-    snapshot = None
+
+    # optional snapshot
     try:
-        snapshot = upload_snapshot_to_s3(html_text, doc_id)
+        _ = upload_snapshot_to_s3(html_text, doc_id)
     except Exception:
-        snapshot = None
+        pass
+
     t0_extract = time.perf_counter()
     md, parsed = trafilatura_extract_markdown(html_text)
     extract_duration_ms = int((time.perf_counter() - t0_extract) * 1000)
@@ -224,23 +297,26 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         fallback = re.sub(r'(?is)<(script|style).*?>.*?</\1>', '', html_text)
         fallback = re.sub(r'(?is)<.*?>', ' ', fallback)
         md = re.sub(r'\s+', ' ', fallback).strip()
+
     title = parsed.get("title") if isinstance(parsed, dict) else None
     canonical_full = canonicalize_text(md or "")
     token_ct = token_count_for(canonical_full)
+
     saved = 0
-    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
-    out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
-    if not FORCE_OVERWRITE and s3_object_exists(out_key):
-        total_ms = int((time.perf_counter() - start_all) * 1000)
-        logger.info("Skipping entire file because chunked file exists: %s", out_key)
-        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms}
     writer = S3DocWriter(doc_id=doc_id, s3_path=s3_path, ext=ext)
+    file_name = _derive_file_name_from_source(source_url, s3_key)
+
     try:
-        if token_ct <= WINDOW_SIZE:
+        # If the document fits in one window -> produce a single page chunk.
+        # Otherwise produce token_window chunks ONLY (no duplicate full-page chunk).
+        windows = list(split_into_token_windows(canonical_full))
+        if len(windows) <= 1:
+            # single chunk (either empty or small)
             chunk_index = 1
             chunk_id = f"{doc_id}_{chunk_index}"
             payload = {
                 "document_id": doc_id,
+                "file_name": file_name,
                 "chunk_id": chunk_id,
                 "chunk_type": "page",
                 "text": canonical_full,
@@ -255,7 +331,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 "audio_range": None,
                 "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
                 "parser_version": PARSER_VERSION,
-                "tags": [],
+                "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [],
                 "layout_tags": ["page"],
                 "used_ocr": False,
                 "heading_path": [],
@@ -265,7 +341,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             writer.write_payload(payload)
             saved += 1
         else:
-            windows = list(split_into_token_windows(canonical_full))
+            # multiple windows -> write only token_window chunks (no full page duplicate)
             for w in windows:
                 window_idx = int(w.get("window_index", 0))
                 chunk_index = window_idx + 1
@@ -275,6 +351,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 token_range = [int(w.get("token_start")), int(w.get("token_end"))]
                 payload = {
                     "document_id": doc_id,
+                    "file_name": file_name,
                     "chunk_id": chunk_id,
                     "chunk_type": "token_window",
                     "text": wtext,
@@ -289,7 +366,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     "audio_range": None,
                     "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
                     "parser_version": PARSER_VERSION,
-                    "tags": [],
+                    "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [],
                     "layout_tags": ["page"],
                     "used_ocr": False,
                     "heading_path": [],
@@ -310,6 +387,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         total_ms = int((time.perf_counter() - start_all) * 1000)
         logger.error("Error while buffering chunks for %s: %s", s3_key, str(e))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
     try:
         if saved == 0:
             try:
@@ -336,6 +414,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             pass
         logger.error("Failed to upload chunked file for %s error=%s", s3_key, str(e_up))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
+
 
 if __name__ == "__main__":
     paginator = s3.get_paginator("list_objects_v2")

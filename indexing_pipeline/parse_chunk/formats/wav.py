@@ -1,5 +1,5 @@
-
-
+#!/usr/bin/env python3
+from __future__ import annotations
 import os
 import time
 import json
@@ -48,15 +48,22 @@ FW_MODEL_PATH: Path = WORKSPACE_MODELS / "faster_whisper" / "faster-whisper-base
 FW_MODEL_BIN: Path = FW_MODEL_PATH / "model.bin"
 PARSER_VERSION = os.getenv("PARSER_VERSION_WAV", "faster-whisper-v1")
 
-
 s3 = boto3.client("s3")
 enc: Optional[Any] = None
 _model: Optional[Any] = None
 
+# token encoder (lazy)
+def get_encoder():
+    global enc
+    if enc is not None:
+        return enc
+    if tiktoken is None:
+        raise RuntimeError("tiktoken not available")
+    enc = tiktoken.get_encoding(ENC_NAME)
+    return enc
 
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
-
 
 def canonicalize_text(s: Any) -> str:
     if not isinstance(s, str):
@@ -64,7 +71,6 @@ def canonicalize_text(s: Any) -> str:
     s = unicodedata.normalize("NFKC", s)
     s = s.replace("\r\n", "\n").replace("\r", "\n")
     return " ".join(s.split()).strip()
-
 
 def retry_s3(fn, retries=S3_RETRIES, base=S3_RETRY_BASE):
     last = None
@@ -77,7 +83,6 @@ def retry_s3(fn, retries=S3_RETRIES, base=S3_RETRY_BASE):
                 raise
             time.sleep(base * (2 ** i))
     raise last
-
 
 def run_cmd(cmd: List[str], timeout: int = 60):
     import subprocess
@@ -92,17 +97,6 @@ def run_cmd(cmd: List[str], timeout: int = 60):
         raise RuntimeError(err.strip())
     return out, err
 
-
-def get_encoder():
-    global enc
-    if enc is not None:
-        return enc
-    if tiktoken is None:
-        raise RuntimeError("tiktoken not available")
-    enc = tiktoken.get_encoding(ENC_NAME)
-    return enc
-
-
 def format_ts_ms(seconds: float) -> str:
     ms = int(round(max(0.0, float(seconds)) * 1000.0))
     s_total, msecs = divmod(ms, 1000)
@@ -110,13 +104,11 @@ def format_ts_ms(seconds: float) -> str:
     mm, ss = divmod(rem, 60)
     return f"{int(h):02d}:{int(mm):02d}:{int(ss):02d}.{int(msecs):03d}"
 
-
 def read_wav(path: str):
     data, sr = sf.read(path, dtype="float32")
     if data.ndim > 1:
         data = np.mean(data, axis=1)
     return data, sr
-
 
 def make_token_chunks_from_segments(segments: List[Any]) -> List[Dict[str, Any]]:
     enc_local = get_encoder()
@@ -157,7 +149,6 @@ def make_token_chunks_from_segments(segments: List[Any]) -> List[Dict[str, Any]]
         i = j - TOKEN_OVERLAP
     return out
 
-
 def ensure_model_loaded():
     global _model
     if _model is not None:
@@ -169,37 +160,54 @@ def ensure_model_loaded():
     _model = WhisperModel(str(FW_MODEL_PATH), device="cpu", compute_type=FW_COMPUTE, cpu_threads=FW_CPU_THREADS)
     logger.info("Loaded faster-whisper model from %s compute=%s cpu_threads=%d", FW_MODEL_PATH, FW_COMPUTE, FW_CPU_THREADS)
 
+def s3_object_exists(key: str) -> bool:
+    try:
+        s3.head_object(Bucket=S3_BUCKET, Key=key)
+        return True
+    except ClientError:
+        return False
+    except Exception:
+        return False
 
 class S3DocWriter:
+    """
+    Writes all payloads for a source to a temp file in /tmp and uploads once.
+    Supports pretty JSON array (ext == "json") or JSONL (ext == "jsonl").
+    """
     def __init__(self, doc_id: str, s3_path: str, ext: str, content_type: str = "application/json"):
         self.doc_id = doc_id
         self.s3_path = s3_path or ""
         self.ext = ext
         self.content_type = content_type
-        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False)
+        # temp in /tmp to avoid permissions in EFS containers
+        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=f".{ext}", dir="/tmp")
         self.count = 0
         self._first = True
         if self.ext == "json":
-            self.temp.write(b"[")
+            # start a pretty array
+            self.temp.write(b"[\n")
+            self.temp.flush()
     def write_payload(self, payload: Dict[str, Any]) -> int:
         self.count += 1
         if self.ext == "jsonl":
             line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
             self.temp.write(line)
         else:
-            j = json.dumps(payload, ensure_ascii=False)
+            pretty = json.dumps(payload, ensure_ascii=False, indent=2)
+            indented = ("\n".join("  " + ln for ln in pretty.splitlines()) + "\n").encode("utf-8")
             if not self._first:
-                self.temp.write(b",")
-            self.temp.write(j.encode("utf-8"))
+                self.temp.write(b",\n")
+            self.temp.write(indented)
             self._first = False
+        self.temp.flush()
         return 1
     def finalize_and_upload(self, out_key: str) -> Tuple[int, str]:
         if self.ext == "json":
-            self.temp.write(b"]")
+            self.temp.write(b"]\n")
         self.temp.flush()
         self.temp.close()
         try:
-            s3.upload_file(self.temp.name, S3_BUCKET, out_key, ExtraArgs={"ContentType": "application/json"})
+            s3.upload_file(self.temp.name, S3_BUCKET, out_key, ExtraArgs={"ContentType": self.content_type})
             try:
                 os.unlink(self.temp.name)
             except Exception:
@@ -212,20 +220,58 @@ class S3DocWriter:
                 pass
             raise
 
+def _derive_file_name_from_s3_key(s3_key: str) -> str:
+    return os.path.basename(s3_key) or s3_key
 
 def parse_file_with_fw(s3_key: str, manifest: dict) -> dict:
-    ensure_model_loaded()
     start_all = time.perf_counter()
+
+    # 1) cheap HEAD to get LastModified for doc id generation (no download)
+    try:
+        head_obj = s3.head_object(Bucket=S3_BUCKET, Key=s3_key)
+    except Exception as e:
+        logger.exception("Failed to head s3 object %s: %s", s3_key, e)
+        return {"saved_chunks": 0, "total_parse_duration_ms": 0}
+    last_modified = head_obj.get("LastModified", "")
+    doc_id = manifest.get("file_hash") or sha256_hex(s3_key + str(last_modified or ""))
+    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+    out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+
+    # 2) fast skip: if chunked output exists and not forcing, return immediately (no model load, no download)
+    if not FORCE_OVERWRITE:
+        try:
+            s3.head_object(Bucket=S3_BUCKET, Key=out_key)
+            total_ms = int((time.perf_counter() - start_all) * 1000)
+            logger.info("Skipping entire file because chunked file exists: %s", out_key)
+            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+        except ClientError:
+            # not present -> continue
+            pass
+        except Exception:
+            # on unexpected error, continue to do full processing (safer)
+            pass
+
+    # 3) now it's safe to load model (only for files that require processing)
+    try:
+        ensure_model_loaded()
+    except Exception as e:
+        logger.exception("Model load failed (aborting): %s", e)
+        return {"saved_chunks": 0, "total_parse_duration_ms": 0, "skipped": True, "error": "model-load-failed"}
+
+    # 4) fetch the object body (now necessary)
     try:
         obj = retry_s3(lambda: s3.get_object(Bucket=S3_BUCKET, Key=s3_key))
+        body = obj["Body"].read()
     except Exception as e:
         logger.exception("Failed to get s3 object %s: %s", s3_key, e)
         return {"saved_chunks": 0, "total_parse_duration_ms": 0}
-    body = obj["Body"].read()
+
     tmp_dir = Path(tempfile.mkdtemp(prefix="wavproc_fw_"))
     tmp_wav = tmp_dir / Path(s3_key).name
     with open(tmp_wav, "wb") as f:
         f.write(body)
+
+    # try reading; try ffmpeg conversion fallback if needed
     try:
         audio_array, sr = read_wav(str(tmp_wav))
     except Exception:
@@ -238,6 +284,8 @@ def parse_file_with_fw(s3_key: str, manifest: dict) -> dict:
             shutil.rmtree(tmp_dir, ignore_errors=True)
             logger.exception("Failed to read or convert audio %s: %s", s3_key, e)
             return {"saved_chunks": 0, "total_parse_duration_ms": 0}
+
+    # 5) transcribe
     t0 = time.perf_counter()
     try:
         segments, info = _model.transcribe(str(tmp_wav), beam_size=WHISPER_BEAM, vad_filter=False)
@@ -250,7 +298,11 @@ def parse_file_with_fw(s3_key: str, manifest: dict) -> dict:
             logger.exception("Fallback transcription also failed for %s: %s", s3_key, e2)
             return {"saved_chunks": 0, "total_parse_duration_ms": 0}
     parse_ms = int((time.perf_counter() - t0) * 1000)
+
+    # 6) chunk tokens/windows
     chunks = make_token_chunks_from_segments(segments)
+
+    # distribute parse_ms across chunks proportionally to audio duration
     total_parse_ms = int(parse_ms)
     total_audio = 0.0
     for c in chunks:
@@ -282,34 +334,19 @@ def parse_file_with_fw(s3_key: str, manifest: dict) -> dict:
     for c in chunks:
         c.pop("_dur_for_weight", None)
 
-    # Build one per-file output (json/jsonl) and upload once
+    # 7) build writer and payloads; include file_name
     saved = 0
-    doc_id = manifest.get("file_hash") or sha256_hex(s3_key + str(obj.get("LastModified", "")))
-    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
-    out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
-    if not FORCE_OVERWRITE:
-        try:
-            s3.head_object(Bucket=S3_BUCKET, Key=out_key)
-            total_ms = int((time.perf_counter() - start_all) * 1000)
-            logger.info("Skipping entire file because chunked file exists: %s", out_key)
-            try:
-                shutil.rmtree(tmp_dir)
-            except Exception:
-                pass
-            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
-        except ClientError:
-            pass
-        except Exception:
-            pass
+    ext_out = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+    writer = S3DocWriter(doc_id=doc_id, s3_path=s3_key, ext=ext_out)
+    file_name = manifest.get("file_name") if isinstance(manifest, dict) and manifest.get("file_name") else _derive_file_name_from_s3_key(s3_key)
 
-    writer = S3DocWriter(doc_id=doc_id, s3_path=s3_key, ext=ext)
     try:
         for idx, c in enumerate(chunks):
             chunk_id = f"{doc_id}_{idx+1}"
             start_s, end_s = c.get("audio_range", [0.0, 0.0])
-            # Build payload *without* parse_chunk_duration_ms and chunk_duration_ms
             payload = {
                 "document_id": doc_id or "",
+                "file_name": file_name,
                 "chunk_id": chunk_id or "",
                 "chunk_type": "audio",
                 "text": canonicalize_text(c.get("text", "") or ""),
@@ -329,7 +366,8 @@ def parse_file_with_fw(s3_key: str, manifest: dict) -> dict:
                 "used_ocr": False,
                 "heading_path": [],
                 "headings": [],
-                "line_range": None
+                "line_range": None,
+                "parse_chunk_duration_ms": int(c.get("parse_ms", 0))
             }
             writer.write_payload(payload)
             saved += 1
@@ -348,6 +386,7 @@ def parse_file_with_fw(s3_key: str, manifest: dict) -> dict:
         logger.exception("Error while buffering chunks for %s: %s", s3_key, str(e))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
 
+    # 8) finalize & upload once
     try:
         if saved == 0:
             try:
@@ -378,8 +417,11 @@ def parse_file_with_fw(s3_key: str, manifest: dict) -> dict:
         logger.error("Failed to upload chunked file for %s error=%s", s3_key, str(e_up))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
 
+def _derive_file_name_from_s3_key(s3_key: str) -> str:
+    return os.path.basename(s3_key) or s3_key
 
 def parse_file(s3_key: str, manifest: dict) -> dict:
+    # top-level helper - catches unexpected errors
     if not S3_BUCKET:
         logger.error("S3_BUCKET not configured; cannot parse %s", s3_key)
         return {"saved_chunks": 0, "total_parse_duration_ms": 0}
@@ -388,6 +430,5 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
     except Exception:
         logger.exception("Unhandled exception in parse_file for %s", s3_key)
         return {"saved_chunks": 0, "total_parse_duration_ms": 0}
-
 
 __all__ = ["parse_file"]

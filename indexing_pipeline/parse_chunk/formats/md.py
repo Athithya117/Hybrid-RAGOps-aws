@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import sys
 import json
@@ -368,31 +369,42 @@ class S3DocWriter:
         self.s3_path = s3_path or ""
         self.ext = ext
         self.content_type = content_type
-        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False)
+        # write temporary aggregated file in /tmp to avoid OOM and ensure single upload
+        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=f".{ext}", dir="/tmp")
         self.count = 0
         self._first = True
         if self.ext == "json":
-            self.temp.write(b"[")
+            # start pretty array on its own line to ensure elements are multiline/indented
+            self.temp.write(b"[\n")
+            self.temp.flush()
+
     def write_payload(self, payload: Dict[str, Any]) -> int:
         self.count += 1
         if self.ext == "jsonl":
             line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
             self.temp.write(line)
         else:
-            j = json.dumps(payload, ensure_ascii=False)
+            pretty = json.dumps(payload, ensure_ascii=False, indent=2)
+            indented = ("\n".join("  " + ln for ln in pretty.splitlines()) + "\n").encode("utf-8")
             if not self._first:
-                self.temp.write(b",")
-            self.temp.write(j.encode("utf-8"))
+                self.temp.write(b",\n")
+            self.temp.write(indented)
             self._first = False
+        self.temp.flush()
         return 1
+
     def finalize_and_upload(self, out_key: str) -> Tuple[int, str]:
         if self.ext == "json":
-            self.temp.write(b"]")
+            # close array with newline for cleanliness
+            self.temp.write(b"]\n")
         self.temp.flush()
         self.temp.close()
         try:
-            s3.upload_file(self.temp.name, S3_BUCKET, out_key)
-            os.unlink(self.temp.name)
+            s3.upload_file(self.temp.name, S3_BUCKET, out_key, ExtraArgs={"ContentType": self.content_type})
+            try:
+                os.unlink(self.temp.name)
+            except Exception:
+                pass
             return self.count, out_key
         except Exception:
             try:
@@ -402,11 +414,64 @@ class S3DocWriter:
             raise
 
 def parse_file(s3_key: str, manifest: dict) -> dict:
+    """
+    Fast-skip behaviour:
+      1) HEAD the S3 object to obtain metadata (LastModified, ETag, ContentLength).
+      2) derive doc_id using manifest.file_hash (preferred), else ETag, else LastModified.
+      3) compute out_key and skip early if it already exists (unless FORCE_OVERWRITE).
+      4) only then download full object and run markdown parsing/chunking.
+    """
     start_all = time.perf_counter()
-    obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+
+    # HEAD first (fast)
+    try:
+        head_obj = s3.head_object(Bucket=S3_BUCKET, Key=s3_key)
+    except Exception as e:
+        log.error("Could not HEAD S3 object %s: %s", s3_key, e)
+        return {"saved_chunks": 0, "total_parse_duration_ms": 0, "skipped": True, "error": str(e)}
+
+    last_modified = head_obj.get("LastModified", "")
+    etag = head_obj.get("ETag", "")
+    if isinstance(etag, str):
+        etag = etag.strip('"')
+    content_len = head_obj.get("ContentLength", 0) or 0
+
+    # derive doc_id without downloading
+    if isinstance(manifest, dict) and manifest.get("file_hash"):
+        doc_id = manifest.get("file_hash")
+    else:
+        if etag:
+            doc_id = sha256_hex(s3_key + str(etag))
+        else:
+            doc_id = sha256_hex(s3_key + str(last_modified or ""))
+
+    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+    out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+
+    # quick skip if output already exists
+    if not FORCE_OVERWRITE and s3_object_exists(out_key):
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        log.info("Skipping entire file because chunked file exists: %s", out_key)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
+    # Optional tiny-file early skip (defensive) - markdown can be small but we keep it configurable
+    if content_len == 0:
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        log.info("Skipping empty object %s (zero bytes).", s3_key)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
+    # Now GET and parse
+    try:
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+    except Exception as e:
+        log.error("Could not GET S3 object %s: %s", s3_key, e)
+        return {"saved_chunks": 0, "total_parse_duration_ms": 0, "skipped": True, "error": str(e)}
+
     raw_body = obj["Body"].read()
     raw_text = try_decode_bytes(raw_body)
-    doc_id = manifest.get("file_hash") or sha256_hex(s3_key + str(obj.get("LastModified", "")))
+    # prefer manifest.file_hash for identity if provided; otherwise doc_id already derived from head
+    doc_id = manifest.get("file_hash") or doc_id
+
     s3_path = f"s3://{S3_BUCKET}/{s3_key}"
     snapshot_path = ""
     if SAVE_SNAPSHOT:
@@ -416,19 +481,23 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             snapshot_path = f"s3://{S3_BUCKET}/{key}"
         except Exception:
             snapshot_path = ""
+
     canonical_full = canonicalize_text(raw_text)
     sections = build_header_sections(canonical_full)
     line_token_cache: Dict[int, int] = {}
     merged_sections = merge_small_sections(sections, MD_MERGE_HEADER_THRESHOLD_TOKENS, MD_MAX_TOKENS_PER_CHUNK, line_token_cache)
     saved = 0
     chunk_index = 1
-    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
     out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+
+    # (Double-check skip before writing) - another race check
     if not FORCE_OVERWRITE and s3_object_exists(out_key):
         total_ms = int((time.perf_counter() - start_all) * 1000)
-        log.info("Skipping entire file because chunked file exists: %s", out_key)
+        log.info("Skipping entire file because chunked file exists (post-download): %s", out_key)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
     writer = S3DocWriter(doc_id=doc_id, s3_path=s3_path, ext=ext)
+    file_name = os.path.basename(s3_key)
     try:
         for sec in merged_sections:
             sec_lines = sec.get("lines", [])
@@ -450,6 +519,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 chunk_index += 1
                 payload = {
                     "document_id": doc_id or "",
+                    "file_name": file_name,
                     "chunk_id": chunk_id or "",
                     "chunk_type": "md_section",
                     "text": canonicalize_text(sec_text) or "",
@@ -487,6 +557,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     end_line_sub = eline
                     payload = {
                         "document_id": doc_id or "",
+                        "file_name": file_name,
                         "chunk_id": chunk_id or "",
                         "chunk_type": "md_subchunk",
                         "text": canonicalize_text(chunk_text) or "",

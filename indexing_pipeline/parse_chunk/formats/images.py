@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 import os
 import sys
@@ -396,36 +397,52 @@ def s3_object_exists(key: str) -> bool:
         return False
 
 class S3DocWriter:
+    """
+    Aggregates chunks for a single source file into a temporary file (in /tmp)
+    and uploads the final single JSON or JSONL file to S3. This prevents one-file-per-chunk
+    explosion and ensures proper formatting for json / jsonl.
+    """
     def __init__(self, doc_id: str, s3_path: str, ext: str, content_type: str = "application/json"):
         self.doc_id = doc_id
         self.s3_path = s3_path or ""
         self.ext = ext
         self.content_type = content_type
-        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False)
+        # use NamedTemporaryFile in /tmp
+        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=f".{ext}", dir="/tmp")
         self.count = 0
         self._first = True
         if self.ext == "json":
-            self.temp.write(b"[")
+            # start an array with newline for cleaner multi-line objects
+            self.temp.write(b"[\n")
+            self.temp.flush()
+
     def write_payload(self, payload: Dict[str, Any]) -> int:
         self.count += 1
         if self.ext == "jsonl":
             line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
             self.temp.write(line)
         else:
-            j = json.dumps(payload, ensure_ascii=False)
+            pretty = json.dumps(payload, ensure_ascii=False, indent=2)
+            indented = ("\n".join("  " + ln for ln in pretty.splitlines()) + "\n").encode("utf-8")
             if not self._first:
-                self.temp.write(b",")
-            self.temp.write(j.encode("utf-8"))
+                self.temp.write(b",\n")
+            self.temp.write(indented)
             self._first = False
+        self.temp.flush()
         return 1
+
     def finalize_and_upload(self, out_key: str) -> Tuple[int, str]:
         if self.ext == "json":
-            self.temp.write(b"]")
+            # close array cleanly
+            self.temp.write(b"]\n")
         self.temp.flush()
         self.temp.close()
         try:
-            s3.upload_file(self.temp.name, S3_BUCKET, out_key)
-            os.unlink(self.temp.name)
+            s3.upload_file(self.temp.name, S3_BUCKET, out_key, ExtraArgs={"ContentType": self.content_type})
+            try:
+                os.unlink(self.temp.name)
+            except Exception:
+                pass
             return self.count, out_key
         except Exception:
             try:
@@ -435,7 +452,53 @@ class S3DocWriter:
             raise
 
 def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
+    """
+    Fast-skip behavior:
+      1) HEAD object -> get ContentLength, ETag, LastModified
+      2) derive doc_id (manifest.file_hash || ETag || LastModified)
+      3) check chunked out_key exists -> skip early without downloading
+      4) only then GET and process image bytes
+    """
     t_all = time.perf_counter()
+    manifest = manifest or {}
+    # 1) HEAD
+    try:
+        head = s3.head_object(Bucket=S3_BUCKET, Key=s3_key)
+    except ClientError as e:
+        log.error(f"S3 HEAD error {s3_key}: {e}")
+        return {"saved_chunks": 0, "error": str(e)}
+    content_len = head.get("ContentLength", 0) or 0
+    etag = head.get("ETag")
+    if isinstance(etag, str):
+        etag = etag.strip('"')
+    last_modified = head.get("LastModified")
+
+    # 2) quick size check using HEAD
+    if content_len < MIN_IMG_BYTES:
+        log.warning(f"Skipping {s3_key}: size {content_len} bytes < MIN_IMG_BYTES ({MIN_IMG_BYTES})")
+        return {"saved_chunks": 0, "skipped_bytes": content_len}
+
+    # 3) derive doc_id without downloading
+    if isinstance(manifest, dict) and manifest.get("file_hash"):
+        doc_id = manifest.get("file_hash")
+    else:
+        # prefer ETag (stable for single-part uploads), fallback to LastModified timestamp
+        if etag:
+            doc_id = sha256_hex(s3_key + str(etag))
+        else:
+            doc_id = sha256_hex(s3_key + (str(last_modified.isoformat()) if last_modified is not None else ""))
+
+    s3_path = f"s3://{S3_BUCKET}/{s3_key}"
+    ext_out = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+    out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext_out}"
+
+    # 4) fast skip if already processed
+    if not FORCE_OVERWRITE and s3_object_exists(out_key):
+        total_ms = int((time.perf_counter() - t_all) * 1000)
+        log.info("Skipping entire file because chunked file exists: %s", out_key)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
+    # Now we will download the object and process
     try:
         obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
         raw = obj["Body"].read()
@@ -443,19 +506,20 @@ def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
         log.error(f"S3 GET error {s3_key}: {e}")
         return {"saved_chunks": 0, "error": str(e)}
     size = len(raw)
+
+    # double-check size after download (defensive)
     if size < MIN_IMG_BYTES:
-        log.warning(f"Skipping {s3_key}: {size} bytes < MIN_IMG_BYTES ({MIN_IMG_BYTES})")
+        log.warning(f"Skipping {s3_key} after download: {size} bytes < MIN_IMG_BYTES ({MIN_IMG_BYTES})")
         return {"saved_chunks": 0, "skipped_bytes": size}
+
+    # content type by extension
     _, ext = os.path.splitext(s3_key.lower())
     content_type = EXT_MAP.get(ext, "application/octet-stream")
-    doc_id = (manifest.get("file_hash") if isinstance(manifest, dict) and manifest.get("file_hash") else blob_hash(raw))
-    s3_path = f"s3://{S3_BUCKET}/{s3_key}"
-    ext_out = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
-    out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext_out}"
-    if not FORCE_OVERWRITE and s3_object_exists(out_key):
-        total_ms = int((time.perf_counter() - t_all) * 1000)
-        log.info("Skipping entire file because chunked file exists: %s", out_key)
-        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
+    # We use manifest.file_hash if provided; otherwise doc_id already derived from etag/last_modified
+    # (If you prefer blob-based hashing uncomment the next line to use raw-based hash instead:)
+    # doc_id = manifest.get("file_hash") if manifest.get("file_hash") else blob_hash(raw)
+
     chunk_index = 0
     saved = 0
     start = time.perf_counter()
@@ -475,12 +539,15 @@ def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
     parse_ms = int((time.perf_counter() - start) * 1000)
     token_ct = _compute_token_count(final_text)
     manifest_tags = manifest.get("tags", []) if isinstance(manifest, dict) else []
+
+    # Create aggregated writer (temp file in /tmp)
     writer = S3DocWriter(doc_id=doc_id, s3_path=s3_key, ext=ext_out)
     try:
         chunk_index += 1
         chunk_id = f"{doc_id}_{chunk_index}"
         payload = {
             "document_id": doc_id or "",
+            "file_name": os.path.basename(s3_key),
             "chunk_id": chunk_id or "",
             "chunk_type": "image",
             "text": final_text or "",
@@ -516,6 +583,7 @@ def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
         total_ms = int((time.perf_counter() - t_all) * 1000)
         log.error(f"Error while buffering chunks for {s3_key}: {e}")
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
     try:
         if saved == 0:
             try:
@@ -559,6 +627,7 @@ def parse_file(s3_key: str, manifest: Optional[dict] = None) -> dict:
         manifest = {}
     start = time.perf_counter()
     result = parse_image_s3_object(s3_key, manifest)
+    # local manifest augmentation only in-memory (do not write manifest back by default)
     if isinstance(manifest, dict):
         manifest.setdefault("parsed_by", []).append({"module": "images", "timestamp": datetime.utcnow().isoformat() + "Z"})
         manifest["parsed_chunks"] = manifest.get("parsed_chunks", 0) + result.get("saved_chunks", 0)

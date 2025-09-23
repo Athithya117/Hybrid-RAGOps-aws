@@ -15,7 +15,7 @@
 > “Page-level chunking is the overall winner: Our experiments clearly show that page-level chunking achieved the highest average accuracy (0.648) across all datasets and the lowest standard deviation (0.107), showing more consistent performance across different content types. Page-level chunking demonstrated superior overall performance when compared to both token-based chunking and section-level chunking.” 
 
 
-```c
+```sh
 
 // chunks(document collection)
 {
@@ -27,6 +27,7 @@
   "embedding": [0.12, -0.08, 0.44], // All: null before vectorization; numeric array after embedding
   "file_type": "application/pdf", // All: MIME type (e.g. application/pdf, audio/wav, text/plain, image/png, etc)
   "source_url": "s3://my-bucket/docs/report.pdf", // txt,md,jsonl,csv,html,wav: canonical URL (s3://... or https://...) of source object
+  "file_name": "report.pdf,  // Derived file name for metadata filtering
   "page_number": 5, // pdf: integer page index (parser-defined base); null otherwise
   "slide_range": [1, 3], // pptx: [start_slide, end_slide] inclusive for chunk (replaces slide_range_start/slide_range_end)
   "row_range": [10, 20], // jsonl,csv: [start_row, end_row] inclusive for this chunk (replaces row_range_start/row_range_end)
@@ -330,6 +331,35 @@ export ARANGO_QUERY_MEMORY_LIMIT=1024                 # raise if AQL traversals 
 
 
 
+export MAX_QUERY_EMBED_TOKENS=60             # Expected max tokens of end user prompt. Lower = faster embedd 
+export META_DATA_FILTERING_FIELDS="file_name,chunk_type,file_type,tags,timestamp"  # add more if relevant 
+export BM25_TOP_K=40                         # Top 40 bm25 keyword ranked chunks for first RRF
+export VECTOR_TOP_K=100                      # Top 100 vector similar chunks for first RRF
+
+export FIRST_RRF_SMOOTHENING_CONSTANT=35     # 35 is the default Lower = even more top-heavy; higher = flatter contributions.
+export FIRST_RRF_VECTOR_WEIGHT=1.5           # Weight given to vector scores during first RRF
+export FIRST_RRF_BM25_WEIGHT=1.0             # Weight given to BM25 scores during first RRF
+
+export TOP_N_FOR_GRAPH_TRAVERSAL=20          # RRF top 20 chunks out of BM25_TOP_K+VECTOR_TOP_K(140) for graph expansion
+export NUMBER_OF_HOPS=2                      # 2 avoids noise, can set 3 only if latency acceptable or if large c8g/c8gd instance
+export MIN_EDGE_WEIGHT=0.70                  # Ignore edges below weight 0.70; lower to expand more chunks, increase to reduce noise
+export EDGE_TYPES="knn, adjacent"            # add "citations" if manually adding your domain/data logic in inference pipeline
+export MAX_NEIGHBORS_PER_NODE=20             # Max neighbors per node per hop; reduce to limit expansion, increase only if your graph is sparse.
+export MAX_EXPANSION_PER_SEED=100            # Cap total chunks expanded per seed; lower for noisy graphs, higher for sparse graphs needing more context
+export MAX_TOTAL_EXPANDED=500                # Global cap on expanded chunks; reduce if latency is high, increase if memory allows
+export UNIQUE_VERTICES="global"              # Deduplicate vertices across all hops; use "global" to avoid revisiting the same chunk.
+export TRAVERSAL_TIMEOUT_MS=2000             # Abort traversal if it takes longer than 2s; increase only if graph is huge and latency is acceptable.
+
+export SECOND_RRF_SMOOTHENING_CONSTANT=60    # Smoothing constant for second RRF; higher = flatter contribution, lower = more top-heavy
+export SECOND_RRF_BM25_VECTOR_WEIGHT=1.2     # Weight for first-stage (bm25+vector fused) results during second RRF
+export SECOND_RRF_GRAPH_WEIGHT=0.8           # Weight for graph-expanded chunks during second RRF
+
+export TOP_M=50           # Top 50 after second RRF out of (BM25_TOP_K+VECTOR_TOP_K + chunks from graph traversal) before deduplication
+export MAX_CHUNKS_TO_RERANKER=15             # top 15 chunks from deduplicated TOP_M to rerank with cross encoder
+export MAX_CHUNKS_TO_LLM=5         # Top 5 chunks from cross encoder to LLM(32K context). Increase if latency acceptable or if large GPU instance
+
+
+
 ```
 ## 🔗 **References & specialties of the default models**
 
@@ -367,7 +397,7 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **AWQ**. Bu
 * Architecture: **Transformer** (Qwen3 series, multilingual)
 * Context Length: **32k tokens**
 * Quantization: **AWQ** 
-* VRAM Usage: **\~4.8–5.2 GiB** (fits on 24 GiB GPUs with headroom)
+* VRAM Usage: **\~4.8–5.2 GiB for 4K tokens** (fits on 24 GiB GPUs with headroom)
 
 🔗 [Qwen/Qwen3-4B-AWQ](https://huggingface.co/Qwen/Qwen3-4B-AWQ)
 
@@ -375,21 +405,8 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **AWQ**. Bu
 > — [Qwen3 Blog](https://qwenlm.github.io/blog/qwen3/)
 > — [Thinking-mode](https://qwenlm.github.io/blog/qwen3/#key-features)
 
-> **Use case**: Smaller models (e.g., Qwen3-4B-AWQ or 30B-A3B) **fit on a single VM** , making them better suited for data-parallel engines like **SGLang**  than tensor-parallel engine like **vLLM**.
+> **Use case**: Smaller models (e.g., Qwen3-4B-AWQ or 30B-A3B) **fit on a single VM** , making them better suited for data-parallel engines like **SGLang** than tensor-parallel engine like **vLLM**.
 
 ---
-
-
-```sh
-export MAX_QUERY_EMBED_TOKENS=60    # Expected max tokens of end user prompt. Lower = faster embedd
-export META_DATA_FILTERING_FIELDS=
-export BM25_TOP_K=40
-export VECTOR_TOP_K=100
-export TOP_N_FOR_GRAPH_TRAVERSAL=20  # RRF top 20 chunks out of BM25_TOP_K+VECTOR_TOP_K(140) for graph expansion
-export NUMBER_OF_HOPS=2             # 2 avoids noise, can set 3 only if latency acceptable or if large c8g/c8gd instance
-export TOP_M=50      # top 50 after second RRF(deduplicating TOP_M=50 is likely reduced to 20-40) out of (140 TOP_K + chunks from graph traversal)
-export MAX_CHUNKS_TO_RERANKER=15 # top 15 chunks from TOP_M 20-40 chunks. 
-export MAX_CHUNKS_TO_LLM=5    # Top 5 chunks from cross encoder to LLM(32K context).Increase if latency acceptable or if large gpu instance
-```
 
 

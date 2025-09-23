@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import sys
 import json
@@ -62,12 +63,15 @@ assert CHUNK_FORMAT in ("json", "jsonl")
 
 s3 = boto3.client("s3")
 
+
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
+
 
 def is_valid_text(text: str) -> bool:
     t = (text or "").strip()
     return len(t) > 20 and any(c.isalpha() for c in t)
+
 
 def is_ocr_line_valid(text: str, min_ratio: float = 0.6) -> bool:
     t = (text or "").strip()
@@ -76,16 +80,18 @@ def is_ocr_line_valid(text: str, min_ratio: float = 0.6) -> bool:
     alnum = sum(c.isalnum() for c in t)
     return (alnum / len(t)) >= min_ratio
 
-def dedupe_lines(lines: list[str]) -> list[str]:
+
+def dedupe_lines(lines: list) -> list:
     seen, out = set(), []
     for l in lines:
-        key = l.strip().lower()
+        key = (l or "").strip().lower()
         if key and key not in seen:
             seen.add(key)
             out.append(l)
     return out
 
-def do_ocr(img: np.ndarray) -> list[str]:
+
+def do_ocr(img: np.ndarray) -> list:
     lines = []
     try:
         if OCR_BACKEND == "tesseract":
@@ -112,12 +118,14 @@ def do_ocr(img: np.ndarray) -> list[str]:
         return []
     return dedupe_lines(lines)
 
-def is_valid_table(table: list[list[str]]) -> bool:
+
+def is_valid_table(table: list) -> bool:
     if len(table) < 2 or len(table[0]) < 2:
         return False
     total_cells = sum(len(r) for r in table)
     alpha_cells = sum(1 for row in table for cell in row if any(c.isalpha() for c in (cell or "")))
     return total_cells > 0 and (alpha_cells / total_cells) >= 0.5
+
 
 def _extract_image_blob_from_shape(shape):
     try:
@@ -136,6 +144,7 @@ def _extract_image_blob_from_shape(shape):
         pass
     return None
 
+
 def _count_tokens(text: str) -> int:
     if not text:
         return 0
@@ -146,6 +155,7 @@ def _count_tokens(text: str) -> int:
     except Exception:
         return len(text.split())
 
+
 def s3_object_exists(key: str) -> bool:
     try:
         s3.head_object(Bucket=S3_BUCKET, Key=key)
@@ -153,36 +163,51 @@ def s3_object_exists(key: str) -> bool:
     except Exception:
         return False
 
+
 class S3DocWriter:
+    """
+    Aggregate chunks for a single source into one temp file in /tmp and upload once.
+    Ensures proper formatting:
+      - jsonl: one JSON object per line
+      - json: pretty array where each object is indented and separated with comma+newline
+    """
     def __init__(self, doc_id: str, s3_path: str, ext: str, content_type: str = "application/json"):
         self.doc_id = doc_id
         self.s3_path = s3_path or ""
         self.ext = ext
         self.content_type = content_type
-        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False)
+        # force temp files into /tmp to avoid filling other dirs; delete=False so we can upload then remove
+        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=f".{ext}", dir="/tmp")
         self.count = 0
         self._first = True
         if self.ext == "json":
-            self.temp.write(b"[")
+            # start pretty array with newline to allow multi-line objects per element
+            self.temp.write(b"[\n")
+            self.temp.flush()
+
     def write_payload(self, payload: dict) -> int:
         self.count += 1
         if self.ext == "jsonl":
             line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
             self.temp.write(line)
         else:
-            j = json.dumps(payload, ensure_ascii=False)
+            pretty = json.dumps(payload, ensure_ascii=False, indent=2)
+            # indent each line by two spaces for readability
+            indented = ("\n".join("  " + ln for ln in pretty.splitlines()) + "\n").encode("utf-8")
             if not self._first:
-                self.temp.write(b",")
-            self.temp.write(j.encode("utf-8"))
+                self.temp.write(b",\n")
+            self.temp.write(indented)
             self._first = False
+        self.temp.flush()
         return 1
+
     def finalize_and_upload(self, out_key: str) -> Tuple[int, str]:
         if self.ext == "json":
-            self.temp.write(b"]")
+            self.temp.write(b"]\n")
         self.temp.flush()
         self.temp.close()
         try:
-            s3.upload_file(self.temp.name, S3_BUCKET, out_key, ExtraArgs={"ContentType": "application/json"})
+            s3.upload_file(self.temp.name, S3_BUCKET, out_key, ExtraArgs={"ContentType": self.content_type})
             try:
                 os.unlink(self.temp.name)
             except Exception:
@@ -195,19 +220,96 @@ class S3DocWriter:
                 pass
             raise
 
+
+def _derive_doc_id_from_head(s3_key: str, head_obj: dict, manifest: dict) -> str:
+    """
+    Derive a stable doc_id without downloading content.
+    Priority:
+      1. manifest['file_hash'] (if present)
+      2. ETag (from HEAD) - stripped of quotes
+      3. LastModified (string)
+      4. fallback to basename(s3_key)
+      5. fallback to sha256(s3_key)
+    """
+    if isinstance(manifest, dict) and manifest.get("file_hash"):
+        return manifest.get("file_hash")
+    etag = head_obj.get("ETag", "")
+    if isinstance(etag, str):
+        etag = etag.strip('"')
+    if etag:
+        return sha256_hex(s3_key + str(etag))
+    lm = head_obj.get("LastModified", "")
+    if lm:
+        return sha256_hex(s3_key + str(lm))
+    base = os.path.basename(s3_key)
+    if base:
+        return base
+    return sha256_hex(s3_key)
+
+
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
-    raw = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
-    doc_id = manifest.get("file_hash", "") if isinstance(manifest, dict) else ""
-    if not doc_id:
-        doc_id = sha256_hex(s3_key + str(time.time()))
-    source = f"s3://{S3_BUCKET}/{s3_key}"
+
+    # 1) HEAD for quick metadata and doc_id derivation
+    try:
+        head_obj = s3.head_object(Bucket=S3_BUCKET, Key=s3_key)
+    except Exception as e:
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        log.error("Could not HEAD S3 object %s: %s", s3_key, e)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
+    content_len = head_obj.get("ContentLength", 0) or 0
+
+    # derive doc_id and out_key without downloading
+    doc_id = _derive_doc_id_from_head(s3_key, head_obj, manifest or {})
+    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
+    out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+
+    # fast-skip if aggregated output exists
+    if not FORCE_OVERWRITE and s3_object_exists(out_key):
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        log.info("Skipping entire file because chunked file exists: %s", out_key)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
+    # skip empty files
+    if content_len == 0:
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        log.info("Skipping empty object %s (zero bytes).", s3_key)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
+    # now GET full object (we need it)
+    try:
+        raw = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
+    except Exception as e:
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        log.error("Could not read S3 object %s: %s", s3_key, e)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
+    # if manifest.file_hash exists prefer that (keeps stable previous behavior)
+    if isinstance(manifest, dict) and manifest.get("file_hash"):
+        doc_id = manifest.get("file_hash")
+        out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+
+    # race-check after download (someone may have written the aggregated file between HEAD and GET)
+    if not FORCE_OVERWRITE and s3_object_exists(out_key):
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        log.info("Skipping entire file because chunked file exists (post-download): %s", out_key)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
+    # ensure pptx library available
     try:
         from pptx import Presentation
     except Exception as e:
         log.error(f"pptx import failed: {e}")
-        return {"saved_chunks": 0, "total_parse_duration_ms": 0}
-    prs = Presentation(BytesIO(raw))
+        return {"saved_chunks": 0, "total_parse_duration_ms": 0, "skipped": True, "error": str(e)}
+
+    # parse presentation
+    try:
+        prs = Presentation(BytesIO(raw))
+    except Exception as e:
+        log.error("Failed to open presentation %s: %s", s3_key, e)
+        return {"saved_chunks": 0, "total_parse_duration_ms": 0, "skipped": True, "error": str(e)}
+
     slides_content = []
     for idx, slide in enumerate(prs.slides):
         slide_num = idx + 1
@@ -247,6 +349,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     if ocr_lines:
                         img_texts.append("\n".join(ocr_lines))
             except Exception:
+                # ignore shape-level failures and continue
                 continue
         merged_lines = []
         if text_items:
@@ -266,14 +369,18 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             "tables": table_items,
             "parse_duration_ms": slide_parse_ms
         })
+
     saved = 0
     total_slides = len(slides_content)
     ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
     out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
+
+    # final skip check (defensive)
     if not FORCE_OVERWRITE and s3_object_exists(out_key):
         total_ms = int((time.perf_counter() - start_all) * 1000)
-        log.info(f"Skipping entire file because chunked file exists: {out_key}")
+        log.info("Skipping entire file because chunked file exists: %s", out_key)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
     writer = S3DocWriter(doc_id=doc_id, s3_path=s3_key, ext=ext)
     try:
         for i in range(0, total_slides, SLIDES_PER_CHUNK):
@@ -304,13 +411,14 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             duration_ms = int(slides_sum_ms + merge_write_ms)
             payload = {
                 "document_id": doc_id or "",
+                "file_name": os.path.basename(s3_key),
                 "chunk_id": chunk_id or "",
                 "chunk_type": "slides",
                 "text": final_text or "",
                 "token_count": int(token_count or 0),
                 "embedding": None,
                 "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                "source_url": source,
+                "source_url": f"s3://{S3_BUCKET}/{s3_key}",
                 "page_number": None,
                 "slide_range": [int(start), int(end)],
                 "row_range": None,
@@ -326,7 +434,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 "line_range": None
             }
             writer.write_payload(payload)
-            log.info(f"Buffered slides {start}-{end} (tokens={token_count})")
+            log.info("Buffered slides %d-%d (tokens=%d)", start, end, token_count)
             saved += 1
     except Exception as e:
         try:
@@ -339,6 +447,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             pass
         log.exception("Fatal error while buffering chunks for %s: %s", s3_key, str(e))
         return {"saved_chunks": 0, "total_parse_duration_ms": int((time.perf_counter() - start_all) * 1000), "skipped": True, "error": str(e)}
+
     try:
         if saved == 0:
             try:
@@ -365,6 +474,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             pass
         log.error("Failed to upload chunked file for %s error=%s", s3_key, str(e_up))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
+
 
 if __name__ == "__main__":
     paginator = s3.get_paginator("list_objects_v2")
