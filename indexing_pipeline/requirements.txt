@@ -24,3 +24,5 @@ python-pptx==1.0.2
 virtualenv==20.34.0
 ray[serve]==2.49.2
 typing==3.7.4.3
+httpx==0.28.1
+weaviate-client==4.16.10

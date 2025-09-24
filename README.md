@@ -17,49 +17,6 @@
 
 ```sh
 
-// chunks(document collection)
-{
-  "document_id": "doc-12345", // All: global document identifier (filename or UUID)
-  "chunk_id": "chunk-0001", // All: unique chunk id (doc-scoped index or UUID)
-  "chunk_type": "page", // pdf:page|page_subchunk, pptx:slides, txt:txt_subchunk, md:md_subchunk, jsonl:row_group, csv/html/wav:token_window, images:image
-  "text": "Sample extracted text .", // text-bearing formats: extracted canonicalized text; wav/images may have ASR/OCR transcript or empty
-  "token_count": 128, // txt,md,wav,html,csv,pdf,pptx,jsonl: tokenizer token count if computed
-  "embedding": [0.12, -0.08, 0.44], // All: null before vectorization; numeric array after embedding
-  "file_type": "application/pdf", // All: MIME type (e.g. application/pdf, audio/wav, text/plain, image/png, etc)
-  "source_url": "s3://my-bucket/docs/report.pdf", // txt,md,jsonl,csv,html,wav: canonical URL (s3://... or https://...) of source object
-  "file_name": "report.pdf,  // Derived file name for metadata filtering
-  "page_number": 5, // pdf: integer page index (parser-defined base); null otherwise
-  "slide_range": [1, 3], // pptx: [start_slide, end_slide] inclusive for chunk (replaces slide_range_start/slide_range_end)
-  "row_range": [10, 20], // jsonl,csv: [start_row, end_row] inclusive for this chunk (replaces row_range_start/row_range_end)
-  "token_range": [0, 127], // html,csv,jsonl: [token_start, token_end] token indices where window starts/ends (replaces token_start/token_end)
-  "audio_range": ["00:00:05.000", "00:00:10.000"], // wav: [start_ts, end_ts] segment timestamps; null for non-audio
-  "timestamp": "2025-09-14T12:34:56Z", // All: ISO8601 UTC when chunk created (e.g. 2025-09-14T12:34:56Z)
-  "parser_version": "v1.2.3", // txt,md,jsonl,csv,html,pdf,pptx,wav: parser semantic version or tag
-  "tags": ["financial", "confidential"], // pdf,pptx,images,html,general: producer tags for routing/classification
-  "layout_tags": ["page"], // pdf,pptx,images,html: structural labels like ["page","slide","image","table"]
-  "used_ocr": true, // pdf,images,pptx,md: whether OCR was applied
-  "parse_chunk_duration_ms": 134, // All: integer ms spent parsing this chunk or null for wav
-  "heading_path": ["Introduction", "Background"], // md: array representing nested heading hierarchy for the subchunk
-  "headings": ["Introduction"], // md: flattened list of headings present inside chunk
-  "line_range": [1, 20], // txt,md: [start_line, end_line] inclusive for subchunk (replaces line_range_start/line_range_end)
-  "chunk_duration_ms": 5000, // for wav: audio chunk duration in ms since parsing is seperate
-
-  // new fields needed to be added right before indexing
-  "vector_id": 1234567890, // FAISS/ANN: stable int64 id mapped to this chunk (required for Faiss lookup)
-  "deleted": false // Soft-delete flag (true if logically deleted/tombstoned)
-}
-
-// chunk_edges(edge collection)
-{
-  "_key": "edge-00001", // ArangoDB: optional unique edge key (useful for updates)
-  "_from": "chunks/doc-12345_chunk-0001", // required: source vertex (ArangoDB _id)
-  "_to": "chunks/doc-12345_chunk-0002", // required: target vertex (ArangoDB _id)
-  "type": "knn", // knn | adjacent | same_doc | citation | metadata
-  "weight": 0.92, // normalized 0..1 (strength of link; higher = stronger)
-  "created_at": "2025-09-22T12:40:00Z", // ISO8601 when edge created
-  "active": true // soft-delete flag for edge (false means edge is archived/disabled)
-}
-
 
 ```
 
