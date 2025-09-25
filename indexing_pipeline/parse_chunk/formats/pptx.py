@@ -383,6 +383,37 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
 
     writer = S3DocWriter(doc_id=doc_id, s3_path=s3_key, ext=ext)
     try:
+
+        def _sanitize_payload_for_weaviate(payload: dict) -> dict:
+            """
+            Weaviate often defines range-like fields as TEXT. If a parser emits lists like [start,end]
+            we should convert them to a string to avoid insertion errors.
+            This helper:
+              - converts known range fields (row_range, slide_range, token_range, audio_range, line_range)
+                into a short "start-end" string when appropriate, otherwise JSON stringifies them.
+              - ensures headings, heading_path and tags are stringified elements (keeps them as arrays).
+            """
+            range_keys = {"row_range", "slide_range", "token_range", "audio_range", "line_range"}
+            for k in list(payload.keys()):
+                v = payload.get(k)
+                if k in range_keys and isinstance(v, (list, tuple)):
+                    # prefer "start-end" for simple pair ranges, otherwise json-dump
+                    try:
+                        if len(v) == 2 and all(isinstance(x, (int, str)) for x in v):
+                            payload[k] = f"{v[0]}-{v[1]}"
+                        else:
+                            payload[k] = json.dumps(v)
+                    except Exception:
+                        payload[k] = json.dumps(v)
+            # ensure arrays of headings/tags are arrays of strings (Weaviate TEXT_ARRAY expects strings)
+            if "headings" in payload and isinstance(payload["headings"], (list, tuple)):
+                payload["headings"] = [str(x) for x in payload["headings"]]
+            if "heading_path" in payload and isinstance(payload["heading_path"], (list, tuple)):
+                payload["heading_path"] = [str(x) for x in payload["heading_path"]]
+            if "tags" in payload and isinstance(payload["tags"], (list, tuple)):
+                payload["tags"] = [str(x) for x in payload["tags"]]
+            return payload
+
         for i in range(0, total_slides, SLIDES_PER_CHUNK):
             chunk_slides = slides_content[i:i + SLIDES_PER_CHUNK]
             start = chunk_slides[0]["slide_number"]
@@ -433,6 +464,8 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 "headings": [],
                 "line_range": None
             }
+            # sanitize problematic non-string fields (ranges) so Weaviate doesn't reject them
+            payload = _sanitize_payload_for_weaviate(payload)
             writer.write_payload(payload)
             log.info("Buffered slides %d-%d (tokens=%d)", start, end, token_count)
             saved += 1

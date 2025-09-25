@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import sys
 import json
@@ -11,7 +10,7 @@ import time
 from tempfile import NamedTemporaryFile
 from io import BytesIO
 from datetime import datetime
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, Any
 from botocore.exceptions import ClientError
 
 log = logging.getLogger("pdf_parser_minimal_schema")
@@ -263,6 +262,41 @@ class S3DocWriter:
             raise
 
 
+# ------------------------
+# Sanitize function to avoid Weaviate "not a string" errors when schema expects text
+# converts lists/dicts to JSON strings, ensures tags is list[str], drops None values
+# ------------------------
+def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
+    for k in list(payload.keys()):
+        v = payload.get(k)
+        # keep numeric and boolean scalars as-is
+        if isinstance(v, (int, float, bool)):
+            continue
+        # special handling for tags: always make list of strings
+        if k == "tags":
+            if v is None:
+                payload[k] = []
+            elif isinstance(v, (list, tuple)):
+                payload[k] = [str(x) for x in v]
+            else:
+                payload[k] = [str(v)]
+            continue
+        # remove explicit nulls so we don't send typed nulls
+        if v is None:
+            payload.pop(k, None)
+            continue
+        # lists/tuples/dicts -> store as JSON string (Weaviate text property expects string)
+        if isinstance(v, (list, tuple, dict)):
+            try:
+                payload[k] = json.dumps(v, ensure_ascii=False)
+            except Exception:
+                payload[k] = str(v)
+            continue
+        # keep strings as-is; for any other type, coerce to string
+        if not isinstance(v, str):
+            payload[k] = str(v)
+
+
 def _derive_doc_id_from_head(s3_key: str, head_obj: dict, manifest: dict) -> str:
     """
     Derive a stable doc_id without downloading content.
@@ -488,6 +522,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                             "headings": [],
                             "line_range": None,
                         }
+                        sanitize_payload_for_weaviate(sub_payload)
                         writer.write_payload(sub_payload)
                         log.info("Buffered subchunk %s tokens %d-%d", sub_chunk_id, start_t, end_t - 1)
                         subchunks_written += 1
@@ -523,6 +558,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     "headings": [],
                     "line_range": None,
                 }
+                sanitize_payload_for_weaviate(page_payload)
                 writer.write_payload(page_payload)
                 log.info("Buffered parsed page %d (tokens=%d, ocr_used=%s)", page_num, token_count, bool(used_ocr))
                 saved += 1

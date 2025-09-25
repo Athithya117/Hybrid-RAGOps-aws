@@ -292,6 +292,29 @@ class S3DocWriter:
                 pass
             raise
 
+def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
+    for k in list(payload.keys()):
+        v = payload.get(k)
+        if k == "tags":
+            if v is None:
+                payload[k] = []
+            elif isinstance(v, (list, tuple)):
+                payload[k] = [str(x) for x in v]
+            else:
+                payload[k] = [str(v)]
+            continue
+        if v is None:
+            payload.pop(k, None)
+            continue
+        if isinstance(v, (list, tuple, dict)):
+            try:
+                payload[k] = json.dumps(v)
+            except Exception:
+                payload[k] = str(v)
+            continue
+        if not isinstance(v, (str, int, float, bool)):
+            payload[k] = str(v)
+
 def _flush_rows_chunk(writer: S3DocWriter, doc_id: str, chunk_index: int, header_text: str, rows_text: List[str], start_row_num: int, manifest_tags: List[str] = None) -> Tuple[int, int]:
     if not rows_text:
         return 0, chunk_index
@@ -325,6 +348,7 @@ def _flush_rows_chunk(writer: S3DocWriter, doc_id: str, chunk_index: int, header
         "headings": [],
         "line_range": None,
     }
+    sanitize_payload_for_weaviate(payload)
     writer.write_payload(payload)
     log.info(f"Buffered chunk {payload['chunk_id']}")
     return 1, chunk_index
@@ -380,6 +404,7 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
                     "headings": [],
                     "line_range": None,
                 }
+                sanitize_payload_for_weaviate(payload)
                 writer.write_payload(payload)
                 log.info(f"Buffered token_window {payload['chunk_id']}")
                 saved += 1

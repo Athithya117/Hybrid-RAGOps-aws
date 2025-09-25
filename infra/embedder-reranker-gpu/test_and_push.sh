@@ -74,4 +74,3 @@ if [ -n "${DOCKER_PASSWORD:-}" ]; then
   docker logout || true
 fi
 echo "Done."
-

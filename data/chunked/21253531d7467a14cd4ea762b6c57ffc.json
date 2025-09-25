@@ -6,28 +6,16 @@
     "chunk_type": "page_subchunk",
     "text": "| We tried different types of classification models, like |  |\n\n| Logistic Regression, Support Vector Machines (SVM), |  |\n\n| Random Forest, and XGBoost. We checked how well |  |\n\n| each model worked using accuracy, precision, recall, and |  |\n\n| F1-score to find the best one for predicting diseases. The |  |\n\n| system we propose gives farmers and vets a cheaper, |  |\n\n| better way to find diseases early. This helps improve the |  |\n\n| health of cattle, reduce deaths, and make farming more |  |\n\n| II. Related Work |\n\n| Several studies have looked into how technology can help monitor the health of animals. |\n\n| Older methods depend on vets checking by hand, which isn’t very accurate and isn’t always available, especially in remote areas. Newer research has used machine learning (ML) and Internet of Things (IoT) tools to predict diseases by looking at things like the animal’s body signs and the environment. |\n\n| In [1], scientists used IoT devices to keep track of cattle’s body temperature and movement. |\n\n| They combined the data from these sensors with prediction tools. Their work showed that early disease detection is possible, but the equipment they used was expensive. In [2], a team made a system that uses machine learning to spot mastitis in dairy cows. They looked at milk production and a measure of cells in the milk. While this system worked well, it was only for one type of disease and couldn’t be used for others. |\n\n| Another study [3] used Random Forest and Support Vector Machines to classify different diseases in livestock. |\n\n| They found that using multiple models together worked better than just one model, especially when dealing with |\n\n| Livestock is very important for the global economy |\n\n| because it provides food, income, and jobs for millions of |\n\n| farmers. Among all types of livestock, cattle are |\n\n| especially significant because they give milk, meat, and |\n\n| help with farming. However, diseases like foot-and- |\n\n| mouth disease, mastitis, and lumpy skin disease can |\n\n| cause big problems for farmers. These diseases lower the |\n\n| productivity of cattle, lead to more deaths, and make it |\n\n| more expensive to treat animals. Finding these diseases |\n\n| early is very important to keep the animals healthy and |\n\n| make sure farming stays sustainable. |\n\n| Traditional ways of diagnosing animal diseases depend a |\n\n| lot on the knowledge of a vet, but this is",
     "token_count": 512,
-    "embedding": null,
     "file_type": "application/pdf",
     "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/IEEE_docx_file.docx.pdf",
     "page_number": 1,
-    "slide_range": null,
-    "row_range": null,
-    "token_range": [
-      0,
-      511
-    ],
-    "audio_range": null,
-    "timestamp": "2025-09-23T15:10:36.265082Z",
-    "parser_version": null,
-    "tags": null,
-    "layout_tags": [
-      "page",
-      "subchunk"
-    ],
+    "token_range": "[0, 511]",
+    "timestamp": "2025-09-25T01:37:23.619792Z",
+    "tags": [],
+    "layout_tags": "[\"page\", \"subchunk\"]",
     "used_ocr": false,
-    "heading_path": [],
-    "headings": [],
-    "line_range": null
+    "heading_path": "[]",
+    "headings": "[]"
   }
 ,
   {
@@ -37,28 +25,16 @@
     "chunk_type": "page_subchunk",
     "text": " to treat animals. Finding these diseases |\n\n| early is very important to keep the animals healthy and |\n\n| make sure farming stays sustainable. |\n\n| Traditional ways of diagnosing animal diseases depend a |\n\n| lot on the knowledge of a vet, but this is not always |\n\n| available in poor or remote areas. |\n\n| Also, looking at symptoms by hand can be slow and not |\n\n| always correct. To solve these problems, machine |\n\n| learning (ML) has become a useful tool in farming and |\n\n| looking after animals. ML can look at several things like |\n\n| an animal's body, behavior, and the environment to find |\n\n| patterns linked to certain diseases. This helps in making |\n\n| faster and more accurate predictions.In this paper, we |\n\n| suggest a machine learning method to predict cattle |\n\n| diseases using data about symptoms and the |\n\n| environment. |\n\nMachine Learning-Based Prediction of Cattle Diseases\n\nfor Early Diagnosis and Prevention\n\nS.S.Chokkanathan, S.Hariharasudhan, J.Sarvesh, S.L.Mohanasubramanian\n\n#Department\n\nOf Artificial Intelligence and Data Science,\n\nSri Sairam Institute Of Technology,Chennai,India\n\nSIT23AD074@SAIRAMTAP.EDU.IN\n\nSIT23AD021@SAIRAMTAP.EDU.IN\n\nAbstract— Cattle ailments have a significant impact on livestock\n\nWe tried different types of classification models, like\n\nproductivity and lead to significant economic losses for farmers. Early\n\nLogistic Regression, Support Vector Machines (SVM),\n\nidentification of these illnesses is often challenging due to the scarcity of\n\nRandom Forest, and XGBoost. We checked how well\n\nveterinary resources in rural areas. This study introduces a machine\n\nlearning system that utilizes physiological, behavioral, and\n\neach model worked using accuracy, precision, recall, and\n\nenvironmental data to forecast cattle diseases. Logistic Regression,\n\nF1-score to find the best one for predicting diseases. The\n\nRandom Forest, and XGBoost are among the classification algorithms\n\nsystem we propose gives farmers and vets a cheaper,\n\nemployed and compared. The experimental findings indicate that the\n\nRandom Forest model exhibits the highest accuracy and dependability\n\nbetter way to find diseases early. This helps improve the\n\nKeywords—Cattle\n\nHealth, Disease Prediction, Machine Learning,\n\nhealth of cattle, reduce deaths, and make farming more\n\nRandom Forest, Precision Agriculture, Livestock Management\n\nproductive.\n\nI. INTRODUCTION\n\nLivest",
     "token_count": 512,
-    "embedding": null,
     "file_type": "application/pdf",
     "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/IEEE_docx_file.docx.pdf",
     "page_number": 1,
-    "slide_range": null,
-    "row_range": null,
-    "token_range": [
-      461,
-      972
-    ],
-    "audio_range": null,
-    "timestamp": "2025-09-23T15:10:36.266079Z",
-    "parser_version": null,
-    "tags": null,
-    "layout_tags": [
-      "page",
-      "subchunk"
-    ],
+    "token_range": "[461, 972]",
+    "timestamp": "2025-09-25T01:37:23.620263Z",
+    "tags": [],
+    "layout_tags": "[\"page\", \"subchunk\"]",
     "used_ocr": false,
-    "heading_path": [],
-    "headings": [],
-    "line_range": null
+    "heading_path": "[]",
+    "headings": "[]"
   }
 ,
   {
@@ -68,28 +44,16 @@
     "chunk_type": "page_subchunk",
     "text": ". This helps improve the\n\nKeywords—Cattle\n\nHealth, Disease Prediction, Machine Learning,\n\nhealth of cattle, reduce deaths, and make farming more\n\nRandom Forest, Precision Agriculture, Livestock Management\n\nproductive.\n\nI. INTRODUCTION\n\nLivestock is very important for the global economy\n\nII. Related Work\n\nbecause it provides food, income, and jobs for millions of\n\nfarmers. Among all types of livestock, cattle are\n\nSeveral studies have looked into how technology can\n\nespecially significant because they give milk, meat, and\n\nhelp monitor the health of animals.\n\nhelp with farming. However, diseases like foot-and-\n\nOlder methods depend on vets checking by hand, which\n\nmouth disease, mastitis, and lumpy skin disease can\n\nisn’t very accurate and isn’t always available, especially\n\ncause big problems for farmers. These diseases lower the\n\nin remote areas. Newer research has used machine\n\nproductivity of cattle, lead to more deaths, and make it\n\nlearning (ML) and Internet of Things (IoT) tools to\n\nmore expensive to treat animals. Finding these diseases\n\npredict diseases by looking at things like the animal’s\n\nearly is very important to keep the animals healthy and\n\nbody signs and the environment.\n\nmake sure farming stays sustainable.\n\nIn [1], scientists used IoT devices to keep track of cattle’s\n\nTraditional ways of diagnosing animal diseases depend a\n\nbody temperature and movement.\n\nlot on the knowledge of a vet, but this is not always\n\nThey combined the data from these sensors with\n\navailable in poor or remote areas.\n\nprediction tools. Their work showed that early disease\n\ndetection is possible, but the equipment they used was\n\nAlso, looking at symptoms by hand can be slow and not\n\nexpensive. In [2], a team made a system that uses\n\nalways correct. To solve these problems, machine\n\nmachine learning to spot mastitis in dairy cows. They\n\nlearning (ML) has become a useful tool in farming and\n\nlooked at milk production and a measure of cells in the\n\nlooking after animals. ML can look at several things like\n\nmilk. While this system worked well, it was only for one\n\nan animal's body, behavior, and the environment to find\n\ntype of disease and couldn’t be used for others.\n\npatterns linked to certain diseases. This helps in making\n\nfaster and more accurate predictions.In this paper, we\n\nAnother study [3] used Random Forest and Support\n\nsuggest a machine learning method to predict cattle",
     "token_count": 512,
-    "embedding": null,
     "file_type": "application/pdf",
     "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/IEEE_docx_file.docx.pdf",
     "page_number": 1,
-    "slide_range": null,
-    "row_range": null,
-    "token_range": [
-      922,
-      1433
-    ],
-    "audio_range": null,
-    "timestamp": "2025-09-23T15:10:36.266849Z",
-    "parser_version": null,
-    "tags": null,
-    "layout_tags": [
-      "page",
-      "subchunk"
-    ],
+    "token_range": "[922, 1433]",
+    "timestamp": "2025-09-25T01:37:23.620593Z",
+    "tags": [],
+    "layout_tags": "[\"page\", \"subchunk\"]",
     "used_ocr": false,
-    "heading_path": [],
-    "headings": [],
-    "line_range": null
+    "heading_path": "[]",
+    "headings": "[]"
   }
 ,
   {
@@ -99,28 +63,16 @@
     "chunk_type": "page_subchunk",
     "text": " disease and couldn’t be used for others.\n\npatterns linked to certain diseases. This helps in making\n\nfaster and more accurate predictions.In this paper, we\n\nAnother study [3] used Random Forest and Support\n\nsuggest a machine learning method to predict cattle\n\nVector Machines to classify different diseases in\n\ndiseases using data about symptoms and the\n\nlivestock.\n\nenvironment.\n\nThey found that using multiple models together worked\n\nbetter than just one model, especially when dealing with",
     "token_count": 95,
-    "embedding": null,
     "file_type": "application/pdf",
     "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/IEEE_docx_file.docx.pdf",
     "page_number": 1,
-    "slide_range": null,
-    "row_range": null,
-    "token_range": [
-      1383,
-      1477
-    ],
-    "audio_range": null,
-    "timestamp": "2025-09-23T15:10:36.267831Z",
-    "parser_version": null,
-    "tags": null,
-    "layout_tags": [
-      "page",
-      "subchunk"
-    ],
+    "token_range": "[1383, 1477]",
+    "timestamp": "2025-09-25T01:37:23.620865Z",
+    "tags": [],
+    "layout_tags": "[\"page\", \"subchunk\"]",
     "used_ocr": false,
-    "heading_path": [],
-    "headings": [],
-    "line_range": null
+    "heading_path": "[]",
+    "headings": "[]"
   }
 ,
   {
@@ -130,28 +82,16 @@
     "chunk_type": "page_subchunk",
     "text": "| different kinds of data. However, this method needed a lot of data, which isn’t always easy to get. |  |  |  |  |  |  |  |\n\n| In [4], researchers used Convolutional Neural Networks (CNNs) to identify skin problems in cattle by looking at pictures. |  |  |  |  |  |  |  |\n\n| This method was very accurate, but it needed special cameras, which aren’t always available to small farmers. |  |  |  |  |  |  |  |\n\n| Overall, these studies show that while different models have worked well, most of them are only useful for a specific disease, use expensive tools, or need a lot of data. |  |  |  |  |  |  |  |\n\n| This means there’s a need for a system that can handle many diseases, is cheap to use, and can work with simple features like the animal’s symptoms, behavior, and the environment to predict illness. |  |  |  |  |  |  |  |\n\n| learning to analyze symptoms and environmental factors. |  |  |  |  |  |  |  |\n\ndifferent kinds of data. However, this method needed a equally represented, a technique called SMOTE was used\n\nlot of data, which isn’t always easy to get. to balance the data.\n\nIn [4], researchers used Convolutional Neural Networks C. Model Development\n\n(CNNs) to identify skin problems in cattle by looking at\n\npictures. Several types of classification models were tested and\n\nThis method was very accurate, but it needed special compared:\n\ncameras, which aren’t always available to small farmers.\n\n- Logistic Regression as a basic linear model.\n\nOverall, these studies show that while different models\n\nhave worked well, most of them are only useful for a - Support Vector Machine (SVM) for handling complex\n\nspecific disease, use expensive tools, or need a lot of data patterns.\n\ndata.\n\nThis means there’s a need for a system that can handle - Random Forest, which works well with many types of\n\nmany diseases, is cheap to use, and can work with simple data, especially when there are many categories.\n\nfeatures like the animal’s symptoms, behavior, and the\n\nillness. - XGBoost, which is efficient and accurate for prediction\n\nenvironment to predict\n\ntasks.\n\nIII. Methodology\n\nEach model was trained using data split into 80% for\n\n",
     "token_count": 512,
-    "embedding": null,
     "file_type": "application/pdf",
     "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/IEEE_docx_file.docx.pdf",
     "page_number": 2,
-    "slide_range": null,
-    "row_range": null,
-    "token_range": [
-      0,
-      511
-    ],
-    "audio_range": null,
-    "timestamp": "2025-09-23T15:10:37.011348Z",
-    "parser_version": null,
-    "tags": null,
-    "layout_tags": [
-      "page",
-      "subchunk"
-    ],
+    "token_range": "[0, 511]",
+    "timestamp": "2025-09-25T01:37:23.877744Z",
+    "tags": [],
+    "layout_tags": "[\"page\", \"subchunk\"]",
     "used_ocr": false,
-    "heading_path": [],
-    "headings": [],
-    "line_range": null
+    "heading_path": "[]",
+    "headings": "[]"
   }
 ,
   {
@@ -161,28 +101,16 @@
     "chunk_type": "page_subchunk",
     "text": " like the animal’s symptoms, behavior, and the\n\nillness. - XGBoost, which is efficient and accurate for prediction\n\nenvironment to predict\n\ntasks.\n\nIII. Methodology\n\nEach model was trained using data split into 80% for\n\nThe system for predicting cattle diseases uses machine\n\ntraining and 20% for testing.\n\nlearning to analyze symptoms and environmental factors.\n\nThe best settings for each model were found using a\n\nThe approach includes four main steps: collecting data,\n\nprocess called grid search and cross-validation to ensure\n\npreparing it, building the model, and testing it.\n\nstrong results.\n\nA. Data Collection\n\nD. System Architecture\n\nThe data includes information about the body, behavior,\n\nThe system follows four steps:\n\nand environment of cattle.\n\nImportant details are body temperature, milk production,\n\nInput of health information and environmental data about\n\nhow much they eat, coughing, injuries, activity levels,\n\nthe cattle.\n\nand environmental factors like humidity and the season.\n\nEach entry is marked as either healthy or showing a\n\nspecific illness like foot-and-mouth disease, mastitis, or\n\nPreprocessing and making the data ready for analysis.\n\nlumpy skin disease. This data was gathered from records\n\nkept by veterinarians, research studies, and surveys by\n\nUsing the trained model to classify the data.\n\nfarmers.\n\nGiving an output that shows the predicted disease or if\n\nB. Data Preprocessing\n\nthe cattle is healthy.\n\nTo make the data better and more reliable, some steps\n\nwere taken.\n\nMissing information was filled in using average values\n\nand common values. Categorical data like \"Cough =\n\nYes/No\" was converted into numbers using a method\n\ncalled one-hot encoding. Numerical values such as\n\ntemperature and milk production were adjusted to a\n\ncommon scale. To make sure each disease type was",
     "token_count": 366,
-    "embedding": null,
     "file_type": "application/pdf",
     "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/IEEE_docx_file.docx.pdf",
     "page_number": 2,
-    "slide_range": null,
-    "row_range": null,
-    "token_range": [
-      461,
-      826
-    ],
-    "audio_range": null,
-    "timestamp": "2025-09-23T15:10:37.012705Z",
-    "parser_version": null,
-    "tags": null,
-    "layout_tags": [
-      "page",
-      "subchunk"
-    ],
+    "token_range": "[461, 826]",
+    "timestamp": "2025-09-25T01:37:23.878228Z",
+    "tags": [],
+    "layout_tags": "[\"page\", \"subchunk\"]",
     "used_ocr": false,
-    "heading_path": [],
-    "headings": [],
-    "line_range": null
+    "heading_path": "[]",
+    "headings": "[]"
   }
 ,
   {
@@ -192,28 +120,16 @@
     "chunk_type": "page_subchunk",
     "text": "| accurate but also good at identifying all cases of disease, |  |  |  |  |  |  |\n\n| The models were assessed using Accuracy, Precision |\n\n| Recall, F1-score, and 5-fold Cross-Validation. |\n\n| B. Confusion Matrix Analysis |\n\n| A confusion matrix was created for each model. |\n\n| For the Random Forest model, most of the classes were |\n\n| predicted correctly with very few false negatives, |\n\n| showing it works well across different disease types. |\n\n| The Logistic Regression model had trouble |\n\n| distinguishing between similar symptoms. The Decision |\n\n| Tree model had issues with predicting rare diseases |\n\n| accurately. |\n\n| C. Feature Importance |\n\n| The Random Forest model showed which symptoms |\n\n| were most important for predicting diseases. |\n\n| Symptoms like body temperature, reduced milk |\n\n| production, skin lesions, and coughing were among the |\n\n| most important. This aligns with what veterinarians |\n\n| know about signs of illness in cattle. |\n\n| D. Top-3 Predictions |\n\n| Instead of giving just one disease, the system shows the |\n\n| top three predicted diseases along with their |\n\n| probabilities. |\n\n| This helps farmers and vets make better decisions by |\n\n| offering a list of possible conditions. For example, if a |\n\n| farmer reports symptoms like fever, coughing, and skin |\n\n| lesions, the system predicts: |\n\n| The proposed system was built using Streamlit as the |\n\n| user interface and scikit-learn for creating the models. |\n\n| Four machine learning models were trained and tested: |\n\n| Logistic Regression, Decision Tree, Random Forest, and |\n\n| Support Vector Machine (SVM). The dataset was split |\n\n| into 80% for training and 20% for testing, using a method |\n\n| called stratified sampling. To deal with the imbalance in |\n\n| the classes, the Synthetic Minority Over-sampling |\n\n| Technique (SMOTE) was used. Model settings were |\n\n| adjusted using grid search and cross-validation to |\n\n| improve performance. |\n\n| E. Discussion |\n\n| The results show that the Random Forest model is the |\n\n| best choice for predicting cattle diseases using this |\n\nSTART\n\nDATACOLLECTION\n\nDATAPREPROCESSING\n\nMODELDEVELOPMENT\n\nTRAININGANDTESTING\n\nMODELEVALUATION\n\nPREDICTION\n\nThe models were assessed using Accuracy, Precision,\n\nRecall, F1-score, and 5-fold Cross-Validation.\n\nB. Confusion Matrix Analysis\n\nA confusion matrix",
     "token_count": 512,
-    "embedding": null,
     "file_type": "application/pdf",
     "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/IEEE_docx_file.docx.pdf",
     "page_number": 3,
-    "slide_range": null,
-    "row_range": null,
-    "token_range": [
-      0,
-      511
-    ],
-    "audio_range": null,
-    "timestamp": "2025-09-23T15:10:42.970856Z",
-    "parser_version": null,
-    "tags": null,
-    "layout_tags": [
-      "page",
-      "subchunk"
-    ],
+    "token_range": "[0, 511]",
+    "timestamp": "2025-09-25T01:37:27.984024Z",
+    "tags": [],
+    "layout_tags": "[\"page\", \"subchunk\"]",
     "used_ocr": true,
-    "heading_path": [],
-    "headings": [],
-    "line_range": null
+    "heading_path": "[]",
+    "headings": "[]"
   }
 ,
   {
@@ -223,28 +139,16 @@
     "chunk_type": "page_subchunk",
     "text": "TRAININGANDTESTING\n\nMODELEVALUATION\n\nPREDICTION\n\nThe models were assessed using Accuracy, Precision,\n\nRecall, F1-score, and 5-fold Cross-Validation.\n\nB. Confusion Matrix Analysis\n\nA confusion matrix was created for each model.\n\nFor the Random Forest model, most of the classes were\n\npredicted correctly with very few false negatives,\n\nshowing it works well across different disease types.\n\nThe Logistic Regression model had trouble\n\ndistinguishing between similar symptoms. The Decision\n\nTree model had issues with predicting rare diseases\n\naccurately.\n\n2015號\n\nacetonaemia\n\nrif_valley_fever\n\ntrypanosomosis\n\nfigure 1.\n\nA diagram showing the system flow is provided in Figure\n\n1, starting from raw data to the final prediction.\n\nE. Model Evaluation\n\nC. Feature Importance\n\nThe models were checked using common measures like\n\nThe Random Forest model showed which symptoms\n\naccuracy, precision, recall, F1-score, and a confusion\n\nwere most important for predicting diseases.\n\nmatrix.\n\nSymptoms like body temperature, reduced milk\n\nThese measures help ensure that the system is not only\n\nproduction, skin lesions, and coughing were among the\n\naccurate but also good at identifying all cases of disease,\n\nmost important. This aligns with what veterinarians\n\nwhich is very important in predicting and managing\n\nknow about signs of illness in cattle.\n\ncattle health.\n\nD. Top-3 Predictions\n\nInstead of giving just one disease, the system shows the\n\nIV. Results and Discussion\n\ntop three predicted diseases along with their\n\nprobabilities.\n\nThe proposed system was built using Streamlit as the\n\nThis helps farmers and vets make better decisions by\n\nuser interface and scikit-learn for creating the models.\n\noffering a list of possible conditions. For example, if a\n\nfarmer reports symptoms like fever, coughing, and skin\n\nFour machine learning models were trained and tested:\n\nlesions, the system predicts:\n\nLogistic Regression, Decision Tree, Random Forest, and\n\nTop-3 Predicted Diseases\n\n1. acetonaemia - 26.00%\n\n2. trypanosomosis - 12.00%\n\n3. rift_valley_fever — 11.00%\n\nSupport Vector Machine (SVM). The dataset was split\n\ninto 80% for training and 20% for testing, using a method\n\ncalled stratified sampling. To deal with the imbalance in\n\nthe classes, the Synthetic Minority Over-sampling\n\nTechnique (",
     "token_count": 512,
-    "embedding": null,
     "file_type": "application/pdf",
     "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/IEEE_docx_file.docx.pdf",
     "page_number": 3,
-    "slide_range": null,
-    "row_range": null,
-    "token_range": [
-      461,
-      972
-    ],
-    "audio_range": null,
-    "timestamp": "2025-09-23T15:10:42.971683Z",
-    "parser_version": null,
-    "tags": null,
-    "layout_tags": [
-      "page",
-      "subchunk"
-    ],
+    "token_range": "[461, 972]",
+    "timestamp": "2025-09-25T01:37:27.984733Z",
+    "tags": [],
+    "layout_tags": "[\"page\", \"subchunk\"]",
     "used_ocr": true,
-    "heading_path": [],
-    "headings": [],
-    "line_range": null
+    "heading_path": "[]",
+    "headings": "[]"
   }
 ,
   {
@@ -254,28 +158,16 @@
     "chunk_type": "page_subchunk",
     "text": " (SVM). The dataset was split\n\ninto 80% for training and 20% for testing, using a method\n\ncalled stratified sampling. To deal with the imbalance in\n\nthe classes, the Synthetic Minority Over-sampling\n\nTechnique (SMOTE) was used. Model settings were\n\nadjusted using grid search and cross-validation to\n\nimprove performance.\n\nE. Discussion\n\nA. Model Performance\n\nThe results show that the Random Forest model is the\n\nbest choice for predicting cattle diseases using this",
     "token_count": 102,
-    "embedding": null,
     "file_type": "application/pdf",
     "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/IEEE_docx_file.docx.pdf",
     "page_number": 3,
-    "slide_range": null,
-    "row_range": null,
-    "token_range": [
-      922,
-      1023
-    ],
-    "audio_range": null,
-    "timestamp": "2025-09-23T15:10:42.972283Z",
-    "parser_version": null,
-    "tags": null,
-    "layout_tags": [
-      "page",
-      "subchunk"
-    ],
+    "token_range": "[922, 1023]",
+    "timestamp": "2025-09-25T01:37:27.985045Z",
+    "tags": [],
+    "layout_tags": "[\"page\", \"subchunk\"]",
     "used_ocr": true,
-    "heading_path": [],
-    "headings": [],
-    "line_range": null
+    "heading_path": "[]",
+    "headings": "[]"
   }
 ,
   {
@@ -285,28 +177,16 @@
     "chunk_type": "page_subchunk",
     "text": "| Electronics in Agriculture | , vol. 147, pp. 70–90, Apr. |\n\n| [2] P. Neethirajan, “Recent advances in wearable sensors |  |  |\n\n| for animal health management,” |  | Sensing and Bio- |\n\n| disease images is also a useful tool for farmers and vet |\n\n| However, there are still some limits because the datase |\n\n| is not very large and the system relies only on |\n\n| symptoms. Future improvements could include using |\n\n| Rahman, “Machine learning based cattle disease |  |  |\n\n| diagnosis system using symptom data,” in |  | Proc. Int. |\n\n| Conf. on Computer and Information Technology |  |  |\n\n| mastitis in dairy cattle using machine learning |  |  |\n\n| techniques,” |  | International Journal of Computer |\n\n| This paper introduced a machine learning system that |\n\n| helps predict cattle diseases by using information abou |\n\n| the animals' health, behavior, and their surroundings. |\n\n| Four different models were tested: Logistic Regressio |\n\n| Decision Tree, Random Forest, and Support Vector Machine. The Random Forest model worked best, |\n\n| giving higher accuracy and better overall performance |\n\n| making it the best choice for this task. The system also |\n\n| gives the top three possible disease predictions, which |\n\n| disease detection using Internet of Things and machine |  |  |\n\n| learning,” in | Proc. IEEE Int. Conf. on Computing, |  |\n\n| Communication and Automation (ICCCA) |  | , Dec. 2019, |\n\n| Proc. Advances in Neural Information Processing |  |\n\n| Systems (NeurIPS) | , 2017, pp. 5998–6008. |\n\n| The system includes an easy-to-use interface made wit |\n\n| Streamlit and automatically creates reports with pictur |\n\n| related to specific diseases. |\n\n| These features make the system useful in real situation |\n\n| Because it's easy to use and doesn't cost much, this |\n\n| approach could help reduce the number of sick cows, |\n\n| allow for earlier treatment, and support better ways of |\n\n| managing cattle. |\n\n| For the future, we plan to add more diseases and |\n\n| different environmental factors to the data. |\n\n| Neural Networks could improve the system's ability to |\n\n| recognize diseases from images. We also want to |\n\n| connect the system with IoT devices to monitor |\n\n| learning in agriculture: A survey,” | Computers a |\n\ndataset, as",
     "token_count": 512,
-    "embedding": null,
     "file_type": "application/pdf",
     "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/IEEE_docx_file.docx.pdf",
     "page_number": 4,
-    "slide_range": null,
-    "row_range": null,
-    "token_range": [
-      0,
-      511
-    ],
-    "audio_range": null,
-    "timestamp": "2025-09-23T15:10:43.539658Z",
-    "parser_version": null,
-    "tags": null,
-    "layout_tags": [
-      "page",
-      "subchunk"
-    ],
+    "token_range": "[0, 511]",
+    "timestamp": "2025-09-25T01:37:28.193273Z",
+    "tags": [],
+    "layout_tags": "[\"page\", \"subchunk\"]",
     "used_ocr": false,
-    "heading_path": [],
-    "headings": [],
-    "line_range": null
+    "heading_path": "[]",
+    "headings": "[]"
   }
 ,
   {
@@ -316,28 +196,16 @@
     "chunk_type": "page_subchunk",
     "text": " the data. |\n\n| Neural Networks could improve the system's ability to |\n\n| recognize diseases from images. We also want to |\n\n| connect the system with IoT devices to monitor |\n\n| learning in agriculture: A survey,” | Computers a |\n\ndataset, as it offers a good balance between accuracy Electronics in Agriculture, vol. 147, pp. 70–90, Apr.\n\nand ease of understanding. 2018.\n\nGiving probability-based top predictions helps users\n\n[2] P. Neethirajan, “Recent advances in wearable sensors\n\ntrust the system more when making real-world\n\nfor animal health management,” Sensing and Bio-\n\ndecisions. The ability to generate a PDF report with\n\nSensing Research, vol. 12, pp. 15–29, Mar. 2017.\n\ndisease images is also a useful tool for farmers and vets.\n\nHowever, there are still some limits because the dataset\n\nis not very large and the system relies only on\n\nRahman, “Machine learning based cattle disease\n\nsymptoms. Future improvements could include using\n\ndiagnosis system using symptom data,” in Proc. Int.\n\nimages and data from sensors to make the diagnosis\n\nConf. on Computer and Information Technology\n\neven more accurate\n\nV. Conclusion and Future Work\n\nmastitis in dairy cattle using machine learning\n\nThis paper introduced a machine learning system that\n\ntechniques,” International Journal of Computer\n\nhelps predict cattle diseases by using information about\n\nApplications, vol. 182, no. 7, pp. 1–6, Jul. 2018.\n\nthe animals' health, behavior, and their surroundings.\n\nFour different models were tested: Logistic Regression,\n\n[5] J. P. Singh, R. Kumar, and M. Singh, “Livestock\n\nDecision Tree, Random Forest, and Support Vector\n\ndisease detection using Internet of Things and machine\n\nMachine. The Random Forest model worked best,\n\nlearning,” in Proc. IEEE Int. Conf. on Computing,\n\ngiving higher accuracy and better overall performance,\n\nCommunication and Automation (ICCCA), Dec. 2019,\n\nmaking it the best choice for this task. The system also\n\ngives the top three possible disease predictions, which\n\nhelps farmers and vets make more reliable decisions.\n\n[6] A. Vaswani et al., “Attention is all you need,” in\n\nProc. Advances in Neural Information Processing\n\nThe system includes an easy-to-use interface made with\n\nSystems (NeurIPS), 2017, pp.",
     "token_count": 512,
-    "embedding": null,
     "file_type": "application/pdf",
     "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/IEEE_docx_file.docx.pdf",
     "page_number": 4,
-    "slide_range": null,
-    "row_range": null,
-    "token_range": [
-      461,
-      972
-    ],
-    "audio_range": null,
-    "timestamp": "2025-09-23T15:10:43.541204Z",
-    "parser_version": null,
-    "tags": null,
-    "layout_tags": [
-      "page",
-      "subchunk"
-    ],
+    "token_range": "[461, 972]",
+    "timestamp": "2025-09-25T01:37:28.193753Z",
+    "tags": [],
+    "layout_tags": "[\"page\", \"subchunk\"]",
     "used_ocr": false,
-    "heading_path": [],
-    "headings": [],
-    "line_range": null
+    "heading_path": "[]",
+    "headings": "[]"
   }
 ,
   {
@@ -347,27 +215,15 @@
     "chunk_type": "page_subchunk",
     "text": "[6] A. Vaswani et al., “Attention is all you need,” in\n\nProc. Advances in Neural Information Processing\n\nThe system includes an easy-to-use interface made with\n\nSystems (NeurIPS), 2017, pp. 5998–6008.\n\nStreamlit and automatically creates reports with pictures\n\nrelated to specific diseases.\n\nThese features make the system useful in real situations.\n\nBecause it's easy to use and doesn't cost much, this\n\napproach could help reduce the number of sick cows,\n\nallow for earlier treatment, and support better ways of\n\nmanaging cattle.\n\nFor the future, we plan to add more diseases and\n\ndifferent environmental factors to the data.\n\nUsing deep learning techniques like Convolutional\n\nNeural Networks could improve the system's ability to\n\nrecognize diseases from images. We also want to\n\nconnect the system with IoT devices to monitor\n\nimportant signs and behaviors in real time. Working\n\nwith vets and farmers will help us test the system in real\n\nconditions and make sure it works well in practice…\n\nReferences\n\n[1] A. Kamilaris and F. X. Prenafeta-Boldú, “Deep\n\nlearning in agriculture: A survey,” Computers and",
     "token_count": 248,
-    "embedding": null,
     "file_type": "application/pdf",
     "source_url": "s3://e2e-rag-system-42/data/raw/pdfs/IEEE_docx_file.docx.pdf",
     "page_number": 4,
-    "slide_range": null,
-    "row_range": null,
-    "token_range": [
-      922,
-      1169
-    ],
-    "audio_range": null,
-    "timestamp": "2025-09-23T15:10:43.547922Z",
-    "parser_version": null,
-    "tags": null,
-    "layout_tags": [
-      "page",
-      "subchunk"
-    ],
+    "token_range": "[922, 1169]",
+    "timestamp": "2025-09-25T01:37:28.193996Z",
+    "tags": [],
+    "layout_tags": "[\"page\", \"subchunk\"]",
     "used_ocr": false,
-    "heading_path": [],
-    "headings": [],
-    "line_range": null
+    "heading_path": "[]",
+    "headings": "[]"
   }
 ]

@@ -14,7 +14,7 @@ delete-s3:
 	aws s3 ls
 
 tree:
-	tree -a -I '.git|data|.venv|repos|production-stack|raw_data|.venv2|archive|tmp.md|docs|models|tmp|raw|chunked'
+	tree -a -I '.git|.venv|repos|__pycache__|venv|production-stack|raw_data|.venv2|archive|tmp.md|docs|models|tmp|raw|chunked'
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} + && find . -name "*.pyc" -delete

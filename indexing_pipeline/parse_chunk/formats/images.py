@@ -10,7 +10,6 @@ import tempfile
 from io import BytesIO
 from datetime import datetime
 from typing import Tuple, Optional, List, Dict, Any
-
 try:
     import boto3
     from botocore.config import Config as BotoConfig
@@ -21,22 +20,18 @@ try:
 except Exception as e:
     print(f"[FATAL] Missing dependency: {e}. Install boto3 pillow numpy opencv-python.", file=sys.stderr)
     raise
-
 try:
     import pytesseract
 except Exception:
     pytesseract = None
-
 try:
     from rapidocr_onnxruntime import RapidOCR
 except Exception:
     RapidOCR = None
-
 try:
     import tiktoken
 except Exception:
     tiktoken = None
-
 RESET = "\033[0m"
 COLORS = {
     logging.DEBUG: "\033[90m",
@@ -45,31 +40,26 @@ COLORS = {
     logging.ERROR: "\033[31m",
     logging.CRITICAL: "\033[1;41m"
 }
-
 class ColorFormatter(logging.Formatter):
     def format(self, record):
         color = COLORS.get(record.levelno, RESET)
         message = super().format(record)
         return f"{color}{message}{RESET}"
-
 log = logging.getLogger("images_parser")
 log.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(ColorFormatter("%(asctime)s %(levelname)s %(message)s"))
 log.handlers[:] = [handler]
-
 REQUIRED_ENV = ["S3_BUCKET", "S3_RAW_PREFIX", "S3_CHUNKED_PREFIX", "CHUNK_FORMAT"]
 missing = [v for v in REQUIRED_ENV if os.getenv(v) is None]
 if missing:
     log.critical(f"Missing required env vars: {missing}")
     sys.exit(2)
-
 S3_BUCKET = os.getenv("S3_BUCKET")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX").rstrip("/") + "/"
 CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
 assert CHUNK_FORMAT in ("json", "jsonl")
-
 PARSER_VERSION = os.getenv("PARSER_VERSION_IMAGES", "images-parser-v1")
 OCR_ENGINE_DESIRED = os.getenv("IMAGE_OCR_ENGINE", "auto").lower()
 MIN_IMG_BYTES = int(os.getenv("IMAGE_MIN_IMG_SIZE_BYTES", "1024"))
@@ -79,10 +69,8 @@ OCR_CONFIDENCE_THRESHOLD = float(os.getenv("OCR_CONFIDENCE_THRESHOLD", "30.0"))
 S3_MAX_RETRIES = int(os.getenv("S3_MAX_RETRIES", "3"))
 TOKEN_ENCODER = os.getenv("TOKEN_ENCODER", "cl100k_base")
 FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
-
 boto_config = BotoConfig(retries={"max_attempts": S3_MAX_RETRIES, "mode": "standard"})
 s3 = boto3.client("s3", config=boto_config)
-
 EXT_MAP = {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
@@ -94,7 +82,6 @@ EXT_MAP = {
     ".gif": "image/gif"
 }
 ALLOWED_EXTS = set(EXT_MAP.keys())
-
 def _tesseract_ready() -> bool:
     if pytesseract is None:
         return False
@@ -103,7 +90,6 @@ def _tesseract_ready() -> bool:
         return True
     except Exception:
         return False
-
 def _rapidocr_ready() -> bool:
     if RapidOCR is None:
         return False
@@ -112,7 +98,6 @@ def _rapidocr_ready() -> bool:
         return True
     except Exception:
         return False
-
 OCR_BACKEND = "none"
 if OCR_ENGINE_DESIRED == "tesseract":
     OCR_BACKEND = "tesseract" if _tesseract_ready() else "none"
@@ -125,29 +110,22 @@ else:
         OCR_BACKEND = "rapidocr"
     else:
         OCR_BACKEND = "none"
-
 if OCR_BACKEND == "rapidocr":
     ocr_rapid = RapidOCR()
-
 log.info(f"OCR backend: {OCR_BACKEND}")
-
 ENCODER = None
 if tiktoken is not None:
     try:
         ENCODER = tiktoken.get_encoding(TOKEN_ENCODER)
     except Exception:
         ENCODER = None
-
 def blob_hash(b: bytes) -> str:
     return hashlib.sha1(b).hexdigest()
-
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
-
 def pil_to_bgr(img: Image.Image) -> np.ndarray:
     arr = np.asarray(img.convert("RGB"))
     return arr[..., ::-1].copy()
-
 def load_image_bytes_to_bgr(img_bytes: bytes) -> Tuple[Optional[np.ndarray], Tuple[int, int, int]]:
     try:
         img = Image.open(BytesIO(img_bytes))
@@ -160,7 +138,6 @@ def load_image_bytes_to_bgr(img_bytes: bytes) -> Tuple[Optional[np.ndarray], Tup
     except Exception as e:
         log.debug(f"load_image_bytes_to_bgr failed: {e}")
         return None, (0, 0, 0)
-
 def upscale_if_needed(img: np.ndarray, min_w: int = MIN_WIDTH) -> np.ndarray:
     h, w = img.shape[:2]
     if w >= min_w:
@@ -169,29 +146,23 @@ def upscale_if_needed(img: np.ndarray, min_w: int = MIN_WIDTH) -> np.ndarray:
     new_w = int(round(w * scale))
     new_h = int(round(h * scale))
     return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
-
 def denoise_and_sharpen(img: np.ndarray) -> np.ndarray:
     den = cv2.fastNlMeansDenoisingColored(img, None, 10, 10, 7, 21)
     kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
     sharp = cv2.filter2D(den, -1, kernel)
     return sharp
-
 def adaptive_threshold_gray(img_gray: np.ndarray) -> np.ndarray:
     return cv2.adaptiveThreshold(img_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 4)
-
 def _apply_clahe(gray: np.ndarray) -> np.ndarray:
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     return clahe.apply(gray)
-
 def _gamma_correction(img: np.ndarray, gamma: float) -> np.ndarray:
     inv = 1.0 / gamma
     table = np.array([((i / 255.0) ** inv) * 255 for i in np.arange(0, 256)]).astype("uint8")
     return cv2.LUT(img, table)
-
 def _morph_close(bin_img: np.ndarray, k=3) -> np.ndarray:
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k,k))
     return cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel)
-
 def preprocess_variants(img_bgr: np.ndarray) -> List[np.ndarray]:
     pre = upscale_if_needed(img_bgr, MIN_WIDTH)
     pre = denoise_and_sharpen(pre)
@@ -211,7 +182,6 @@ def preprocess_variants(img_bgr: np.ndarray) -> List[np.ndarray]:
     variants.append(cv2.cvtColor(close, cv2.COLOR_GRAY2BGR))
     variants.append(pre)
     return variants
-
 def tesseract_extract_lines_and_conf(img_bgr: np.ndarray, psm: int = TESSERACT_PSM) -> tuple[List[str], float]:
     try:
         from PIL import Image as PILImage
@@ -256,7 +226,6 @@ def tesseract_extract_lines_and_conf(img_bgr: np.ndarray, psm: int = TESSERACT_P
     except Exception as e:
         log.debug(f"tesseract_extract_lines_and_conf failed: {e}")
         return [], 0.0
-
 def rapidocr_extract_lines_with_boxes(img_bgr: np.ndarray) -> List[str]:
     try:
         res = ocr_rapid(img_bgr)
@@ -313,7 +282,6 @@ def rapidocr_extract_lines_with_boxes(img_bgr: np.ndarray) -> List[str]:
     except Exception as e:
         log.debug(f"rapidocr_extract_lines_with_boxes failed: {e}")
         return []
-
 def fix_hyphenation(lines: List[str]) -> List[str]:
     out = []
     for ln in lines:
@@ -322,7 +290,6 @@ def fix_hyphenation(lines: List[str]) -> List[str]:
         else:
             out.append(ln)
     return out
-
 def dedupe_lines(lines: List[str]) -> List[str]:
     seen, out = set(), []
     for l in lines:
@@ -331,7 +298,6 @@ def dedupe_lines(lines: List[str]) -> List[str]:
             seen.add(key)
             out.append(l)
     return out
-
 def do_ocr(img_bgr: np.ndarray) -> List[str]:
     variants = preprocess_variants(img_bgr)
     best_lines: List[str] = []
@@ -370,13 +336,11 @@ def do_ocr(img_bgr: np.ndarray) -> List[str]:
     else:
         log.error("No OCR backend available")
         return []
-
 def _derive_source_key_from_path(s3_path: str) -> str:
     prefix = f"s3://{S3_BUCKET}/"
     if s3_path.startswith(prefix):
         return s3_path[len(prefix):]
     return ""
-
 def _compute_token_count(text: str) -> int:
     if not text:
         return 0
@@ -386,7 +350,6 @@ def _compute_token_count(text: str) -> int:
         except Exception:
             pass
     return len(text.split())
-
 def s3_object_exists(key: str) -> bool:
     try:
         s3.head_object(Bucket=S3_BUCKET, Key=key)
@@ -395,27 +358,18 @@ def s3_object_exists(key: str) -> bool:
         return False
     except Exception:
         return False
-
 class S3DocWriter:
-    """
-    Aggregates chunks for a single source file into a temporary file (in /tmp)
-    and uploads the final single JSON or JSONL file to S3. This prevents one-file-per-chunk
-    explosion and ensures proper formatting for json / jsonl.
-    """
     def __init__(self, doc_id: str, s3_path: str, ext: str, content_type: str = "application/json"):
         self.doc_id = doc_id
         self.s3_path = s3_path or ""
         self.ext = ext
         self.content_type = content_type
-        # use NamedTemporaryFile in /tmp
         self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=f".{ext}", dir="/tmp")
         self.count = 0
         self._first = True
         if self.ext == "json":
-            # start an array with newline for cleaner multi-line objects
             self.temp.write(b"[\n")
             self.temp.flush()
-
     def write_payload(self, payload: Dict[str, Any]) -> int:
         self.count += 1
         if self.ext == "jsonl":
@@ -430,10 +384,8 @@ class S3DocWriter:
             self._first = False
         self.temp.flush()
         return 1
-
     def finalize_and_upload(self, out_key: str) -> Tuple[int, str]:
         if self.ext == "json":
-            # close array cleanly
             self.temp.write(b"]\n")
         self.temp.flush()
         self.temp.close()
@@ -450,18 +402,9 @@ class S3DocWriter:
             except Exception:
                 pass
             raise
-
 def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
-    """
-    Fast-skip behavior:
-      1) HEAD object -> get ContentLength, ETag, LastModified
-      2) derive doc_id (manifest.file_hash || ETag || LastModified)
-      3) check chunked out_key exists -> skip early without downloading
-      4) only then GET and process image bytes
-    """
     t_all = time.perf_counter()
     manifest = manifest or {}
-    # 1) HEAD
     try:
         head = s3.head_object(Bucket=S3_BUCKET, Key=s3_key)
     except ClientError as e:
@@ -472,33 +415,20 @@ def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
     if isinstance(etag, str):
         etag = etag.strip('"')
     last_modified = head.get("LastModified")
-
-    # 2) quick size check using HEAD
-    if content_len < MIN_IMG_BYTES:
-        log.warning(f"Skipping {s3_key}: size {content_len} bytes < MIN_IMG_BYTES ({MIN_IMG_BYTES})")
-        return {"saved_chunks": 0, "skipped_bytes": content_len}
-
-    # 3) derive doc_id without downloading
     if isinstance(manifest, dict) and manifest.get("file_hash"):
         doc_id = manifest.get("file_hash")
     else:
-        # prefer ETag (stable for single-part uploads), fallback to LastModified timestamp
         if etag:
             doc_id = sha256_hex(s3_key + str(etag))
         else:
             doc_id = sha256_hex(s3_key + (str(last_modified.isoformat()) if last_modified is not None else ""))
-
     s3_path = f"s3://{S3_BUCKET}/{s3_key}"
     ext_out = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
     out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext_out}"
-
-    # 4) fast skip if already processed
     if not FORCE_OVERWRITE and s3_object_exists(out_key):
         total_ms = int((time.perf_counter() - t_all) * 1000)
         log.info("Skipping entire file because chunked file exists: %s", out_key)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
-
-    # Now we will download the object and process
     try:
         obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
         raw = obj["Body"].read()
@@ -506,20 +436,11 @@ def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
         log.error(f"S3 GET error {s3_key}: {e}")
         return {"saved_chunks": 0, "error": str(e)}
     size = len(raw)
-
-    # double-check size after download (defensive)
     if size < MIN_IMG_BYTES:
         log.warning(f"Skipping {s3_key} after download: {size} bytes < MIN_IMG_BYTES ({MIN_IMG_BYTES})")
         return {"saved_chunks": 0, "skipped_bytes": size}
-
-    # content type by extension
     _, ext = os.path.splitext(s3_key.lower())
     content_type = EXT_MAP.get(ext, "application/octet-stream")
-
-    # We use manifest.file_hash if provided; otherwise doc_id already derived from etag/last_modified
-    # (If you prefer blob-based hashing uncomment the next line to use raw-based hash instead:)
-    # doc_id = manifest.get("file_hash") if manifest.get("file_hash") else blob_hash(raw)
-
     chunk_index = 0
     saved = 0
     start = time.perf_counter()
@@ -539,8 +460,6 @@ def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
     parse_ms = int((time.perf_counter() - start) * 1000)
     token_ct = _compute_token_count(final_text)
     manifest_tags = manifest.get("tags", []) if isinstance(manifest, dict) else []
-
-    # Create aggregated writer (temp file in /tmp)
     writer = S3DocWriter(doc_id=doc_id, s3_path=s3_key, ext=ext_out)
     try:
         chunk_index += 1
@@ -569,6 +488,29 @@ def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
             "headings": [],
             "line_range": None
         }
+        def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
+            for k in list(payload.keys()):
+                v = payload.get(k)
+                if k == "tags":
+                    if v is None:
+                        payload[k] = []
+                    elif isinstance(v, (list, tuple)):
+                        payload[k] = [str(x) for x in v]
+                    else:
+                        payload[k] = [str(v)]
+                    continue
+                if v is None:
+                    payload.pop(k, None)
+                    continue
+                if isinstance(v, (list, tuple, dict)):
+                    try:
+                        payload[k] = json.dumps(v)
+                    except Exception:
+                        payload[k] = str(v)
+                    continue
+                if not isinstance(v, (str, int, float, bool)):
+                    payload[k] = str(v)
+        sanitize_payload_for_weaviate(payload)
         writer.write_payload(payload)
         saved += 1
     except Exception as e:
@@ -583,7 +525,6 @@ def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
         total_ms = int((time.perf_counter() - t_all) * 1000)
         log.error(f"Error while buffering chunks for {s3_key}: {e}")
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
-
     try:
         if saved == 0:
             try:
@@ -610,7 +551,6 @@ def parse_image_s3_object(s3_key: str, manifest: Optional[dict] = None) -> dict:
             pass
         log.error("Failed to upload chunked file for %s error=%s", s3_key, str(e_up))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
-
 def list_image_keys(prefix: str) -> List[str]:
     keys: List[str] = []
     paginator = s3.get_paginator("list_objects_v2")
@@ -621,13 +561,11 @@ def list_image_keys(prefix: str) -> List[str]:
             if ext in ALLOWED_EXTS:
                 keys.append(key)
     return keys
-
 def parse_file(s3_key: str, manifest: Optional[dict] = None) -> dict:
     if manifest is None:
         manifest = {}
     start = time.perf_counter()
     result = parse_image_s3_object(s3_key, manifest)
-    # local manifest augmentation only in-memory (do not write manifest back by default)
     if isinstance(manifest, dict):
         manifest.setdefault("parsed_by", []).append({"module": "images", "timestamp": datetime.utcnow().isoformat() + "Z"})
         manifest["parsed_chunks"] = manifest.get("parsed_chunks", 0) + result.get("saved_chunks", 0)
@@ -635,7 +573,6 @@ def parse_file(s3_key: str, manifest: Optional[dict] = None) -> dict:
         duration_ms = int((time.perf_counter() - start) * 1000)
         manifest["parse_duration_ms"] = manifest.get("parse_duration_ms", 0) + duration_ms
     return result
-
 def main():
     keys = list_image_keys(S3_RAW_PREFIX)
     if not keys:
@@ -660,6 +597,5 @@ def main():
             errors += 1
             log.warning(f"Error for {key}: {res.get('error')}")
     log.info(f"Completed. Processed: {processed}, Saved chunks: {total_saved}, Errors: {errors}")
-
 if __name__ == "__main__":
     main()

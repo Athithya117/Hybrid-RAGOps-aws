@@ -1,7 +1,11 @@
 {
   "file_hash": "0c86578503ba285b0e4e0281e8150384",
   "s3_key": "data/raw/pdfs/graph_rag_sep_2025.pdf",
-  "pipeline_run_id": "1dbff998-df29-43fc-9d77-11ebffe2202c",
+  "pipeline_run_id": "012ada01-5d60-4a61-bb0c-10e96d9a0ba9",
   "mime_type": "application/pdf",
-  "timestamp": "2025-09-23T16:19:09.630047Z"
+  "timestamp": "2025-09-25T01:37:29.986313Z",
+  "status": "completed",
+  "indexed_chunks": 25,
+  "weaviate_count": 25,
+  "indexed_at": "2025-09-25T12:39:37Z"
 }

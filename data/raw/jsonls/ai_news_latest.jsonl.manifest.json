@@ -1,7 +1,11 @@
 {
   "file_hash": "38c0a2a9ba805775a602cf8ce3ba89a7",
   "s3_key": "data/raw/jsonls/ai_news_latest.jsonl",
-  "pipeline_run_id": "1dbff998-df29-43fc-9d77-11ebffe2202c",
+  "pipeline_run_id": "012ada01-5d60-4a61-bb0c-10e96d9a0ba9",
   "mime_type": "application/octet-stream",
-  "timestamp": "2025-09-23T16:19:02.543188Z"
+  "timestamp": "2025-09-25T01:37:10.502285Z",
+  "status": "completed",
+  "indexed_chunks": 20,
+  "weaviate_count": 10,
+  "indexed_at": "2025-09-25T12:39:35Z"
 }

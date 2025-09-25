@@ -324,20 +324,20 @@ export MAX_CHUNKS_TO_LLM=5         # Top 5 chunks from cross encoder to LLM(32K 
 
 ### 🔹 **\[1] gte-modernbert-base**
 
-* Embedding-only model for dense retrieval in RAG pipelines
-* Long-context support: up to **8192 tokens** (Sufficient for page wise chunking)
+* Embedding-only onnx model for dense retrieval in RAG pipelines
+* Long-context support: up to **8192 tokens**
 * Based on **ModernBERT** (FlashAttention 2, RoPE, no position embeddings)
-* Optimized for ONNX export and CPU-inference(max_length only 50-100). Embedding generation in indexing pipeline is GPU based(for large corpora)
 * Embedding dimension: **768**
 * Parameter size: **149M**
 
-🔗 [https://huggingface.co/Alibaba-NLP/gte-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-modernbert-base)
+* Fast GPU inference with ONNX (FlashAttention 2)
+  🔗 [https://huggingface.co/Alibaba-NLP/gte-modernbert-base](https://huggingface.co/Alibaba-NLP/gte-modernbert-base)
 
 ---
 
 ### 🔹 **\[2] gte-reranker-modernbert-base**
 
-* **Cross-encoder reranker** for re-ranking retrieved docs
+* **Cross-encoder reranker** for re-ranking retrieved docs from RRF ranked bm25, vector, graph retreival
 * High BEIR benchmark score (**nDCG\@10 ≈ 90.7%**)
 * Same architecture & size as embedding model (149M), supports **8192 tokens**
 * Fast GPU inference with ONNX (FlashAttention 2)
@@ -354,8 +354,8 @@ A compact, high-throughput **instruction-tuned LLM** quantized using **AWQ**. Bu
 * Architecture: **Transformer** (Qwen3 series, multilingual)
 * Context Length: **32k tokens**
 * Quantization: **AWQ** 
-* VRAM Usage: **\~4.8–5.2 GiB for 4K tokens** (fits on 24 GiB GPUs with headroom)
-
+* VRAM Usage: **\~4.8–5.2 GiB for 5K tokens** (fits on 24 GiB GPUs with headroom)
+ 
 🔗 [Qwen/Qwen3-4B-AWQ](https://huggingface.co/Qwen/Qwen3-4B-AWQ)
 
 > “Even a tiny model like Qwen3-4B can rival the performance of Qwen2.5-72B-Instruct.”

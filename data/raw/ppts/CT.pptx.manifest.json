@@ -1,7 +1,12 @@
 {
   "file_hash": "634c089ee491e2bd719918f758f7e04f",
   "s3_key": "data/raw/ppts/CT.pptx",
-  "pipeline_run_id": "1dbff998-df29-43fc-9d77-11ebffe2202c",
+  "pipeline_run_id": "012ada01-5d60-4a61-bb0c-10e96d9a0ba9",
   "mime_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "timestamp": "2025-09-23T16:19:10.242216Z"
+  "timestamp": "2025-09-25T01:37:53.232278Z",
+  "status": "completed",
+  "indexed_chunks": 5,
+  "weaviate_count": 5,
+  "indexed_at": "2025-09-25T12:39:37Z"
 }
+

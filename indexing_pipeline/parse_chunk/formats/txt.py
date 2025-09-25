@@ -278,6 +278,33 @@ def _derive_doc_id_from_head(s3_key: str, head_obj: dict, manifest: dict) -> str
         return base
     return sha256_hex(s3_key)
 
+def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
+    """
+    Convert list/tuple/dict fields to JSON strings (or string fallback) and ensure tags is list[str].
+    Remove None-valued properties so some older schema fields (text properties) don't receive lists/objects.
+    """
+    for k in list(payload.keys()):
+        v = payload.get(k)
+        if k == "tags":
+            if v is None:
+                payload[k] = []
+            elif isinstance(v, (list, tuple)):
+                payload[k] = [str(x) for x in v]
+            else:
+                payload[k] = [str(v)]
+            continue
+        if v is None:
+            payload.pop(k, None)
+            continue
+        if isinstance(v, (list, tuple, dict)):
+            try:
+                payload[k] = json.dumps(v)
+            except Exception:
+                payload[k] = str(v)
+            continue
+        if not isinstance(v, (str, int, float, bool)):
+            payload[k] = str(v)
+
 def parse_file(s3_key: str, manifest: dict) -> dict:
     """
     Fast, idempotent parsing for plain .txt files:
@@ -366,6 +393,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                 "headings": [],
                 "line_range": [1, len(lines)]
             }
+            sanitize_payload_for_weaviate(payload)
             writer.write_payload(payload)
             log.info("Buffered single chunk %s", payload["chunk_id"])
             saved += 1
@@ -405,6 +433,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     "headings": [],
                     "line_range": [int(start_line), int(end_line)]
                 }
+                sanitize_payload_for_weaviate(payload)
                 writer.write_payload(payload)
                 log.info("Buffered subchunk %s (lines %d-%d)", payload["chunk_id"], start_line, end_line)
                 saved += 1

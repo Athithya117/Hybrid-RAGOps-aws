@@ -1,7 +1,11 @@
 {
   "file_hash": "21253531d7467a14cd4ea762b6c57ffc",
   "s3_key": "data/raw/pdfs/IEEE_docx_file.docx.pdf",
-  "pipeline_run_id": "1dbff998-df29-43fc-9d77-11ebffe2202c",
+  "pipeline_run_id": "012ada01-5d60-4a61-bb0c-10e96d9a0ba9",
   "mime_type": "application/pdf",
-  "timestamp": "2025-09-23T16:19:06.905067Z"
+  "timestamp": "2025-09-25T01:37:21.634344Z",
+  "status": "completed",
+  "indexed_chunks": 24,
+  "weaviate_count": 12,
+  "indexed_at": "2025-09-25T12:39:36Z"
 }

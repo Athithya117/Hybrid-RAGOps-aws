@@ -413,6 +413,40 @@ class S3DocWriter:
                 pass
             raise
 
+# ------------------------
+# Sanitize function to avoid Weaviate "not a string" errors when schema expects text
+# converts lists/dicts to JSON strings, ensures tags is list[str], drops None values
+# ------------------------
+def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
+    for k in list(payload.keys()):
+        v = payload.get(k)
+        # keep numbers and booleans as-is
+        if isinstance(v, (int, float, bool)):
+            continue
+        # special handling for tags: always make list of strings
+        if k == "tags":
+            if v is None:
+                payload[k] = []
+            elif isinstance(v, (list, tuple)):
+                payload[k] = [str(x) for x in v]
+            else:
+                payload[k] = [str(v)]
+            continue
+        # remove explicit nulls so we don't send invalid typed nulls
+        if v is None:
+            payload.pop(k, None)
+            continue
+        # lists/tuples/dicts -> store as JSON string (Weaviate text property expects string)
+        if isinstance(v, (list, tuple, dict)):
+            try:
+                payload[k] = json.dumps(v, ensure_ascii=False)
+            except Exception:
+                payload[k] = str(v)
+            continue
+        # keep strings as-is; for any other type, coerce to string
+        if not isinstance(v, str):
+            payload[k] = str(v)
+
 def parse_file(s3_key: str, manifest: dict) -> dict:
     """
     Fast-skip behaviour:
@@ -541,6 +575,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     "headings": headings or [],
                     "line_range": [int(start_line_1b), int(end_line_1b)] if start_line_1b and end_line_1b is not None else None,
                 }
+                sanitize_payload_for_weaviate(payload)
                 writer.write_payload(payload)
                 saved += 1
                 log.info("Buffered chunk %s", payload["chunk_id"])
@@ -579,6 +614,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                         "headings": headings or [],
                         "line_range": [int(start_line_sub), int(end_line_sub)] if start_line_sub and end_line_sub is not None else None,
                     }
+                    sanitize_payload_for_weaviate(payload)
                     writer.write_payload(payload)
                     saved += 1
                     log.info("Buffered subchunk %s (lines %d-%d)", payload["chunk_id"], start_line_sub, end_line_sub)

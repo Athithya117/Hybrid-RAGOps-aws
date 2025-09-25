@@ -10,14 +10,11 @@
     "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "source_url": "s3://e2e-rag-system-42/data/raw/ppts/CT.pptx",
     "page_number": null,
-    "slide_range": [
-      1,
-      7
-    ],
+    "slide_range": "1-7",
     "row_range": null,
     "token_range": null,
     "audio_range": null,
-    "timestamp": "2025-09-23T15:11:39.102308Z",
+    "timestamp": "2025-09-25T01:38:04.790309Z",
     "parser_version": "pptx-parser-v1",
     "tags": [],
     "layout_tags": [
@@ -40,14 +37,11 @@
     "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "source_url": "s3://e2e-rag-system-42/data/raw/ppts/CT.pptx",
     "page_number": null,
-    "slide_range": [
-      8,
-      14
-    ],
+    "slide_range": "8-14",
     "row_range": null,
     "token_range": null,
     "audio_range": null,
-    "timestamp": "2025-09-23T15:11:39.105120Z",
+    "timestamp": "2025-09-25T01:38:04.791110Z",
     "parser_version": "pptx-parser-v1",
     "tags": [],
     "layout_tags": [
@@ -70,14 +64,11 @@
     "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "source_url": "s3://e2e-rag-system-42/data/raw/ppts/CT.pptx",
     "page_number": null,
-    "slide_range": [
-      15,
-      21
-    ],
+    "slide_range": "15-21",
     "row_range": null,
     "token_range": null,
     "audio_range": null,
-    "timestamp": "2025-09-23T15:11:39.107660Z",
+    "timestamp": "2025-09-25T01:38:04.791944Z",
     "parser_version": "pptx-parser-v1",
     "tags": [],
     "layout_tags": [
@@ -100,14 +91,11 @@
     "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "source_url": "s3://e2e-rag-system-42/data/raw/ppts/CT.pptx",
     "page_number": null,
-    "slide_range": [
-      22,
-      28
-    ],
+    "slide_range": "22-28",
     "row_range": null,
     "token_range": null,
     "audio_range": null,
-    "timestamp": "2025-09-23T15:11:39.111697Z",
+    "timestamp": "2025-09-25T01:38:04.792809Z",
     "parser_version": "pptx-parser-v1",
     "tags": [],
     "layout_tags": [
@@ -130,14 +118,11 @@
     "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "source_url": "s3://e2e-rag-system-42/data/raw/ppts/CT.pptx",
     "page_number": null,
-    "slide_range": [
-      29,
-      34
-    ],
+    "slide_range": "29-34",
     "row_range": null,
     "token_range": null,
     "audio_range": null,
-    "timestamp": "2025-09-23T15:11:39.116320Z",
+    "timestamp": "2025-09-25T01:38:04.793665Z",
     "parser_version": "pptx-parser-v1",
     "tags": [],
     "layout_tags": [

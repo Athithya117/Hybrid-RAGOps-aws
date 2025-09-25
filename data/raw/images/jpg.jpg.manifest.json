@@ -1,16 +1,20 @@
 {
   "file_hash": "12b815dbcb7fef5c365c38d741a7dcf2",
   "s3_key": "data/raw/images/jpg.jpg",
-  "pipeline_run_id": "1dbff998-df29-43fc-9d77-11ebffe2202c",
+  "pipeline_run_id": "012ada01-5d60-4a61-bb0c-10e96d9a0ba9",
   "mime_type": "image/jpeg",
-  "timestamp": "2025-09-23T16:18:59.863052Z",
+  "timestamp": "2025-09-25T01:36:26.828365Z",
   "parsed_by": [
     {
       "module": "images",
-      "timestamp": "2025-09-23T16:19:00.990536Z"
+      "timestamp": "2025-09-25T01:36:51.836605Z"
     }
   ],
-  "parsed_chunks": 0,
-  "parse_completed_at": "2025-09-23T16:19:00.990558Z",
-  "parse_duration_ms": 1127
+  "parsed_chunks": 1,
+  "parse_completed_at": "2025-09-25T01:36:51.836617Z",
+  "parse_duration_ms": 22184,
+  "status": "completed",
+  "indexed_chunks": 2,
+  "weaviate_count": 1,
+  "indexed_at": "2025-09-25T12:39:34Z"
 }
