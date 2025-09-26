@@ -1,11 +1,7 @@
 {
   "file_hash": "45a94a339e983a1666d811dd81380550",
   "s3_key": "data/raw/mds/nginx.md",
-  "pipeline_run_id": "012ada01-5d60-4a61-bb0c-10e96d9a0ba9",
+  "pipeline_run_id": "5ae9e37c-df0b-4612-aeb7-3203e58343e7",
   "mime_type": "text/markdown",
-  "timestamp": "2025-09-25T01:37:17.198183Z",
-  "status": "completed",
-  "indexed_chunks": 24,
-  "weaviate_count": 12,
-  "indexed_at": "2025-09-25T12:39:36Z"
+  "timestamp": "2025-09-26T01:59:37.318347Z"
 }

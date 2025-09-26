@@ -1,11 +1,7 @@
 {
   "file_hash": "870070972a0602c1b24df04d7673f73c",
   "s3_key": "data/raw/txts/GeAR.txt",
-  "pipeline_run_id": "012ada01-5d60-4a61-bb0c-10e96d9a0ba9",
+  "pipeline_run_id": "5ae9e37c-df0b-4612-aeb7-3203e58343e7",
   "mime_type": "text/plain",
-  "timestamp": "2025-09-25T01:38:06.938373Z",
-  "status": "completed",
-  "indexed_chunks": 9,
-  "weaviate_count": 9,
-  "indexed_at": "2025-09-25T12:39:38Z"
+  "timestamp": "2025-09-26T01:59:53.179956Z"
 }

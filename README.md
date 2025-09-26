@@ -238,7 +238,8 @@ export OVERWRITE_SPREADSHEETS_WITH_CSV=true           # true to delete and repla
 export OVERWRITE_PPT_WITH_PPTS=true                   # true to delete and replace .ppt files as .pptx, false to keep the originals
 export PDF_WINDOW_SIZE=512                            # Default is page wise chunking, for large page 600 tokens per chunk with 10% token overlap
 export PDF_DISABLE_OCR=false                          # true to skip OCR (very fast) or false to extract text from images
-export PDF_OCR_ENGINE=rapidocr                        # 'tesseract' (faster) or 'rapidocr' (high accuracy , slightly slower)
+export PDF_OCR_ENGINE=tesseract                        # 'tesseract' (faster) or 'rapidocr' (high accuracy , slightly slower)
+export TESSERACT_LANG=eng
 export PDF_FORCE_OCR=false                            # true to always OCR(use if source text unreliable but not recommended for scaling)
 export PDF_OCR_RENDER_DPI=400                         # increase for detecting tiny text; lower for speed/cost
 export PDF_MIN_IMG_SIZE_BYTES=3072                    # ignore images smaller than 3KB (often unneccessary black images)
@@ -257,6 +258,12 @@ export PPTX_OCR_ENGINE=rapidocr                       # 'tesseract' (faster), 'r
 export MAX_LENGTH=550           # range: 100-8000, Max tokens of indexing embedder-gpu model, should be higher than all max tokens.                            
 export EMBED_BATCH_SIZE=    # 512 chunks per embedding call; fixed, increase for throughput if memory allows, decrease for latency or object store limit
 export INDEX_BATCH_SIZES=128                             
+
+export MAX_TOKENS_PER_CHUNK=512
+export MIN_TOKENS_PER_CHUNK=100
+export NUMBER_OF_OVERLAPPING_SENTENCES=2
+
+
 
 
 # Arango / vector index toggles
