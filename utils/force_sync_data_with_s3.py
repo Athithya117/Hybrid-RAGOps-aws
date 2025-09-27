@@ -23,7 +23,6 @@ import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-
 import boto3
 from boto3.s3.transfer import TransferConfig
 from botocore.config import Config as BotoConfig

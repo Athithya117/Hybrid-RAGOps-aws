@@ -105,7 +105,7 @@ install_tesseract(){
     sudo add-apt-repository -y ppa:alex-p/tesseract-ocr5
   fi
   sudo apt-get update -y
-  sudo apt-get install -y --no-install-recommends tesseract-ocr libtesseract-dev libleptonica-dev
+  sudo apt-get install -y tesseract-ocr libtesseract-dev libleptonica-dev
 }
 
 setup_dirs(){
@@ -203,5 +203,15 @@ docker pull athithya324/embedder-cpu-inference:linux-amd64-arm64 || true
 
 pulumi plugin install resource aws v7.7.0 2>/dev/null || true
 
+sudo mkdir -p /opt/models/rapidocr && sudo chown -R "$(id -u):$(id -g)" /opt/models && cd /opt/models/rapidocr && \
+dl() { [ -f "$2" ] && echo "exists: $2" || { echo "Downloading $2..."; curl -L --retry 5 -o "$2.tmp" "$1" && mv "$2.tmp" "$2" && echo "downloaded: $2"; }; } && \
+dl "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/ch_PP-OCRv4_det_infer.onnx" ch_PP-OCRv4_det_infer.onnx || true && \
+dl "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/ch_PP-OCRv4_rec_infer.onnx" ch_PP-OCRv4_rec_infer.onnx || true && \
+dl "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/ch_ppocr_mobile_v2.0_cls_infer.onnx" ch_ppocr_mobile_v2.0_cls_infer.onnx || true && cd - >/dev/null 2>&1 || true
+
 clear
 echo "Bootstrap completed. Open a new terminal or run: source ~/.bashrc"
+
+
+
+

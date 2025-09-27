@@ -1,4 +1,4 @@
-# python3 -m spacy download en_core_web_lg --target /workspace/models/spacy
+# python3 -m spacy download en_core_web_sm --target /models/spacy
 
 import os
 import sys
