@@ -17,8 +17,6 @@ delete-s3:
 	python3 utils/s3_buckets.py --create
 	aws s3 ls
 
-
-
 lc:
 	bash utils/lc.sh
 
