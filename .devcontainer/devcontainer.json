@@ -22,7 +22,7 @@
     "DOCKER_PROXY_HOST": "",
     "DOCKER_PROXY_PORT": ""
   },
-  "postCreateCommand": "bash /workspace/utils/bootstrap-dev.sh && bash /workspace/utils/lc.sh",
+  "postCreateCommand": "bash /workspace/scripts/bootstrap.sh && bash /workspace/scripts/lc.sh",
   "customizations": {
     "vscode": {
       "extensions": [

@@ -1,4 +1,4 @@
-.PHONY: s3 delete-s3 tree clean lc push
+.PHONY: s3 delete-s3 tree clean lc push docker-login docker-build-backup docker-push-backup
 
 push:
 	git config --global http.postBuffer 524288000
@@ -11,7 +11,7 @@ push:
 
 s3:
 	python3 utils/s3_buckets.py --create
-	aws s3 ls "s3://$S3_BUCKET/" --recursive | head -n 100
+	aws s3 ls "s3://$$S3_BUCKET/" --recursive | head -n 100
 
 delete-s3:
 	python3 utils/s3_buckets.py --create
@@ -24,10 +24,9 @@ tree:
 	tree -a -I '.git|.venv|repos|__pycache__|venv|commands.sh|production-stack|raw_data|.venv2|archive|tmp.md|docs|models|tmp|raw|chunked'
 
 clean:
-	find . -type d -name "__pycache__" -exec rm -rf {} + && find . -name "*.pyc" -delete
+	find . -type d -name "__pycache__" -exec rm -rf {} +
+	find . -name "*.pyc" -delete
 	clear
 
 docker-login:
 	echo "$$DOCKER_PASSWORD" | docker login -u "$$DOCKER_USERNAME" --password-stdin
-
-

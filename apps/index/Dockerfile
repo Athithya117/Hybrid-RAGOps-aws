@@ -1,23 +1,16 @@
 FROM python:3.10.12-slim-bullseye AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 ENV VENV_PATH=/opt/venv
-ENV MODEL_HOME=/opt/models
-ENV RAPIDOCR_MODEL_DIR=/opt/models/rapidocr
-ENV PYTHONUNBUFFERED=1
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  build-essential gcc g++ clang libclang-dev git curl wget ca-certificates pkg-config \
-  libjpeg-dev zlib1g-dev libxml2-dev libxslt-dev libpng-dev libfreetype6-dev \
-  libharfbuzz-dev libxcb1-dev libx11-dev libxext-dev libxrender-dev libfontconfig1-dev \
-  libopenjp2-7-dev poppler-utils ffmpeg libmagic1 && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential=12.9ubuntu3 gcc=4:11.2.0-1ubuntu1 g++=4:11.2.0-1ubuntu1 clang=1:14.0-55~exp2 libclang-dev=1:14.0-55~exp2 git=1:2.34.1-1ubuntu1.15 curl=7.81.0-1ubuntu1.21 wget=1.21.2-2ubuntu1.1 ca-certificates=20240203~22.04.1 pkg-config=0.29.2-1ubuntu3 libjpeg-dev=8c-2ubuntu10 zlib1g-dev=1:1.2.11.dfsg-2ubuntu9.2 libxml2-dev=2.9.13+dfsg-1ubuntu0.10 libpng-dev=1.6.37-3build5 libfreetype6-dev=2.11.1+dfsg-1ubuntu0.3 libharfbuzz-dev=2.7.4-1ubuntu3.2 libxcb1-dev=1.14-3ubuntu3 libx11-dev=2:1.7.5-1ubuntu0.3 libxext-dev=2:1.3.4-1build1 libxrender-dev=1:0.9.10-1build4 libfontconfig1-dev=2.13.1-4.2ubuntu5 libopenjp2-7-dev=2.4.0-6ubuntu0.4 poppler-utils=22.02.0-2ubuntu0.12 ffmpeg=7:4.4.2-0ubuntu0.22.04.1 libmagic1=1:5.41-3ubuntu0.1 libleptonica-dev=1.82.0-3build1 libtesseract-dev=4.1.1-2.1build1 && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt /workspace/requirements.txt
-COPY . /indexing_pipeline
 RUN python -m venv ${VENV_PATH}
 RUN ${VENV_PATH}/bin/pip install --upgrade pip setuptools wheel
 RUN mkdir -p /wheels
 RUN ${VENV_PATH}/bin/pip wheel -r /workspace/requirements.txt -w /wheels
+COPY . /indexing_pipeline
 RUN ${VENV_PATH}/bin/pip install --no-index --find-links=/wheels -r /workspace/requirements.txt
-
+RUN rm -rf /wheels
 FROM python:3.10.12-slim-bullseye AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
@@ -57,54 +50,13 @@ ENV RAPIDOCR_MODEL_DIR=/opt/models/rapidocr
 ENV WORKSPACE_MODELS=/indexing_pipeline/models
 ENV FW_MODEL_PATH=/indexing_pipeline/models/faster_whisper/faster-whisper-base
 ENV FW_MODEL_BIN=/indexing_pipeline/models/faster_whisper/faster-whisper-base/model.bin
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  libmagic1 poppler-utils ffmpeg libgl1-mesa-glx libglib2.0-0 libsm6 libxrender1 libxext6 \
-  libjpeg62-turbo tesseract-ocr libleptonica-dev libtesseract-dev wget curl ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends libmagic1=1:5.41-3ubuntu0.1 poppler-utils=22.02.0-2ubuntu0.12 ffmpeg=7:4.4.2-0ubuntu0.22.04.1 libgl1-mesa-glx=23.0.4-0ubuntu1~22.04.1 libglib2.0-0=2.72.4-0ubuntu2.6 libsm6=2:1.2.3-1build2 libxrender1=1:0.9.10-1build4 libxext6=2:1.3.4-1build1 tesseract-ocr=4.1.1-2.1build1 libleptonica-dev=1.82.0-3build1 libtesseract-dev=4.1.1-2.1build1 wget=1.21.2-2ubuntu1.1 curl=7.81.0-1ubuntu1.21 ca-certificates=20240203~22.04.1 && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /opt/venv /opt/venv
-COPY --from=builder /wheels /wheels
 COPY --from=builder /indexing_pipeline /indexing_pipeline
+RUN useradd -m -s /bin/bash appuser && chown -R appuser:appuser /opt/venv /indexing_pipeline
 ENV PATH=${VENV_PATH}/bin:$PATH
 ENV PYTHONPATH=/indexing_pipeline
 WORKDIR /indexing_pipeline
 EXPOSE 8000
-ENV S3_BUCKET=""
-ENV LOCAL_DATA_DIR="./data"
-ENV AWS_REGION="us-east-1"
-ENV EMBEDDING_URL="http://localhost:8001/embed"
-ENV EMBED_BATCH=32
-ENV EMBED_CONCURRENCY=2
-ENV EMBED_TIMEOUT=60
-ENV INDEX_BATCH=32
-ENV CONCURRENCY=2
-ENV INDEXING_EMBEDDER_MAX_LENGTH=2048
-ENV METRICS_PORT=8000
-ENV HEALTH_PORT=8082
-ENV WEAVIATE_URL="http://localhost:8080"
-ENV WEAVIATE_API_KEY=""
-ENV WEAVIATE_GRPC_HOST=""
-ENV WEAVIATE_GRPC_PORT=50051
-ENV WEAVIATE_GRPC_SECURE=false
-ENV WEAVIATE_FORCE_REST=0
-ENV WEAVIATE_COLLECTION="Chunk"
-ENV SELECTIVE_UPSERT=1
-ENV FORCE_REHASH=0
-ENV MAX_HASH_FETCH=5000
-ENV BACKUP_BACKEND="s3"
-ENV BACKUP_S3_BUCKET=""
-ENV BACKUP_S3_PATH_PREFIX="weaviate-backups/"
-ENV LATEST_BACKUP_MANIFEST_PATH="weaviate-backups/latest_weaviate_backup.manifest.json"
-ENV BACKUP_POLL_INTERVAL=5
-ENV BACKUP_TIMEOUT_SECONDS=1800
-ENV HTTP_RETRY_MAX=5
-ENV HTTP_RETRY_BACKOFF=2
-ENV EF_CONSTRUCTION=200
-ENV MAX_CONNECTIONS=64
-ENV EF_DEFAULT=128
-ENV DISTANCE_METRIC="cosine"
-ENV QUANTIZATION_TYPE="float16"
-ENV QUANTIZATION_BITS=16
-ENV QUANTIZATION_SEGMENTS=128
-ENV QUANTIZATION_ROTATION=false
-ENV VECTOR_INDEX_TYPE="hnsw"
-ENV NAMED_VECTOR_NAME="default"
+USER appuser
 CMD ["/opt/venv/bin/python","indexing_pipeline.py"]

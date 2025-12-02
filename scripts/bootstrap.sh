@@ -57,7 +57,7 @@ fi
 log "apt update + base packages"
 sudo apt-get update -yq
 sudo apt-get install -yq --no-install-recommends \
-  ca-certificates curl wget git jq unzip python3 python3-venv python3-pip make build-essential \
+  ca-certificates curl vim make wget git jq unzip python3 python3-venv python3-pip make build-essential \
   lsb-release gnupg apt-transport-https dpkg-dev || true
 
 # ---- yq (mikefarah) ----
@@ -154,15 +154,5 @@ install_pulumi(){
   fi
 }
 install_if_missing pulumi "${PULUMI_VERSION}" install_pulumi
-
-# ---- Final checks and versions ----
-log "Installed tool versions:"
-for c in aws kubectl eksctl argocd helm pulumi yq jq git python3 make; do
-  if command -v "${c}" >/dev/null 2>&1; then
-    printf '  %-8s -> %s\n' "${c}" "$(${c} --version 2>&1 | head -n1 || echo version_unknown)"
-  else
-    printf '  %-8s -> not_found\n' "${c}"
-  fi
-done
 
 log "Bootstrap completed. Open a new shell or source your rc file to pick up any env changes."
