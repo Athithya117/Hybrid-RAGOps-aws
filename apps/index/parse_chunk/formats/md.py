@@ -1,26 +1,8 @@
-import os
-import sys
-import json
-import time
-import logging
-import hashlib
-import tempfile
-import unicodedata
-import re
+#!/usr/bin/env python3
+import os, sys, json, time, logging, hashlib, tempfile, re, unicodedata
 from datetime import datetime
-from typing import List, Dict, Any, Tuple, Optional
-import boto3
+from typing import List, Dict, Any, Optional, Tuple
 from botocore.exceptions import ClientError
-from markdown_it import MarkdownIt
-try:
-    import colorama
-    colorama.init()
-except Exception:
-    pass
-try:
-    import tiktoken
-except Exception:
-    tiktoken = None
 RESET = "\033[0m"
 COLORS = {logging.DEBUG: "\033[90m", logging.INFO: "\033[37m", logging.WARNING: "\033[33m", logging.ERROR: "\033[31m", logging.CRITICAL: "\033[1;41m"}
 class ColorFormatter(logging.Formatter):
@@ -28,20 +10,24 @@ class ColorFormatter(logging.Formatter):
         color = COLORS.get(record.levelno, RESET)
         message = super().format(record)
         return f"{color}{message}{RESET}"
+def env_or_fail(name: str, default=None, mandatory: bool = True):
+    val = os.getenv(name, default)
+    if mandatory and (val is None or (isinstance(val, str) and val.strip() == "")):
+        print(f"ERROR: Required env var '{name}' not set or empty", file=sys.stderr)
+        sys.exit(1)
+    return val
 log = logging.getLogger("md_parser")
-log.setLevel(logging.INFO)
+level_env = os.getenv("LOG_LEVEL", "INFO")
+try:
+    log.setLevel(level_env)
+except Exception:
+    log.setLevel("INFO")
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(ColorFormatter("%(asctime)s %(levelname)s %(message)s"))
 log.handlers[:] = [handler]
-REQUIRED = ["S3_BUCKET", "S3_RAW_PREFIX", "S3_CHUNKED_PREFIX", "CHUNK_FORMAT"]
-missing = [v for v in REQUIRED if os.getenv(v) is None]
-if missing:
-    sys.exit(f"ERROR: Missing env vars: {', '.join(missing)}")
-S3_BUCKET = os.getenv("S3_BUCKET")
-S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX").rstrip("/") + "/"
-S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX").rstrip("/") + "/"
-CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
-assert CHUNK_FORMAT in ("json", "jsonl")
+S3_BUCKET = env_or_fail("S3_BUCKET")
+S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/").rstrip("/") + "/"
+S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/").rstrip("/") + "/"
 MAX_TOKENS_PER_CHUNK = int(os.getenv("MAX_TOKENS_PER_CHUNK", "512"))
 MIN_TOKENS_PER_CHUNK = int(os.getenv("MIN_TOKENS_PER_CHUNK", "100"))
 DEFAULT_OVERLAP = max(1, int(MAX_TOKENS_PER_CHUNK * 0.1))
@@ -54,23 +40,46 @@ FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
 SAVE_SNAPSHOT = os.getenv("SAVE_SNAPSHOT", "false").lower() == "true"
 S3_PUT_RETRIES = int(os.getenv("S3_PUT_RETRIES", "3"))
 S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF", "0.3"))
-s3 = boto3.client("s3")
+CHUNKED_SCHEMA_VERSION = os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1")
 try:
-    enc = tiktoken.get_encoding(ENC_NAME)
+    import boto3
+    s3 = boto3.client("s3")
+except Exception as e:
+    log.error("boto3 required: %s", e)
+    raise
+try:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    log.info("pyarrow available: %s", getattr(pa, "__version__", "unknown"))
 except Exception:
+    log.error("pyarrow required for parquet-only mode; install pyarrow")
+    sys.exit(1)
+try:
+    import tiktoken
+    enc = None
     try:
-        enc = tiktoken.get_encoding("cl100k_base")
+        enc = tiktoken.get_encoding(ENC_NAME)
     except Exception:
-        enc = None
-md_parser = MarkdownIt()
-def sha256_hex(s: str) -> str:
+        try:
+            enc = tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            enc = None
+except Exception:
+    enc = None
+try:
+    from markdown_it import MarkdownIt
+    md_parser = MarkdownIt()
+except Exception:
+    log.error("markdown-it-py required")
+    sys.exit(1)
+def sha256_hex_str(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 def canonicalize_text(s: str) -> str:
     if not isinstance(s, str):
         s = str(s or "")
     s = unicodedata.normalize("NFKC", s)
     s = s.replace("\r\n", "\n").replace("\r", "\n")
-    lines = [re.sub(r'[ \t]+$', '', ln) for ln in s.split("\n")]
+    lines = [re.sub(r"[ \t]+$", "", ln) for ln in s.split("\n")]
     return "\n".join(lines).strip()
 def try_decode_bytes(b: bytes) -> str:
     for encoding in ("utf-8", "utf-8-sig", "latin-1"):
@@ -96,15 +105,19 @@ def s3_object_exists(key: str) -> bool:
         return False
     except Exception:
         return False
-def s3_put_object_with_retries(key: str, body: bytes) -> None:
+def s3_upload_file_atomic(local_path: str, bucket: str, key: str, content_type: str = "application/octet-stream") -> None:
+    tmp_key = f"{key}.tmp.{os.getpid()}.{int(time.time())}"
     for attempt in range(1, S3_PUT_RETRIES + 1):
         try:
-            s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body, ContentType="application/json")
+            s3.upload_file(local_path, bucket, tmp_key, ExtraArgs={"ContentType": content_type})
+            copy_source = {"Bucket": bucket, "Key": tmp_key}
+            s3.copy_object(CopySource=copy_source, Bucket=bucket, Key=key)
+            s3.delete_object(Bucket=bucket, Key=tmp_key)
             return
-        except Exception:
-            if attempt < S3_PUT_RETRIES:
-                time.sleep(S3_PUT_BACKOFF * attempt)
-    raise Exception("s3 put failed after retries")
+        except Exception as e:
+            log.warning("s3 atomic upload attempt %d failed for %s: %s", attempt, key, e)
+            time.sleep(S3_PUT_BACKOFF * attempt)
+    raise Exception(f"s3 atomic upload failed for {key}")
 def _is_rootish(h: Any) -> bool:
     if h is None:
         return True
@@ -344,50 +357,103 @@ def split_section_by_tokens_lines(section: Dict[str, Any], overlap_tokens: int, 
                 next_ptr = j
         ptr = next_ptr
     return chunks
-class S3DocWriter:
-    def __init__(self, doc_id: str, s3_path: str, ext: str, content_type: str = "application/json"):
+class S3ParquetWriter:
+    def __init__(self, doc_id: str):
         self.doc_id = doc_id
-        self.s3_path = s3_path or ""
-        self.ext = ext
-        self.content_type = content_type
-        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=f".{ext}", dir="/tmp")
-        self.count = 0
-        self._first = True
-        if self.ext == "json":
-            self.temp.write(b"[\n")
-            self.temp.flush()
-    def write_payload(self, payload: Dict[str, Any]) -> int:
-        self.count += 1
-        if self.ext == "jsonl":
-            line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
-            self.temp.write(line)
-        else:
-            pretty = json.dumps(payload, ensure_ascii=False, indent=2)
-            indented = ("\n".join("  " + ln for ln in pretty.splitlines()) + "\n").encode("utf-8")
-            if not self._first:
-                self.temp.write(b",\n")
-            self.temp.write(indented)
-            self._first = False
-        self.temp.flush()
-        return 1
-    def finalize_and_upload(self, out_key: str) -> Tuple[int, str]:
-        if self.ext == "json":
-            self.temp.write(b"]\n")
-        self.temp.flush()
-        self.temp.close()
+        self._rows: List[Dict[str, Any]] = []
+    def _normalize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        fields: Dict[str, Any] = {}
+        fields["document_id"] = payload.get("document_id") or ""
+        fields["file_name"] = payload.get("file_name") or ""
+        fields["chunk_id"] = payload.get("chunk_id") or ""
+        fields["chunk_type"] = payload.get("chunk_type") or ""
+        fields["text"] = payload.get("text") or ""
         try:
-            s3.upload_file(self.temp.name, S3_BUCKET, out_key, ExtraArgs={"ContentType": self.content_type})
-            try:
-                os.unlink(self.temp.name)
-            except Exception:
-                pass
-            return self.count, out_key
+            fields["token_count"] = int(payload.get("token_count") or 0)
         except Exception:
+            fields["token_count"] = 0
+        for k in ("figures", "tags", "layout_tags", "heading_path", "headings"):
+            v = payload.get(k, None)
             try:
-                os.unlink(self.temp.name)
+                fields[k] = json.dumps(v, ensure_ascii=False, sort_keys=True) if v is not None else "[]"
+            except Exception:
+                fields[k] = "[]"
+        fields["file_type"] = payload.get("file_type") or "text/markdown"
+        fields["source_url"] = payload.get("source_url") or ""
+        lr = payload.get("line_range") or []
+        if isinstance(lr, (list, tuple)) and len(lr) >= 2:
+            try:
+                fields["line_start"] = int(lr[0])
+                fields["line_end"] = int(lr[1])
+            except Exception:
+                fields["line_start"] = 1
+                fields["line_end"] = 1
+        else:
+            fields["line_start"] = 1
+            fields["line_end"] = 1
+        fields["timestamp"] = payload.get("timestamp") or ""
+        fields["parser_version"] = payload.get("parser_version") or PARSER_VERSION
+        fields["used_ocr"] = bool(payload.get("used_ocr", False))
+        return fields
+    def write_payload(self, payload: Dict[str, Any]) -> int:
+        self._rows.append(self._normalize(payload))
+        return 1
+    def finalize_and_upload(self, out_basename: str) -> Tuple[int, str, str, int]:
+        if not self._rows:
+            return 0, "", "", 0
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        schema = pa.schema([
+            pa.field("document_id", pa.string()),
+            pa.field("file_name", pa.string()),
+            pa.field("chunk_id", pa.string()),
+            pa.field("chunk_type", pa.string()),
+            pa.field("text", pa.string()),
+            pa.field("token_count", pa.int64()),
+            pa.field("figures", pa.string()),
+            pa.field("tags", pa.string()),
+            pa.field("layout_tags", pa.string()),
+            pa.field("heading_path", pa.string()),
+            pa.field("headings", pa.string()),
+            pa.field("file_type", pa.string()),
+            pa.field("source_url", pa.string()),
+            pa.field("line_start", pa.int64()),
+            pa.field("line_end", pa.int64()),
+            pa.field("timestamp", pa.string()),
+            pa.field("parser_version", pa.string()),
+            pa.field("used_ocr", pa.bool_())
+        ])
+        cols = {name: [] for name in [f.name for f in schema]}
+        for r in self._rows:
+            for name in cols:
+                cols[name].append(r.get(name) if name in r else None)
+        table = pa.Table.from_pydict(cols, schema=schema)
+        existing_md = table.schema.metadata or {}
+        new_md = dict(existing_md)
+        new_md.update({b"schema_version": CHUNKED_SCHEMA_VERSION.encode("utf-8"), b"parser_version": PARSER_VERSION.encode("utf-8"), b"producer": b"md_parser", b"created_at": datetime.utcnow().isoformat().encode("utf-8")})
+        table = table.replace_schema_metadata(new_md)
+        tmpfile = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".parquet", dir="/tmp")
+        tmpfile.close()
+        pq.write_table(table, tmpfile.name, compression="zstd", flavor="spark")
+        local_parquet_path = tmpfile.name
+        with open(local_parquet_path, "rb") as fh:
+            b = fh.read()
+        sha = hashlib.sha256(b).hexdigest()
+        size = os.path.getsize(local_parquet_path)
+        parquet_key = out_basename + ".parquet"
+        tmp_local = local_parquet_path
+        try:
+            tmp = tempfile.NamedTemporaryFile(mode="wb", delete=False)
+            tmp.close()
+            s3_upload_file_atomic(local_parquet_path, S3_BUCKET, S3_CHUNKED_PREFIX + parquet_key, content_type="application/octet-stream")
+        finally:
+            try:
+                os.unlink(local_parquet_path)
             except Exception:
                 pass
-            raise
+        return len(self._rows), S3_CHUNKED_PREFIX + parquet_key, sha, size
+def sanitize_payload_for_raw_manifest(doc_id: str, s3_raw_key: str, chunked_s3_key: str, rows: int, sha: str, size: int) -> Dict[str, Any]:
+    return {"raw_key": s3_raw_key, "doc_id": doc_id, "chunked_key": chunked_s3_key, "rows": rows, "sha256": sha, "size_bytes": size, "schema_version": CHUNKED_SCHEMA_VERSION, "parser_version": PARSER_VERSION, "created_at": datetime.utcnow().isoformat() + "Z"}
 def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
     for k in list(payload.keys()):
         v = payload.get(k)
@@ -428,15 +494,31 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         doc_id = manifest.get("file_hash")
     else:
         if etag:
-            doc_id = sha256_hex(s3_key + str(etag))
+            doc_id = sha256_hex_str(s3_key + str(etag))
         else:
-            doc_id = sha256_hex(s3_key + str(last_modified or ""))
-    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
-    out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
-    if not FORCE_OVERWRITE and s3_object_exists(out_key):
-        total_ms = int((time.perf_counter() - start_all) * 1000)
-        log.info("Skipping entire file because chunked file exists: %s", out_key)
-        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+            doc_id = sha256_hex_str(s3_key + str(last_modified or ""))
+    out_basename = f"{doc_id}"
+    raw_manifest_key = s3_key + ".manifest.json"
+    if not FORCE_OVERWRITE:
+        if s3_object_exists(raw_manifest_key):
+            total_ms = int((time.perf_counter() - start_all) * 1000)
+            log.info("Skipping because raw manifest exists: %s", raw_manifest_key)
+            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+        if s3_object_exists(S3_CHUNKED_PREFIX + out_basename + ".parquet"):
+            total_ms = int((time.perf_counter() - start_all) * 1000)
+            log.info("Skipping because parquet chunked file exists: %s", out_basename + ".parquet")
+            try:
+                if not s3_object_exists(raw_manifest_key):
+                    head = s3.head_object(Bucket=S3_BUCKET, Key=S3_CHUNKED_PREFIX + out_basename + ".parquet")
+                    etag2 = head.get("ETag", "")
+                    if isinstance(etag2, str):
+                        etag2 = etag2.strip('"')
+                    size = head.get("ContentLength", 0)
+                    raw_manifest = sanitize_payload_for_raw_manifest(doc_id, s3_key, S3_CHUNKED_PREFIX + out_basename + ".parquet", 0, etag2, size)
+                    s3.put_object(Bucket=S3_BUCKET, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
+            except Exception:
+                pass
+            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
     if content_len == 0:
         total_ms = int((time.perf_counter() - start_all) * 1000)
         log.info("Skipping empty object %s (zero bytes).", s3_key)
@@ -448,28 +530,27 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         return {"saved_chunks": 0, "total_parse_duration_ms": 0, "skipped": True, "error": str(e)}
     raw_body = obj["Body"].read()
     raw_text = try_decode_bytes(raw_body)
-    doc_id = manifest.get("file_hash") or doc_id
+    if isinstance(manifest, dict) and manifest.get("file_hash"):
+        doc_id = manifest.get("file_hash")
+        out_basename = f"{doc_id}"
     s3_path = f"s3://{S3_BUCKET}/{s3_key}"
-    snapshot_path = ""
     if SAVE_SNAPSHOT:
         try:
             key = f"{S3_CHUNKED_PREFIX}{doc_id}.snapshot.md"
             s3.put_object(Bucket=S3_BUCKET, Key=key, Body=raw_text.encode("utf-8"), ContentType="text/markdown")
-            snapshot_path = f"s3://{S3_BUCKET}/{key}"
         except Exception:
-            snapshot_path = ""
+            pass
     canonical_full = canonicalize_text(raw_text)
     sections = build_header_sections(canonical_full)
     line_token_cache: Dict[int, int] = {}
     merged_sections = merge_small_sections(sections, MIN_TOKENS_PER_CHUNK, MAX_TOKENS_PER_CHUNK, line_token_cache)
     saved = 0
     chunk_index = 1
-    out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
-    if not FORCE_OVERWRITE and s3_object_exists(out_key):
+    if not FORCE_OVERWRITE and s3_object_exists(S3_CHUNKED_PREFIX + out_basename + ".parquet"):
         total_ms = int((time.perf_counter() - start_all) * 1000)
-        log.info("Skipping entire file because chunked file exists (post-download): %s", out_key)
+        log.info("Skipping because parquet chunked exists (post-download): %s", out_basename + ".parquet")
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
-    writer = S3DocWriter(doc_id=doc_id, s3_path=s3_path, ext=ext)
+    writer = S3ParquetWriter(doc_id=doc_id)
     file_name = os.path.basename(s3_key)
     try:
         for sec in merged_sections:
@@ -501,11 +582,6 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     "embedding": None,
                     "file_type": "text/markdown",
                     "source_url": s3_path,
-                    "page_number": None,
-                    "slide_range": None,
-                    "row_range": None,
-                    "token_range": None,
-                    "audio_range": None,
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                     "parser_version": PARSER_VERSION or "",
                     "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [],
@@ -541,11 +617,6 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                         "embedding": None,
                         "file_type": "text/markdown",
                         "source_url": s3_path,
-                        "page_number": None,
-                        "slide_range": None,
-                        "row_range": None,
-                        "token_range": None,
-                        "audio_range": None,
                         "timestamp": datetime.utcnow().isoformat() + "Z",
                         "parser_version": PARSER_VERSION or "",
                         "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [],
@@ -561,11 +632,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     log.info("Buffered subchunk %s (lines %d-%d)", payload["chunk_id"], start_line_sub, end_line_sub)
     except Exception as e:
         try:
-            if writer and writer.temp:
-                try:
-                    os.unlink(writer.temp.name)
-                except Exception:
-                    pass
+            pass
         except Exception:
             pass
         total_ms = int((time.perf_counter() - start_all) * 1000)
@@ -574,30 +641,31 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
     try:
         if saved == 0:
             try:
-                if writer and writer.temp:
-                    os.unlink(writer.temp.name)
+                pass
             except Exception:
                 pass
             total_ms = int((time.perf_counter() - start_all) * 1000)
             log.info("No chunks produced for %s", s3_key)
             return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": False}
-        count, uploaded_key = writer.finalize_and_upload(out_key)
+        count, uploaded_s3_key, sha, size = writer.finalize_and_upload(out_basename)
         total_ms = int((time.perf_counter() - start_all) * 1000)
-        log.info("Wrote %d chunks for %s → %s (%d ms)", count, s3_key, uploaded_key, total_ms)
+        try:
+            raw_manifest = sanitize_payload_for_raw_manifest(doc_id, s3_key, uploaded_s3_key, count, sha, size)
+            s3.put_object(Bucket=S3_BUCKET, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
+        except Exception:
+            log.warning("Failed to write raw manifest for %s", s3_key)
+        log.info("Wrote %d chunks for %s → %s (%d ms)", count, s3_key, uploaded_s3_key, total_ms)
         return {"saved_chunks": count, "total_parse_duration_ms": total_ms, "skipped": False}
     except Exception as e_up:
         total_ms = int((time.perf_counter() - start_all) * 1000)
         log.error("Failed to upload chunked file for %s error=%s", s3_key, str(e_up))
         try:
-            if writer and writer.temp:
-                try:
-                    os.unlink(writer.temp.name)
-                except Exception:
-                    pass
+            pass
         except Exception:
             pass
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
 if __name__ == "__main__":
+    log.info("Starting markdown -> parquet parser")
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=S3_BUCKET, Prefix=S3_RAW_PREFIX):
         for obj in page.get("Contents", []):
@@ -612,6 +680,7 @@ if __name__ == "__main__":
             except Exception:
                 manifest = {}
             try:
-                parse_file(key, manifest)
+                result = parse_file(key, manifest)
+                log.info("Result for %s: %s", key, result)
             except Exception as e:
                 log.exception("Failed to parse %s: %s", key, e)

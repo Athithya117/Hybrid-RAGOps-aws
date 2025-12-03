@@ -25,8 +25,15 @@ tree:
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +
-	find . -name "*.pyc" -delete
+	find . -type f -name "*.pyc" -delete
+	find . -type f -name "*.log" ! -path "./.git/*" -delete
 	clear
 
 docker-login:
 	echo "$$DOCKER_PASSWORD" | docker login -u "$$DOCKER_USERNAME" --password-stdin
+
+dense-image:
+	bash apps/dense/test_and_push_dense.sh
+
+sparse-image:
+	bash 

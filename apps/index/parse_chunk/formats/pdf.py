@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 import os, io, sys, json, time, logging, hashlib, boto3, unicodedata, re, tempfile, importlib
 from datetime import datetime
@@ -5,11 +6,7 @@ from botocore.exceptions import ClientError
 from typing import List, Tuple, Dict, Generator, Optional, Any
 from contextlib import contextmanager
 from PIL import Image
-import spacy
-try:
-    from spacy.pipeline import Sentencizer
-except Exception:
-    Sentencizer = None
+RESET = ""
 logger = logging.getLogger("pdf_parser")
 logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
 handler = logging.StreamHandler(sys.stdout)
@@ -37,7 +34,6 @@ def _env_bool(name: str, default: bool) -> bool:
 S3_BUCKET = os.getenv("S3_BUCKET")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/").rstrip("/") + "/"
-CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
 FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
 PDF_DISABLE_OCR = _env_bool("PDF_DISABLE_OCR", False)
 PDF_FORCE_OCR = _env_bool("PDF_FORCE_OCR", False)
@@ -53,13 +49,49 @@ PARSER_VERSION_PDF = os.getenv("PARSER_VERSION_PDF", "pdf-v1")
 S3_PUT_RETRIES = _env_int("S3_PUT_RETRIES", 3)
 S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF", "0.3"))
 ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
-s3 = boto3.client("s3")
+if not S3_BUCKET:
+    logger.error("S3_BUCKET env must be set")
+    raise SystemExit(1)
 try:
     import tiktoken
-    enc = tiktoken.get_encoding(ENC_NAME)
+    enc = None
+    try:
+        enc = tiktoken.get_encoding(ENC_NAME)
+    except Exception:
+        try:
+            enc = tiktoken.encoding_for_model("gpt2")
+        except Exception:
+            enc = None
 except Exception:
     enc = None
-def sha256_hex(s: str) -> str:
+try:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    logger.info("pyarrow available: %s", getattr(pa, "__version__", "unknown"))
+except Exception:
+    logger.exception("pyarrow is required for parquet-only outputs; install pyarrow")
+    raise
+try:
+    import numpy as np
+except Exception:
+    np = None
+try:
+    import spacy
+except Exception:
+    spacy = None
+try:
+    from spacy.pipeline import Sentencizer
+except Exception:
+    Sentencizer = None
+try:
+    import boto3
+    s3 = boto3.client("s3")
+except Exception:
+    logger.exception("boto3 required")
+    raise
+def sha256_hex_bytes(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+def sha256_hex_str(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 def local_file_sha256(path: str) -> str:
     h = hashlib.sha256()
@@ -103,30 +135,19 @@ def s3_object_exists(key: str) -> bool:
         return False
     except Exception:
         return False
-def s3_put_object_with_retries(key: str, body: bytes, content_type: str = "application/json") -> None:
+def s3_upload_file_atomic(local_path: str, bucket: str, key: str, content_type: str = "application/octet-stream") -> None:
+    tmp_key = f"{key}.tmp.{os.getpid()}.{int(time.time())}"
     for attempt in range(1, S3_PUT_RETRIES + 1):
         try:
-            s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body, ContentType=content_type)
+            s3.upload_file(local_path, bucket, tmp_key, ExtraArgs={"ContentType": content_type})
+            copy_source = {"Bucket": bucket, "Key": tmp_key}
+            s3.copy_object(CopySource=copy_source, Bucket=bucket, Key=key)
+            s3.delete_object(Bucket=bucket, Key=tmp_key)
             return
-        except Exception:
-            if attempt < S3_PUT_RETRIES:
-                time.sleep(S3_PUT_BACKOFF * attempt)
-    raise Exception("s3 put failed after retries")
-def _derive_doc_id_from_head(s3_key: str, head_obj: dict, manifest: dict) -> str:
-    if isinstance(manifest, dict) and manifest.get("file_hash"):
-        return manifest.get("file_hash")
-    etag = head_obj.get("ETag", "") if isinstance(head_obj, dict) else ""
-    if isinstance(etag, str):
-        etag = etag.strip('"')
-    if etag:
-        return sha256_hex(s3_key + str(etag))
-    lm = head_obj.get("LastModified", "") if isinstance(head_obj, dict) else ""
-    if lm:
-        return sha256_hex(s3_key + str(lm))
-    base = os.path.basename(s3_key)
-    if base:
-        return base
-    return sha256_hex(s3_key)
+        except Exception as e:
+            logger.warning("s3 atomic upload attempt %d failed for %s: %s", attempt, key, e)
+            time.sleep(S3_PUT_BACKOFF * attempt)
+    raise Exception(f"s3 atomic upload failed for {key} after retries")
 def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
     for k in list(payload.keys()):
         v = payload.get(k)
@@ -149,51 +170,101 @@ def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
             continue
         if not isinstance(v, (str, int, float, bool)):
             payload[k] = str(v)
-class S3DocWriter:
-    def __init__(self, doc_id: str, s3_path: str, ext: str, content_type: str = "application/json"):
+class S3ParquetWriter:
+    def __init__(self, doc_id: str):
         self.doc_id = doc_id
-        self.s3_path = s3_path or ""
-        self.ext = ext
-        self.content_type = content_type
-        tmpdir = os.getenv("TMPDIR") or None
-        self.temp = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=f".{ext}", dir=tmpdir)
-        self.count = 0
-        self._first = True
-        if self.ext == "json":
-            self.temp.write(b"[\n")
-            self.temp.flush()
-    def write_payload(self, payload: Dict[str, Any]) -> int:
-        self.count += 1
-        if self.ext == "jsonl":
-            line = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
-            self.temp.write(line)
-        else:
-            pretty = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
-            indented = ("\n".join("  " + ln for ln in pretty.splitlines()) + "\n").encode("utf-8")
-            if not self._first:
-                self.temp.write(b",\n")
-            self.temp.write(indented)
-            self._first = False
-        self.temp.flush()
-        return 1
-    def finalize_and_upload(self, out_key: str) -> Tuple[int, str]:
-        if self.ext == "json":
-            self.temp.write(b"]\n")
-        self.temp.flush()
-        self.temp.close()
+        self._rows: List[Dict[str, Any]] = []
+    def _normalize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        fields: Dict[str, Any] = {}
+        fields["document_id"] = payload.get("document_id") or ""
+        fields["file_name"] = payload.get("file_name") or ""
+        fields["chunk_id"] = payload.get("chunk_id") or ""
+        fields["chunk_type"] = payload.get("chunk_type") or ""
+        fields["text"] = payload.get("text") or ""
         try:
-            s3.upload_file(self.temp.name, S3_BUCKET, out_key, ExtraArgs={"ContentType": self.content_type})
-            try:
-                os.unlink(self.temp.name)
-            except Exception:
-                pass
-            return self.count, out_key
+            fields["token_count"] = int(payload.get("token_count") or 0)
         except Exception:
+            fields["token_count"] = 0
+        fields["figures"] = json.dumps(payload.get("figures") if payload.get("figures") is not None else [], ensure_ascii=False)
+        fields["tags"] = json.dumps(payload.get("tags") if payload.get("tags") is not None else [], ensure_ascii=False)
+        fields["layout_tags"] = json.dumps(payload.get("layout_tags") if payload.get("layout_tags") is not None else [], ensure_ascii=False)
+        fields["heading_path"] = json.dumps(payload.get("heading_path") if payload.get("heading_path") is not None else [], ensure_ascii=False)
+        fields["headings"] = json.dumps(payload.get("headings") if payload.get("headings") is not None else [], ensure_ascii=False)
+        fields["file_type"] = payload.get("file_type") or ""
+        fields["source_url"] = payload.get("source_url") or ""
+        page_num = payload.get("page_number")
+        fields["page_number"] = int(page_num) if page_num is not None else None
+        lr = payload.get("line_range") or []
+        if isinstance(lr, (list, tuple)) and len(lr) >= 2:
             try:
-                os.unlink(self.temp.name)
+                fields["line_start"] = int(lr[0])
+                fields["line_end"] = int(lr[1])
             except Exception:
-                pass
-            raise
+                fields["line_start"] = None
+                fields["line_end"] = None
+        else:
+            fields["line_start"] = None
+            fields["line_end"] = None
+        fields["timestamp"] = payload.get("timestamp") or ""
+        fields["parser_version"] = payload.get("parser_version") or PARSER_VERSION_PDF
+        fields["used_ocr"] = bool(payload.get("used_ocr", False))
+        return fields
+    def write_payload(self, payload: Dict[str, Any]) -> int:
+        self._rows.append(self._normalize(payload))
+        return 1
+    def finalize_and_upload(self, out_basename: str) -> Tuple[int, str, str, int]:
+        if not self._rows:
+            return 0, "", "", 0
+        schema = pa.schema([
+            pa.field("document_id", pa.string()),
+            pa.field("file_name", pa.string()),
+            pa.field("chunk_id", pa.string()),
+            pa.field("chunk_type", pa.string()),
+            pa.field("text", pa.string()),
+            pa.field("token_count", pa.int64()),
+            pa.field("figures", pa.string()),
+            pa.field("tags", pa.string()),
+            pa.field("layout_tags", pa.string()),
+            pa.field("heading_path", pa.string()),
+            pa.field("headings", pa.string()),
+            pa.field("file_type", pa.string()),
+            pa.field("source_url", pa.string()),
+            pa.field("page_number", pa.int64()),
+            pa.field("line_start", pa.int64()),
+            pa.field("line_end", pa.int64()),
+            pa.field("timestamp", pa.string()),
+            pa.field("parser_version", pa.string()),
+            pa.field("used_ocr", pa.bool_())
+        ])
+        cols = {name: [] for name in [f.name for f in schema]}
+        for r in self._rows:
+            for name in cols:
+                cols[name].append(r.get(name) if name in r else None)
+        table = pa.Table.from_pydict(cols, schema=schema)
+        existing_md = table.schema.metadata or {}
+        new_md = dict(existing_md)
+        new_md.update({
+            b"schema_version": os.getenv("CHUNKED_SCHEMA_VERSION","chunked_v1").encode("utf-8"),
+            b"parser_version": PARSER_VERSION_PDF.encode("utf-8"),
+            b"producer": b"pdf_parser",
+            b"created_at": datetime.utcnow().isoformat().encode("utf-8")
+        })
+        table = table.replace_schema_metadata(new_md)
+        tmpfile = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".parquet", dir="/tmp")
+        tmpfile.close()
+        pq.write_table(table, tmpfile.name, compression="zstd", flavor="spark")
+        local_parquet_path = tmpfile.name
+        with open(local_parquet_path, "rb") as fh:
+            b = fh.read()
+        sha = sha256_hex_bytes(b)
+        size = os.path.getsize(local_parquet_path)
+        parquet_key = out_basename + ".parquet"
+        s3_upload_file_atomic(local_parquet_path, S3_BUCKET, S3_CHUNKED_PREFIX + parquet_key, content_type="application/octet-stream")
+        try:
+            os.unlink(local_parquet_path)
+        except Exception:
+            pass
+        return len(self._rows), S3_CHUNKED_PREFIX + parquet_key, sha, size
 @contextmanager
 def without_cwd_on_syspath():
     saved = list(sys.path)
@@ -258,7 +329,9 @@ class SentenceChunker:
         try:
             return spacy.load("en_core_web_sm")
         except Exception:
-            nlp = spacy.blank("en")
+            nlp = spacy.blank("en") if spacy is not None else None
+            if nlp is None:
+                raise RuntimeError("spaCy not available to create sentencizer")
             try:
                 if Sentencizer is not None:
                     nlp.add_pipe("sentencizer")
@@ -305,13 +378,19 @@ class SentenceChunker:
                 if cur_token_count + sent_tok_len > self.max_tokens_per_chunk:
                     if not chunk_sent_texts:
                         prefix_tok_ids = tok_ids[: self.max_tokens_per_chunk]
-                        prefix_text = self.encoder.decode(prefix_tok_ids)
+                        try:
+                            prefix_text = self.encoder.decode(prefix_tok_ids)
+                        except Exception:
+                            prefix_text = " ".join(str(x) for x in prefix_tok_ids)
                         chunk_sent_texts.append(prefix_text)
                         cur_token_count = len(prefix_tok_ids)
                         is_truncated_sentence = True
                         remainder_tok_ids = tok_ids[self.max_tokens_per_chunk : ]
                         if remainder_tok_ids:
-                            remainder_text = self.encoder.decode(remainder_tok_ids)
+                            try:
+                                remainder_text = self.encoder.decode(remainder_tok_ids)
+                            except Exception:
+                                remainder_text = " ".join(str(x) for x in remainder_tok_ids)
                             sent_items[i] = {"text": remainder_text, "start_char": None, "end_char": None, "orig_idx": sent_items[i]["orig_idx"], "is_remainder": True}
                         else:
                             i += 1
@@ -345,13 +424,6 @@ class SentenceChunker:
             n = len(sent_items)
         if prev_chunk is not None:
             yield prev_chunk
-    @classmethod
-    def from_env(cls, **kwargs):
-        max_tokens = _env_int("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK)
-        overlap = _env_int("NUMBER_OF_OVERLAPPING_SENTENCES", NUMBER_OF_OVERLAPPING_SENTENCES)
-        min_tokens = _env_int("MIN_TOKENS_PER_CHUNK", MIN_TOKENS_PER_CHUNK)
-        token_model = os.getenv("TOKEN_ENCODER_MODEL", os.getenv("TOKEN_ENCODER", "gpt2"))
-        return cls(max_tokens_per_chunk=max_tokens, overlap_sentences=overlap, token_model=token_model, nlp=None, min_tokens_per_chunk=min_tokens)
 def import_fitz_local():
     with without_cwd_on_syspath():
         try:
@@ -372,8 +444,7 @@ def crop_page_to_pil_and_bytes(page, bbox: Tuple[float, float, float, float], dp
 def run_ocr_on_pil_image(engine_name: str, engine_obj, pil_img: Image.Image) -> str:
     if engine_name == "rapidocr" and engine_obj is not None:
         try:
-            import numpy as np
-            import cv2
+            import numpy as np, cv2
             img_arr = None
             if isinstance(pil_img, Image.Image):
                 img_arr = np.array(pil_img.convert("RGB"))[:, :, ::-1].copy()
@@ -686,13 +757,29 @@ def _now_iso_z() -> str:
         except Exception:
             pass
     return datetime.utcnow().isoformat() + "Z"
+def _derive_doc_id_from_head(s3_key: str, head_obj: dict, manifest: dict) -> str:
+    if isinstance(manifest, dict) and manifest.get("file_hash"):
+        return manifest.get("file_hash")
+    etag = head_obj.get("ETag", "") if isinstance(head_obj, dict) else ""
+    if isinstance(etag, str):
+        etag = etag.strip('"')
+    if etag:
+        return sha256_hex_str(s3_key + str(etag))
+    lm = head_obj.get("LastModified", "") if isinstance(head_obj, dict) else ""
+    if lm:
+        return sha256_hex_str(s3_key + str(lm))
+    base = os.path.basename(s3_key)
+    if base:
+        return base
+    return sha256_hex_str(s3_key)
+def sanitize_payload_for_raw_manifest(doc_id: str, s3_raw_key: str, chunked_s3_key: str, rows: int, sha: str, size: int) -> Dict[str, Any]:
+    return {"raw_key": s3_raw_key, "doc_id": doc_id, "chunked_key": chunked_s3_key, "rows": rows, "sha256": sha, "size_bytes": size, "schema_version": os.getenv("CHUNKED_SCHEMA_VERSION","chunked_v1"), "parser_version": PARSER_VERSION_PDF, "created_at": datetime.utcnow().isoformat() + "Z"}
 def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
     try:
         head_obj = s3.head_object(Bucket=S3_BUCKET, Key=s3_key)
     except Exception:
         head_obj = {}
-    ext = "jsonl" if CHUNK_FORMAT == "jsonl" else "json"
     try:
         local_pdf = download_s3_object_to_temp(s3_key)
     except Exception as e:
@@ -704,20 +791,41 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
             doc_id = manifest.get("file_hash")
         else:
             doc_id = local_file_sha256(local_pdf)
-        out_key = f"{S3_CHUNKED_PREFIX}{doc_id}.{ext}"
-        if not FORCE_OVERWRITE and s3_object_exists(out_key):
-            try:
-                os.unlink(local_pdf)
-            except Exception:
-                pass
-            total_ms = int((time.perf_counter() - start_all) * 1000)
-            logger.info("Skipping because chunked file exists: %s", out_key)
-            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+        out_basename = f"{doc_id}"
+        raw_manifest_key = s3_key + ".manifest.json"
+        if not FORCE_OVERWRITE:
+            if s3_object_exists(raw_manifest_key):
+                total_ms = int((time.perf_counter() - start_all) * 1000)
+                logger.info("Skipping because raw manifest exists: %s", raw_manifest_key)
+                try:
+                    os.unlink(local_pdf)
+                except Exception:
+                    pass
+                return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+            if s3_object_exists(S3_CHUNKED_PREFIX + out_basename + ".parquet"):
+                total_ms = int((time.perf_counter() - start_all) * 1000)
+                logger.info("Skipping because parquet chunk exists: %s", out_basename + ".parquet")
+                try:
+                    if not s3_object_exists(raw_manifest_key):
+                        head = s3.head_object(Bucket=S3_BUCKET, Key=S3_CHUNKED_PREFIX + out_basename + ".parquet")
+                        etag = head.get("ETag", "")
+                        if isinstance(etag, str):
+                            etag = etag.strip('"')
+                        size = head.get("ContentLength", 0)
+                        raw_manifest = sanitize_payload_for_raw_manifest(doc_id, s3_key, S3_CHUNKED_PREFIX + out_basename + ".parquet", 0, etag, size)
+                        s3.put_object(Bucket=S3_BUCKET, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
+                except Exception:
+                    pass
+                try:
+                    os.unlink(local_pdf)
+                except Exception:
+                    pass
+                return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
         img_ocr_name, img_ocr_obj = get_pdf_image_ocr_engine()
         chunker = SentenceChunker.from_env()
         fitz = import_fitz_local()
         doc = fitz.open(local_pdf)
-        writer = S3DocWriter(doc_id=doc_id, s3_path=f"s3://{S3_BUCKET}/{s3_key}", ext=ext)
+        writer = S3ParquetWriter(doc_id=doc_id)
         saved = 0
         for pageno in range(len(doc)):
             page_start = time.perf_counter()
@@ -741,35 +849,29 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
             logger.info("Processed page %d (%d ms) chunks so far %d", pageno+1, page_ms, saved)
         if saved == 0:
             try:
-                if writer and getattr(writer, "temp", None):
-                    try:
-                        os.unlink(writer.temp.name)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            try:
                 os.unlink(local_pdf)
             except Exception:
                 pass
             total_ms = int((time.perf_counter() - start_all) * 1000)
             logger.info("No chunks produced for %s", s3_key)
             return {"saved_chunks": 0, "total_parse_duration_ms": total_ms}
-        count, uploaded_key = writer.finalize_and_upload(out_key)
+        count, uploaded_key, sha, size = writer.finalize_and_upload(out_basename)
         try:
             os.unlink(local_pdf)
         except Exception:
             pass
         total_ms = int((time.perf_counter() - start_all) * 1000)
+        try:
+            raw_manifest = sanitize_payload_for_raw_manifest(doc_id, s3_key, uploaded_key, count, sha, size)
+            s3.put_object(Bucket=S3_BUCKET, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
+        except Exception:
+            logger.warning("Failed to write raw manifest for %s", s3_key)
         logger.info("Wrote %d chunks for %s → %s (%d ms)", count, s3_key, uploaded_key, total_ms)
         return {"saved_chunks": count, "total_parse_duration_ms": total_ms, "skipped": False}
     except Exception as e:
         try:
-            if 'writer' in locals() and getattr(writer, "temp", None):
-                try:
-                    os.unlink(writer.temp.name)
-                except Exception:
-                    pass
+            if 'writer' in locals() and getattr(writer, "_rows", None):
+                pass
         except Exception:
             pass
         try:
@@ -781,8 +883,6 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start = time.perf_counter()
-    if S3_BUCKET is None:
-        raise RuntimeError("S3_BUCKET must be set in environment")
     try:
         result = process_pdf_s3_object(s3_key, manifest or {})
         return result

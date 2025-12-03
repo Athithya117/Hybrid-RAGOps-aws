@@ -1,0 +1,8 @@
+{
+  "file_hash": "43ffde0fabac5c6262468d1d97566e64dfdcaf9d5512ec28c4853420af8f93b7",
+  "mime_type": "audio/x-wav",
+  "parser_version": "2.42.1",
+  "pipeline_run_id": "bdb9930b-fc90-4a5c-b3b7-3acc1b64dd49",
+  "s3_key": "data/raw/audio/random_news.mp3.wav",
+  "timestamp": "2025-11-22T06:59:28.146640Z"
+}

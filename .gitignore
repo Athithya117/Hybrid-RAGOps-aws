@@ -18,11 +18,13 @@ venv/
 tmp.md
 tmp.sh
 tmp
-
+infra/manifests/inference/02-deployment.yaml
+infra/manifests/qdrant/secret-sample.yaml
 ###############################################################################
 # DATA + MODELS
 ###############################################################################
-data/
+infra/manifests/qdrant/secret-sample.yaml
+
 models/
 *.onnx
 *.pt
@@ -38,16 +40,6 @@ models/
 *.tar
 *.img
 docker-compose.override.yml
-
-###############################################################################
-# KUBERNETES MANIFESTS (GENERATED)
-###############################################################################
-# Keep: infra/manifests/argocd/*
-# Ignore all other generated outputs.
-infra/manifests/*
-!infra/manifests/argocd/
-# Allow argocd directory content:
-!infra/manifests/argocd/**
 
 tmp
 

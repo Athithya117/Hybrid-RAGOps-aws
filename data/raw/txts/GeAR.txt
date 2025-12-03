@@ -1,0 +1,260 @@
+GeAR — Graph-enhanced Agent for Retrieval-augmented Generation
+Sources: arXiv PDF (GeAR), project page (gear-rag.github.io), project mirrors.
+
+METADATA
+
+Title: GeAR: Graph-enhanced Agent for Retrieval-augmented Generation
+Authors: Zhili Shen, Chenxin Diao, Pavlos Vougiouklis, Pascual Merita, Shriram Piramanayagam, Damien Graux, Dandan Tu, Zeren Jiang, Ruofei Lai, Yang Ren, Jeff Z. Pan
+Affiliation: Huawei Technologies (listed), submitted to ACL 2025
+ArXiv / PDF: arXiv:2412.18431 (paper PDF). Project page: gear-rag.github.io
+
+SHORT ABSTRACT (paraphrased)
+
+GeAR (Graph-enhanced Agent for RAG) is a retrieval-augmented generation framework designed to improve multi-hop retrieval and question answering by:
+
+* Building a graph expansion module (SyncGE) that augments any base retriever (for example BM25) with triple-based graph expansion.
+* Wrapping retrieval inside an LLM-driven agent loop that maintains a compact "gist memory" of proximal triples and iteratively decides whether more retrieval is needed.
+
+The system demonstrates strong gains on multi-hop datasets and requires fewer LLM tokens and iterations than several prior iterative approaches.
+
+TABLE OF CONTENTS (this file)
+
+1. High-level motivation & contributions
+
+2. Architecture overview
+
+3. Key components (SyncGE, Gist Memory, Agent loop)
+
+4. Algorithmic details & pseudocode (paraphrased)
+
+5. Datasets, evaluation metrics & experimental setup
+
+6. Main results (numbers summarized)
+
+7. Ablations & analysis
+
+8. Efficiency (token / iteration analysis)
+
+9. Qualitative examples (authors' examples paraphrased)
+
+10. Limitations & future work (authors' notes)
+
+11. Reproducibility / code / bib
+
+12. Appendix notes (extra implementation hints)
+
+13. HIGH-LEVEL MOTIVATION & CONTRIBUTIONS
+
+Problem:
+Standard sparse/dense retrievers (BM25, ColBERT, dense vectors) struggle on multi-hop QA where the answer requires chaining information across passages. Iterative retrieval pipelines can help but often require many LLM calls, long prompts, or expensive processing.
+
+Core contributions:
+
+* SyncGE: a graph expansion retriever that aligns passages with triples (subject-predicate-object) and expands search via diverse triple beam search guided by an LLM.
+* GeAR agent framework: integrates SyncGE with an LLM agent that maintains a gist triple memory, reasons over accumulated triples, and decides whether to continue retrieval or stop.
+* Empirical demonstration: significant retrieval and QA improvements on multi-hop benchmarks (e.g., MuSiQue, HotpotQA, 2WikiMultihopQA) with lower token usage and fewer iterations compared to baseline iterative methods.
+
+2. ARCHITECTURE OVERVIEW (high level)
+
+Pipeline stages:
+A. Offline indexing and alignment: index passages and extract triples from passages (using automatic triple extraction) and align passages with triples for fast linking during graph expansion.
+
+B. Base retrieval: apply a cheap base retriever (BM25 or other) to get initial passages given the query.
+
+C. LLM reader: read retrieved passages to extract proximal triples (triples most relevant to the query) — the LLM acts as a triple extractor and selector.
+
+D. SyncGE graph expansion: link proximal triples to their nearest real triples in the triple index and expand the graph using diverse triple beam search to find multi-hop passage candidates.
+
+E. Combine and rerank: combine the base and expanded passages (RRF-style combination is used by authors) and present to the LLM reasoner.
+
+F. Gist memory: accumulate proximal triples across iterations to form a compact working memory used by the reasoner.
+
+G. Agent loop: the LLM assesses whether the current gist memory suffices to answer; if not, it rewrites the query for the next iteration and the cycle repeats until stopping conditions or maximum steps.
+
+3. KEY COMPONENTS — DETAILED
+
+A. Triple extraction and index alignment
+
+* Passages are processed offline to extract triples (subject, predicate, object).
+* A retrieval index is maintained for both passages and extracted triples; the system can link a "proximal triple" proposed by the LLM back to the real triples and their associated passages. This alignment builds the graph substrate used by SyncGE.
+
+B. SyncGE (Synchronized Graph Expansion)
+
+* Core idea: use the LLM to find initial nodes (proximal triples) and then expand the graph by exploring neighboring triples, using a diverse beam search that penalizes redundant expansion and rewards diverse multi-hop paths.
+* SyncGE differs from naive graph expansion in that the LLM is used to select starting nodes (higher quality seeds), enabling better single-iteration performance.
+
+C. Diverse Triple Beam Search (intuition)
+
+* Maintain a beam of candidate triple-paths. At each step, expand by neighboring triples, score candidate paths against the query (embedding similarity plus scoring function), and apply a diversity penalty to encourage varied paths. Keep top-B beams up to a maximum path length.
+* The final beams map back to passages via triple-to-passage links.
+
+D. Gist Triple Memory
+
+* A compact accumulator of proximal triples learned in one or a few iterations (authors draw a biomimetic analogy to hippocampal gist memory). The gist memory is used both for reasoning and for rewriting the query when more retrieval is needed.
+
+E. Agent Reasoner and Stop criterion
+
+* The LLM reads the combined passages and gist memory and decides whether the answer is ready. If not, it emits a rewritten query intended to retrieve the next missing piece of evidence. The agent stops when the reasoner judges the accumulated evidence sufficient or when maximum iterations are reached.
+
+4. ALGORITHMIC DETAILS & PSEUDOCODE (paraphrased)
+
+The following pseudocode is a conceptual paraphrase of the authors' algorithm.
+
+function GeAR(query, max_steps=4):
+gist_memory = []
+current_query = query
+step = 1
+while step <= max_steps:
+base_passages = base_retrieve(current_query)            # BM25 / ColBERT / hybrid
+proximal_triples = LLM_read_and_extract_triples(base_passages, query, gist_memory)
+linked_triples = triple_link(proximal_triples)         # map to indexed triples
+expanded_passages = SyncGE_expand(linked_triples, query)  # diverse triple beam search
+combined = combine_passages(base_passages, expanded_passages)  # RRF-style combine
+gist_additions = gist_constructor(expanded_passages)
+gist_memory.append(gist_additions)
+is_answerable, reasoning = LLM_reason(gist_memory, combined, query)
+if is_answerable:
+break
+else:
+current_query = LLM_rewrite_query(query, gist_memory, reasoning)
+step += 1
+final_passages = finalize_ranking(gist_memory, combined)
+return final_passages
+
+function SyncGE_expand(linked_triples, query):
+initialize beam with top seeds (from LLM seeds)
+for depth = 1..max_length:
+expand each beam by neighbor triples (avoid repeats)
+score new candidate paths (scoring = scoring_model(query, path))
+apply diversity penalty to ranked candidates
+keep top B beams
+map beams to passages
+return set of expanded_passages
+
+Notes:
+
+* The authors provide more low-level details on their project page and in appendices; this paraphrase captures the high-level control flow and the roles of the components.
+
+5. DATASETS, EVAL METRICS & SETUP
+
+Datasets used by the authors:
+
+* MuSiQue (multi-step, multi-hop QA) — noted as particularly challenging.
+* HotpotQA (multi-hop QA with supporting facts).
+* 2WikiMultihopQA.
+
+Metrics:
+
+* Retrieval recall metrics (R@k, commonly R@15).
+* End-to-end QA: Exact Match (EM) and F1.
+* Efficiency: number of iterations and LLM token counts accumulated across iterations.
+
+Baselines compared:
+
+* IRCoT (iterative retrieval with chain-of-thought style prompts) with BM25 or ColBERT v2.
+* HippoRAG with IRCoT (an iterative multi-step retrieval prior work).
+* Variants such as Hybrid + SyncGE.
+
+6. MAIN RESULTS (summary of key numbers reported by authors)
+
+End-to-end QA (top-5 retrieved passages; EM / F1):
+
+* MuSiQue: GEAR reported EM 19.0, F1 35.6 (authors highlight large relative improvement over prior iterative baselines).
+* 2WikiMultihopQA: GEAR reported EM 47.4, F1 62.3.
+* HotpotQA: GEAR reported EM 50.4, F1 69.4.
+
+Retriever recall and R@15:
+
+* SyncGE (graph expansion) consistently improves base retrievers (BM25, ColBERT) across datasets; SyncGE plus hybrid techniques produce substantial recall gains over previous iterative graph approaches.
+
+Efficiency (tokens and iterations):
+
+* GeAR achieves strong single-iteration performance in many cases (notably MuSiQue), whereas IRCoT-style pipelines often require multiple iterations.
+* The authors report that GeAR and SyncGE variants use far fewer LLM tokens than some iterative baselines, with aggregated token graphs showing substantial savings.
+
+For full numeric tables, charts, and plots see the original paper.
+
+7. ABLATIONS & ANALYSIS (authors' findings)
+
+* Naive graph expansion versus SyncGE: both help retrieval, but SyncGE (LLM-seeded starting nodes) outperforms naive graph expansion—particularly on MuSiQue—showing the benefit of using the LLM to find better seeds for graph traversal.
+
+* Diversity in beam search improves recall: experiments report higher retrieval scores when diversity penalties or heuristics are applied during triple-path exploration.
+
+* Gist memory compactness: gist triple memory yields both performance and efficiency benefits, allowing the agent to summarise essential multi-hop evidence without repeating unnecessary verbose context.
+
+* Robustness across triple densities: SyncGE and GeAR maintain consistent performance across passages with different triple densities (i.e., both sparse and dense triple extraction conditions).
+
+8. EFFICIENCY (detailed notes)
+
+Main efficiency claims:
+
+* GeAR requires fewer iterations to reach high recall compared to iterative baselines. On MuSiQue, GeAR often achieves high retrieval quality in a single iteration.
+* Token usage: across repeated iterations, GeAR accumulates far fewer LLM input/output tokens than some iterative baselines in the reported experiments.
+
+Practical implication:
+
+* SyncGE increases offline work (indexing and triple extraction) but saves online LLM tokens and iterations at query time. This tradeoff favors scenarios where online LLM costs dominate.
+
+9. QUALITATIVE EXAMPLES (illustrative)
+
+* Case studies in the paper show GeAR recovering necessary multi-hop facts in fewer iterations than baselines. Example: a multi-hop question about a Nobel laureate's PhD institution — initial BM25 fetches general pages, SyncGE expands via triples to connect the laureate to PhD relations, gist memory collects the missing node, then the agent issues a rewritten query to locate the doctorate record and returns a confident, sourced answer.
+
+* The project page contains additional exemplars showing LLM-seeded triples and beam paths that lead to the final evidence.
+
+10. LIMITATIONS & FUTURE WORK (authors' discussion)
+
+* Scope limited to triple graphs derived from passages; richer graph construction (better entity disambiguation, knowledge graph completion) could boost performance further.
+
+* Dependence on triple extraction quality: noisy triple extraction or poor alignment can degrade graph expansion and retrieval quality. Authors discuss potential extractor improvements in the appendix.
+
+* Design choices such as the specific dense embedding model for path scoring could be replaced by alternative formulations (e.g., NLI scoring, stronger similarity models).
+
+* Very high-complexity or extremely sparse-evidence questions remain challenging; authors report best gains for low-to-moderate complexity multi-hop questions.
+
+11. REPRODUCIBILITY & RESOURCES
+
+* Project page: gear-rag.github.io (contains pseudocode, examples, and diagrams).
+* Paper: arXiv:2412.18431 — contains algorithms, plots, tables, and appendices with extra experiment details.
+* The paper includes pseudocode outlines, hyperparameter choices, and experimental setup details for replication.
+
+Suggested citation (BibTeX-style entry):
+@article{shen2024gear,
+title={GeAR: Graph-enhanced Agent for Retrieval-augmented Generation},
+author={Shen, Zhili and Diao, Chenxin and Vougiouklis, Pavlos and Merita, Pascual and Piramanayagam, Shriram and Graux, Damien and Tu, Dandan and Jiang, Zeren and Lai, Ruofei and Ren, Yang and Pan, Jeff Z.},
+journal={arXiv preprint arXiv:2412.18431},
+year={2024}
+}
+
+12. APPENDIX NOTES & IMPLEMENTATION HINTS
+
+Indexing:
+
+* Build two aligned indexes — passage text to passage ID and triple to passage ID(s). Efficient triple-to-passage lookup is central to graph expansion speed and responsiveness.
+
+Triple extraction:
+
+* Can be performed offline with off-the-shelf information-extraction LLM prompts or a neural IE pipeline. Quality of extraction matters; tune extractor for precision in high-recall contexts.
+
+Beam/diversity hyperparameters:
+
+* Beam size B, path length L, and diversity constant gamma control exploration/exploitation tradeoffs. The authors found diversity helps recall and reduces redundant expansions.
+
+Scoring:
+
+* Authors use a scoring function that combines dense embedding similarity and path scoring; alternatives include NLI-based scores or richer feature combinations.
+
+Cost tradeoffs:
+
+* SyncGE increases offline storage and computation for triple extraction and indexing but saves online LLM tokens and iterations. This tradeoff is appealing when online LLM query costs or latency dominate.
+
+Practical tips:
+
+* Precompute triple neighbors and adjacency lists for fast graph expansion.
+* Cache frequent triple-to-passage mappings.
+* Use approximate nearest neighbor indices for path scoring to scale to large triple graphs.
+
+CLOSING SUMMARY
+
+GeAR is a practically motivated, empirically strong system that shows graph-based retrieval (with LLM-guided seeding and diverse triple beam search) can significantly improve multi-hop retrieval and QA while reducing LLM token usage. The approach trades increased offline indexing and triple resources for online efficiency gains. The authors provide a clear pipeline, pseudocode, and experimental evidence across multiple benchmarks.
+
+END OF FILE

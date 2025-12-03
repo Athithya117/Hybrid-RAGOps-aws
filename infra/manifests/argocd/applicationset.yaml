@@ -1,0 +1,45 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: rag-applications
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - name: ingress
+            path: "/workspace/infra/manifests/ingress"
+            destNamespace: ingress-nginx
+          - name: k8s-core
+            path: "/workspace/infra/manifests/k8s-core"
+            destNamespace: kube-system
+          - name: karpenter
+            path: "/workspace/infra/manifests/karpenter"
+            destNamespace: karpenter
+          - name: monitoring
+            path: "/workspace/infra/manifests/monitoring"
+            destNamespace: monitoring
+          - name: qdrant
+            path: "/workspace/infra/manifests/qdrant"
+            destNamespace: qdrant
+          - name: rag
+            path: "/workspace/infra/manifests/rag"
+            destNamespace: rag
+  template:
+    metadata:
+      name: '{{name}}'
+    spec:
+      project: default
+      source:
+        repoURL: "https://github.com/Athithya-Sakthivel/RAG8s.git"
+        targetRevision: "main"
+        path: '{{path}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{destNamespace}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

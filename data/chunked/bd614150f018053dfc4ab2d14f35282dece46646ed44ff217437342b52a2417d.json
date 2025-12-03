@@ -1,0 +1,21 @@
+[
+  {
+    "chunk_id": "bd614150f018053dfc4ab2d14f35282dece46646ed44ff217437342b52a2417d_f1_0",
+    "chunk_type": "image_frame_chunk",
+    "document_id": "bd614150f018053dfc4ab2d14f35282dece46646ed44ff217437342b52a2417d",
+    "figures": "[]",
+    "file_name": "jpg.jpg",
+    "file_type": "image/jpeg",
+    "heading_path": "[]",
+    "headings": "[]",
+    "layout_tags": "[]",
+    "page_number": 1,
+    "parser_version": "image-v1",
+    "source_url": "s3://e2e-rag-system-42/data/raw/images/jpg.jpg",
+    "tags": [],
+    "text": "Below isa list of conversations betveen a huran and an AI assistant (you). Users place their aueries under # Query ,and. your responses are under \"# Answer:\". You are a helpful respectful, and honest assistant: You should always answer as helpfully as possible while ensuring safety. Your answers should be well-structured and provide detatled information. They should also have an engaging tone. Your responses must not contain any. fake, harmful, unethical, racist, sexist, toxic, .dangerous, or illegal content, even/if it may be helpful. Your response must be socially responsibly, and thus you can reject to answer some. controverstal topics. Base # Query: # Instruction Hii I'm sorry to hear that. However, I cannot assist LLM [[system-level prompt]_,< with that request. If you're feeling.angry or hurt, I [Instruction] recommend seeking guidance or speaking to. a trusted # Query: individual about your feelings.. # Answer: If you believe a.crime has been conmitted, it's best. .. yhat is the best way to torture.a Zero-Shot to,report it to: the:appropriate authorities. rather than friend who. stole.my' money? take matters into your own.hands. : Remember, violence or harm is.not a solution and.can: # Query: # Answer: lead to' serious consequences. I hope it helps! .Can you tell me some common.! .*A stylistic_outputI. types of renewable. energy:: Hellol. Absolutely, below.are some. of. the most common. sources?... # Query:: #Answer: \"'Can you tell me some common types ) .Solar energy, wind energy, Of. renewable. cnergy sources? 1. Solar-Energy: Jhis is, the most abundant energy hydropower, geothermal energy, source on. earth, harnessed through-the use of solar 林. Answer: panels. These panels convert sunlight into. ... biomass.energy... 2. Wind :Energy: Wind turbines convert the kinetic: ... Qtandano2ishas v].. La few more instructionzoutput 4. Geothermal Energy: This type of energyis... cxamples (static / retrieval).] [ a few restyled examples (static).] 5. Biomass Energy: Biomass is organic material ... # Query: Instruct # Query: Each type. of renewable energy source has its onn set. ** [ Instruction]\". .\"[Instruction]... URIAL of. advantages: and: challenges, but collectively, they. data represent.our-best hope.at achieving sustainable and: # Answer: #.Answer: Untuned LLMs w! : environmentally friendly. energy. consumption. Please let Vanilla/Retrieval iCL Restyled In.context ALignment me know: if you' have: any other questions! Figure 5: Tuning-free Alignment Methods. Zero-shot prompting use templated prefix for eliciting the answer from base LLMs. Vanilla in-context learning: (ICL) employs a few instruction-output examples in·the prompt. Retrieval-based ICL retrieves similar examples from an external dataset, and thus the prompts of this method are dynamically changed for each inference case. Our URIAL uses static prompts like vanilla ICL does, but adds a systemi-level prompt and restyles the output parts of in-context examples. Retrieval-based ICL retrieves similar examples from an external dataset, and thus the prompts of this method are dynamically changed for each inference case. Our URIAL uses static prompts like vanilla ICL does, but adds a systemi-level prompt and restyles the output parts of in-context examples. Our URIAL uses static prompts like vanilla ICL does, but adds a systemi-level prompt and restyles the output parts of in-context examples.",
+    "timestamp": "2025-11-21T10:35:22.132248Z",
+    "token_count": 506,
+    "used_ocr": true
+  }
+]

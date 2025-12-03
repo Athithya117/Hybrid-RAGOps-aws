@@ -1,0 +1,20 @@
+fastapi==0.121.0
+uvicorn[standard]==0.38.0
+
+httpx[http2]==0.28.1
+
+# Qdrant async + sync client (your version already supports aio)
+qdrant-client==1.12.0
+
+numpy==2.2.6
+pydantic==2.12.4
+anyio==4.11.0
+
+# Optional but available and installed
+tiktoken==0.11.0
+
+# AWS SDKs
+boto3==1.40.61
+aioboto3==15.5.0
+
+prometheus_client==0.23.1

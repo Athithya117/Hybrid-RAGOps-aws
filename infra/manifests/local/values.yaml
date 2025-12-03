@@ -1,0 +1,35 @@
+replicaCount: 3
+image:
+  repository: qdrant/qdrant
+  tag: "v1.16.0"
+  pullPolicy: IfNotPresent
+service:
+  type: ClusterIP
+p2p:
+  port: 6335
+cluster:
+  enabled: true
+  peers:
+  - "http://qdrant-0.qdrant-headless:6335"
+  - "http://qdrant-1.qdrant-headless:6335"
+  - "http://qdrant-2.qdrant-headless:6335"
+persistence:
+  enabled: true
+  size: "50Gi"
+  storageClass: "standard"
+snapshots:
+  enabled: false
+  s3:
+    bucket: ""
+    endpoint: ""
+    region: "ap-south-1"
+    prefix: "qdrant-backups"
+config:
+  params:
+    shard_number: 3
+    replication_factor: 1
+    write_consistency_factor: 1
+  log_level: "INFO"
+  storage:
+    storage_path: "/qdrant/storage"
+    snapshots_path: "/qdrant/snapshots"

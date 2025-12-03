@@ -162,7 +162,7 @@ def get_format_module(ext):
     return {
         "pdf": "pdf",
         "pptx": "pptx",
-        "html": "html",
+        "html": "_html",
         "md": "md",
         "markdown": "md",
         "txt": "txt",

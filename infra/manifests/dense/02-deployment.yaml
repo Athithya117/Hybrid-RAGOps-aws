@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dense-deployment
+  namespace: models
+  labels: &id001
+    app.kubernetes.io/name: dense
+    app.kubernetes.io/component: embedder
+    app.kubernetes.io/managed-by: gen_dense
+    app.kubernetes.io/instance: dense
+    env: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dense
+  template:
+    metadata:
+      labels: *id001
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8200'
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: dense-sa
+      containers:
+      - name: dense
+        image: athithya5354/dense:amd64-arm64-v1
+        ports:
+        - containerPort: 8200
+        env:
+        - name: DENSE_PORT
+          value: '8200'
+        - name: ENV
+          value: STAGING
+        - name: DENSE_LOGLEVEL
+          value: INFO
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8200
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 6
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8200
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8200
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 60
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
