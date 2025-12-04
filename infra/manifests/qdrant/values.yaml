@@ -15,8 +15,8 @@ cluster:
   - http://qdrant-2.qdrant-headless:6335
 persistence:
   enabled: true
-  size: 50Gi
   storageClass: standard
+  size: 50Gi
 snapshots:
   enabled: false
   s3:
@@ -24,13 +24,24 @@ snapshots:
     endpoint: https://s3.ap-south-1.amazonaws.com
     region: ap-south-1
     prefix: qdrant/backups
+extraEnv:
+- name: QDRANT__SERVICE__API_KEY
+  value: ''
+- name: QDRANT__STORAGE__SNAPSHOTS_CONFIG__SNAPSHOTS_STORAGE
+  value: ''
+- name: QDRANT__STORAGE__SNAPSHOTS_CONFIG__S3_CONFIG__BUCKET
+  value: ''
+- name: QDRANT__STORAGE__SNAPSHOTS_CONFIG__S3_CONFIG__REGION
+  value: ap-south-1
+- name: QDRANT__STORAGE__SNAPSHOTS_CONFIG__S3_CONFIG__ENDPOINT_URL
+  value: https://s3.ap-south-1.amazonaws.com
 resources:
   requests:
     cpu: '1'
-    memory: 4Gi
+    memory: 2Gi
   limits:
     cpu: '1'
-    memory: 4Gi
+    memory: 2Gi
 tolerations:
 - key: qdrant-dedicated
   operator: Exists
@@ -38,7 +49,7 @@ tolerations:
 config:
   params:
     shard_number: 1
-    replication_factor: 3
+    replication_factor: 1
     write_consistency_factor: 1
   log_level: INFO
   storage:

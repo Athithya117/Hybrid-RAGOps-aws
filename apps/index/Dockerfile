@@ -2,7 +2,23 @@ FROM python:3.10.12-slim-bullseye AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 ENV VENV_PATH=/opt/venv
 WORKDIR /workspace
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential=12.9ubuntu3 gcc=4:11.2.0-1ubuntu1 g++=4:11.2.0-1ubuntu1 clang=1:14.0-55~exp2 libclang-dev=1:14.0-55~exp2 git=1:2.34.1-1ubuntu1.15 curl=7.81.0-1ubuntu1.21 wget=1.21.2-2ubuntu1.1 ca-certificates=20240203~22.04.1 pkg-config=0.29.2-1ubuntu3 libjpeg-dev=8c-2ubuntu10 zlib1g-dev=1:1.2.11.dfsg-2ubuntu9.2 libxml2-dev=2.9.13+dfsg-1ubuntu0.10 libpng-dev=1.6.37-3build5 libfreetype6-dev=2.11.1+dfsg-1ubuntu0.3 libharfbuzz-dev=2.7.4-1ubuntu3.2 libxcb1-dev=1.14-3ubuntu3 libx11-dev=2:1.7.5-1ubuntu0.3 libxext-dev=2:1.3.4-1build1 libxrender-dev=1:0.9.10-1build4 libfontconfig1-dev=2.13.1-4.2ubuntu5 libopenjp2-7-dev=2.4.0-6ubuntu0.4 poppler-utils=22.02.0-2ubuntu0.12 ffmpeg=7:4.4.2-0ubuntu0.22.04.1 libmagic1=1:5.41-3ubuntu0.1 libleptonica-dev=1.82.0-3build1 libtesseract-dev=4.1.1-2.1build1 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libmagic1 \
+    poppler-utils \
+    ffmpeg \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxrender1 \
+    libxext6 \
+    tesseract-ocr \
+    libleptonica-dev \
+    libtesseract-dev \
+    wget \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt /workspace/requirements.txt
 RUN python -m venv ${VENV_PATH}
 RUN ${VENV_PATH}/bin/pip install --upgrade pip setuptools wheel

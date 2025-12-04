@@ -59,7 +59,6 @@ S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/")
 # correct default ports that match typical port-forwards you already run
 DENSE_URL = os.getenv("DENSE_URL", "http://localhost:8200")
 SPARSE_URL = os.getenv("SPARSE_URL", "http://localhost:8201")
-RERANK_URL = os.getenv("RERANK_URL", "http://localhost:8202")
 
 DENSE_DIM = int(os.getenv("DENSE_DIM", "384"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "16"))

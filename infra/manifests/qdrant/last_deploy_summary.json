@@ -6,5 +6,5 @@
   "chart_version": "1.16.0",
   "image": "qdrant/qdrant:v1.16.0",
   "vendor_chart_dir": "infra/archive/qdrant-helm-chart/qdrant",
-  "generated_at": "2025-12-03T15:54:55.365340Z"
+  "generated_at": "2025-12-04T01:52:27.194388Z"
 }

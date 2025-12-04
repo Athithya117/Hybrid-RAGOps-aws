@@ -32,8 +32,5 @@ clean:
 docker-login:
 	echo "$$DOCKER_PASSWORD" | docker login -u "$$DOCKER_USERNAME" --password-stdin
 
-dense-image:
-	bash apps/dense/test_and_push_dense.sh
-
-sparse-image:
-	bash 
+index-image:
+	bash apps/index/push_image.sh
