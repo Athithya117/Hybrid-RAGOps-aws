@@ -33,4 +33,4 @@ docker-login:
 	echo "$$DOCKER_PASSWORD" | docker login -u "$$DOCKER_USERNAME" --password-stdin
 
 index-image:
-	bash apps/index/push_image.sh
+	bash apps/index/build_and_push_image.sh

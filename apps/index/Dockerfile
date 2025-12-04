@@ -1,43 +1,108 @@
-FROM python:3.10.12-slim-bullseye AS builder
+FROM python:3.11.8-slim-bullseye AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 ENV VENV_PATH=/opt/venv
-WORKDIR /workspace
+ENV MODEL_HOME=/opt/models
+ENV RAPIDOCR_MODEL_DIR=/opt/models/rapidocr
+ENV PYTHONUNBUFFERED=1
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libmagic1 \
-    poppler-utils \
-    ffmpeg \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libsm6 \
-    libxrender1 \
-    libxext6 \
-    tesseract-ocr \
-    libleptonica-dev \
-    libtesseract-dev \
-    wget \
-    curl \
-    ca-certificates \
+    build-essential gcc g++ clang libclang-dev git curl wget ca-certificates pkg-config \
+    libjpeg-dev zlib1g-dev libxml2-dev libxslt-dev libpng-dev libfreetype6-dev \
+    libharfbuzz-dev libxcb1-dev libx11-dev libxext-dev libxrender-dev libfontconfig1-dev \
+    libopenjp2-7-dev poppler-utils ffmpeg libmagic1 tesseract-ocr \
+    libleptonica-dev libtesseract-dev \
+    libreoffice-core libreoffice-writer libreoffice-calc default-jre-headless \
+    jq unzip fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
+RUN pip install --no-cache-dir awscli==1.29.31
+
+WORKDIR /workspace
 COPY requirements.txt /workspace/requirements.txt
+COPY . /indexing_pipeline
+
 RUN python -m venv ${VENV_PATH}
 RUN ${VENV_PATH}/bin/pip install --upgrade pip setuptools wheel
 RUN mkdir -p /wheels
 RUN ${VENV_PATH}/bin/pip wheel -r /workspace/requirements.txt -w /wheels
-COPY . /indexing_pipeline
 RUN ${VENV_PATH}/bin/pip install --no-index --find-links=/wheels -r /workspace/requirements.txt
-RUN rm -rf /wheels
-FROM python:3.10.12-slim-bullseye AS runtime
+
+RUN ${VENV_PATH}/bin/pip install --no-cache-dir huggingface_hub
+
+RUN /opt/venv/bin/python - <<'PY'
+from huggingface_hub import hf_hub_download
+from pathlib import Path
+import shutil, os, sys
+
+files = [
+    "model.bin",
+    "config.json",
+    "tokenizer.json",
+    "vocabulary.txt",
+    "README.md",
+]
+
+base = Path("/indexing_pipeline/models/faster_whisper/faster-whisper-base")
+base.mkdir(parents=True, exist_ok=True)
+tmp = Path("/tmp/hf")
+tmp.mkdir(parents=True, exist_ok=True)
+
+failed = False
+for f in files:
+    try:
+        src = hf_hub_download("Systran/faster-whisper-base", f, local_dir=str(tmp), local_dir_use_symlinks=False)
+        dest = base / f
+        if dest.exists():
+            try:
+                dest.unlink()
+            except Exception:
+                pass
+        shutil.move(src, dest)
+        try:
+            os.chmod(str(dest), 0o444)
+        except Exception:
+            pass
+    except Exception as e:
+        print("FAILED DOWNLOAD:", f, e, file=sys.stderr)
+        failed = True
+
+if failed:
+    sys.exit(2)
+PY
+
+RUN mkdir -p /indexing_pipeline/models/spacy && /opt/venv/bin/python -m spacy download en_core_web_sm --target /indexing_pipeline/models/spacy
+
+FROM python:3.11.8-slim-bullseye AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV VENV_PATH=/opt/venv
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libmagic1 poppler-utils ffmpeg \
+    libgl1-mesa-glx libglib2.0-0 libsm6 libxrender1 libxext6 \
+    tesseract-ocr \
+    libreoffice-core libreoffice-writer libreoffice-calc default-jre-headless \
+    jq unzip fonts-dejavu-core tini \
+    wget curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /indexing_pipeline /indexing_pipeline
+COPY --from=builder /usr/local /usr/local
+
+COPY pre_conversions.sh /indexing_pipeline/pre_conversions.sh
+RUN chmod +x /indexing_pipeline/pre_conversions.sh
+
+ENV OVERWRITE_ALL_AUDIO_FILES=${OVERWRITE_ALL_AUDIO_FILES:-false}
+ENV OVERWRITE_OTHER_TO_PDF=${OVERWRITE_OTHER_TO_PDF:-true}
+ENV OVERWRITE_SPREADSHEETS_WITH_CSV=${OVERWRITE_SPREADSHEETS_WITH_CSV:-false}
 ENV MODEL_HOST_PATH=/app/models
 ENV PORT=8000
 ENV HEALTH_PATH=/health
 ENV S3_RAW_PREFIX=data/raw/
 ENV S3_CHUNKED_PREFIX=data/chunked/
 ENV CHUNK_FORMAT=json
-ENV MAX_TOKENS_PER_CHUNK=512
+ENV MAX_TOKENS_PER_CHUNK=300
 ENV MIN_TOKENS_PER_CHUNK=100
 ENV NUMBER_OF_OVERLAPPING_SENTENCES=2
 ENV PDF_DISABLE_OCR=false
@@ -66,13 +131,12 @@ ENV RAPIDOCR_MODEL_DIR=/opt/models/rapidocr
 ENV WORKSPACE_MODELS=/indexing_pipeline/models
 ENV FW_MODEL_PATH=/indexing_pipeline/models/faster_whisper/faster-whisper-base
 ENV FW_MODEL_BIN=/indexing_pipeline/models/faster_whisper/faster-whisper-base/model.bin
-RUN apt-get update && apt-get install -y --no-install-recommends libmagic1=1:5.41-3ubuntu0.1 poppler-utils=22.02.0-2ubuntu0.12 ffmpeg=7:4.4.2-0ubuntu0.22.04.1 libgl1-mesa-glx=23.0.4-0ubuntu1~22.04.1 libglib2.0-0=2.72.4-0ubuntu2.6 libsm6=2:1.2.3-1build2 libxrender1=1:0.9.10-1build4 libxext6=2:1.3.4-1build1 tesseract-ocr=4.1.1-2.1build1 libleptonica-dev=1.82.0-3build1 libtesseract-dev=4.1.1-2.1build1 wget=1.21.2-2ubuntu1.1 curl=7.81.0-1ubuntu1.21 ca-certificates=20240203~22.04.1 && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /opt/venv /opt/venv
-COPY --from=builder /indexing_pipeline /indexing_pipeline
-RUN useradd -m -s /bin/bash appuser && chown -R appuser:appuser /opt/venv /indexing_pipeline
+
 ENV PATH=${VENV_PATH}/bin:$PATH
 ENV PYTHONPATH=/indexing_pipeline
+
 WORKDIR /indexing_pipeline
 EXPOSE 8000
-USER appuser
-CMD ["/opt/venv/bin/python","indexing_pipeline.py"]
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/opt/venv/bin/python", "indexing_pipeline.py"]

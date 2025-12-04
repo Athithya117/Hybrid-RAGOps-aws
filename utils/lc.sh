@@ -2,8 +2,6 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-# Idempotent local-kind cluster creator (3-node: 1 control-plane + 2 workers)
-# Usage: CLUSTER_NAME=rag8s-local ./utils/lc.sh
 CLUSTER_NAME="${CLUSTER_NAME:-rag8s-local}"
 LOCAL_BIN="${LOCAL_BIN:-$HOME/.local/bin}"
 KIND_VERSION="${KIND_VERSION:-v0.29.0}"
@@ -73,7 +71,6 @@ fi
 if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
   echo "[INFO] Deleting existing kind cluster '${CLUSTER_NAME}'"
   kind delete cluster --name "${CLUSTER_NAME}" || true
-  # wait for deletion
   for i in $(seq 1 30); do
     if ! kind get clusters | grep -q "^${CLUSTER_NAME}$"; then break; fi
     sleep 1
@@ -116,6 +113,75 @@ kubectl config use-context "${CONTEXT}" >/dev/null 2>&1 || true
 kubectl create namespace inference --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
 kubectl create namespace indexing --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
 kubectl create namespace kubeblocks --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+kubectl create namespace models --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+kubectl create namespace qdrant --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+
+# ---- Networking hardening for dev: ensure DNS & egress won't get accidentally blocked ----
+# 1) Delete any restrictive NetworkPolicy in inference/models namespaces (dev convenience)
+kubectl -n inference delete networkpolicy --all --ignore-not-found >/dev/null 2>&1 || true
+kubectl -n models delete networkpolicy --all --ignore-not-found >/dev/null 2>&1 || true
+kubectl -n qdrant delete networkpolicy --all --ignore-not-found >/dev/null 2>&1 || true
+
+# 2) Create permissive egress policy for inference + models (dev only)
+#    This allows all outbound traffic from pods in these namespaces to anywhere (0.0.0.0/0).
+#    If you want stricter rules later, replace this with targeted namespace/service rules.
+cat <<'EOF' | kubectl -n inference apply -f -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all-egress-dev
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+EOF
+
+cat <<'EOF' | kubectl -n models apply -f -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all-egress-dev
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+EOF
+
+cat <<'EOF' | kubectl -n qdrant apply -f -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all-egress-dev
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+EOF
+
+# 3) Make CoreDNS resilient: ensure at least 2 replicas in dev to avoid transient DNS loss
+echo "[INFO] Ensuring CoreDNS has 2 replicas (improves resilience)"
+kubectl -n kube-system get deployment/coredns >/dev/null 2>&1 && \
+  kubectl -n kube-system scale deployment/coredns --replicas=2 --timeout=60s || true
+
+# 4) Wait for critical networking pods (coredns, kindnet, kube-proxy) to be ready
+echo "[INFO] Waiting for critical networking/system pods to be Ready..."
+kubectl -n kube-system wait --for=condition=Available deployment/coredns --timeout=120s || true
+kubectl -n kube-system get pods -l k8s-app=kube-dns -o wide || true
+# wait for kindnet/kube-proxy (CNI) to be ready
+kubectl -n kube-system wait --for=condition=Ready pods -l k8s-app=kindnet --timeout=120s 2>/dev/null || true
+kubectl -n kube-system wait --for=condition=Ready pods -l k8s-app=kube-proxy --timeout=120s 2>/dev/null || true
 
 # Optionally install monitoring (idempotent)
 if [ "${INSTALL_MONITORING}" = "true" ]; then
@@ -127,14 +193,25 @@ if [ "${INSTALL_MONITORING}" = "true" ]; then
     --namespace monitoring --create-namespace --wait --version "${PROM_HELM_CHART_VERSION}" >/dev/null 2>&1 || true
 fi
 
+sudo sysctl -w fs.inotify.max_user_watches=524288
+sudo sysctl -w fs.inotify.max_user_instances=1024
+sudo sysctl -w fs.file-max=2097152
+# persist across reboot (optional)
+echo "fs.inotify.max_user_watches=524288" | sudo tee -a /etc/sysctl.conf
+echo "fs.inotify.max_user_instances=1024" | sudo tee -a /etc/sysctl.conf
+echo "fs.file-max=2097152" | sudo tee -a /etc/sysctl.conf
 
-docker exec rag8s-local-control-plane ctr -n k8s.io images pull docker.io/qdrant/qdrant:v1.16.0
-docker exec rag8s-local-control-plane ctr -n k8s.io images pull docker.io/athithya5354/dense:amd64-arm64-v1
-docker exec rag8s-local-control-plane ctr -n k8s.io images pull docker.io/athithya5354/sparse:amd64-arm64-v2
-docker exec rag8s-local-control-plane ctr -n k8s.io images pull docker.io/athithya5354/reranker:amd64-arm64-v1
-docker exec rag8s-local-control-plane ctr -n k8s.io images pull docker.io/athithya5354/retrieval:amd64-arm64-v1
-docker exec rag8s-local-control-plane ctr -n k8s.io images pull docker.io/athithya5354/qdrant-backup:v2
-docker exec rag8s-local-control-plane ctr -n k8s.io images pull docker.io/athithya5354/frontend:amd64-arm64-v1
+# pull required images into all kind node containers
+for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
+  echo "[INFO] Preloading images into ${node}"
+  docker exec "${node}" ctr -n k8s.io images pull docker.io/qdrant/qdrant:v1.16.0
+  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/dense:amd64-arm64-v1
+  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/sparse:amd64-arm64-v2
+  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/reranker:amd64-arm64-v1
+  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/retrieval:amd64-arm64-v1
+  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/frontend:amd64-arm64-v1
+  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/indexing_pipeline_cpu:amd64-arm64-v10
+done
 
 echo "kind cluster ${CLUSTER_NAME} created (1 control-plane + 2 workers). Context: ${CONTEXT}"
 kubectl get nodes

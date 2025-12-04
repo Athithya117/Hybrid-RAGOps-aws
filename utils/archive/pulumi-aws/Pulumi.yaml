@@ -1,0 +1,4 @@
+name: pulumi-aws-rag
+description: "AWS resources for the RAG system using Pulumi"
+runtime:
+  name: python

@@ -24,6 +24,7 @@ infra/manifests/qdrant/secret-sample.yaml
 # DATA + MODELS
 ###############################################################################
 infra/manifests/qdrant/secret-sample.yaml
+tmp
 
 models/
 *.onnx

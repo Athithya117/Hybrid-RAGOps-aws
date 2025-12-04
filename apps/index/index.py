@@ -10,7 +10,6 @@ import re
 import traceback
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
-
 import numpy as np
 import httpx
 from qdrant_client import QdrantClient
@@ -50,15 +49,16 @@ logger.addHandler(_h)
 logger.propagate = False
 
 # ---------- Defaults (corrected) ----------
-QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "default_rag_collection1")
 S3_BUCKET = os.getenv("S3_BUCKET", "e2e-rag-system-42")
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/")
 
-# correct default ports that match typical port-forwards you already run
-DENSE_URL = os.getenv("DENSE_URL", "http://localhost:8200")
-SPARSE_URL = os.getenv("SPARSE_URL", "http://localhost:8201")
+# prefer in-cluster DNS by default; will still be overridable via env when you run locally
+QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant.qdrant.svc.cluster.local:6333")
+DENSE_URL   = os.getenv("DENSE_URL",   "http://dense-svc.models.svc.cluster.local:8200")
+SPARSE_URL  = os.getenv("SPARSE_URL",  "http://sparse-svc.models.svc.cluster.local:8201")
 
 DENSE_DIM = int(os.getenv("DENSE_DIM", "384"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "16"))

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 import os, io, sys, json, time, logging, hashlib, boto3, unicodedata, re, tempfile, importlib
 from datetime import datetime
@@ -11,17 +10,20 @@ try:
     from spacy.pipeline import Sentencizer
 except Exception:
     Sentencizer = None
+
 def env_or_fail(name: str, default=None, mandatory: bool = False):
     val = os.getenv(name, default)
     if mandatory and val is None:
         print(f"ERROR: Required env var '{name}' not set", file=sys.stderr)
         sys.exit(1)
     return val
+
 logger = logging.getLogger("images_parser")
 logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 logger.handlers[:] = [handler]
+
 def _env_int(name: str, default: int) -> int:
     v = os.getenv(name)
     try:
@@ -29,6 +31,7 @@ def _env_int(name: str, default: int) -> int:
     except Exception:
         logger.warning("Invalid env var for %s: %r; falling back to %d", name, v, default)
         return default
+
 def _env_bool(name: str, default: bool) -> bool:
     v = os.getenv(name)
     if v is None:
@@ -41,6 +44,7 @@ def _env_bool(name: str, default: bool) -> bool:
     if s in ("0","false","no","n","f"):
         return False
     return default
+
 S3_BUCKET = env_or_fail("S3_BUCKET", None, mandatory=True)
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX","data/raw/").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX","data/chunked/").rstrip("/") + "/"
@@ -62,11 +66,13 @@ S3_PUT_RETRIES = _env_int("S3_PUT_RETRIES",3)
 S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF","0.3"))
 ENC_NAME = os.getenv("TOKEN_ENCODER","cl100k_base")
 CHUNKED_SCHEMA_VERSION = os.getenv("CHUNKED_SCHEMA_VERSION","chunked_v1")
+
 try:
     s3 = boto3.client("s3")
 except Exception as e:
     logger.error("boto3 client creation failed: %s", e)
     raise
+
 try:
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -74,6 +80,8 @@ try:
 except Exception:
     logger.exception("pyarrow is required; please install pyarrow with zstd support")
     sys.exit(1)
+
+@contextmanager
 def without_cwd_on_syspath():
     saved = list(sys.path)
     try:
@@ -82,6 +90,7 @@ def without_cwd_on_syspath():
         yield
     finally:
         sys.path[:] = saved
+
 def _load_tiktoken(encoding_name: str):
     try:
         import tiktoken
@@ -90,11 +99,15 @@ def _load_tiktoken(encoding_name: str):
         return tiktoken.get_encoding(encoding_name)
     except Exception:
         return None
+
 enc = _load_tiktoken(ENC_NAME)
+
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
+
 def sha256_hex_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
+
 def canonicalize_text(s: str) -> str:
     if not isinstance(s, str):
         s = str(s or "")
@@ -102,6 +115,7 @@ def canonicalize_text(s: str) -> str:
     s = s.replace("\r\n","\n").replace("\r","\n")
     lines = [re.sub(r'[ \t]+$','',ln) for ln in s.split("\n")]
     return "\n".join(lines).strip()
+
 def try_decode_bytes(b: bytes) -> str:
     for encoding in ("utf-8","utf-8-sig","latin-1"):
         try:
@@ -109,6 +123,7 @@ def try_decode_bytes(b: bytes) -> str:
         except Exception:
             continue
     return b.decode("utf-8",errors="replace")
+
 def token_count_for(text: str) -> int:
     if not text:
         return 0
@@ -118,6 +133,7 @@ def token_count_for(text: str) -> int:
         except Exception:
             pass
     return len(text.split())
+
 def s3_object_exists(key: str) -> bool:
     try:
         s3.head_object(Bucket=S3_BUCKET,Key=key)
@@ -129,6 +145,7 @@ def s3_object_exists(key: str) -> bool:
         return False
     except Exception:
         return False
+
 def s3_upload_file_atomic(local_path: str, bucket: str, key: str, content_type: str = "application/octet-stream") -> None:
     tmp_key = f"{key}.tmp.{os.getpid()}.{int(time.time())}"
     for attempt in range(1, S3_PUT_RETRIES + 1):
@@ -142,6 +159,7 @@ def s3_upload_file_atomic(local_path: str, bucket: str, key: str, content_type: 
             logger.warning("s3 atomic upload attempt %d failed for %s: %s", attempt, key, e)
             time.sleep(S3_PUT_BACKOFF * attempt)
     raise Exception(f"s3 atomic upload failed for {key} after retries")
+
 def sanitize_payload_for_weaviate(payload: Dict[str,Any]) -> None:
     for k in list(payload.keys()):
         v = payload.get(k)
@@ -164,10 +182,12 @@ def sanitize_payload_for_weaviate(payload: Dict[str,Any]) -> None:
             continue
         if not isinstance(v,(str,int,float,bool)):
             payload[k] = str(v)
+
 class S3ParquetWriter:
     def __init__(self, doc_id: str):
         self.doc_id = doc_id
         self._rows: List[Dict[str,Any]] = []
+
     def _normalize(self, payload: Dict[str,Any]) -> Dict[str,Any]:
         fields: Dict[str,Any] = {}
         fields["document_id"] = payload.get("document_id") or ""
@@ -198,9 +218,11 @@ class S3ParquetWriter:
         fields["used_ocr"] = bool(payload.get("used_ocr", False))
         fields["layout_bbox"] = json.dumps(payload.get("layout_bbox")) if payload.get("layout_bbox") is not None else ""
         return fields
+
     def write_payload(self, payload: Dict[str,Any]) -> int:
         self._rows.append(self._normalize(payload))
         return 1
+
     def finalize_and_upload(self, out_basename: str) -> Tuple[int,str,str,int]:
         if not self._rows:
             return 0, "", "", 0
@@ -253,6 +275,7 @@ class S3ParquetWriter:
         except Exception:
             pass
         return len(self._rows), S3_CHUNKED_PREFIX + parquet_key, sha, size
+
 def _derive_doc_id_from_head(s3_key: str, head_obj: dict, manifest: dict) -> str:
     if isinstance(manifest, dict) and manifest.get("file_hash"):
         return manifest.get("file_hash")
@@ -268,10 +291,12 @@ def _derive_doc_id_from_head(s3_key: str, head_obj: dict, manifest: dict) -> str
     if base:
         return base
     return sha256_hex(s3_key)
+
 def _mime_type_for_ext(ext: str) -> str:
     e = ext.lower().lstrip(".")
     mapping = {"jpg":"image/jpeg","jpeg":"image/jpeg","png":"image/png","webp":"image/webp","tif":"image/tiff","tiff":"image/tiff","bmp":"image/bmp","gif":"image/gif"}
     return mapping.get(e,"application/octet-stream")
+
 def reflow_and_clean_text(text: str) -> str:
     if not text:
         return text
@@ -281,6 +306,7 @@ def reflow_and_clean_text(text: str) -> str:
     text = re.sub(r'(?<!\n)\n(?!\n)',' ',text)
     text = re.sub(r'\s+',' ',text).strip()
     return text
+
 def postprocess_ocr_text(text: str) -> str:
     text = canonicalize_text(text)
     text = reflow_and_clean_text(text)
@@ -300,6 +326,7 @@ def postprocess_ocr_text(text: str) -> str:
         return " ".join(tokens)
     except Exception:
         return text
+
 def download_s3_object_to_temp(s3_key: str, ext: str) -> str:
     suffix = f".{ext}" if not ext.startswith(".") else ext
     tmpdir = os.getenv("TMPDIR") or None
@@ -309,6 +336,7 @@ def download_s3_object_to_temp(s3_key: str, ext: str) -> str:
     finally:
         tf.flush(); tf.close()
     return tf.name
+
 def preprocess_for_ocr(pil_img: Image.Image, target_dpi: Optional[int] = None, upscale_factor: Optional[float] = None) -> Image.Image:
     import numpy as np, cv2
     img = pil_img.convert("RGB")
@@ -358,6 +386,7 @@ def preprocess_for_ocr(pil_img: Image.Image, target_dpi: Optional[int] = None, u
     th = cv2.medianBlur(th,3)
     out = cv2.cvtColor(th,cv2.COLOR_GRAY2RGB)
     return Image.fromarray(out[:,:,::-1])
+
 def run_ocr_on_pil_image(engine_name: str, engine_obj, pil_img: Image.Image) -> str:
     if engine_name == "rapidocr" and engine_obj is not None:
         try:
@@ -426,6 +455,7 @@ def run_ocr_on_pil_image(engine_name: str, engine_obj, pil_img: Image.Image) -> 
             logger.exception("Tesseract OCR failed to OCR image")
             return ""
     return ""
+
 def _create_rapidocr_engine(model_dir: Optional[str] = None):
     models_path = model_dir or os.getenv("RAPIDOCR_MODEL_DIR","/opt/models/rapidocr")
     tried = []
@@ -433,7 +463,7 @@ def _create_rapidocr_engine(model_dir: Optional[str] = None):
     candidates = ("rapidocr_onnxruntime","rapidocr")
     for module_name in candidates:
         try:
-            with contextmanager(lambda: without_cwd_on_syspath())():
+            with without_cwd_on_syspath():
                 mod = importlib.import_module(module_name)
             RapidOCR = getattr(mod,"RapidOCR",None)
             if RapidOCR is None:
@@ -447,6 +477,7 @@ def _create_rapidocr_engine(model_dir: Optional[str] = None):
             tried.append((module_name,repr(e)))
             last_exc = e
     raise ImportError("RapidOCR import failed; tried: " + "; ".join(f"{m}:{err}" for m,err in tried)) from last_exc
+
 def get_image_ocr_engine():
     if IMAGE_DISABLE_OCR and not IMAGE_FORCE_OCR:
         logger.info("IMAGE_DISABLE_OCR=true and IMAGE_FORCE_OCR=false -> skipping OCR")
@@ -462,7 +493,7 @@ def get_image_ocr_engine():
             return "none", None
     if choice == "tesseract":
         try:
-            with contextmanager(lambda: without_cwd_on_syspath())():
+            with without_cwd_on_syspath():
                 import pytesseract
                 pytesseract.pytesseract.tesseract_cmd = os.getenv("TESSERACT_CMD","tesseract")
                 logger.info("Using Tesseract OCR")
@@ -478,7 +509,7 @@ def get_image_ocr_engine():
         except Exception as e_rapid:
             logger.warning("RapidOCR auto-select failed: %s", repr(e_rapid))
             try:
-                with contextmanager(lambda: without_cwd_on_syspath())():
+                with without_cwd_on_syspath():
                     import pytesseract
                     pytesseract.pytesseract.tesseract_cmd = os.getenv("TESSERACT_CMD","tesseract")
                     logger.info("Auto-selected Tesseract")
@@ -494,6 +525,7 @@ def get_image_ocr_engine():
     except Exception as e:
         logger.exception("Fallback RapidOCR failed: %s", e)
         return "none", None
+
 def split_long_sentence_by_words(sent_text: str, max_tokens: int, encoder: Any) -> List[str]:
     words = sent_text.split()
     pieces: List[str] = []
@@ -529,6 +561,7 @@ def split_long_sentence_by_words(sent_text: str, max_tokens: int, encoder: Any) 
     if cur_words:
         pieces.append(" ".join(cur_words))
     return pieces
+
 class TokenEncoder:
     def __init__(self, model_name: str = "gpt2"):
         self.model_name = model_name
@@ -543,17 +576,40 @@ class TokenEncoder:
         except Exception:
             self.encode = lambda txt: txt.split()
             self.decode = lambda toks: " ".join(toks)
+
 class SentenceChunker:
-    def __init__(self, max_tokens_per_chunk: Optional[int] = None, overlap_sentences: Optional[int] = None, token_model: str = "gpt2", nlp=None, min_tokens_per_chunk: Optional[int] = None):
-        self.max_tokens_per_chunk = _env_int("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK) if max_tokens_per_chunk is None else int(max_tokens_per_chunk)
-        self.overlap_sentences = _env_int("NUMBER_OF_OVERLAPPING_SENTENCES", NUMBER_OF_OVERLAPPING_SENTENCES) if overlap_sentences is None else int(overlap_sentences)
+    def __init__(
+        self,
+        max_tokens_per_chunk: Optional[int] = None,
+        overlap_sentences: Optional[int] = None,
+        token_model: str = "gpt2",
+        nlp=None,
+        min_tokens_per_chunk: Optional[int] = None,
+    ):
+        self.max_tokens_per_chunk = (
+            _env_int("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK)
+            if max_tokens_per_chunk is None
+            else int(max_tokens_per_chunk)
+        )
+        self.overlap_sentences = (
+            _env_int("NUMBER_OF_OVERLAPPING_SENTENCES", NUMBER_OF_OVERLAPPING_SENTENCES)
+            if overlap_sentences is None
+            else int(overlap_sentences)
+        )
         if self.overlap_sentences < 0:
             raise ValueError("overlap_sentences must be >= 0")
-        self.min_tokens_per_chunk = _env_int("MIN_TOKENS_PER_CHUNK", MIN_TOKENS_PER_CHUNK) if min_tokens_per_chunk is None else int(min_tokens_per_chunk)
+
+        self.min_tokens_per_chunk = (
+            _env_int("MIN_TOKENS_PER_CHUNK", MIN_TOKENS_PER_CHUNK)
+            if min_tokens_per_chunk is None
+            else int(min_tokens_per_chunk)
+        )
         if self.min_tokens_per_chunk < 0:
             raise ValueError("min_tokens_per_chunk must be >= 0")
+
         self.encoder = TokenEncoder(model_name=token_model)
         self.nlp = nlp or self._make_sentencizer()
+
     @staticmethod
     def _make_sentencizer():
         try:
@@ -571,81 +627,156 @@ class SentenceChunker:
                 except Exception:
                     raise RuntimeError("Failed to add Sentencizer to spaCy pipeline.")
             return nlp
-    def _sentences_with_offsets(self, text: str) -> List[Tuple[str,int,int]]:
+
+    def _sentences_with_offsets(self, text: str):
         doc = self.nlp(text)
-        sents = [(sent.text.strip(), int(sent.start_char), int(sent.end_char)) for sent in doc.sents if sent.text.strip()]
-        return sents
-    def chunk_document(self, text: str) -> Generator[Dict,None,None]:
+        return [
+            (sent.text.strip(), int(sent.start_char), int(sent.end_char))
+            for sent in doc.sents
+            if sent.text.strip()
+        ]
+
+    def chunk_document(self, text: str):
         sentences = self._sentences_with_offsets(text)
-        sent_items: List[Dict] = [{"text":s,"start_char":sc,"end_char":ec,"orig_idx":i,"is_remainder":False} for i,(s,sc,ec) in enumerate(sentences)]
+        sent_items = [
+            {
+                "text": s,
+                "start_char": sc,
+                "end_char": ec,
+                "orig_idx": i,
+                "is_remainder": False,
+            }
+            for i, (s, sc, ec) in enumerate(sentences)
+        ]
+
         i = 0
         n = len(sent_items)
         prev_chunk = None
+
         while i < n:
             cur_token_count = 0
-            chunk_sent_texts: List[str] = []
+            chunk_sent_texts = []
             chunk_start_idx = i
-            chunk_start_char: Optional[int] = sent_items[i]["start_char"] if i < n else None
-            chunk_end_char: Optional[int] = None
+            chunk_start_char = sent_items[i]["start_char"]
+            chunk_end_char = None
             is_truncated_sentence = False
+
             while i < n:
                 sent_text = sent_items[i]["text"]
                 tok_ids = self.encoder.encode(sent_text)
                 sent_tok_len = len(tok_ids)
+
+                # sentence too long -> split
                 if sent_tok_len > self.max_tokens_per_chunk:
-                    pieces = split_long_sentence_by_words(sent_text, self.max_tokens_per_chunk, self.encoder)
+                    pieces = split_long_sentence_by_words(
+                        sent_text, self.max_tokens_per_chunk, self.encoder
+                    )
                     if not pieces:
                         pieces = [sent_text[:1000]]
+
                     sent_items[i]["text"] = pieces[0]
-                    for j, rem in enumerate(pieces[1:], start=1):
-                        insert_idx = i + j
-                        sent_items.insert(insert_idx, {"text": rem, "start_char": None, "end_char": None, "orig_idx": sent_items[i]["orig_idx"], "is_remainder": True})
+                    for j, rem in enumerate(pieces[1:], 1):
+                        sent_items.insert(
+                            i + j,
+                            {
+                                "text": rem,
+                                "start_char": None,
+                                "end_char": None,
+                                "orig_idx": sent_items[i]["orig_idx"],
+                                "is_remainder": True,
+                            },
+                        )
                     n = len(sent_items)
                     tok_ids = self.encoder.encode(sent_items[i]["text"])
                     sent_tok_len = len(tok_ids)
+
+                # overflow next sentence?
                 if cur_token_count + sent_tok_len > self.max_tokens_per_chunk:
+                    # chunk empty => truncate sentence
                     if not chunk_sent_texts:
                         prefix_tok_ids = tok_ids[: self.max_tokens_per_chunk]
                         prefix_text = self.encoder.decode(prefix_tok_ids)
                         chunk_sent_texts.append(prefix_text)
                         cur_token_count = len(prefix_tok_ids)
                         is_truncated_sentence = True
+
                         remainder_tok_ids = tok_ids[self.max_tokens_per_chunk :]
                         if remainder_tok_ids:
                             remainder_text = self.encoder.decode(remainder_tok_ids)
-                            sent_items[i] = {"text": remainder_text, "start_char": None, "end_char": None, "orig_idx": sent_items[i]["orig_idx"], "is_remainder": True}
+                            sent_items[i] = {
+                                "text": remainder_text,
+                                "start_char": None,
+                                "end_char": None,
+                                "orig_idx": sent_items[i]["orig_idx"],
+                                "is_remainder": True,
+                            }
                         else:
                             i += 1
                         break
-                    else:
-                        break
-                else:
-                    chunk_sent_texts.append(sent_text)
-                    cur_token_count += sent_tok_len
-                    chunk_end_char = sent_items[i]["end_char"]
-                    i += 1
+                    break
+
+                chunk_sent_texts.append(sent_text)
+                cur_token_count += sent_tok_len
+                chunk_end_char = sent_items[i]["end_char"]
+                i += 1
+
             if not chunk_sent_texts:
                 i += 1
                 continue
-            chunk_text = " ".join(chunk_sent_texts).strip()
-            chunk_meta = {"text": chunk_text, "token_count": cur_token_count, "start_sentence_idx": chunk_start_idx, "end_sentence_idx": i, "start_char": chunk_start_char, "end_char": chunk_end_char, "is_truncated_sentence": is_truncated_sentence}
-            new_start = max(chunk_start_idx + 1, chunk_meta["end_sentence_idx"] - self.overlap_sentences)
+
+            chunk_meta = {
+                "text": " ".join(chunk_sent_texts).strip(),
+                "token_count": cur_token_count,
+                "start_sentence_idx": chunk_start_idx,
+                "end_sentence_idx": i,
+                "start_char": chunk_start_char,
+                "end_char": chunk_end_char,
+                "is_truncated_sentence": is_truncated_sentence,
+            }
+
+            new_start = max(
+                chunk_start_idx + 1, chunk_meta["end_sentence_idx"] - self.overlap_sentences
+            )
+
             if prev_chunk is None:
                 prev_chunk = chunk_meta
             else:
+                # merge if too small
                 if chunk_meta["token_count"] < self.min_tokens_per_chunk:
-                    prev_chunk["text"] = prev_chunk["text"] + " " + chunk_meta["text"]
-                    prev_chunk["token_count"] = prev_chunk["token_count"] + chunk_meta["token_count"]
+                    prev_chunk["text"] += " " + chunk_meta["text"]
+                    prev_chunk["token_count"] += chunk_meta["token_count"]
                     prev_chunk["end_sentence_idx"] = chunk_meta["end_sentence_idx"]
                     prev_chunk["end_char"] = chunk_meta["end_char"]
-                    prev_chunk["is_truncated_sentence"] = prev_chunk["is_truncated_sentence"] or chunk_meta["is_truncated_sentence"]
+                    prev_chunk["is_truncated_sentence"] = (
+                        prev_chunk["is_truncated_sentence"]
+                        or chunk_meta["is_truncated_sentence"]
+                    )
                 else:
                     yield prev_chunk
                     prev_chunk = chunk_meta
+
             i = new_start
             n = len(sent_items)
+
         if prev_chunk is not None:
             yield prev_chunk
+
+    @classmethod
+    def from_env(cls, **kwargs):
+        max_tokens = _env_int("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK)
+        overlap = _env_int("NUMBER_OF_OVERLAPPING_SENTENCES", NUMBER_OF_OVERLAPPING_SENTENCES)
+        min_tokens = _env_int("MIN_TOKENS_PER_CHUNK", MIN_TOKENS_PER_CHUNK)
+        token_model = os.getenv(
+            "TOKEN_ENCODER_MODEL", os.getenv("TOKEN_ENCODER", "gpt2")
+        )
+        return cls(
+            max_tokens_per_chunk=max_tokens,
+            overlap_sentences=overlap,
+            token_model=token_model,
+            nlp=None,
+            min_tokens_per_chunk=min_tokens,
+        )
+
 def process_image_s3_object(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
     try:
@@ -701,7 +832,17 @@ def process_image_s3_object(s3_key: str, manifest: dict) -> dict:
         logger.info("Skipping because chunked file exists (post-download): %s", out_basename + ".parquet")
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
     img_ocr_name, img_ocr_obj = get_image_ocr_engine()
-    chunker = SentenceChunker.from_env()
+    try:
+        chunker = SentenceChunker.from_env()
+    except Exception as e:
+        try:
+            os.unlink(local_img)
+        except Exception:
+            pass
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        logger.exception("Failed to initialise SentenceChunker: %s", e)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
     try:
         writer = S3ParquetWriter(doc_id=doc_id)
         saved = 0
@@ -777,12 +918,17 @@ def process_image_s3_object(s3_key: str, manifest: dict) -> dict:
         return {"saved_chunks": count, "total_parse_duration_ms": total_ms, "skipped": False}
     except Exception as e:
         try:
-            os.unlink(local_img)
+            if 'local_img' in locals():
+                try:
+                    os.unlink(local_img)
+                except Exception:
+                    pass
         except Exception:
             pass
         total_ms = int((time.perf_counter() - start_all) * 1000)
         logger.exception("Error while processing %s: %s", s3_key, str(e))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start = time.perf_counter()
     if S3_BUCKET is None:
@@ -793,6 +939,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         total_ms = int((time.perf_counter() - start) * 1000)
         logger.exception("parse_file error for %s: %s", s3_key, e)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
 if __name__ == "__main__":
     engine_name, engine_obj = get_image_ocr_engine()
     logger.info("Engine result: %s %s", engine_name, "object_loaded" if engine_obj else "none")

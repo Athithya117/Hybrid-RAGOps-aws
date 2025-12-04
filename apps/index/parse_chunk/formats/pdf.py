@@ -313,25 +313,46 @@ def split_long_sentence_by_words(sent_text: str, max_tokens: int, encoder: Token
     if cur_words:
         pieces.append(" ".join(cur_words))
     return pieces
+
 class SentenceChunker:
-    def __init__(self, max_tokens_per_chunk: Optional[int] = None, overlap_sentences: Optional[int] = None, token_model: str = "gpt2", nlp=None, min_tokens_per_chunk: Optional[int] = None):
-        self.max_tokens_per_chunk = _env_int("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK) if max_tokens_per_chunk is None else int(max_tokens_per_chunk)
-        self.overlap_sentences = _env_int("NUMBER_OF_OVERLAPPING_SENTENCES", NUMBER_OF_OVERLAPPING_SENTENCES) if overlap_sentences is None else int(overlap_sentences)
+    def __init__(
+        self,
+        max_tokens_per_chunk: Optional[int] = None,
+        overlap_sentences: Optional[int] = None,
+        token_model: str = "gpt2",
+        nlp=None,
+        min_tokens_per_chunk: Optional[int] = None,
+    ):
+        self.max_tokens_per_chunk = (
+            _env_int("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK)
+            if max_tokens_per_chunk is None
+            else int(max_tokens_per_chunk)
+        )
+        self.overlap_sentences = (
+            _env_int("NUMBER_OF_OVERLAPPING_SENTENCES", NUMBER_OF_OVERLAPPING_SENTENCES)
+            if overlap_sentences is None
+            else int(overlap_sentences)
+        )
         if self.overlap_sentences < 0:
             raise ValueError("overlap_sentences must be >= 0")
-        self.min_tokens_per_chunk = _env_int("MIN_TOKENS_PER_CHUNK", MIN_TOKENS_PER_CHUNK) if min_tokens_per_chunk is None else int(min_tokens_per_chunk)
+
+        self.min_tokens_per_chunk = (
+            _env_int("MIN_TOKENS_PER_CHUNK", MIN_TOKENS_PER_CHUNK)
+            if min_tokens_per_chunk is None
+            else int(min_tokens_per_chunk)
+        )
         if self.min_tokens_per_chunk < 0:
             raise ValueError("min_tokens_per_chunk must be >= 0")
+
         self.encoder = TokenEncoder(model_name=token_model)
         self.nlp = nlp or self._make_sentencizer()
+
     @staticmethod
     def _make_sentencizer():
         try:
             return spacy.load("en_core_web_sm")
         except Exception:
-            nlp = spacy.blank("en") if spacy is not None else None
-            if nlp is None:
-                raise RuntimeError("spaCy not available to create sentencizer")
+            nlp = spacy.blank("en")
             try:
                 if Sentencizer is not None:
                     nlp.add_pipe("sentencizer")
@@ -343,87 +364,156 @@ class SentenceChunker:
                 except Exception:
                     raise RuntimeError("Failed to add Sentencizer to spaCy pipeline.")
             return nlp
-    def _sentences_with_offsets(self, text: str) -> List[Tuple[str, int, int]]:
+
+    def _sentences_with_offsets(self, text: str):
         doc = self.nlp(text)
-        sents = [(sent.text.strip(), int(sent.start_char), int(sent.end_char)) for sent in doc.sents if sent.text.strip()]
-        return sents
-    def chunk_document(self, text: str) -> Generator[Dict, None, None]:
+        return [
+            (sent.text.strip(), int(sent.start_char), int(sent.end_char))
+            for sent in doc.sents
+            if sent.text.strip()
+        ]
+
+    def chunk_document(self, text: str):
         sentences = self._sentences_with_offsets(text)
-        sent_items: List[Dict] = [{"text": s, "start_char": sc, "end_char": ec, "orig_idx": i, "is_remainder": False} for i, (s, sc, ec) in enumerate(sentences)]
+        sent_items = [
+            {
+                "text": s,
+                "start_char": sc,
+                "end_char": ec,
+                "orig_idx": i,
+                "is_remainder": False,
+            }
+            for i, (s, sc, ec) in enumerate(sentences)
+        ]
+
         i = 0
         n = len(sent_items)
         prev_chunk = None
+
         while i < n:
             cur_token_count = 0
-            chunk_sent_texts: List[str] = []
+            chunk_sent_texts = []
             chunk_start_idx = i
-            chunk_start_char: Optional[int] = sent_items[i]["start_char"] if i < n else None
-            chunk_end_char: Optional[int] = None
+            chunk_start_char = sent_items[i]["start_char"]
+            chunk_end_char = None
             is_truncated_sentence = False
+
             while i < n:
                 sent_text = sent_items[i]["text"]
                 tok_ids = self.encoder.encode(sent_text)
                 sent_tok_len = len(tok_ids)
+
+                # sentence too long -> split
                 if sent_tok_len > self.max_tokens_per_chunk:
-                    pieces = split_long_sentence_by_words(sent_text, self.max_tokens_per_chunk, self.encoder)
+                    pieces = split_long_sentence_by_words(
+                        sent_text, self.max_tokens_per_chunk, self.encoder
+                    )
                     if not pieces:
                         pieces = [sent_text[:1000]]
+
                     sent_items[i]["text"] = pieces[0]
-                    for j, rem in enumerate(pieces[1:], start=1):
-                        insert_idx = i + j
-                        sent_items.insert(insert_idx, {"text": rem, "start_char": None, "end_char": None, "orig_idx": sent_items[i]["orig_idx"], "is_remainder": True})
+                    for j, rem in enumerate(pieces[1:], 1):
+                        sent_items.insert(
+                            i + j,
+                            {
+                                "text": rem,
+                                "start_char": None,
+                                "end_char": None,
+                                "orig_idx": sent_items[i]["orig_idx"],
+                                "is_remainder": True,
+                            },
+                        )
                     n = len(sent_items)
                     tok_ids = self.encoder.encode(sent_items[i]["text"])
                     sent_tok_len = len(tok_ids)
+
+                # overflow next sentence?
                 if cur_token_count + sent_tok_len > self.max_tokens_per_chunk:
+                    # chunk empty => truncate sentence
                     if not chunk_sent_texts:
                         prefix_tok_ids = tok_ids[: self.max_tokens_per_chunk]
-                        try:
-                            prefix_text = self.encoder.decode(prefix_tok_ids)
-                        except Exception:
-                            prefix_text = " ".join(str(x) for x in prefix_tok_ids)
+                        prefix_text = self.encoder.decode(prefix_tok_ids)
                         chunk_sent_texts.append(prefix_text)
                         cur_token_count = len(prefix_tok_ids)
                         is_truncated_sentence = True
-                        remainder_tok_ids = tok_ids[self.max_tokens_per_chunk : ]
+
+                        remainder_tok_ids = tok_ids[self.max_tokens_per_chunk :]
                         if remainder_tok_ids:
-                            try:
-                                remainder_text = self.encoder.decode(remainder_tok_ids)
-                            except Exception:
-                                remainder_text = " ".join(str(x) for x in remainder_tok_ids)
-                            sent_items[i] = {"text": remainder_text, "start_char": None, "end_char": None, "orig_idx": sent_items[i]["orig_idx"], "is_remainder": True}
+                            remainder_text = self.encoder.decode(remainder_tok_ids)
+                            sent_items[i] = {
+                                "text": remainder_text,
+                                "start_char": None,
+                                "end_char": None,
+                                "orig_idx": sent_items[i]["orig_idx"],
+                                "is_remainder": True,
+                            }
                         else:
                             i += 1
                         break
-                    else:
-                        break
-                else:
-                    chunk_sent_texts.append(sent_text)
-                    cur_token_count += sent_tok_len
-                    chunk_end_char = sent_items[i]["end_char"]
-                    i += 1
+                    break
+
+                chunk_sent_texts.append(sent_text)
+                cur_token_count += sent_tok_len
+                chunk_end_char = sent_items[i]["end_char"]
+                i += 1
+
             if not chunk_sent_texts:
                 i += 1
                 continue
-            chunk_text = " ".join(chunk_sent_texts).strip()
-            chunk_meta = {"text": chunk_text, "token_count": cur_token_count, "start_sentence_idx": chunk_start_idx, "end_sentence_idx": i, "start_char": chunk_start_char, "end_char": chunk_end_char, "is_truncated_sentence": is_truncated_sentence}
-            new_start = max(chunk_start_idx + 1, chunk_meta["end_sentence_idx"] - self.overlap_sentences)
+
+            chunk_meta = {
+                "text": " ".join(chunk_sent_texts).strip(),
+                "token_count": cur_token_count,
+                "start_sentence_idx": chunk_start_idx,
+                "end_sentence_idx": i,
+                "start_char": chunk_start_char,
+                "end_char": chunk_end_char,
+                "is_truncated_sentence": is_truncated_sentence,
+            }
+
+            new_start = max(
+                chunk_start_idx + 1, chunk_meta["end_sentence_idx"] - self.overlap_sentences
+            )
+
             if prev_chunk is None:
                 prev_chunk = chunk_meta
             else:
+                # merge if too small
                 if chunk_meta["token_count"] < self.min_tokens_per_chunk:
-                    prev_chunk["text"] = prev_chunk["text"] + " " + chunk_meta["text"]
-                    prev_chunk["token_count"] = prev_chunk["token_count"] + chunk_meta["token_count"]
+                    prev_chunk["text"] += " " + chunk_meta["text"]
+                    prev_chunk["token_count"] += chunk_meta["token_count"]
                     prev_chunk["end_sentence_idx"] = chunk_meta["end_sentence_idx"]
                     prev_chunk["end_char"] = chunk_meta["end_char"]
-                    prev_chunk["is_truncated_sentence"] = prev_chunk["is_truncated_sentence"] or chunk_meta["is_truncated_sentence"]
+                    prev_chunk["is_truncated_sentence"] = (
+                        prev_chunk["is_truncated_sentence"]
+                        or chunk_meta["is_truncated_sentence"]
+                    )
                 else:
                     yield prev_chunk
                     prev_chunk = chunk_meta
+
             i = new_start
             n = len(sent_items)
+
         if prev_chunk is not None:
             yield prev_chunk
+
+    @classmethod
+    def from_env(cls, **kwargs):
+        max_tokens = _env_int("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK)
+        overlap = _env_int("NUMBER_OF_OVERLAPPING_SENTENCES", NUMBER_OF_OVERLAPPING_SENTENCES)
+        min_tokens = _env_int("MIN_TOKENS_PER_CHUNK", MIN_TOKENS_PER_CHUNK)
+        token_model = os.getenv(
+            "TOKEN_ENCODER_MODEL", os.getenv("TOKEN_ENCODER", "gpt2")
+        )
+        return cls(
+            max_tokens_per_chunk=max_tokens,
+            overlap_sentences=overlap,
+            token_model=token_model,
+            nlp=None,
+            min_tokens_per_chunk=min_tokens,
+        )
+
 def import_fitz_local():
     with without_cwd_on_syspath():
         try:
@@ -822,7 +912,16 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
                     pass
                 return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
         img_ocr_name, img_ocr_obj = get_pdf_image_ocr_engine()
-        chunker = SentenceChunker.from_env()
+        try:
+            chunker = SentenceChunker.from_env()
+        except Exception as e:
+            logger.exception("Failed to initialise SentenceChunker: %s", e)
+            try:
+                os.unlink(local_pdf)
+            except Exception:
+                pass
+            total_ms = int((time.perf_counter() - start_all) * 1000)
+            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
         fitz = import_fitz_local()
         doc = fitz.open(local_pdf)
         writer = S3ParquetWriter(doc_id=doc_id)
