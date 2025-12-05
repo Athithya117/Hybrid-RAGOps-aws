@@ -6,9 +6,9 @@ Deterministic generator for the inference retrieval (query) Kubernetes manifests
 Writes manifests to infra/manifests/inference/
 
 Usage:
-  python gen_query.py --generate
-  python gen_query.py --apply
-  python gen_query.py --delete
+  python3 gen_query.py --generate
+  python3 gen_query.py --apply
+  python3 gen_query.py --delete
 
 Behaviour:
 - When ENV (QUERY_ENV/ENV) == "STAGING", the generator will create/update a k8s Secret
@@ -16,6 +16,7 @@ Behaviour:
   AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY before applying the deployment.
 - The secret YAML is never stored on disk (created/applied in-memory via kubectl).
 """
+
 from pathlib import Path
 import os
 import sys

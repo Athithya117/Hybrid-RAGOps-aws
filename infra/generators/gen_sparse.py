@@ -7,13 +7,13 @@ Writes manifests to infra/manifests/sparse/
 
 Usage:
   # generate files
-  python gen_sparse.py --generate
+  python3 gen_sparse.py --generate
 
   # apply to cluster (requires kubectl)
-  python gen_sparse.py --apply
+  python3 gen_sparse.py --apply
 
   # delete generated manifests
-  python gen_sparse.py --delete
+  python3 gen_sparse.py --delete
 """
 from pathlib import Path
 import os

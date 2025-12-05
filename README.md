@@ -81,10 +81,10 @@ export PLATFORMS="linux/amd64,linux/arm64"      # Multi arch default; set only a
 
 export S3_RAW_PREFIX="data/raw/"                      # Prefix where raw/unprocessed files are uploaded; change to isolate different ingestion sources
 export S3_CHUNKED_PREFIX="data/chunked/"              # Prefix where chunked/processed outputs are written; change to separate processed datasets
-export OVERWRITE_DOC_DOCX_TO_PDF="true"               # If true, convert .doc/.docx -> .pdf and remove originals; set false to keep originals
-export OVERWRITE_ALL_AUDIO_FILES="true"               # If true, transcode and replace .mp3,.aac, etc into consistent format (16k wav); false to keep originals
-export OVERWRITE_SPREADSHEETS_WITH_CSV="true"         # If true, convert spreadsheets (.xls/.xlsx/.ods) to .csv and replace originals; false to keep originals
-export OVERWRITE_PPT_WITH_PPTS="true"                 # If true, convert .ppt -> .pptx (or apply slide processing) and replace originals;false to keep originals
+export OVERWRITE_DOC_DOCX_TO_PDF="true"               # If true, remove originals when converting (.doc/.docx) -> .pdf; set false to keep originals
+export OVERWRITE_ALL_AUDIO_FILES="true"               # If true, remove originals when converting (.mp3,.aac/etc) -> (16k wav); false to keep originals
+export OVERWRITE_SPREADSHEETS_WITH_CSV="true"         # If true, remove originals when converting (.xls/.xlsx/.ods/etc) to .csv ;false to keep originals
+export OVERWRITE_PPT_WITH_PPTS="true"                 # If true, remove orignals when converting .ppt -> .pptx;false to keep originals
 export MAX_TOKENS_PER_CHUNK="320"                     # Cummulatively append text sentences of .pdf, .html, .mp3, .png ,etc as a chunk till this token limit  
 export MIN_TOKENS_PER_CHUNK="100"                     # Minimum tokens; if chunk < this, append to previous chunk — adjust to avoid tiny fragments
 export NUMBER_OF_OVERLAPPING_SENTENCES="2"            # Sentence overlap between adjacent chunks to improve recall; increase for precision at cost of redundancy
@@ -117,10 +117,12 @@ export QDRANT_HNSW_EF_CONSTRUCT="128"               # HNSW index build depth; hi
 export QDRANT_HNSW_M="32"                           # HNSW max graph connections per node; higher boosts recall but raises RAM usage per vector
 export QDRANT_HNSW_FULL_SCAN_THRESHOLD="10000"      # Point-count threshold affecting full-scan vs HNSW behavior
 export QDRANT_ONDISK="TRUE"                         # TRUE/1/YES => enable on-disk HNSW (saves RAM without much increase in latency if using local NVMe EC2s)
-export INDEXING_BACKUP_CRON_EXPRESSION="0 */6 * * *"   # Cron schedule for indexing + backup; modify to tune frequency
+
+export INDEXING_CRONJOB_TIMEZONE="Asia/Kolkata"     # or "Etc/UTC", "Europe/Berlin", "America/New_York" or https://cronjob.live/docs/cron-timezones
+export CRON_SCHEDULE="0 */6 * * *"                   # Runs at minute 0 every 6 hours; or adjust fields to alter minute/hour/day
 export CRONJOB_CONCURRENCY="Allow"                    # ConcurrencyPolicy (Allow/Forbid/Replace); choose per desired parallel execution behavior
-export CRONJOB_BACKOFF_LIMIT="1"                      # Number of retries for failed Jobs; increase for transient failure tolerance
-export CRONJOB_PARALLELISM="1"                        # Max parallel pods for a single Job; increase only for partitioned workloads
+export CRONJOB_BACKOFF_LIMIT="2"                      # Number of retries for failed Jobs; increase for transient failure tolerance
+export CRONJOB_PARALLELISM="2"                        # Max parallel pods for a single Job; increase only for partitioned workloads
 export CRONJOB_COMPLETIONS="1"                         # Number of successful completions required; default uses parallelism if unset
 export CRONJOB_DEBUG_KEEP_POD="false"                 # If true, pods sleep after work to allow debugging; set true only for dev/debug
 export INDEXING_BACKUP_CRONJOB_CPU_REQUEST="2"     # CPU request for the CronJob container; raise for CPU-heavy workloads
@@ -128,7 +130,8 @@ export INDEXING_BACKUP_CRONJOB_CPU_LIMIT="4"          # CPU limit for the CronJo
 export INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST="1Gi"   # Memory request for CronJob; set based on worst-case memory used by indexing
 export INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT="2Gi"     # Memory limit for CronJob; must be >= request to avoid eviction
 export INDEXING_PIPELINE_CPU_IMAGE_REPO="athithya5354/indexing_pipeline_cpu"  # Use the prebuilt docker image or build your own by running `make index-image`
-export INDEXING_PIPELINE_CPU_IMAGE_TAG="amd64-arm64-v11" # Set a consistent tag name for clarity. You may change if building your own image
+export INDEXING_PIPELINE_CPU_IMAGE_TAG="amd64-arm64-v7" # Set a consistent tag name for clarity. You may change if building your own image
+
 
 
 

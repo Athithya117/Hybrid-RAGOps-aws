@@ -1,22 +1,43 @@
 #!/usr/bin/env python3
-import os, sys, json, time, logging, hashlib, tempfile, re, unicodedata
+"""
+pptx format parser — import-safe, lazy-init, compatible with router.py.
+
+Key changes from the original:
+- No sys.exit()/heavy work at import time.
+- Environment, boto3, pyarrow, numpy are initialized lazily inside _init_env().
+- parse_file() validates runtime requirements and raises on fatal problems.
+- CLI behavior preserved under `if __name__ == "__main__":`
+"""
+from __future__ import annotations
+import os
+import sys
+import json
+import time
+import logging
+import hashlib
+import tempfile
+import re
+import unicodedata
 from io import BytesIO
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Generator, Tuple
 from botocore.exceptions import ClientError
+
+# --- simple color logging (safe at import) ---------------------------------
 RESET = "\033[0m"
-COLORS = {logging.DEBUG: "\033[90m", logging.INFO: "\033[37m", logging.WARNING: "\033[33m", logging.ERROR: "\033[31m", logging.CRITICAL: "\033[1;41m"}
+COLORS = {
+    logging.DEBUG: "\033[90m",
+    logging.INFO: "\033[37m",
+    logging.WARNING: "\033[33m",
+    logging.ERROR: "\033[31m",
+    logging.CRITICAL: "\033[1;41m",
+}
 class ColorFormatter(logging.Formatter):
     def format(self, record):
         color = COLORS.get(record.levelno, RESET)
         message = super().format(record)
         return f"{color}{message}{RESET}"
-def env_or_fail(name: str, default=None, mandatory: bool = True):
-    val = os.getenv(name, default)
-    if mandatory and (val is None or (isinstance(val, str) and val.strip() == "")):
-        print(f"ERROR: Required env var '{name}' not set or empty", file=sys.stderr)
-        sys.exit(1)
-    return val
+
 log = logging.getLogger("pptx_parser")
 level_env = os.getenv("LOG_LEVEL", "INFO")
 try:
@@ -26,40 +47,91 @@ except Exception:
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(ColorFormatter("%(asctime)s %(levelname)s %(message)s"))
 log.handlers[:] = [handler]
-S3_BUCKET = env_or_fail("S3_BUCKET")
-S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/").rstrip("/") + "/"
-S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/").rstrip("/") + "/"
-SLIDES_PER_CHUNK = int(os.getenv("PPTX_SLIDES_PER_CHUNK", "3"))
-DISABLE_OCR = os.getenv("PPTX_DISABLE_OCR", "false").lower() == "true"
-FORCE_OCR = os.getenv("PPTX_FORCE_OCR", "false").lower() == "true"
-OCR_BACKEND = os.getenv("PPTX_OCR_ENGINE", "tesseract").lower()
-PPTX_OCR_STRICT = os.getenv("PPTX_OCR_STRICT", "false").lower() == "true"
-MIN_IMG_BYTES = int(os.getenv("PPTX_MIN_IMG_SIZE_BYTES", "3072"))
-PARSER_VERSION_PPTX = os.getenv("PARSER_VERSION_PPTX", "pptx-parser-v1")
-TOKEN_ENCODER = os.getenv("TOKEN_ENCODER", "cl100k_base")
-FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
-CHUNKED_SCHEMA_VERSION = os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1")
-try:
-    import boto3
-    s3 = boto3.client("s3")
-except Exception as e:
-    log.error("boto3 is required and must be configured: %s", e)
-    raise
-try:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-    log.info("pyarrow available: %s", getattr(pa, "__version__", "unknown"))
-except Exception:
-    log.error("pyarrow is required for parquet-only mode; install pyarrow")
-    sys.exit(1)
-try:
-    import numpy as np
-except Exception:
-    np = None
+
+# --- module-level defaults (will be set by _init_env) ----------------------
+S3_BUCKET: Optional[str] = None
+S3_RAW_PREFIX: str = os.getenv("S3_RAW_PREFIX", "data/raw/").rstrip("/") + "/"
+S3_CHUNKED_PREFIX: str = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/").rstrip("/") + "/"
+SLIDES_PER_CHUNK: int = int(os.getenv("PPTX_SLIDES_PER_CHUNK", "3"))
+DISABLE_OCR: bool = os.getenv("PPTX_DISABLE_OCR", "false").lower() == "true"
+FORCE_OCR: bool = os.getenv("PPTX_FORCE_OCR", "false").lower() == "true"
+OCR_BACKEND: str = os.getenv("PPTX_OCR_ENGINE", "tesseract").lower()
+PPTX_OCR_STRICT: bool = os.getenv("PPTX_OCR_STRICT", "false").lower() == "true"
+MIN_IMG_BYTES: int = int(os.getenv("PPTX_MIN_IMG_SIZE_BYTES", "3072"))
+PARSER_VERSION_PPTX: str = os.getenv("PARSER_VERSION_PPTX", "pptx-parser-v1")
+TOKEN_ENCODER: str = os.getenv("TOKEN_ENCODER", "cl100k_base")
+FORCE_OVERWRITE: bool = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
+CHUNKED_SCHEMA_VERSION: str = os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1")
+
+# These get assigned in _init_env()
+s3 = None
+np = None
+_pa = None
+_pq = None
+
+def _init_env():
+    """
+    Initialize environment variables and optional libs lazily.
+    Safe to call multiple times.
+    """
+    global S3_BUCKET, S3_RAW_PREFIX, S3_CHUNKED_PREFIX
+    global SLIDES_PER_CHUNK, DISABLE_OCR, FORCE_OCR, OCR_BACKEND, PPTX_OCR_STRICT, MIN_IMG_BYTES
+    global PARSER_VERSION_PPTX, TOKEN_ENCODER, FORCE_OVERWRITE, CHUNKED_SCHEMA_VERSION
+    global s3, np, _pa, _pq
+
+    if getattr(_init_env, "done", False):
+        return
+    S3_BUCKET = os.getenv("S3_BUCKET") or S3_BUCKET
+    S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", S3_RAW_PREFIX).rstrip("/") + "/"
+    S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", S3_CHUNKED_PREFIX).rstrip("/") + "/"
+    SLIDES_PER_CHUNK = int(os.getenv("PPTX_SLIDES_PER_CHUNK", str(SLIDES_PER_CHUNK)))
+    DISABLE_OCR = os.getenv("PPTX_DISABLE_OCR", "false").lower() == "true"
+    FORCE_OCR = os.getenv("PPTX_FORCE_OCR", "false").lower() == "true"
+    OCR_BACKEND = os.getenv("PPTX_OCR_ENGINE", OCR_BACKEND).lower()
+    PPTX_OCR_STRICT = os.getenv("PPTX_OCR_STRICT", "false").lower() == "true"
+    MIN_IMG_BYTES = int(os.getenv("PPTX_MIN_IMG_SIZE_BYTES", str(MIN_IMG_BYTES)))
+    PARSER_VERSION_PPTX = os.getenv("PARSER_VERSION_PPTX", PARSER_VERSION_PPTX)
+    TOKEN_ENCODER = os.getenv("TOKEN_ENCODER", TOKEN_ENCODER)
+    FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
+    CHUNKED_SCHEMA_VERSION = os.getenv("CHUNKED_SCHEMA_VERSION", CHUNKED_SCHEMA_VERSION)
+
+    # boto3 client
+    try:
+        import boto3  # local import to avoid hard dependency at import-time
+        s3 = boto3.client("s3")
+    except Exception as e:
+        s3 = None
+        log.error("boto3 client could not be created: %s", e)
+
+    # numpy optional
+    try:
+        import numpy as _np
+        np = _np
+    except Exception:
+        np = None
+        log.debug("numpy not available; image handling will be degraded")
+
+    # pyarrow optional (parquet): keep references in module globals
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        _pa = pa
+        _pq = pq
+        log.debug("pyarrow available: %s", getattr(pa, "__version__", "unknown"))
+    except Exception:
+        _pa = None
+        _pq = None
+        log.debug("pyarrow not available; parquet operations will fail if used")
+
+    _init_env.done = True
+
+# --- small utilities -------------------------------------------------------
 def sha256_hex_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
+
 def sha256_hex_str(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
+
 def canonicalize_text(s: str) -> str:
     if not isinstance(s, str):
         s = str(s or "")
@@ -67,13 +139,22 @@ def canonicalize_text(s: str) -> str:
     s = s.replace("\r\n", "\n").replace("\r", "\n")
     lines = [re.sub(r"[ \t]+$", "", ln) for ln in s.split("\n")]
     return "\n".join(lines).strip()
+
 def _load_tiktoken_encoder(name: str):
     try:
         import tiktoken
-        enc = tiktoken.encoding_for_model(name) if hasattr(tiktoken, "encoding_for_model") else tiktoken.get_encoding(name)
+        enc = None
+        try:
+            enc = tiktoken.encoding_for_model(name)
+        except Exception:
+            try:
+                enc = tiktoken.get_encoding(name)
+            except Exception:
+                enc = None
         return enc
     except Exception:
         return None
+
 def _count_tokens(text: str) -> int:
     if not text:
         return 0
@@ -84,12 +165,17 @@ def _count_tokens(text: str) -> int:
         except Exception:
             pass
     return len(text.split())
+
 def is_ocr_line_valid(text: str, min_ratio: float = 0.6) -> bool:
     t = (text or "").strip()
     if len(t) < 5:
         return False
     alnum = sum(c.isalnum() for c in t)
-    return (alnum / len(t)) >= min_ratio
+    try:
+        return (alnum / len(t)) >= min_ratio
+    except Exception:
+        return False
+
 def dedupe_lines(lines: list) -> list:
     seen, out = set(), []
     for l in lines:
@@ -98,7 +184,12 @@ def dedupe_lines(lines: list) -> list:
             seen.add(key)
             out.append(l)
     return out
+
+# --- s3 helpers ------------------------------------------------------------
 def s3_object_exists(key: str) -> bool:
+    _init_env()
+    if s3 is None:
+        raise RuntimeError("boto3 s3 client not available")
     try:
         s3.head_object(Bucket=S3_BUCKET, Key=key)
         return True
@@ -109,9 +200,15 @@ def s3_object_exists(key: str) -> bool:
         raise
     except Exception:
         return False
+
 def s3_upload_file_atomic(local_path: str, bucket: str, key: str, content_type: str = "application/octet-stream") -> None:
+    _init_env()
+    if s3 is None:
+        raise RuntimeError("boto3 s3 client not available")
     tmp_key = f"{key}.tmp.{os.getpid()}.{int(time.time())}"
-    for attempt in range(1, int(os.getenv("S3_PUT_RETRIES", "3")) + 1):
+    retries = int(os.getenv("S3_PUT_RETRIES", "3"))
+    backoff = float(os.getenv("S3_PUT_BACKOFF", "0.3"))
+    for attempt in range(1, retries + 1):
         try:
             s3.upload_file(local_path, bucket, tmp_key, ExtraArgs={"ContentType": content_type})
             copy_source = {"Bucket": bucket, "Key": tmp_key}
@@ -120,12 +217,15 @@ def s3_upload_file_atomic(local_path: str, bucket: str, key: str, content_type: 
             return
         except Exception as e:
             log.warning("s3 atomic upload attempt %d failed for %s: %s", attempt, key, e)
-            time.sleep(float(os.getenv("S3_PUT_BACKOFF", "0.3")) * attempt)
+            time.sleep(backoff * attempt)
     raise Exception(f"s3 atomic upload failed for {key} after retries")
+
+# --- parquet writer (lazy pyarrow usage) -----------------------------------
 class S3ParquetWriter:
     def __init__(self, doc_id: str):
         self.doc_id = doc_id
         self._rows: List[Dict[str, Any]] = []
+
     def _normalize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         fields: Dict[str, Any] = {}
         fields["document_id"] = payload.get("document_id") or ""
@@ -159,38 +259,43 @@ class S3ParquetWriter:
         fields["used_ocr"] = bool(payload.get("used_ocr", False))
         fields["layout"] = payload.get("layout") or ""
         return fields
+
     def write_payload(self, payload: Dict[str, Any]) -> int:
         self._rows.append(self._normalize(payload))
         return 1
+
     def finalize_and_upload(self, out_basename: str) -> Tuple[int, str, str, int]:
+        _init_env()
+        if _pa is None or _pq is None:
+            raise RuntimeError("pyarrow is required to write parquet output")
         if not self._rows:
             return 0, "", "", 0
-        schema = pa.schema([
-            pa.field("document_id", pa.string()),
-            pa.field("file_name", pa.string()),
-            pa.field("chunk_id", pa.string()),
-            pa.field("chunk_type", pa.string()),
-            pa.field("text", pa.string()),
-            pa.field("token_count", pa.int64()),
-            pa.field("figures", pa.string()),
-            pa.field("tags", pa.string()),
-            pa.field("layout_tags", pa.string()),
-            pa.field("heading_path", pa.string()),
-            pa.field("headings", pa.string()),
-            pa.field("file_type", pa.string()),
-            pa.field("source_url", pa.string()),
-            pa.field("slide_start", pa.int64()),
-            pa.field("slide_end", pa.int64()),
-            pa.field("timestamp", pa.string()),
-            pa.field("parser_version", pa.string()),
-            pa.field("used_ocr", pa.bool_()),
-            pa.field("layout", pa.string())
+        schema = _pa.schema([
+            _pa.field("document_id", _pa.string()),
+            _pa.field("file_name", _pa.string()),
+            _pa.field("chunk_id", _pa.string()),
+            _pa.field("chunk_type", _pa.string()),
+            _pa.field("text", _pa.string()),
+            _pa.field("token_count", _pa.int64()),
+            _pa.field("figures", _pa.string()),
+            _pa.field("tags", _pa.string()),
+            _pa.field("layout_tags", _pa.string()),
+            _pa.field("heading_path", _pa.string()),
+            _pa.field("headings", _pa.string()),
+            _pa.field("file_type", _pa.string()),
+            _pa.field("source_url", _pa.string()),
+            _pa.field("slide_start", _pa.int64()),
+            _pa.field("slide_end", _pa.int64()),
+            _pa.field("timestamp", _pa.string()),
+            _pa.field("parser_version", _pa.string()),
+            _pa.field("used_ocr", _pa.bool_()),
+            _pa.field("layout", _pa.string())
         ])
         cols = {name: [] for name in [f.name for f in schema]}
         for r in self._rows:
             for name in cols:
                 cols[name].append(r.get(name) if name in r else None)
-        table = pa.Table.from_pydict(cols, schema=schema)
+        table = _pa.Table.from_pydict(cols, schema=schema)
         existing_md = table.schema.metadata or {}
         new_md = dict(existing_md)
         new_md.update({
@@ -202,7 +307,7 @@ class S3ParquetWriter:
         table = table.replace_schema_metadata(new_md)
         tmpfile = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".parquet", dir="/tmp")
         tmpfile.close()
-        pq.write_table(table, tmpfile.name, compression="zstd", flavor="spark")
+        _pq.write_table(table, tmpfile.name, compression="zstd", flavor="spark")
         local_parquet_path = tmpfile.name
         with open(local_parquet_path, "rb") as fh:
             b = fh.read()
@@ -215,14 +320,18 @@ class S3ParquetWriter:
         except Exception:
             pass
         return len(self._rows), S3_CHUNKED_PREFIX + parquet_key, sha, size
+
+# --- small helpers used by parse_file -------------------------------------
 def sanitize_payload_for_raw_manifest(doc_id: str, s3_raw_key: str, chunked_s3_key: str, rows: int, sha: str, size: int) -> Dict[str, Any]:
     return {"raw_key": s3_raw_key, "doc_id": doc_id, "chunked_key": chunked_s3_key, "rows": rows, "sha256": sha, "size_bytes": size, "schema_version": CHUNKED_SCHEMA_VERSION, "parser_version": PARSER_VERSION_PPTX, "created_at": datetime.utcnow().isoformat() + "Z"}
+
 def is_valid_table(table: list) -> bool:
     if len(table) < 2 or len(table[0]) < 2:
         return False
     total_cells = sum(len(r) for r in table)
     alpha_cells = sum(1 for row in table for cell in row if any(c.isalpha() for c in (cell or "")))
     return total_cells > 0 and (alpha_cells / total_cells) >= 0.5
+
 def _extract_image_blob_from_shape(shape):
     try:
         img = getattr(shape, "image", None)
@@ -239,7 +348,12 @@ def _extract_image_blob_from_shape(shape):
     except Exception:
         pass
     return None
+
 def do_ocr(img: Any) -> list:
+    """
+    img expected as a numpy array (BGR) when using tesseract path.
+    This function logs and returns [] on import failures; raising only when strict mode requires it.
+    """
     lines = []
     try:
         if OCR_BACKEND == "tesseract":
@@ -277,61 +391,91 @@ def do_ocr(img: Any) -> list:
     except Exception:
         return []
     return dedupe_lines(lines)
+
+# --- main parse_file API ---------------------------------------------------
 def parse_file(s3_key: str, manifest: dict) -> dict:
+    """
+    Main entrypoint expected by router.py.
+    Validates runtime requirements lazily and returns a dict containing 'saved_chunks'.
+    """
+    _init_env()
+
     start_all = time.perf_counter()
+
+    if S3_BUCKET is None:
+        raise RuntimeError("S3_BUCKET must be set in environment")
+
+    # Head the object first
     try:
         head_obj = s3.head_object(Bucket=S3_BUCKET, Key=s3_key)
     except Exception as e:
         total_ms = int((time.perf_counter() - start_all) * 1000)
         log.error("Could not HEAD S3 object %s: %s", s3_key, e)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
     content_len = head_obj.get("ContentLength", 0) or 0
     if content_len == 0:
         total_ms = int((time.perf_counter() - start_all) * 1000)
         log.info("Skipping empty object %s (zero bytes).", s3_key)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
+    # Get object
     try:
         raw = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)["Body"].read()
     except Exception as e:
         total_ms = int((time.perf_counter() - start_all) * 1000)
         log.error("Could not read S3 object %s: %s", s3_key, e)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
+    # derive doc id
     if isinstance(manifest, dict) and manifest.get("file_hash"):
         doc_id = manifest.get("file_hash")
     else:
         doc_id = sha256_hex_str(raw.decode("latin-1") if isinstance(raw, (bytes, bytearray)) else str(raw))
+
     out_basename = f"{doc_id}"
     raw_manifest_key = s3_key + ".manifest.json"
+
+    # skip if outputs exist
     if not FORCE_OVERWRITE:
-        if s3_object_exists(raw_manifest_key):
-            total_ms = int((time.perf_counter() - start_all) * 1000)
-            log.info("Skipping because raw manifest exists: %s", raw_manifest_key)
-            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
-        if s3_object_exists(S3_CHUNKED_PREFIX + out_basename + ".parquet"):
-            total_ms = int((time.perf_counter() - start_all) * 1000)
-            log.info("Skipping because parquet chunked file exists: %s", out_basename + ".parquet")
-            try:
-                if not s3_object_exists(raw_manifest_key):
-                    head = s3.head_object(Bucket=S3_BUCKET, Key=S3_CHUNKED_PREFIX + out_basename + ".parquet")
-                    etag = head.get("ETag", "")
-                    if isinstance(etag, str):
-                        etag = etag.strip('"')
-                    size = head.get("ContentLength", 0)
-                    raw_manifest = sanitize_payload_for_raw_manifest(doc_id, s3_key, S3_CHUNKED_PREFIX + out_basename + ".parquet", 0, etag, size)
-                    s3.put_object(Bucket=S3_BUCKET, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
-            except Exception:
-                pass
-            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+        try:
+            if s3_object_exists(raw_manifest_key):
+                total_ms = int((time.perf_counter() - start_all) * 1000)
+                log.info("Skipping because raw manifest exists: %s", raw_manifest_key)
+                return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+            if s3_object_exists(S3_CHUNKED_PREFIX + out_basename + ".parquet"):
+                total_ms = int((time.perf_counter() - start_all) * 1000)
+                log.info("Skipping because parquet chunked file exists: %s", out_basename + ".parquet")
+                # attempt to create raw manifest if missing
+                try:
+                    if not s3_object_exists(raw_manifest_key):
+                        head = s3.head_object(Bucket=S3_BUCKET, Key=S3_CHUNKED_PREFIX + out_basename + ".parquet")
+                        etag = head.get("ETag", "")
+                        if isinstance(etag, str):
+                            etag = etag.strip('"')
+                        size = head.get("ContentLength", 0)
+                        raw_manifest = sanitize_payload_for_raw_manifest(doc_id, s3_key, S3_CHUNKED_PREFIX + out_basename + ".parquet", 0, etag, size)
+                        s3.put_object(Bucket=S3_BUCKET, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
+                except Exception:
+                    pass
+                return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+        except Exception as e:
+            log.warning("Error checking existing outputs for %s: %s", s3_key, e)
+
+    # open pptx
     try:
         from pptx import Presentation
     except Exception as e:
         log.error("pptx import failed: %s", e)
         return {"saved_chunks": 0, "total_parse_duration_ms": 0, "skipped": True, "error": str(e)}
+
     try:
         prs = Presentation(BytesIO(raw))
     except Exception as e:
         log.error("Failed to open presentation %s: %s", s3_key, e)
         return {"saved_chunks": 0, "total_parse_duration_ms": 0, "skipped": True, "error": str(e)}
+
+    # extract slide content
     slides_content = []
     for idx, slide in enumerate(prs.slides):
         slide_num = idx + 1
@@ -367,13 +511,22 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                         table_items.append(md_table)
                 blob = _extract_image_blob_from_shape(shape)
                 if blob and len(blob) >= MIN_IMG_BYTES:
-                    from PIL import Image
-                    img = Image.open(BytesIO(blob)).convert("RGB")
-                    arr = np.array(img)[:, :, ::-1] if np is not None else None
-                    if arr is not None:
-                        ocr_lines = do_ocr(arr)
-                        if ocr_lines:
-                            img_texts.append("\n".join(ocr_lines))
+                    try:
+                        from PIL import Image
+                        img = Image.open(BytesIO(blob)).convert("RGB")
+                        arr = None
+                        if np is not None:
+                            arr = np.array(img)[:, :, ::-1]
+                        else:
+                            # No numpy: try to convert to raw bytes and skip OCR if forced off
+                            arr = None
+                        if arr is not None:
+                            ocr_lines = do_ocr(arr)
+                            if ocr_lines:
+                                img_texts.append("\n".join(ocr_lines))
+                    except Exception:
+                        # continue; don't fail whole slide for image issues
+                        pass
             except Exception:
                 continue
         merged_lines = []
@@ -395,6 +548,8 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             "parse_duration_ms": slide_parse_ms,
             "layout": layout_name or ""
         })
+
+    # build and write chunks
     saved = 0
     total_slides = len(slides_content)
     writer = S3ParquetWriter(doc_id=doc_id)
@@ -418,6 +573,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             if "tags" in payload and isinstance(payload["tags"], (list, tuple)):
                 payload["tags"] = [str(x) for x in payload["tags"]]
             return payload
+
         for i in range(0, total_slides, SLIDES_PER_CHUNK):
             chunk_slides = slides_content[i:i + SLIDES_PER_CHUNK]
             start = chunk_slides[0]["slide_number"]
@@ -475,13 +631,10 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             log.info("Buffered slides %d-%d (tokens=%d)", start, end, token_count)
             saved += 1
     except Exception as e:
-        try:
-            if writer and getattr(writer, "_rows", None):
-                pass
-        except Exception:
-            pass
         log.exception("Fatal error while buffering chunks for %s: %s", s3_key, str(e))
         return {"saved_chunks": 0, "total_parse_duration_ms": int((time.perf_counter() - start_all) * 1000), "skipped": True, "error": str(e)}
+
+    # finalize and upload parquet
     try:
         if saved == 0:
             total_ms = int((time.perf_counter() - start_all) * 1000)
@@ -498,14 +651,16 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         return {"saved_chunks": count, "total_parse_duration_ms": total_ms, "skipped": False}
     except Exception as e_up:
         total_ms = int((time.perf_counter() - start_all) * 1000)
-        try:
-            pass
-        except Exception:
-            pass
         log.error("Failed to upload chunked file for %s error=%s", s3_key, str(e_up))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
+
+# --- CLI runner (preserve behavior) ---------------------------------------
 if __name__ == "__main__":
+    _init_env()
     log.info("Starting pptx -> parquet parser")
+    if S3_BUCKET is None or s3 is None:
+        log.error("S3_BUCKET or s3 client not configured; aborting CLI run")
+        sys.exit(1)
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=S3_BUCKET, Prefix=S3_RAW_PREFIX):
         for obj in page.get("Contents", []):

@@ -1,98 +1,72 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, io, sys, json, time, logging, hashlib, boto3, unicodedata, re, tempfile, importlib
+import os
+import io
+import sys
+import json
+import time
+import logging
+import hashlib
+import unicodedata
+import re
+import tempfile
+import importlib
 from datetime import datetime
-from botocore.exceptions import ClientError
-from typing import List, Tuple, Dict, Generator, Optional, Any
 from contextlib import contextmanager
-from PIL import Image
-RESET = ""
+from typing import List, Tuple, Dict, Generator, Optional, Any
+
+# --- logger ---
 logger = logging.getLogger("pdf_parser")
 logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 logger.handlers[:] = [handler]
-def _env_int(name: str, default: int) -> int:
-    v = os.getenv(name)
-    try:
-        return int(v) if v is not None else default
-    except Exception:
-        logger.warning("Invalid env var for %s: %r; falling back to %d", name, v, default)
-        return default
-def _env_bool(name: str, default: bool) -> bool:
-    v = os.getenv(name)
-    if v is None:
-        return default
-    if isinstance(v, bool):
-        return v
-    s = v.strip().lower()
-    if s in ("1", "true", "yes", "y", "t"):
-        return True
-    if s in ("0", "false", "no", "n", "f"):
-        return False
-    return default
+
+# --- environment defaults (read-only at import; validated at runtime) ---
 S3_BUCKET = os.getenv("S3_BUCKET")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/").rstrip("/") + "/"
 FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
-PDF_DISABLE_OCR = _env_bool("PDF_DISABLE_OCR", False)
-PDF_FORCE_OCR = _env_bool("PDF_FORCE_OCR", False)
+PDF_DISABLE_OCR = os.getenv("PDF_DISABLE_OCR", "false").lower() == "true"
+PDF_FORCE_OCR = os.getenv("PDF_FORCE_OCR", "false").lower() == "true"
 PDF_OCR_ENGINE = os.getenv("PDF_OCR_ENGINE", "auto").lower()
 PDF_OCR_STRICT = os.getenv("PDF_OCR_STRICT", "false").lower() == "true"
 PDF_TESSERACT_LANG = os.getenv("PDF_TESSERACT_LANG", "eng")
-PDF_OCR_RENDER_DPI = _env_int("PDF_OCR_RENDER_DPI", 300)
-PDF_MIN_IMG_SIZE_BYTES = _env_int("PDF_MIN_IMG_SIZE_BYTES", 3072)
-MAX_TOKENS_PER_CHUNK = _env_int("MAX_TOKENS_PER_CHUNK", 512)
-MIN_TOKENS_PER_CHUNK = _env_int("MIN_TOKENS_PER_CHUNK", 100)
-NUMBER_OF_OVERLAPPING_SENTENCES = _env_int("NUMBER_OF_OVERLAPPING_SENTENCES", 2)
+PDF_OCR_RENDER_DPI = int(os.getenv("PDF_OCR_RENDER_DPI", "300"))
+PDF_MIN_IMG_SIZE_BYTES = int(os.getenv("PDF_MIN_IMG_SIZE_BYTES", "3072"))
+MAX_TOKENS_PER_CHUNK = int(os.getenv("MAX_TOKENS_PER_CHUNK", "512"))
+MIN_TOKENS_PER_CHUNK = int(os.getenv("MIN_TOKENS_PER_CHUNK", "100"))
+NUMBER_OF_OVERLAPPING_SENTENCES = int(os.getenv("NUMBER_OF_OVERLAPPING_SENTENCES", "2"))
 PARSER_VERSION_PDF = os.getenv("PARSER_VERSION_PDF", "pdf-v1")
-S3_PUT_RETRIES = _env_int("S3_PUT_RETRIES", 3)
+S3_PUT_RETRIES = int(os.getenv("S3_PUT_RETRIES", "3"))
 S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF", "0.3"))
 ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
-if not S3_BUCKET:
-    logger.error("S3_BUCKET env must be set")
-    raise SystemExit(1)
-try:
-    import tiktoken
-    enc = None
-    try:
-        enc = tiktoken.get_encoding(ENC_NAME)
-    except Exception:
+
+# --- lazy clients / caches ---
+_s3_client = None
+
+
+def get_s3_client():
+    global _s3_client
+    if _s3_client is None:
         try:
-            enc = tiktoken.encoding_for_model("gpt2")
-        except Exception:
-            enc = None
-except Exception:
-    enc = None
-try:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-    logger.info("pyarrow available: %s", getattr(pa, "__version__", "unknown"))
-except Exception:
-    logger.exception("pyarrow is required for parquet-only outputs; install pyarrow")
-    raise
-try:
-    import numpy as np
-except Exception:
-    np = None
-try:
-    import spacy
-except Exception:
-    spacy = None
-try:
-    from spacy.pipeline import Sentencizer
-except Exception:
-    Sentencizer = None
-try:
-    import boto3
-    s3 = boto3.client("s3")
-except Exception:
-    logger.exception("boto3 required")
-    raise
+            import boto3
+        except Exception as e:
+            logger.exception("boto3 is required but failed to import: %s", e)
+            raise
+        _s3_client = boto3.client("s3")
+    return _s3_client
+
+
+# --- small helpers ---
 def sha256_hex_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
+
+
 def sha256_hex_str(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
+
+
 def local_file_sha256(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -101,13 +75,17 @@ def local_file_sha256(path: str) -> str:
                 break
             h.update(chunk)
     return h.hexdigest()
+
+
 def canonicalize_text(s: str) -> str:
     if not isinstance(s, str):
         s = str(s or "")
     s = unicodedata.normalize("NFKC", s)
     s = s.replace("\r\n", "\n").replace("\r", "\n")
-    lines = [re.sub(r'[ \t]+$', '', ln) for ln in s.split("\n")]
+    lines = [re.sub(r"[ \t]+$", "", ln) for ln in s.split("\n")]
     return "\n".join(lines).strip()
+
+
 def try_decode_bytes(b: bytes) -> str:
     for encoding in ("utf-8", "utf-8-sig", "latin-1"):
         try:
@@ -115,27 +93,47 @@ def try_decode_bytes(b: bytes) -> str:
         except Exception:
             continue
     return b.decode("utf-8", errors="replace")
+
+
 def token_count_for(text: str) -> int:
     if not text:
         return 0
-    if enc:
+    try:
+        import tiktoken as _tiktoken  # lazy
         try:
+            enc = _tiktoken.get_encoding(ENC_NAME)
+        except Exception:
+            try:
+                enc = _tiktoken.encoding_for_model("gpt2")
+            except Exception:
+                enc = None
+        if enc is not None:
             return len(enc.encode(text))
+    except Exception:
+        pass
+    return len(text.split())
+
+
+def s3_object_exists(key: str) -> bool:
+    s3 = get_s3_client()
+    try:
+        s3.head_object(Bucket=os.getenv("S3_BUCKET"), Key=key)
+        return True
+    except Exception as e:
+        try:
+            from botocore.exceptions import ClientError
+
+            if isinstance(e, ClientError):
+                code = e.response.get("Error", {}).get("Code", "")
+                if code in ("404", "NoSuchKey", "NotFound"):
+                    return False
         except Exception:
             pass
-    return len(text.split())
-def s3_object_exists(key: str) -> bool:
-    try:
-        s3.head_object(Bucket=S3_BUCKET, Key=key)
-        return True
-    except ClientError as e:
-        code = e.response.get("Error", {}).get("Code", "")
-        if code in ("404", "NoSuchKey", "NotFound"):
-            return False
         return False
-    except Exception:
-        return False
+
+
 def s3_upload_file_atomic(local_path: str, bucket: str, key: str, content_type: str = "application/octet-stream") -> None:
+    s3 = get_s3_client()
     tmp_key = f"{key}.tmp.{os.getpid()}.{int(time.time())}"
     for attempt in range(1, S3_PUT_RETRIES + 1):
         try:
@@ -147,7 +145,9 @@ def s3_upload_file_atomic(local_path: str, bucket: str, key: str, content_type: 
         except Exception as e:
             logger.warning("s3 atomic upload attempt %d failed for %s: %s", attempt, key, e)
             time.sleep(S3_PUT_BACKOFF * attempt)
-    raise Exception(f"s3 atomic upload failed for {key} after retries")
+    raise Exception(f"s3 atomic upload failed for {key} after {S3_PUT_RETRIES} attempts")
+
+
 def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
     for k in list(payload.keys()):
         v = payload.get(k)
@@ -170,10 +170,14 @@ def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
             continue
         if not isinstance(v, (str, int, float, bool)):
             payload[k] = str(v)
+
+
+# --- parquet writer (lazy pyarrow) ---
 class S3ParquetWriter:
     def __init__(self, doc_id: str):
         self.doc_id = doc_id
         self._rows: List[Dict[str, Any]] = []
+
     def _normalize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         fields: Dict[str, Any] = {}
         fields["document_id"] = payload.get("document_id") or ""
@@ -209,12 +213,23 @@ class S3ParquetWriter:
         fields["parser_version"] = payload.get("parser_version") or PARSER_VERSION_PDF
         fields["used_ocr"] = bool(payload.get("used_ocr", False))
         return fields
+
     def write_payload(self, payload: Dict[str, Any]) -> int:
         self._rows.append(self._normalize(payload))
         return 1
+
     def finalize_and_upload(self, out_basename: str) -> Tuple[int, str, str, int]:
         if not self._rows:
             return 0, "", "", 0
+
+        # lazy import pyarrow
+        try:
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+        except Exception as e:
+            logger.exception("pyarrow is required to write parquet: %s", e)
+            raise RuntimeError("pyarrow is required to write parquet") from e
+
         schema = pa.schema([
             pa.field("document_id", pa.string()),
             pa.field("file_name", pa.string()),
@@ -236,20 +251,23 @@ class S3ParquetWriter:
             pa.field("parser_version", pa.string()),
             pa.field("used_ocr", pa.bool_())
         ])
+
         cols = {name: [] for name in [f.name for f in schema]}
         for r in self._rows:
             for name in cols:
                 cols[name].append(r.get(name) if name in r else None)
+
         table = pa.Table.from_pydict(cols, schema=schema)
         existing_md = table.schema.metadata or {}
         new_md = dict(existing_md)
         new_md.update({
-            b"schema_version": os.getenv("CHUNKED_SCHEMA_VERSION","chunked_v1").encode("utf-8"),
+            b"schema_version": os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1").encode("utf-8"),
             b"parser_version": PARSER_VERSION_PDF.encode("utf-8"),
             b"producer": b"pdf_parser",
             b"created_at": datetime.utcnow().isoformat().encode("utf-8")
         })
         table = table.replace_schema_metadata(new_md)
+
         tmpfile = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".parquet", dir="/tmp")
         tmpfile.close()
         pq.write_table(table, tmpfile.name, compression="zstd", flavor="spark")
@@ -259,12 +277,15 @@ class S3ParquetWriter:
         sha = sha256_hex_bytes(b)
         size = os.path.getsize(local_parquet_path)
         parquet_key = out_basename + ".parquet"
-        s3_upload_file_atomic(local_parquet_path, S3_BUCKET, S3_CHUNKED_PREFIX + parquet_key, content_type="application/octet-stream")
+        s3_upload_file_atomic(local_parquet_path, os.getenv("S3_BUCKET"), S3_CHUNKED_PREFIX + parquet_key, content_type="application/octet-stream")
         try:
             os.unlink(local_parquet_path)
         except Exception:
             pass
         return len(self._rows), S3_CHUNKED_PREFIX + parquet_key, sha, size
+
+
+# --- small sys.path helper for local imports ---
 @contextmanager
 def without_cwd_on_syspath():
     saved = list(sys.path)
@@ -274,19 +295,35 @@ def without_cwd_on_syspath():
         yield
     finally:
         sys.path[:] = saved
+
+
+# --- encoder / chunker (lazy tiktoken / spacy usage) ---
 class TokenEncoder:
     def __init__(self, model_name: str = "gpt2"):
         self.model_name = model_name
         self.backend = "whitespace"
         try:
-            import tiktoken
-            enc_local = tiktoken.encoding_for_model(model_name) if hasattr(tiktoken, "encoding_for_model") else tiktoken.get_encoding(model_name)
-            self.encode = lambda txt: enc_local.encode(txt)
-            self.decode = lambda toks: enc_local.decode(toks)
-            self.backend = "tiktoken"
+            import tiktoken as _tiktoken  # lazy
+            enc_local = None
+            try:
+                enc_local = _tiktoken.get_encoding(ENC_NAME)
+            except Exception:
+                try:
+                    enc_local = _tiktoken.encoding_for_model(self.model_name)
+                except Exception:
+                    enc_local = None
+            if enc_local is not None:
+                self.encode = lambda txt: enc_local.encode(txt)
+                self.decode = lambda toks: enc_local.decode(toks)
+                self.backend = "tiktoken"
+            else:
+                raise RuntimeError("tiktoken available but encoder not found")
         except Exception:
+            logger.warning("tiktoken unavailable; using whitespace tokeniser")
             self.encode = lambda txt: txt.split()
             self.decode = lambda toks: " ".join(toks)
+
+
 def split_long_sentence_by_words(sent_text: str, max_tokens: int, encoder: TokenEncoder) -> List[str]:
     words = sent_text.split()
     pieces: List[str] = []
@@ -314,6 +351,7 @@ def split_long_sentence_by_words(sent_text: str, max_tokens: int, encoder: Token
         pieces.append(" ".join(cur_words))
     return pieces
 
+
 class SentenceChunker:
     def __init__(
         self,
@@ -323,227 +361,188 @@ class SentenceChunker:
         nlp=None,
         min_tokens_per_chunk: Optional[int] = None,
     ):
-        self.max_tokens_per_chunk = (
-            _env_int("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK)
-            if max_tokens_per_chunk is None
-            else int(max_tokens_per_chunk)
-        )
-        self.overlap_sentences = (
-            _env_int("NUMBER_OF_OVERLAPPING_SENTENCES", NUMBER_OF_OVERLAPPING_SENTENCES)
-            if overlap_sentences is None
-            else int(overlap_sentences)
-        )
+        self.max_tokens_per_chunk = int(os.getenv("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK)) if max_tokens_per_chunk is None else int(max_tokens_per_chunk)
+        self.overlap_sentences = int(os.getenv("NUMBER_OF_OVERLAPPING_SENTENCES", NUMBER_OF_OVERLAPPING_SENTENCES)) if overlap_sentences is None else int(overlap_sentences)
         if self.overlap_sentences < 0:
             raise ValueError("overlap_sentences must be >= 0")
-
-        self.min_tokens_per_chunk = (
-            _env_int("MIN_TOKENS_PER_CHUNK", MIN_TOKENS_PER_CHUNK)
-            if min_tokens_per_chunk is None
-            else int(min_tokens_per_chunk)
-        )
+        self.min_tokens_per_chunk = int(os.getenv("MIN_TOKENS_PER_CHUNK", MIN_TOKENS_PER_CHUNK)) if min_tokens_per_chunk is None else int(min_tokens_per_chunk)
         if self.min_tokens_per_chunk < 0:
             raise ValueError("min_tokens_per_chunk must be >= 0")
-
         self.encoder = TokenEncoder(model_name=token_model)
         self.nlp = nlp or self._make_sentencizer()
 
     @staticmethod
     def _make_sentencizer():
         try:
-            return spacy.load("en_core_web_sm")
-        except Exception:
-            nlp = spacy.blank("en")
+            import spacy as _spacy  # lazy
             try:
-                if Sentencizer is not None:
-                    nlp.add_pipe("sentencizer")
-                else:
-                    nlp.add_pipe("sentencizer")
+                return _spacy.load("en_core_web_sm")
             except Exception:
+                nlp = _spacy.blank("en")
                 try:
-                    nlp.add_pipe(Sentencizer())
+                    nlp.add_pipe("sentencizer")
                 except Exception:
-                    raise RuntimeError("Failed to add Sentencizer to spaCy pipeline.")
-            return nlp
+                    try:
+                        from spacy.pipeline import Sentencizer as _Sentencizer
+                        nlp.add_pipe(_Sentencizer())
+                    except Exception:
+                        logger.warning("spaCy sentencizer unavailable; falling back to regex-based splitter")
+                        return None
+                return nlp
+        except Exception:
+            logger.warning("spaCy not available; falling back to regex-based splitter")
+            return None
+
+    def _sentences_with_offsets_regex(self, text: str):
+        pattern = re.compile(r"(?s).*?[\.\!\?][\"']?\s+|.+$")
+        items = []
+        pos = 0
+        for m in pattern.finditer(text):
+            s = m.group(0)
+            if not s or s.strip() == "":
+                pos = m.end()
+                continue
+            start = pos
+            end = pos + len(s)
+            items.append((s.strip(), start, end))
+            pos = m.end()
+        if not items and text.strip():
+            items = [(text.strip(), 0, len(text))]
+        return items
 
     def _sentences_with_offsets(self, text: str):
-        doc = self.nlp(text)
-        return [
-            (sent.text.strip(), int(sent.start_char), int(sent.end_char))
-            for sent in doc.sents
-            if sent.text.strip()
-        ]
+        if self.nlp is not None:
+            try:
+                doc = self.nlp(text)
+                return [(sent.text.strip(), int(sent.start_char), int(sent.end_char)) for sent in doc.sents if sent.text.strip()]
+            except Exception:
+                pass
+        return self._sentences_with_offsets_regex(text)
 
     def chunk_document(self, text: str):
         sentences = self._sentences_with_offsets(text)
-        sent_items = [
-            {
-                "text": s,
-                "start_char": sc,
-                "end_char": ec,
-                "orig_idx": i,
-                "is_remainder": False,
-            }
-            for i, (s, sc, ec) in enumerate(sentences)
-        ]
-
+        sent_items = [{"text": s, "start_char": sc, "end_char": ec, "orig_idx": i, "is_remainder": False} for i, (s, sc, ec) in enumerate(sentences)]
         i = 0
         n = len(sent_items)
         prev_chunk = None
-
         while i < n:
             cur_token_count = 0
             chunk_sent_texts = []
             chunk_start_idx = i
-            chunk_start_char = sent_items[i]["start_char"]
+            chunk_start_char = sent_items[i]["start_char"] if i < n else None
             chunk_end_char = None
             is_truncated_sentence = False
-
             while i < n:
                 sent_text = sent_items[i]["text"]
                 tok_ids = self.encoder.encode(sent_text)
                 sent_tok_len = len(tok_ids)
-
-                # sentence too long -> split
                 if sent_tok_len > self.max_tokens_per_chunk:
-                    pieces = split_long_sentence_by_words(
-                        sent_text, self.max_tokens_per_chunk, self.encoder
-                    )
+                    pieces = split_long_sentence_by_words(sent_text, self.max_tokens_per_chunk, self.encoder)
                     if not pieces:
                         pieces = [sent_text[:1000]]
-
                     sent_items[i]["text"] = pieces[0]
                     for j, rem in enumerate(pieces[1:], 1):
-                        sent_items.insert(
-                            i + j,
-                            {
-                                "text": rem,
-                                "start_char": None,
-                                "end_char": None,
-                                "orig_idx": sent_items[i]["orig_idx"],
-                                "is_remainder": True,
-                            },
-                        )
+                        sent_items.insert(i + j, {"text": rem, "start_char": None, "end_char": None, "orig_idx": sent_items[i]["orig_idx"], "is_remainder": True})
                     n = len(sent_items)
                     tok_ids = self.encoder.encode(sent_items[i]["text"])
                     sent_tok_len = len(tok_ids)
-
-                # overflow next sentence?
                 if cur_token_count + sent_tok_len > self.max_tokens_per_chunk:
-                    # chunk empty => truncate sentence
                     if not chunk_sent_texts:
                         prefix_tok_ids = tok_ids[: self.max_tokens_per_chunk]
-                        prefix_text = self.encoder.decode(prefix_tok_ids)
+                        try:
+                            prefix_text = self.encoder.decode(prefix_tok_ids)
+                        except Exception:
+                            prefix_text = " ".join(str(x) for x in prefix_tok_ids)
                         chunk_sent_texts.append(prefix_text)
                         cur_token_count = len(prefix_tok_ids)
                         is_truncated_sentence = True
-
                         remainder_tok_ids = tok_ids[self.max_tokens_per_chunk :]
                         if remainder_tok_ids:
-                            remainder_text = self.encoder.decode(remainder_tok_ids)
-                            sent_items[i] = {
-                                "text": remainder_text,
-                                "start_char": None,
-                                "end_char": None,
-                                "orig_idx": sent_items[i]["orig_idx"],
-                                "is_remainder": True,
-                            }
+                            try:
+                                remainder_text = self.encoder.decode(remainder_tok_ids)
+                            except Exception:
+                                remainder_text = " ".join(str(x) for x in remainder_tok_ids)
+                            sent_items[i] = {"text": remainder_text, "start_char": None, "end_char": None, "orig_idx": sent_items[i]["orig_idx"], "is_remainder": True}
                         else:
                             i += 1
                         break
                     break
-
                 chunk_sent_texts.append(sent_text)
                 cur_token_count += sent_tok_len
                 chunk_end_char = sent_items[i]["end_char"]
                 i += 1
-
             if not chunk_sent_texts:
                 i += 1
                 continue
-
-            chunk_meta = {
-                "text": " ".join(chunk_sent_texts).strip(),
-                "token_count": cur_token_count,
-                "start_sentence_idx": chunk_start_idx,
-                "end_sentence_idx": i,
-                "start_char": chunk_start_char,
-                "end_char": chunk_end_char,
-                "is_truncated_sentence": is_truncated_sentence,
-            }
-
-            new_start = max(
-                chunk_start_idx + 1, chunk_meta["end_sentence_idx"] - self.overlap_sentences
-            )
-
+            chunk_meta = {"text": " ".join(chunk_sent_texts).strip(), "token_count": cur_token_count, "start_sentence_idx": chunk_start_idx, "end_sentence_idx": i, "start_char": chunk_start_char, "end_char": chunk_end_char, "is_truncated_sentence": is_truncated_sentence}
+            new_start = max(chunk_start_idx + 1, chunk_meta["end_sentence_idx"] - self.overlap_sentences)
             if prev_chunk is None:
                 prev_chunk = chunk_meta
             else:
-                # merge if too small
                 if chunk_meta["token_count"] < self.min_tokens_per_chunk:
                     prev_chunk["text"] += " " + chunk_meta["text"]
                     prev_chunk["token_count"] += chunk_meta["token_count"]
                     prev_chunk["end_sentence_idx"] = chunk_meta["end_sentence_idx"]
                     prev_chunk["end_char"] = chunk_meta["end_char"]
-                    prev_chunk["is_truncated_sentence"] = (
-                        prev_chunk["is_truncated_sentence"]
-                        or chunk_meta["is_truncated_sentence"]
-                    )
+                    prev_chunk["is_truncated_sentence"] = prev_chunk["is_truncated_sentence"] or chunk_meta["is_truncated_sentence"]
                 else:
                     yield prev_chunk
                     prev_chunk = chunk_meta
-
             i = new_start
             n = len(sent_items)
-
         if prev_chunk is not None:
             yield prev_chunk
 
     @classmethod
     def from_env(cls, **kwargs):
-        max_tokens = _env_int("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK)
-        overlap = _env_int("NUMBER_OF_OVERLAPPING_SENTENCES", NUMBER_OF_OVERLAPPING_SENTENCES)
-        min_tokens = _env_int("MIN_TOKENS_PER_CHUNK", MIN_TOKENS_PER_CHUNK)
-        token_model = os.getenv(
-            "TOKEN_ENCODER_MODEL", os.getenv("TOKEN_ENCODER", "gpt2")
-        )
-        return cls(
-            max_tokens_per_chunk=max_tokens,
-            overlap_sentences=overlap,
-            token_model=token_model,
-            nlp=None,
-            min_tokens_per_chunk=min_tokens,
-        )
+        max_tokens = int(os.getenv("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK))
+        overlap = int(os.getenv("NUMBER_OF_OVERLAPPING_SENTENCES", NUMBER_OF_OVERLAPPING_SENTENCES))
+        min_tokens = int(os.getenv("MIN_TOKENS_PER_CHUNK", MIN_TOKENS_PER_CHUNK))
+        token_model = os.getenv("TOKEN_ENCODER_MODEL", os.getenv("TOKEN_ENCODER", "gpt2"))
+        return cls(max_tokens_per_chunk=max_tokens, overlap_sentences=overlap, token_model=token_model, nlp=None, min_tokens_per_chunk=min_tokens)
 
+
+# --- pdf and ocr helpers (lazy imports where needed) ---
 def import_fitz_local():
     with without_cwd_on_syspath():
         try:
             return importlib.import_module("fitz")
         except Exception:
             return importlib.import_module("pymupdf")
+
+
 def import_pdfplumber():
     with without_cwd_on_syspath():
         return importlib.import_module("pdfplumber")
-def crop_page_to_pil_and_bytes(page, bbox: Tuple[float, float, float, float], dpi: int = PDF_OCR_RENDER_DPI) -> Tuple[Image.Image, bytes]:
+
+
+def crop_page_to_pil_and_bytes(page, bbox: Tuple[float, float, float, float], dpi: int = PDF_OCR_RENDER_DPI) -> Tuple[Any, bytes]:
     fitz = import_fitz_local()
     rect = fitz.Rect(bbox)
     mat = fitz.Matrix(dpi / 72.0, dpi / 72.0)
     pix = page.get_pixmap(matrix=mat, clip=rect, alpha=False)
     png_bytes = pix.tobytes("png")
+    from PIL import Image
+
     img = Image.open(io.BytesIO(png_bytes))
     return img, png_bytes
-def run_ocr_on_pil_image(engine_name: str, engine_obj, pil_img: Image.Image) -> str:
+
+
+def run_ocr_on_pil_image(engine_name: str, engine_obj, pil_img) -> str:
     if engine_name == "rapidocr" and engine_obj is not None:
         try:
-            import numpy as np, cv2
+            import numpy as _np
+            import cv2 as _cv2
+
             img_arr = None
-            if isinstance(pil_img, Image.Image):
-                img_arr = np.array(pil_img.convert("RGB"))[:, :, ::-1].copy()
+            if hasattr(pil_img, "convert"):
+                img_arr = _np.array(pil_img.convert("RGB"))[:, :, ::-1].copy()
             elif isinstance(pil_img, (bytes, bytearray)):
-                nparr = np.frombuffer(pil_img, np.uint8)
-                img_arr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                nparr = _np.frombuffer(pil_img, np.uint8)
+                img_arr = _cv2.imdecode(nparr, _cv2.IMREAD_COLOR)
             else:
                 try:
-                    img_arr = np.asarray(pil_img)
+                    img_arr = _np.asarray(pil_img)
                 except Exception:
                     img_arr = None
             if img_arr is None:
@@ -607,11 +606,13 @@ def run_ocr_on_pil_image(engine_name: str, engine_obj, pil_img: Image.Image) -> 
             logger.exception("Tesseract OCR failed to OCR image")
             return ""
     return ""
-def _create_rapidocr_engine(model_dir: str|None = None):
+
+
+def _create_rapidocr_engine(model_dir: str | None = None):
     models_path = model_dir or os.getenv("RAPIDOCR_MODEL_DIR", "/opt/models/rapidocr")
     tried = []
     last_exc = None
-    candidates = ("rapidocr_onnxruntime","rapidocr")
+    candidates = ("rapidocr_onnxruntime", "rapidocr")
     for module_name in candidates:
         try:
             with without_cwd_on_syspath():
@@ -627,7 +628,9 @@ def _create_rapidocr_engine(model_dir: str|None = None):
         except Exception as e:
             tried.append((module_name, repr(e)))
             last_exc = e
-    raise ImportError("RapidOCR import failed; tried: " + "; ".join(f"{m}:{err}" for m,err in tried)) from last_exc
+    raise ImportError("RapidOCR import failed; tried: " + "; ".join(f"{m}:{err}" for m, err in tried)) from last_exc
+
+
 def get_pdf_image_ocr_engine():
     if PDF_DISABLE_OCR and not PDF_FORCE_OCR:
         logger.info("PDF_DISABLE_OCR=true and PDF_FORCE_OCR=false -> skipping OCR")
@@ -646,56 +649,54 @@ def get_pdf_image_ocr_engine():
     if choice == "tesseract":
         try:
             with without_cwd_on_syspath():
-                import pytesseract
-                pytesseract.pytesseract.tesseract_cmd = os.getenv("TESSERACT_CMD", "tesseract")
+                import pytesseract as _pytesseract
+                _pytesseract.pytesseract.tesseract_cmd = os.getenv("TESSERACT_CMD", "tesseract")
                 logger.info("Using Tesseract OCR")
-                return "tesseract", pytesseract
+                return "tesseract", _pytesseract
         except Exception as e:
             logger.exception("Requested Tesseract but import failed: %s", e)
             if PDF_OCR_STRICT or PDF_FORCE_OCR:
                 raise
             return "none", None
-    if choice == "auto":
-        try:
-            eng = _create_rapidocr_engine()
-            logger.info("Auto-selected RapidOCR model_dir=%s", os.getenv("RAPIDOCR_MODEL_DIR", "/opt/models/rapidocr"))
-            return "rapidocr", eng
-        except Exception as e_rapid:
-            logger.warning("RapidOCR auto-select failed: %s", repr(e_rapid))
-            try:
-                with without_cwd_on_syspath():
-                    import pytesseract
-                    pytesseract.pytesseract.tesseract_cmd = os.getenv("TESSERACT_CMD", "tesseract")
-                    logger.info("Auto-selected Tesseract")
-                    return "tesseract", pytesseract
-            except Exception as e_tess:
-                logger.warning("Tesseract auto-select failed: %s", repr(e_tess))
-                try:
-                    import onnxruntime
-                except Exception:
-                    logger.error("onnxruntime import failed; if you want RapidOCR install onnxruntime or onnxruntime-gpu (pip).")
-                logger.error("No OCR engine available. OCR will be skipped.")
-                return "none", None
+    # auto
     try:
         eng = _create_rapidocr_engine()
-        logger.info("Fallback RapidOCR")
+        logger.info("Auto-selected RapidOCR model_dir=%s", os.getenv("RAPIDOCR_MODEL_DIR", "/opt/models/rapidocr"))
         return "rapidocr", eng
-    except Exception as e:
-        logger.exception("Fallback RapidOCR failed: %s", e)
-        return "none", None
+    except Exception as rapid_ex:
+        logger.warning("RapidOCR auto-select failed: %s", repr(rapid_ex))
+        try:
+            with without_cwd_on_syspath():
+                import pytesseract as _pytesseract
+                _pytesseract.pytesseract.tesseract_cmd = os.getenv("TESSERACT_CMD", "tesseract")
+                logger.info("Auto-selected Tesseract")
+                return "tesseract", _pytesseract
+        except Exception as tess_ex:
+            logger.warning("Tesseract auto-select failed: %s", repr(tess_ex))
+            logger.error("No OCR engine available. OCR will be skipped.")
+            return "none", None
+
+
+# --- geometry / layout helpers ---
 def rect_area(rect: Tuple[float, float, float, float]) -> float:
     x0, y0, x1, y1 = rect
     return max(0.0, x1 - x0) * max(0.0, y1 - y0)
+
+
 def intersection_area(a: Tuple[float, float, float, float], b: Tuple[float, float, float, float]) -> float:
     x0 = max(a[0], b[0]); y0 = max(a[1], b[1]); x1 = min(a[2], b[2]); y1 = min(a[3], b[3])
     if x1 <= x0 or y1 <= y0:
         return 0.0
     return (x1 - x0) * (y1 - y0)
+
+
 def overlap_fraction(a: Tuple[float, float, float, float], b: Tuple[float, float, float, float]) -> float:
     a_area = rect_area(a)
     if a_area == 0:
         return 0.0
     return intersection_area(a, b) / a_area
+
+
 def cluster_blocks_into_columns(blocks: List[dict], gap_multiplier: float = 1.5) -> List[List[dict]]:
     if not blocks:
         return []
@@ -719,6 +720,8 @@ def cluster_blocks_into_columns(blocks: List[dict], gap_multiplier: float = 1.5)
     group_idxs = [centers[j][1] for j in range(start, len(centers))]
     groups.append([blocks[k] for k in group_idxs])
     return groups
+
+
 def assemble_column_text(column_blocks: List[dict]) -> str:
     if not column_blocks:
         return ""
@@ -733,6 +736,8 @@ def assemble_column_text(column_blocks: List[dict]) -> str:
             pieces.append(" " + b["text"].strip())
         prev_y = b["bbox"][3]
     return "\n\n".join([p.strip() for p in "".join(pieces).split("\n\n") if p.strip()])
+
+
 def reflow_and_clean_text(text: str) -> str:
     if not text:
         return text
@@ -743,6 +748,8 @@ def reflow_and_clean_text(text: str) -> str:
     text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
+
+
 def extract_page_clean_and_figures(pdf_path: str, pageno: int, overlap_threshold: float = 0.25, image_ocr_engine_name: str = "none", image_ocr_engine_obj=None):
     fitz = import_fitz_local()
     pdfplumber = import_pdfplumber()
@@ -831,14 +838,20 @@ def extract_page_clean_and_figures(pdf_path: str, pageno: int, overlap_threshold
             pass
     plumb.close(); doc.close()
     return clean_text, figures_texts
+
+
 def download_s3_object_to_temp(s3_key: str) -> str:
     tmpdir = os.getenv("TMPDIR") or None
     tf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", dir=tmpdir)
     try:
-        s3.download_fileobj(Bucket=S3_BUCKET, Key=s3_key, Fileobj=tf)
+        s3 = get_s3_client()
+        with open(tf.name, "wb") as fh:
+            s3.download_fileobj(Bucket=os.getenv("S3_BUCKET"), Key=s3_key, Fileobj=fh)
     finally:
-        tf.flush(); tf.close()
+        pass
     return tf.name
+
+
 def _now_iso_z() -> str:
     sd = os.getenv("SOURCE_DATE_EPOCH")
     if sd:
@@ -847,6 +860,8 @@ def _now_iso_z() -> str:
         except Exception:
             pass
     return datetime.utcnow().isoformat() + "Z"
+
+
 def _derive_doc_id_from_head(s3_key: str, head_obj: dict, manifest: dict) -> str:
     if isinstance(manifest, dict) and manifest.get("file_hash"):
         return manifest.get("file_hash")
@@ -862,133 +877,163 @@ def _derive_doc_id_from_head(s3_key: str, head_obj: dict, manifest: dict) -> str
     if base:
         return base
     return sha256_hex_str(s3_key)
+
+
 def sanitize_payload_for_raw_manifest(doc_id: str, s3_raw_key: str, chunked_s3_key: str, rows: int, sha: str, size: int) -> Dict[str, Any]:
     return {"raw_key": s3_raw_key, "doc_id": doc_id, "chunked_key": chunked_s3_key, "rows": rows, "sha256": sha, "size_bytes": size, "schema_version": os.getenv("CHUNKED_SCHEMA_VERSION","chunked_v1"), "parser_version": PARSER_VERSION_PDF, "created_at": datetime.utcnow().isoformat() + "Z"}
+
+
+# --- core processing ---
 def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
+    # validate required runtime config
+    if not os.getenv("S3_BUCKET"):
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        msg = "S3_BUCKET environment variable not set"
+        logger.error(msg)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": msg}
+
     try:
-        head_obj = s3.head_object(Bucket=S3_BUCKET, Key=s3_key)
-    except Exception:
+        s3 = get_s3_client()
+    except Exception as e:
+        total_ms = int((time.perf_counter() - start_all) * 1000)
+        logger.exception("Failed to create S3 client: %s", e)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
+    try:
         head_obj = {}
-    try:
-        local_pdf = download_s3_object_to_temp(s3_key)
-    except Exception as e:
-        total_ms = int((time.perf_counter() - start_all) * 1000)
-        logger.error("Could not download S3 object %s: %s", s3_key, e)
-        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
-    try:
-        if isinstance(manifest, dict) and manifest.get("file_hash"):
-            doc_id = manifest.get("file_hash")
-        else:
-            doc_id = local_file_sha256(local_pdf)
-        out_basename = f"{doc_id}"
-        raw_manifest_key = s3_key + ".manifest.json"
-        if not FORCE_OVERWRITE:
-            if s3_object_exists(raw_manifest_key):
-                total_ms = int((time.perf_counter() - start_all) * 1000)
-                logger.info("Skipping because raw manifest exists: %s", raw_manifest_key)
-                try:
-                    os.unlink(local_pdf)
-                except Exception:
-                    pass
-                return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
-            if s3_object_exists(S3_CHUNKED_PREFIX + out_basename + ".parquet"):
-                total_ms = int((time.perf_counter() - start_all) * 1000)
-                logger.info("Skipping because parquet chunk exists: %s", out_basename + ".parquet")
-                try:
-                    if not s3_object_exists(raw_manifest_key):
-                        head = s3.head_object(Bucket=S3_BUCKET, Key=S3_CHUNKED_PREFIX + out_basename + ".parquet")
-                        etag = head.get("ETag", "")
-                        if isinstance(etag, str):
-                            etag = etag.strip('"')
-                        size = head.get("ContentLength", 0)
-                        raw_manifest = sanitize_payload_for_raw_manifest(doc_id, s3_key, S3_CHUNKED_PREFIX + out_basename + ".parquet", 0, etag, size)
-                        s3.put_object(Bucket=S3_BUCKET, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
-                except Exception:
-                    pass
-                try:
-                    os.unlink(local_pdf)
-                except Exception:
-                    pass
-                return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
-        img_ocr_name, img_ocr_obj = get_pdf_image_ocr_engine()
         try:
-            chunker = SentenceChunker.from_env()
+            head_obj = s3.head_object(Bucket=os.getenv("S3_BUCKET"), Key=s3_key) or {}
+        except Exception:
+            head_obj = {}
+        try:
+            local_pdf = download_s3_object_to_temp(s3_key)
         except Exception as e:
-            logger.exception("Failed to initialise SentenceChunker: %s", e)
-            try:
-                os.unlink(local_pdf)
-            except Exception:
-                pass
             total_ms = int((time.perf_counter() - start_all) * 1000)
+            logger.error("Could not download S3 object %s: %s", s3_key, e)
             return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
-        fitz = import_fitz_local()
-        doc = fitz.open(local_pdf)
-        writer = S3ParquetWriter(doc_id=doc_id)
-        saved = 0
-        for pageno in range(len(doc)):
-            page_start = time.perf_counter()
-            clean_text, figures_texts = extract_page_clean_and_figures(local_pdf, pageno, overlap_threshold=0.25, image_ocr_engine_name=img_ocr_name, image_ocr_engine_obj=img_ocr_obj)
-            used_ocr = bool(figures_texts)
-            if not clean_text:
-                chunk_id = f"{doc_id}_p{pageno+1}_0"
-                payload = {"document_id": doc_id, "file_name": os.path.basename(s3_key), "chunk_id": chunk_id, "chunk_type": "pdf_page_chunk", "text": "", "token_count": 0, "embedding": None, "figures": figures_texts or [], "file_type": "application/pdf", "source_url": f"s3://{S3_BUCKET}/{s3_key}", "page_number": pageno+1, "timestamp": _now_iso_z(), "parser_version": PARSER_VERSION_PDF, "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [], "layout_tags": [], "used_ocr": used_ocr, "heading_path": [], "headings": [], "line_range": None, "layout_bbox": None}
-                sanitize_payload_for_weaviate(payload)
-                writer.write_payload(payload)
-                saved += 1
-                logger.info("Buffered empty page chunk %s", chunk_id)
-                continue
-            for idx, chunk in enumerate(chunker.chunk_document(clean_text)):
-                chunk_id = f"{doc_id}_p{pageno+1}_{idx}"
-                payload = {"document_id": doc_id, "file_name": os.path.basename(s3_key), "chunk_id": chunk_id, "chunk_type": "pdf_page_chunk", "text": chunk["text"], "token_count": int(chunk["token_count"]), "embedding": None, "figures": figures_texts or [], "file_type": "application/pdf", "source_url": f"s3://{S3_BUCKET}/{s3_key}", "page_number": pageno+1, "timestamp": _now_iso_z(), "parser_version": PARSER_VERSION_PDF, "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [], "layout_tags": [], "used_ocr": used_ocr, "heading_path": [], "headings": [], "line_range": None, "layout_bbox": None}
-                sanitize_payload_for_weaviate(payload)
-                writer.write_payload(payload)
-                saved += 1
-            page_ms = int((time.perf_counter() - page_start) * 1000)
-            logger.info("Processed page %d (%d ms) chunks so far %d", pageno+1, page_ms, saved)
-        if saved == 0:
+        try:
+            if isinstance(manifest, dict) and manifest.get("file_hash"):
+                doc_id = manifest.get("file_hash")
+            else:
+                doc_id = local_file_sha256(local_pdf)
+            out_basename = f"{doc_id}"
+            raw_manifest_key = s3_key + ".manifest.json"
+            if not FORCE_OVERWRITE:
+                if s3_object_exists(raw_manifest_key):
+                    total_ms = int((time.perf_counter() - start_all) * 1000)
+                    logger.info("Skipping because raw manifest exists: %s", raw_manifest_key)
+                    try:
+                        os.unlink(local_pdf)
+                    except Exception:
+                        pass
+                    return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+                if s3_object_exists(S3_CHUNKED_PREFIX + out_basename + ".parquet"):
+                    total_ms = int((time.perf_counter() - start_all) * 1000)
+                    logger.info("Skipping because parquet chunk exists: %s", out_basename + ".parquet")
+                    try:
+                        if not s3_object_exists(raw_manifest_key):
+                            head = s3.head_object(Bucket=os.getenv("S3_BUCKET"), Key=S3_CHUNKED_PREFIX + out_basename + ".parquet")
+                            etag = head.get("ETag", "")
+                            if isinstance(etag, str):
+                                etag = etag.strip('"')
+                            size = head.get("ContentLength", 0)
+                            raw_manifest = sanitize_payload_for_raw_manifest(doc_id, s3_key, S3_CHUNKED_PREFIX + out_basename + ".parquet", 0, etag, size)
+                            s3.put_object(Bucket=os.getenv("S3_BUCKET"), Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
+                    except Exception:
+                        pass
+                    try:
+                        os.unlink(local_pdf)
+                    except Exception:
+                        pass
+                    return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+            img_ocr_name, img_ocr_obj = get_pdf_image_ocr_engine()
+            try:
+                chunker = SentenceChunker.from_env()
+            except Exception as e:
+                logger.exception("Failed to initialise SentenceChunker: %s", e)
+                try:
+                    os.unlink(local_pdf)
+                except Exception:
+                    pass
+                total_ms = int((time.perf_counter() - start_all) * 1000)
+                return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+            fitz = import_fitz_local()
+            doc = fitz.open(local_pdf)
+            writer = S3ParquetWriter(doc_id=doc_id)
+            saved = 0
+            for pageno in range(len(doc)):
+                page_start = time.perf_counter()
+                clean_text, figures_texts = extract_page_clean_and_figures(local_pdf, pageno, overlap_threshold=0.25, image_ocr_engine_name=img_ocr_name, image_ocr_engine_obj=img_ocr_obj)
+                used_ocr = bool(figures_texts)
+                if not clean_text:
+                    chunk_id = f"{doc_id}_p{pageno+1}_0"
+                    payload = {"document_id": doc_id, "file_name": os.path.basename(s3_key), "chunk_id": chunk_id, "chunk_type": "pdf_page_chunk", "text": "", "token_count": 0, "embedding": None, "figures": figures_texts or [], "file_type": "application/pdf", "source_url": f"s3://{os.getenv('S3_BUCKET')}/{s3_key}", "page_number": pageno+1, "timestamp": _now_iso_z(), "parser_version": PARSER_VERSION_PDF, "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [], "layout_tags": [], "used_ocr": used_ocr, "heading_path": [], "headings": [], "line_range": None, "layout_bbox": None}
+                    sanitize_payload_for_weaviate(payload)
+                    writer.write_payload(payload)
+                    saved += 1
+                    logger.info("Buffered empty page chunk %s", chunk_id)
+                    continue
+                for idx, chunk in enumerate(chunker.chunk_document(clean_text)):
+                    chunk_id = f"{doc_id}_p{pageno+1}_{idx}"
+                    payload = {"document_id": doc_id, "file_name": os.path.basename(s3_key), "chunk_id": chunk_id, "chunk_type": "pdf_page_chunk", "text": chunk["text"], "token_count": int(chunk["token_count"]), "embedding": None, "figures": figures_texts or [], "file_type": "application/pdf", "source_url": f"s3://{os.getenv('S3_BUCKET')}/{s3_key}", "page_number": pageno+1, "timestamp": _now_iso_z(), "parser_version": PARSER_VERSION_PDF, "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [], "layout_tags": [], "used_ocr": used_ocr, "heading_path": [], "headings": [], "line_range": None, "layout_bbox": None}
+                    sanitize_payload_for_weaviate(payload)
+                    writer.write_payload(payload)
+                    saved += 1
+                page_ms = int((time.perf_counter() - page_start) * 1000)
+                logger.info("Processed page %d (%d ms) chunks so far %d", pageno+1, page_ms, saved)
+            if saved == 0:
+                try:
+                    os.unlink(local_pdf)
+                except Exception:
+                    pass
+                total_ms = int((time.perf_counter() - start_all) * 1000)
+                logger.info("No chunks produced for %s", s3_key)
+                return {"saved_chunks": 0, "total_parse_duration_ms": total_ms}
+            count, uploaded_key, sha, size = writer.finalize_and_upload(out_basename)
             try:
                 os.unlink(local_pdf)
             except Exception:
                 pass
             total_ms = int((time.perf_counter() - start_all) * 1000)
-            logger.info("No chunks produced for %s", s3_key)
-            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms}
-        count, uploaded_key, sha, size = writer.finalize_and_upload(out_basename)
-        try:
-            os.unlink(local_pdf)
-        except Exception:
-            pass
-        total_ms = int((time.perf_counter() - start_all) * 1000)
-        try:
-            raw_manifest = sanitize_payload_for_raw_manifest(doc_id, s3_key, uploaded_key, count, sha, size)
-            s3.put_object(Bucket=S3_BUCKET, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
-        except Exception:
-            logger.warning("Failed to write raw manifest for %s", s3_key)
-        logger.info("Wrote %d chunks for %s → %s (%d ms)", count, s3_key, uploaded_key, total_ms)
-        return {"saved_chunks": count, "total_parse_duration_ms": total_ms, "skipped": False}
-    except Exception as e:
-        try:
-            if 'writer' in locals() and getattr(writer, "_rows", None):
+            try:
+                raw_manifest = sanitize_payload_for_raw_manifest(doc_id, s3_key, uploaded_key, count, sha, size)
+                s3.put_object(Bucket=os.getenv("S3_BUCKET"), Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
+            except Exception:
+                logger.warning("Failed to write raw manifest for %s", s3_key)
+            logger.info("Wrote %d chunks for %s → %s (%d ms)", count, s3_key, uploaded_key, total_ms)
+            return {"saved_chunks": count, "total_parse_duration_ms": total_ms, "skipped": False}
+        except Exception as e:
+            try:
+                os.unlink(local_pdf)
+            except Exception:
                 pass
-        except Exception:
-            pass
-        try:
-            os.unlink(local_pdf)
-        except Exception:
-            pass
+            total_ms = int((time.perf_counter() - start_all) * 1000)
+            logger.exception("Error while processing %s: %s", s3_key, str(e))
+            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+    except Exception as e:
         total_ms = int((time.perf_counter() - start_all) * 1000)
-        logger.exception("Error while processing %s: %s", s3_key, str(e))
+        logger.exception("Unexpected error in process_pdf_s3_object: %s", e)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
+
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start = time.perf_counter()
     try:
-        result = process_pdf_s3_object(s3_key, manifest or {})
-        return result
+        # runtime validation: ensure S3_BUCKET configured
+        if not os.getenv("S3_BUCKET"):
+            total_ms = int((time.perf_counter() - start) * 1000)
+            msg = "Missing S3_BUCKET environment variable"
+            logger.error(msg)
+            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": msg}
+        return process_pdf_s3_object(s3_key, manifest or {})
     except Exception as e:
         total_ms = int((time.perf_counter() - start) * 1000)
         logger.exception("parse_file error for %s: %s", s3_key, e)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
+
 if __name__ == "__main__":
+    # CLI: show available engine selection (executes only when run as script)
     engine_name, engine_obj = get_pdf_image_ocr_engine()
     logger.info("Engine result: %s %s", engine_name, "object_loaded" if engine_obj else "none")

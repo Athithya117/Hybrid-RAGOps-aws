@@ -8,7 +8,7 @@ cd "$SCRIPT_DIR"
 DOCKER_USERNAME="${DOCKER_USERNAME:-}"
 DOCKER_PASSWORD="${DOCKER_PASSWORD:-}"
 IMAGE_NAME="${IMAGE_NAME:-indexing_pipeline_cpu}"
-IMAGE_TAG="${IMAGE_TAG:-amd64-arm64-v11}"
+IMAGE_TAG="${IMAGE_TAG:-amd64-arm64-v7}"
 PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 
 if [ -z "$DOCKER_USERNAME" ] || [ -z "$DOCKER_PASSWORD" ]; then

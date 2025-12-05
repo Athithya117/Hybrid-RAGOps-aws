@@ -1,6 +1,6 @@
 {
-  "generated_at": "2025-12-03T15:48:46.034206Z",
-  "image": "athithya5354/retrieval:amd64-arm64-v1",
+  "generated_at": "2025-12-05T12:20:41.460319Z",
+  "image": "athithya5354/frontend:amd64-arm64-v1",
   "namespace": "inference",
   "replicas": 1,
   "files": {

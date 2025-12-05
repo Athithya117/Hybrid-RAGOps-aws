@@ -1,25 +1,55 @@
 #!/usr/bin/env python3
-import os, sys, io, json, time, logging, hashlib, tempfile, unicodedata, csv, urllib.parse
+"""
+Safe, importable CSV -> parquet chunker for parse_chunk/formats.
+
+Changes made for safety and compatibility with the new router:
+- No `sys.exit()` at import-time. Environment validation occurs inside parse_file().
+- Optional libraries (polars, tiktoken, pyarrow) are handled gracefully; pyarrow is
+  imported lazily inside the writer that needs it so import won't fail the router.
+- boto3 client is created lazily.
+- Keeps the original behavior and outputs identical chunk/parquet format.
+"""
+from __future__ import annotations
+import os
+import sys
+import io
+import json
+import time
+import logging
+import hashlib
+import tempfile
+import unicodedata
+import csv
+import urllib.parse
 from datetime import datetime
 from typing import Any, Dict, Iterator, Tuple, List, Optional
 from botocore.exceptions import ClientError
+
+# -------------------- logging ------------------------------------------------
 RESET = "\033[0m"
-COLORS = {logging.DEBUG: "\033[90m", logging.INFO: "\033[97m", logging.WARNING: "\033[33m", logging.ERROR: "\033[31m", logging.CRITICAL: "\033[1;41m"}
+COLORS = {
+    logging.DEBUG: "\033[90m",
+    logging.INFO: "\033[97m",
+    logging.WARNING: "\033[33m",
+    logging.ERROR: "\033[31m",
+    logging.CRITICAL: "\033[1;41m",
+}
 class ColorFormatter(logging.Formatter):
     def format(self, record):
         color = COLORS.get(record.levelno, RESET)
         message = super().format(record)
         return f"{color}{message}{RESET}"
+
 logger = logging.getLogger("csv_parser")
 logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
 handler = logging.StreamHandler()
 handler.setFormatter(ColorFormatter("%(asctime)s %(levelname)s %(message)s"))
 logger.handlers[:] = [handler]
 log = logger
-# Required envs (fail fast)
+
+# -------------------- config (no import-time exit) ---------------------------
+# Read envs but do not fail at import time. parse_file() will validate required envs.
 S3_BUCKET = os.getenv("S3_BUCKET")
-if not S3_BUCKET:
-    sys.exit("ERROR: S3_BUCKET env var required")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/").rstrip("/") + "/"
 PARSER_VERSION = os.getenv("PARSER_VERSION_CSV", "polars-csv-firstrow-auto-v1")
@@ -32,55 +62,82 @@ MAX_ROWS_PER_CHUNK = int(os.getenv("CSV_MAX_ROWS_PER_CHUNK", "100"))
 S3_PUT_RETRIES = int(os.getenv("S3_PUT_RETRIES", "3"))
 S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF", "0.5"))
 S3_RANGE_BYTES = int(os.getenv("S3_RANGE_BYTES", "131072"))
-# optional libs
+
+# Optional libraries — import if present (polars/tiktoken). No sys.exit on missing.
 try:
-    import polars as pl
+    import polars as pl  # type: ignore
 except Exception:
     pl = None
+
 try:
-    import tiktoken
+    import tiktoken  # type: ignore
 except Exception:
     tiktoken = None
-try:
-    import boto3
-    s3 = boto3.client("s3")
-except Exception as e:
-    log.error("boto3 is required: %s", e); raise
-try:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-except Exception:
-    log.error("pyarrow is required (with zstd)"); sys.exit(1)
-ENCODER = None
-if tiktoken is not None:
+
+# boto3 client will be created lazily by get_s3_client()
+_boto3 = None
+_s3_client = None
+
+def get_s3_client():
+    global _boto3, _s3_client
+    if _s3_client is None:
+        try:
+            import boto3 as _boto3  # local import
+            _s3_client = _boto3.client("s3")
+        except Exception as e:
+            log.error("boto3 is required and must be configured: %s", e)
+            raise
+    return _s3_client
+
+# Token encoder (lazy)
+_ENCODER = None
+def get_token_encoder():
+    global _ENCODER
+    if _ENCODER is not None:
+        return _ENCODER
+    if tiktoken is None:
+        _ENCODER = None
+        return None
     try:
-        ENCODER = tiktoken.get_encoding(ENC_NAME)
+        _ENCODER = tiktoken.get_encoding(ENC_NAME)
     except Exception:
-        ENCODER = None
+        try:
+            _ENCODER = tiktoken.encoding_for_model("gpt2")
+        except Exception:
+            _ENCODER = None
+    return _ENCODER
+
+# -------------------- small helpers -----------------------------------------
 def sha256_hex_str(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
+
 def sha256_hex_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
+
 def canonicalize_text(s: Any) -> str:
     if not isinstance(s, str):
         s = str(s or "")
     s = unicodedata.normalize("NFKC", s)
     s = s.replace("\r\n", "\n").replace("\r", "\n")
     return " ".join(s.split()).strip()
+
 def token_count_for(text: str) -> int:
     if not text:
         return 0
-    if ENCODER is not None:
+    enc = get_token_encoder()
+    if enc is not None:
         try:
-            return len(ENCODER.encode(text))
+            return len(enc.encode(text))
         except Exception:
             pass
     return len(text.split())
+
 def split_into_token_windows(text: str, window_tokens: int, overlap: int = 0) -> Iterator[Dict[str, Any]]:
     if not text:
         yield {"window_index": 0, "text": "", "token_count": 0, "token_start": 0, "token_end": 0}
         return
-    if ENCODER is None:
+    enc = get_token_encoder()
+    if enc is None:
         tokens = text.split()
         total = len(tokens)
         if window_tokens <= overlap:
@@ -92,9 +149,10 @@ def split_into_token_windows(text: str, window_tokens: int, overlap: int = 0) ->
             window_text = " ".join(tokens[start:end])
             yield {"window_index": idx, "text": canonicalize_text(window_text), "token_count": end - start, "token_start": start, "token_end": end}
             idx += 1
-            if end >= total: break
+            if end >= total:
+                break
         return
-    tokens = ENCODER.encode(text)
+    tokens = enc.encode(text)
     total = len(tokens)
     if window_tokens <= overlap:
         raise ValueError("window_tokens must be greater than overlap")
@@ -103,30 +161,39 @@ def split_into_token_windows(text: str, window_tokens: int, overlap: int = 0) ->
     for start in range(0, total, step):
         end = start + window_tokens
         slice_tokens = tokens[start:end]
-        window_text = ENCODER.decode(slice_tokens)
+        window_text = enc.decode(slice_tokens)
         yield {"window_index": idx, "text": canonicalize_text(window_text), "token_count": len(slice_tokens), "token_start": start, "token_end": min(end, total)}
         idx += 1
-        if end >= total: break
+        if end >= total:
+            break
+
 def make_doc_id(s3_key: str, last_modified: Any) -> str:
     return sha256_hex_str(s3_key + str(last_modified or ""))
+
 def filename_from_source_url(source_url: Optional[str]) -> str:
-    if not source_url: return ""
+    if not source_url:
+        return ""
     try:
-        if source_url.startswith("s3://"): return os.path.basename(source_url)
+        if source_url.startswith("s3://"):
+            return os.path.basename(source_url)
         parsed = urllib.parse.urlparse(source_url)
-        if parsed.path: return os.path.basename(parsed.path)
+        if parsed.path:
+            return os.path.basename(parsed.path)
         return os.path.basename(source_url)
     except Exception:
         return os.path.basename(str(source_url))
+
 def s3_object_exists(key: str) -> bool:
     try:
-        s3.head_object(Bucket=S3_BUCKET, Key=key)
+        get_s3_client().head_object(Bucket=S3_BUCKET, Key=key)
         return True
-    except ClientError as e:
+    except ClientError:
         return False
     except Exception:
         return False
+
 def s3_upload_file_atomic(local_path: str, bucket: str, key: str, content_type: str = "application/octet-stream") -> None:
+    s3 = get_s3_client()
     tmp_key = f"{key}.tmp.{os.getpid()}.{int(time.time())}"
     for attempt in range(1, S3_PUT_RETRIES + 1):
         try:
@@ -139,12 +206,15 @@ def s3_upload_file_atomic(local_path: str, bucket: str, key: str, content_type: 
             log.warning("s3 atomic upload attempt %d failed for %s: %s", attempt, key, e)
             time.sleep(S3_PUT_BACKOFF * attempt)
     raise Exception(f"s3 atomic upload failed for {key}")
+
+# -------------------- writer (lazy pyarrow) ---------------------------------
 class S3ParquetWriter:
     def __init__(self, doc_id: str):
         self.doc_id = doc_id
         self._rows: List[Dict[str, Any]] = []
+
     def _normalize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        out = {}
+        out: Dict[str, Any] = {}
         out["document_id"] = payload.get("document_id") or ""
         out["file_name"] = payload.get("file_name") or ""
         out["chunk_id"] = payload.get("chunk_id") or ""
@@ -181,12 +251,24 @@ class S3ParquetWriter:
         out["parser_version"] = payload.get("parser_version") or PARSER_VERSION
         out["used_ocr"] = bool(payload.get("used_ocr", False))
         return out
+
     def write_payload(self, payload: Dict[str, Any]) -> int:
         self._rows.append(self._normalize(payload))
         return 1
+
     def finalize_and_upload(self, out_basename: str) -> Tuple[int, str, str, int]:
+        """
+        Lazily import pyarrow and write parquet. Returns (count, s3_key, sha256, size)
+        """
         if not self._rows:
             return 0, "", "", 0
+        try:
+            import pyarrow as pa  # local import to avoid failing module import
+            import pyarrow.parquet as pq  # local import
+        except Exception as e:
+            log.error("pyarrow is required for parquet writing: %s", e)
+            raise
+
         schema = pa.schema([
             pa.field("document_id", pa.string()),
             pa.field("file_name", pa.string()),
@@ -237,9 +319,28 @@ class S3ParquetWriter:
         except Exception:
             pass
         return len(self._rows), S3_CHUNKED_PREFIX + parquet_key, sha, size
+
+# -------------------- manifest helpers -------------------------------------
 def sanitize_payload_for_raw_manifest(doc_id: str, s3_raw_key: str, chunked_s3_key: str, rows: int, sha: str, size: int) -> Dict[str, Any]:
-    return {"raw_key": s3_raw_key, "doc_id": doc_id, "chunked_key": chunked_s3_key, "rows": rows, "sha256": sha, "size_bytes": size, "schema_version": os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1"), "parser_version": PARSER_VERSION, "created_at": datetime.utcnow().isoformat() + "Z"}
+    return {
+        "raw_key": s3_raw_key,
+        "doc_id": doc_id,
+        "chunked_key": chunked_s3_key,
+        "rows": rows,
+        "sha256": sha,
+        "size_bytes": size,
+        "schema_version": os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1"),
+        "parser_version": PARSER_VERSION,
+        "created_at": datetime.utcnow().isoformat() + "Z"
+    }
+
+# -------------------- CSV heuristics & chunking -----------------------------
 def get_header_and_sample_tokens(s3_key: str) -> Tuple[str, int]:
+    """
+    Attempt to read a small byte range and infer header and sample token counts.
+    Uses polars if available (robust), otherwise simple heuristic.
+    """
+    s3 = get_s3_client()
     try:
         range_header = {"Range": f"bytes=0-{S3_RANGE_BYTES-1}"}
         resp = s3.get_object(Bucket=S3_BUCKET, Key=s3_key, Range=range_header["Range"])
@@ -280,6 +381,7 @@ def get_header_and_sample_tokens(s3_key: str) -> Tuple[str, int]:
         return header_text, sample_tokens
     except Exception:
         return "", 32
+
 def _flush_rows_chunk(writer: S3ParquetWriter, doc_id: str, chunk_index: int, header_text: str, rows_text: List[str], start_row_num: int, manifest_tags: List[str] = None) -> Tuple[int, int]:
     if not rows_text:
         return 0, chunk_index
@@ -298,8 +400,8 @@ def _flush_rows_chunk(writer: S3ParquetWriter, doc_id: str, chunk_index: int, he
         "figures": [],
         "embedding": None,
         "file_type": "text/csv",
-        "source_url": f"s3://{S3_BUCKET}/{writer._rows[0].get('source_url')}" if writer._rows and writer._rows[0].get('source_url') else f"s3://{S3_BUCKET}/",
-        "file_name": filename_from_source_url(f"s3://{S3_BUCKET}/{writer._rows[0].get('source_url')}" if writer._rows and writer._rows[0].get('source_url') else ""),
+        "source_url": f"s3://{S3_BUCKET}/{writer._rows[0].get('source_url')}" if writer._rows and writer._rows[0].get("source_url") else f"s3://{S3_BUCKET}/",
+        "file_name": filename_from_source_url(f"s3://{S3_BUCKET}/{writer._rows[0].get('source_url')}" if writer._rows and writer._rows[0].get("source_url") else ""),
         "row_range": [int(start_row_num), int(end_row_num)],
         "token_range": None,
         "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -314,6 +416,7 @@ def _flush_rows_chunk(writer: S3ParquetWriter, doc_id: str, chunk_index: int, he
     writer.write_payload(payload)
     log.info("Buffered CSV row_group chunk %s", payload.get("chunk_id"))
     return 1, chunk_index
+
 def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text, next_row_num, writer: S3ParquetWriter, manifest_tags: List[str] = None):
     saved = 0
     rows_text: List[str] = []
@@ -380,18 +483,34 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
         wrote, chunk_index = _flush_rows_chunk(writer, doc_id, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags)
         saved += wrote
     return saved, chunk_index, next_row_num
+
+# -------------------- public parse_file ------------------------------------
 def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Main entry used by router.py. Validates envs at runtime and performs parsing.
+    Returns same contract: {"saved_chunks": N, "total_parse_duration_ms": ms, ...}
+    """
     start_all = time.perf_counter()
+
+    # runtime validation
+    if not S3_BUCKET:
+        raise RuntimeError("S3_BUCKET environment variable must be set")
+
+    s3 = get_s3_client()
+
     try:
         head_obj = s3.head_object(Bucket=S3_BUCKET, Key=s3_key)
     except Exception as e:
         log.error("Could not HEAD S3 object %s: %s", s3_key, e)
         return {"saved_chunks": 0, "total_parse_duration_ms": 0, "skipped": True, "error": str(e)}
+
     last_modified = head_obj.get("LastModified", "")
     doc_id = manifest.get("file_hash") if isinstance(manifest, dict) and manifest.get("file_hash") else make_doc_id(s3_key, last_modified)
     out_basename = f"{doc_id}"
     raw_manifest_key = s3_key + ".manifest.json"
     out_parquet_key = S3_CHUNKED_PREFIX + out_basename + ".parquet"
+
+    # dedupe checks
     if not FORCE_OVERWRITE:
         if s3_object_exists(raw_manifest_key):
             total_ms = int((time.perf_counter() - start_all) * 1000)
@@ -404,31 +523,41 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
                 if not s3_object_exists(raw_manifest_key):
                     head = s3.head_object(Bucket=S3_BUCKET, Key=out_parquet_key)
                     etag = head.get("ETag", "")
-                    if isinstance(etag, str): etag = etag.strip('"')
+                    if isinstance(etag, str):
+                        etag = etag.strip('"')
                     size = head.get("ContentLength", 0)
                     raw_manifest = sanitize_payload_for_raw_manifest(doc_id, s3_key, out_parquet_key, 0, etag, size)
                     s3.put_object(Bucket=S3_BUCKET, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
             except Exception:
                 pass
             return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
+    # heuristics
     header_text, sample_row_tokens = get_header_and_sample_tokens(s3_key)
     header_tokens = token_count_for(header_text) if header_text else 0
     if header_tokens >= TARGET_TOKENS_PER_CHUNK:
         log.warning("CSV header token count >= target chunk size. Header will not be prepended to row_group chunks.")
         header_text = ""; header_tokens = 0
+
     if ROWS_PER_CHUNK_OVERRIDE:
         rows_per_chunk = max(MIN_ROWS_PER_CHUNK, min(MAX_ROWS_PER_CHUNK, int(ROWS_PER_CHUNK_OVERRIDE)))
     else:
         available_for_rows = max(1, TARGET_TOKENS_PER_CHUNK - header_tokens)
         estimated_rows = max(1, int(available_for_rows / max(1, sample_row_tokens)))
         rows_per_chunk = max(MIN_ROWS_PER_CHUNK, min(MAX_ROWS_PER_CHUNK, estimated_rows))
+
     log.info("%s sample_row_tokens=%d header_tokens=%d rows_per_chunk=%d", s3_key, sample_row_tokens, header_tokens, rows_per_chunk)
-    saved = 0; chunk_index = 0; next_row_num = 1
+
+    saved = 0
+    chunk_index = 0
+    next_row_num = 1
     manifest_tags = manifest.get("tags", []) if isinstance(manifest, dict) else []
     writer = S3ParquetWriter(doc_id=doc_id)
+
     try:
         obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
         body = obj.get("Body")
+        # TextIOWrapper over StreamingBody is fine for CSV reading
         text_stream = io.TextIOWrapper(body, encoding="utf-8", errors="replace", newline="")
         reader = csv.DictReader(text_stream, delimiter=",")
         buffer: List[Dict[str, Any]] = []
@@ -447,6 +576,7 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
         total_ms = int((time.perf_counter() - start_all) * 1000)
         log.error("Skipping malformed or unreadable CSV %s error=%s", s3_key, str(e_pd))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_pd)}
+
     try:
         if saved == 0:
             total_ms = int((time.perf_counter() - start_all) * 1000)
@@ -465,8 +595,15 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
         total_ms = int((time.perf_counter() - start_all) * 1000)
         log.error("Failed to upload chunked file for %s error=%s", s3_key, str(e_up))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
+
+# -------------------- CLI (preserve original behavior) ----------------------
 if __name__ == "__main__":
-    log.info("Starting CSV -> Parquet parser")
+    log.info("Starting CSV -> Parquet parser (CLI mode)")
+    # ensure s3 client available and S3_BUCKET present
+    if not S3_BUCKET:
+        log.error("S3_BUCKET env var required for CLI mode")
+        sys.exit(1)
+    s3 = get_s3_client()
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=S3_BUCKET, Prefix=S3_RAW_PREFIX):
         for obj in page.get("Contents", []):

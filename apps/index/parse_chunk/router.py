@@ -1,3 +1,14 @@
+#!/usr/bin/env python3
+"""
+Safe, resilient router for parse_chunk formats.
+
+- Ensures import paths so both `indexing_pipeline.parse_chunk.formats.X` and
+  `parse_chunk.formats.X` resolve when running from different cwd.
+- Tries package import first, then falls back to loading the formats/*.py file
+  directly from known locations.
+- Keeps existing router behavior (S3 listing, hashing, dedupe, manifest write).
+"""
+from __future__ import annotations
 import os
 import sys
 import time
@@ -6,12 +17,34 @@ import uuid
 import boto3
 import hashlib
 import importlib
+import importlib.util
 import mimetypes
 import logging
 import urllib.parse
 from datetime import datetime
 from botocore.exceptions import ClientError
+from pathlib import Path
+from typing import Optional
 
+# ---------- ensure import paths so package imports resolve --------------------
+def ensure_import_paths():
+    """
+    Make sure `parse_chunk` and `indexing_pipeline.parse_chunk` packages are
+    importable regardless of where router is executed from.
+    """
+    here = Path(__file__).resolve()                  # .../apps/index/parse_chunk/router.py
+    pkg_dir = here.parent                             # .../apps/index/parse_chunk
+    app_dir = pkg_dir.parent                          # .../apps/index
+    repo_root = app_dir.parent                        # .../workspace (optional)
+    # Insert pkg_dir first so local package imports win, then app_dir, then repo_root
+    candidates = [str(pkg_dir), str(app_dir), str(repo_root)]
+    for p in reversed(candidates):
+        if p and p not in sys.path:
+            sys.path.insert(0, p)
+
+ensure_import_paths()
+
+# -------------------- logging setup -----------------------------------------
 try:
     import colorama
     colorama.init()
@@ -47,6 +80,7 @@ def env_or_fail(var, default=None, mandatory=True):
         sys.exit(1)
     return val
 
+# -------------------- config/env --------------------------------------------
 S3_BUCKET = env_or_fail("S3_BUCKET")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/").rstrip("/") + "/"
@@ -57,6 +91,7 @@ assert CHUNK_FORMAT in ("json", "jsonl"), f"Invalid CHUNK_FORMAT '{CHUNK_FORMAT}
 
 s3 = boto3.client("s3")
 
+# -------------------- helpers & core ---------------------------------------
 def log(*args, level="INFO", **kwargs):
     msg = " ".join(str(a) for a in args)
     lvl = level.upper()
@@ -158,7 +193,8 @@ def save_manifest(s3_key, manifest):
         log(f"Failed to save manifest: {e}", level="ERROR")
         return False
 
-def get_format_module(ext):
+# -------------------- format module lookup & loading ------------------------
+def get_format_module(ext: str) -> Optional[str]:
     return {
         "pdf": "pdf",
         "pptx": "pptx",
@@ -212,7 +248,23 @@ def detect_ext_from_key(s3_client, bucket, key):
         pass
     return ""
 
-def _import_format_module(module_name):
+def load_module_from_path(module_name: str, path: Path):
+    """
+    Load a module from a file path and return the module object.
+    """
+    loader_name = f"local_formats_{module_name}"
+    spec = importlib.util.spec_from_file_location(loader_name, str(path))
+    if spec and spec.loader:
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    raise ImportError(f"Cannot load module {module_name} from {path}")
+
+def _import_format_module(module_name: str):
+    """
+    Try package imports first, then fallback to loading the module file directly
+    from known locations relative to this router/app directory.
+    """
     tried = []
     for pkg in ("indexing_pipeline.parse_chunk.formats", "parse_chunk.formats"):
         fq = f"{pkg}.{module_name}"
@@ -220,8 +272,26 @@ def _import_format_module(module_name):
             return importlib.import_module(fq)
         except Exception as e:
             tried.append(fq)
+    # fallback: try file paths (apps/index relative locations)
+    workdir = Path(__file__).resolve().parent.parent   # .../apps/index
+    candidates = [
+        workdir / "parse_chunk" / "formats" / f"{module_name}.py",
+        workdir / "indexing_pipeline" / "parse_chunk" / "formats" / f"{module_name}.py",
+        Path(__file__).resolve().parent / "formats" / f"{module_name}.py",
+    ]
+    for p in candidates:
+        try:
+            p = p.resolve()
+        except Exception:
+            continue
+        if p.exists():
+            try:
+                return load_module_from_path(module_name, p)
+            except Exception as e:
+                tried.append(str(p))
     raise ImportError(f"Failed to import module for format '{module_name}', tried: {', '.join(tried)}")
 
+# -------------------- main pipeline ----------------------------------------
 def main():
     log("Router pipeline started")
     run_id = os.getenv("RUN_ID") or str(uuid.uuid4())

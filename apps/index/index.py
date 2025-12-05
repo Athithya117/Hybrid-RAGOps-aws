@@ -8,12 +8,14 @@ import signal
 import sys
 import re
 import traceback
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from datetime import datetime, timezone
 import numpy as np
 import httpx
 from qdrant_client import QdrantClient
 from qdrant_client.models import SparseVector
+import random
+import functools
 
 # parquet
 try:
@@ -70,6 +72,11 @@ DENSE_EMBED_TIMEOUT = float(os.getenv("DENSE_EMBED_TIMEOUT", str(max(HTTP_TIMEOU
 SPARSE_EMBED_TIMEOUT = float(os.getenv("SPARSE_EMBED_TIMEOUT", str(max(HTTP_TIMEOUT, 30.0))))
 EMBED_RETRIES = int(os.getenv("EMBED_RETRIES", "3"))
 EMBED_BACKOFF_BASE = float(os.getenv("EMBED_BACKOFF_BASE", "1.0"))
+
+# generic network retry config (used for S3, Qdrant, general HTTP wrappers)
+NETWORK_RETRY_COUNT = int(os.getenv("NETWORK_RETRY_COUNT", "5"))
+NETWORK_RETRY_BACKOFF_BASE = float(os.getenv("NETWORK_RETRY_BACKOFF_BASE", "1.0"))
+NETWORK_RETRY_BACKOFF_MAX = float(os.getenv("NETWORK_RETRY_BACKOFF_MAX", "30.0"))
 
 SPARSE_BATCH_FALLBACK = int(os.getenv("SPARSE_BATCH_FALLBACK", "8"))
 QDRANT_HNSW_EF_CONSTRUCT = int(os.getenv("QDRANT_HNSW_EF_CONSTRUCT", "128"))
@@ -130,27 +137,85 @@ def l2_normalize(v: List[float]) -> List[float]:
     if n > 0: a = a / n
     return a.astype(float).tolist()
 
-# ---------- HTTP embed clients ----------
+# ---------- retry utilities ----------
+class TransientHTTPError(Exception):
+    pass
+
+def _sleep_with_jitter(base: float, cap: float, attempt: int) -> None:
+    backoff = min(cap, base * (2 ** max(0, attempt - 1)))
+    # jitter between 0.5x and 1.0x of backoff
+    jittered = backoff * (0.5 + random.random() * 0.5)
+    time.sleep(jittered)
+
+def retry_call(func: Callable, *args, retries: int = NETWORK_RETRY_COUNT, backoff_base: float = NETWORK_RETRY_BACKOFF_BASE, backoff_cap: float = NETWORK_RETRY_BACKOFF_MAX, retriable: Optional[Callable[[BaseException], bool]] = None, **kwargs):
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return func(*args, **kwargs)
+        except BaseException as e:
+            should_retry = True
+            if retriable is not None:
+                try:
+                    should_retry = bool(retriable(e))
+                except Exception:
+                    should_retry = False
+            # never retry if shutdown requested
+            if SHUTDOWN:
+                raise
+            if not should_retry or attempt > retries:
+                raise
+            slog("warning", "transient.retry", error=str(e), attempt=attempt, max_retries=retries)
+            _sleep_with_jitter(backoff_base, backoff_cap, attempt)
+
+# ---------- HTTP embed clients (with request retries) ----------
 class DenseClient:
     def __init__(self, url: str, timeout: float = HTTP_TIMEOUT, embed_timeout: float = DENSE_EMBED_TIMEOUT):
         self.url = url.rstrip("/")
-        # allow float timeout; httpx accepts float
         self.client = httpx.Client(timeout=timeout)
         self.embed_timeout = embed_timeout
+
+    def _get_with_retries(self, path: str, timeout: float = None) -> httpx.Response:
+        url = f"{self.url}{path}"
+        def call():
+            try:
+                r = self.client.get(url, timeout=timeout or HTTP_TIMEOUT)
+                # treat 5xx as transient
+                if 500 <= r.status_code < 600:
+                    raise TransientHTTPError(f"server error {r.status_code}")
+                return r
+            except httpx.HTTPError as e:
+                raise e
+        # retriable predicate: httpx errors or TransientHTTPError
+        return retry_call(call, retriable=lambda e: isinstance(e, (httpx.HTTPError, TransientHTTPError)))
+
+    def _post_with_retries(self, path: str, json: Any, timeout: float = None) -> httpx.Response:
+        url = f"{self.url}{path}"
+        def call():
+            try:
+                r = self.client.post(url, json=json, timeout=timeout or self.embed_timeout)
+                if 500 <= r.status_code < 600:
+                    raise TransientHTTPError(f"server error {r.status_code}")
+                return r
+            except httpx.HTTPError as e:
+                raise e
+        return retry_call(call, retriable=lambda e: isinstance(e, (httpx.HTTPError, TransientHTTPError)))
+
     def health(self) -> bool:
         try:
-            r = self.client.get(f"{self.url}/health", timeout=HTTP_TIMEOUT)
+            r = self._get_with_retries("/health", timeout=HTTP_TIMEOUT)
             ok = r.status_code == 200
             slog("debug", "dense.health.check", url=self.url, status=r.status_code)
             return ok
         except Exception as e:
             slog("warning", "dense.health.error", exc=e)
             return False
+
     def embed(self, texts: List[str]) -> List[List[float]]:
         if not texts:
             return []
         start = time.time()
-        r = self.client.post(f"{self.url}/embed", json={"texts": texts}, timeout=self.embed_timeout)
+        r = self._post_with_retries("/embed", json={"texts": texts}, timeout=self.embed_timeout)
         elapsed = round(time.time() - start, 3)
         slog("debug", "dense.call", url=self.url, count=len(texts), status=r.status_code, elapsed=elapsed)
         if r.status_code == 200:
@@ -176,19 +241,45 @@ class SparseClient:
         self.url = url.rstrip("/")
         self.client = httpx.Client(timeout=timeout)
         self.embed_timeout = embed_timeout
+
+    def _get_with_retries(self, path: str, timeout: float = None) -> httpx.Response:
+        url = f"{self.url}{path}"
+        def call():
+            try:
+                r = self.client.get(url, timeout=timeout or HTTP_TIMEOUT)
+                if 500 <= r.status_code < 600:
+                    raise TransientHTTPError(f"server error {r.status_code}")
+                return r
+            except httpx.HTTPError as e:
+                raise e
+        return retry_call(call, retriable=lambda e: isinstance(e, (httpx.HTTPError, TransientHTTPError)))
+
+    def _post_with_retries(self, path: str, json: Any, timeout: float = None) -> httpx.Response:
+        url = f"{self.url}{path}"
+        def call():
+            try:
+                r = self.client.post(url, json=json, timeout=timeout or self.embed_timeout)
+                if 500 <= r.status_code < 600:
+                    raise TransientHTTPError(f"server error {r.status_code}")
+                return r
+            except httpx.HTTPError as e:
+                raise e
+        return retry_call(call, retriable=lambda e: isinstance(e, (httpx.HTTPError, TransientHTTPError)))
+
     def health(self) -> bool:
         try:
-            r = self.client.get(f"{self.url}/health", timeout=HTTP_TIMEOUT)
+            r = self._get_with_retries("/health", timeout=HTTP_TIMEOUT)
             ok = r.status_code == 200
             slog("debug", "sparse.health.check", url=self.url, status=r.status_code)
             return ok
         except Exception as e:
             slog("warning", "sparse.health.error", exc=e)
             return False
+
     def embed_chunked(self, texts: List[str]) -> List[Dict[str, Any]]:
         if not texts:
             return []
-        r = self.client.post(f"{self.url}/embed", json={"texts": texts}, timeout=self.embed_timeout)
+        r = self._post_with_retries("/embed", json={"texts": texts}, timeout=self.embed_timeout)
         slog("debug", "sparse.call.attempt", url=self.url, count=len(texts), status=r.status_code)
         if r.status_code == 200:
             j = r.json(); vecs = j.get("vectors")
@@ -326,11 +417,11 @@ def create_collection_hybrid(client, name, dense_dim):
         slog("warning", "collection.exists.check.failed", exc=e)
     hnsw = {"m": QDRANT_HNSW_M, "ef_construct": QDRANT_HNSW_EF_CONSTRUCT, "full_scan_threshold": QDRANT_HNSW_FULL_SCAN_THRESHOLD, "on_disk": QDRANT_ONDISK}
     try:
-        client.create_collection(
+        retry_call(lambda: client.create_collection(
             collection_name=name,
             vectors_config={"dense": {"size": dense_dim, "distance": "Cosine", "hnsw_config": hnsw}},
             sparse_vectors_config={"sparse": {}}
-        )
+        ))
         slog("info", "collection.created", name=name, dense_dim=dense_dim)
     except Exception as e:
         slog("error", "collection.create.failed", exc=e)
@@ -344,12 +435,11 @@ def create_collection_sparse_only(client, name):
     except Exception as e:
         slog("warning", "collection.exists.check.failed", exc=e)
     try:
-        # Qdrant client requires vectors_config — provide empty dict when only sparse desired
-        client.create_collection(
+        retry_call(lambda: client.create_collection(
             collection_name=name,
             vectors_config={},
             sparse_vectors_config={"sparse": {}}
-        )
+        ))
         slog("info", "collection.created.sparse", name=name)
     except Exception as e:
         slog("error", "collection.create.sparse.failed", exc=e)
@@ -397,7 +487,7 @@ def chunk_and_vectors_to_pointstructs(items: List[Dict[str, Any]], hybrid: bool)
 def existing_point_ids(client, collection_name, ids: List[int]) -> set:
     if not ids: return set()
     try:
-        res = client.retrieve(collection_name=collection_name, ids=ids)
+        res = retry_call(lambda: client.retrieve(collection_name=collection_name, ids=ids), retriable=lambda e: True)
     except Exception as e:
         slog("warning", "retrieve.failed", exc=e)
         return set()
@@ -492,7 +582,9 @@ def embed_and_upsert(client, collection_name, chunks, sparse_client, dense_clien
             slog("warning", "shutdown.during_index")
             break
         batch = chunks[i:i+BATCH_SIZE]; ids = [id_from_string(c.get("chunk_id") or (str(c.get("document_id")) + "_0")) for c in batch]
-        start = time.time(); existing = existing_point_ids(client, collection_name, ids); elapsed = round(time.time() - start, 3)
+        start = time.time()
+        existing = existing_point_ids(client, collection_name, ids)
+        elapsed = round(time.time() - start, 3)
         to_process = [c for c, pid in zip(batch, ids) if pid not in existing]; skipped = len(batch) - len(to_process)
         slog("debug", "batch.check", batch_range=f"{i}..{i+len(batch)-1}", retrieve_time=elapsed, skipped=skipped)
         if to_process:
@@ -509,14 +601,15 @@ def embed_and_upsert(client, collection_name, chunks, sparse_client, dense_clien
             break
         slice_pts = to_upsert[j:j+UPSERT_CHUNK]
         try:
-            client.upsert(collection_name=collection_name, points=slice_pts)
+            # Qdrant upsert wrapped with retries
+            retry_call(lambda: client.upsert(collection_name=collection_name, points=slice_pts), retriable=lambda e: True)
             slog("debug", "upsert.chunk", start=j, end=j+len(slice_pts)-1)
         except Exception as e:
             slog("error", "upsert.failed", exc=e)
             raise
     slog("info", "index.completed")
 
-# ---------- parquet-aware S3 loader ----------
+# ---------- parquet-aware S3 loader (with retries) ----------
 def _safe_json_load(s):
     if s is None:
         return []
@@ -566,15 +659,30 @@ def _maybe_bool(x):
     s = str(x).lower().strip()
     return s in ("1", "true", "yes", "y", "t")
 
+def _paginate_with_retries(paginator, **params):
+    def call():
+        pages = []
+        for p in paginator.paginate(**params):
+            pages.append(p)
+        return pages
+    # retriable predicate: botocore/network errors; fallback to retry on any Exception
+    return retry_call(call, retriable=lambda e: True)
+
 def load_chunks_from_s3(bucket: str, prefix: str) -> List[Dict[str, Any]]:
     try:
         import boto3
+        import botocore
     except Exception as e:
         slog("error", "boto3.missing", exc=e)
         raise SystemExit("boto3 required")
     s3 = boto3.client("s3")
     paginator = s3.get_paginator("list_objects_v2")
-    pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
+    try:
+        pages = _paginate_with_retries(paginator, Bucket=bucket, Prefix=prefix)
+    except Exception as e:
+        slog("error", "s3.list.failed", exc=e)
+        raise SystemExit(f"s3 list failed: {e}")
+
     parquet_keys = []
     json_keys = []
     for p in pages:
@@ -593,9 +701,16 @@ def load_chunks_from_s3(bucket: str, prefix: str) -> List[Dict[str, Any]]:
 
     chunks = []
     for k in keys:
+        # wrap get_object with retries
+        def get_obj():
+            return s3.get_object(Bucket=bucket, Key=k)
+        try:
+            obj = retry_call(get_obj, retriable=lambda e: True)
+        except Exception as e:
+            slog("error", "s3.get_object.failed", key=k, exc=e)
+            raise
         if k.lower().endswith(".parquet"):
             try:
-                obj = s3.get_object(Bucket=bucket, Key=k)
                 body = obj["Body"].read()
                 table = pq.read_table(pa.BufferReader(body))
                 data = table.to_pydict()
@@ -634,11 +749,10 @@ def load_chunks_from_s3(bucket: str, prefix: str) -> List[Dict[str, Any]]:
                     except Exception as e:
                         slog("warning", "chunk.normalize.failed", key=k, exc=e)
             except Exception as e:
-                slog("error", "s3.get_object.failed", key=k, exc=e)
+                slog("error", "s3.parquet.read.failed", key=k, exc=e)
                 raise
         else:
             try:
-                obj = s3.get_object(Bucket=bucket, Key=k)
                 body = obj["Body"].read().decode("utf8")
                 data = json.loads(body)
                 if isinstance(data, list):
@@ -671,7 +785,7 @@ def validate_and_build_clients():
             dense = dc
             slog("debug", "dense.ready", url=dc.url)
             try:
-                resp = dc.client.post(f"{dc.url}/embed", json={"texts": ["ping"]}, timeout=min(dc.embed_timeout, 5.0))
+                resp = dc._post_with_retries("/embed", json={"texts": ["ping"]}, timeout=min(dc.embed_timeout, 5.0))
                 slog("debug", "dense.smoke", status=resp.status_code, body=(resp.text[:200] if resp.text else None))
                 if resp.status_code != 200:
                     slog("warning", "dense.smoke.badstatus", status=resp.status_code)
@@ -690,7 +804,7 @@ def validate_and_build_clients():
             sparse = sc
             slog("debug", "sparse.ready", url=sc.url)
             try:
-                resp = sc.client.post(f"{sc.url}/embed", json={"texts": ["ping"]}, timeout=min(sc.embed_timeout, 5.0))
+                resp = sc._post_with_retries("/embed", json={"texts": ["ping"]}, timeout=min(sc.embed_timeout, 5.0))
                 slog("debug", "sparse.smoke", status=resp.status_code, body=(resp.text[:200] if resp.text else None))
                 if resp.status_code != 200:
                     slog("warning", "sparse.smoke.badstatus", status=resp.status_code)
@@ -721,7 +835,8 @@ def retrieve_and_index():
         slog("error", "qdrant.client.init.failed", exc=e)
         raise SystemExit(f"Unable to contact Qdrant: {e}")
     try:
-        _ = client.get_collections()
+        # wrap get_collections with retry
+        retry_call(lambda: client.get_collections(), retriable=lambda e: True)
     except Exception as e:
         slog("error", "qdrant.unreachable", exc=e)
         raise SystemExit(f"Unable to contact Qdrant: {e}")

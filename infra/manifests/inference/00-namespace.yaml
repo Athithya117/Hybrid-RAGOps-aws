@@ -3,4 +3,4 @@ kind: Namespace
 metadata:
   name: inference
   labels:
-    app.kubernetes.io/managed-by: gen_query
+    app.kubernetes.io/managed-by: gen_frontend

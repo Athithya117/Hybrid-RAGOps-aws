@@ -1,34 +1,66 @@
 #!/usr/bin/env python3
-import os, sys, io, json, time, logging, hashlib, tempfile, unicodedata, urllib.parse
+"""
+jsonl format parser — import-safe and compatible with router.py.
+
+This module exposes:
+    def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]
+and does not perform heavy work or exit at import time.
+"""
+from __future__ import annotations
+import os
+import sys
+import io
+import json
+import time
+import logging
+import hashlib
+import tempfile
+import unicodedata
+import urllib.parse
 from datetime import datetime
 from typing import Any, Dict, Iterator, Tuple, List, Optional
-import boto3, botocore
+import botocore
+
+# optional/slow deps: imported lazily where needed
 try:
-    import polars as pl
+    import polars as pl  # optional
 except Exception:
     pl = None
+
 try:
-    import tiktoken
+    import tiktoken  # optional
 except Exception:
     tiktoken = None
+
 try:
     import colorama
     colorama.init()
 except Exception:
     pass
+
+# --- logging ---
 RESET = "\033[0m"
-COLORS = {logging.DEBUG: "\033[90m", logging.INFO: "\033[97m", logging.WARNING: "\033[33m", logging.ERROR: "\033[31m", logging.CRITICAL: "\033[1;41m"}
+COLORS = {
+    logging.DEBUG: "\033[90m",
+    logging.INFO: "\033[97m",
+    logging.WARNING: "\033[33m",
+    logging.ERROR: "\033[31m",
+    logging.CRITICAL: "\033[1;41m"
+}
 class ColorFormatter(logging.Formatter):
     def format(self, record):
         color = COLORS.get(record.levelno, RESET)
         message = super().format(record)
         return f"{color}{message}{RESET}"
+
 logger = logging.getLogger("jsonl_parser")
 logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
 handler = logging.StreamHandler()
 handler.setFormatter(ColorFormatter("%(asctime)s %(levelname)s %(message)s"))
 logger.handlers[:] = [handler]
 log = logger
+
+# --- basic config (read from env but do not fail on import) ---
 S3_BUCKET = os.getenv("S3_BUCKET")
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "").rstrip("/") + "/"
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "").rstrip("/") + "/"
@@ -42,7 +74,20 @@ MAX_ROWS_PER_CHUNK = int(os.getenv("JSONL_MAX_ROWS_PER_CHUNK", os.getenv("CSV_MA
 S3_PUT_RETRIES = int(os.getenv("S3_PUT_RETRIES", "3"))
 S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF", "0.5"))
 S3_RANGE_BYTES = int(os.getenv("S3_RANGE_BYTES", "131072"))
-s3 = boto3.client("s3")
+
+# lazy boto3 client
+_s3_client = None
+def get_s3_client():
+    global _s3_client
+    if _s3_client is None:
+        try:
+            import boto3
+        except Exception as e:
+            raise RuntimeError("boto3 must be installed to use jsonl parser") from e
+        _s3_client = boto3.client("s3")
+    return _s3_client
+
+# tiktoken encoder (optional)
 ENCODER = None
 if tiktoken is not None:
     try:
@@ -52,25 +97,33 @@ if tiktoken is not None:
             ENCODER = tiktoken.encoding_for_model("gpt2")
         except Exception:
             ENCODER = None
+
+# helper utilities
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
+
 def sha256_hex_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
+
 def canonicalize_text(s: Any) -> str:
     if not isinstance(s, str):
         s = str(s or "")
     s = unicodedata.normalize("NFKC", s)
     s = s.replace("\r\n", "\n").replace("\r", "\n")
     return " ".join(s.split()).strip()
+
 def s3_object_exists(key: str) -> bool:
     try:
+        s3 = get_s3_client()
         s3.head_object(Bucket=S3_BUCKET, Key=key)
         return True
     except botocore.exceptions.ClientError:
         return False
     except Exception:
         return False
+
 def s3_put_object_with_retries(key: str, body: bytes, content_type: str = "application/json") -> None:
+    s3 = get_s3_client()
     attempt = 0
     while True:
         try:
@@ -81,6 +134,7 @@ def s3_put_object_with_retries(key: str, body: bytes, content_type: str = "appli
             if attempt >= max(1, S3_PUT_RETRIES):
                 raise
             time.sleep(S3_PUT_BACKOFF * attempt)
+
 def token_count_for(text: str) -> int:
     if not text:
         return 0
@@ -90,6 +144,7 @@ def token_count_for(text: str) -> int:
         except Exception:
             pass
     return len(text.split())
+
 def split_into_token_windows(text: str, window_tokens: int, overlap: int = 0) -> Iterator[Dict[str, Any]]:
     if not text:
         yield {"window_index": 0, "text": "", "token_count": 0, "token_start": 0, "token_end": 0}
@@ -126,6 +181,7 @@ def split_into_token_windows(text: str, window_tokens: int, overlap: int = 0) ->
         idx += 1
         if end >= total:
             break
+
 def row_to_schema_text(row: Any) -> str:
     parts: List[str] = []
     if pl is not None and hasattr(pl, "Series") and isinstance(row, pl.Series):
@@ -143,6 +199,7 @@ def row_to_schema_text(row: Any) -> str:
     else:
         parts.append(str(row))
     return canonicalize_text(" | ".join(parts))
+
 def detect_total_memory_bytes() -> int:
     try:
         path_v2 = "/sys/fs/cgroup/memory.max"
@@ -162,7 +219,7 @@ def detect_total_memory_bytes() -> int:
     except Exception:
         pass
     try:
-        import psutil
+        import psutil  # optional
         return int(psutil.virtual_memory().total)
     except Exception:
         pass
@@ -172,16 +229,20 @@ def detect_total_memory_bytes() -> int:
         return int(pages * page_size)
     except Exception:
         return 512 * (1024**2)
+
 def compute_streaming_chunk_size() -> int:
     total = detect_total_memory_bytes()
     size = max(32_000_000, min(256_000_000, max(16_000_000, int(total // 8))))
     return int(size)
+
 if pl is not None:
     try:
         pl.Config.set_streaming_chunk_size(compute_streaming_chunk_size())
     except Exception:
         pass
+
 def get_header_and_sample_tokens(s3_key: str) -> Tuple[str, int]:
+    s3 = get_s3_client()
     try:
         range_header = {"Range": f"bytes=0-{S3_RANGE_BYTES-1}"}
         resp = s3.get_object(Bucket=S3_BUCKET, Key=s3_key, Range=range_header["Range"])
@@ -211,8 +272,10 @@ def get_header_and_sample_tokens(s3_key: str) -> Tuple[str, int]:
         return header_text, sample_tokens
     except Exception:
         return "", 32
+
 def make_doc_id(s3_key: str, last_modified: Any) -> str:
     return sha256_hex(s3_key + str(last_modified or ""))
+
 def filename_from_source_url(source_url: Optional[str]) -> str:
     if not source_url:
         return ""
@@ -225,7 +288,9 @@ def filename_from_source_url(source_url: Optional[str]) -> str:
         return os.path.basename(source_url)
     except Exception:
         return os.path.basename(str(source_url))
+
 def s3_upload_file_atomic(local_path: str, bucket: str, key: str, content_type: str = "application/octet-stream") -> None:
+    s3 = get_s3_client()
     tmp_key = f"{key}.tmp.{os.getpid()}.{int(time.time())}"
     for attempt in range(1, S3_PUT_RETRIES + 1):
         try:
@@ -238,17 +303,33 @@ def s3_upload_file_atomic(local_path: str, bucket: str, key: str, content_type: 
             log.warning("s3 atomic upload attempt %d failed for %s: %s", attempt, key, e)
             time.sleep(S3_PUT_BACKOFF * attempt)
     raise Exception(f"s3 atomic upload failed for {key} after {S3_PUT_RETRIES} attempts")
-try:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-except Exception:
-    log.error("pyarrow is required for parquet outputs; install pyarrow")
-    sys.exit(1)
+
+# Defer pyarrow import until needed (finalize/upload step)
+PA_AVAILABLE = False
+_pa = None
+_pq = None
+def _ensure_pyarrow():
+    global PA_AVAILABLE, _pa, _pq
+    if PA_AVAILABLE:
+        return
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        _pa = pa
+        _pq = pq
+        PA_AVAILABLE = True
+    except Exception:
+        PA_AVAILABLE = False
+        _pa = None
+        _pq = None
+        # do not exit; raise later when parquet actually needed
+
 class S3ParquetWriter:
     def __init__(self, doc_id: str, s3_path: str):
         self.doc_id = doc_id
         self.s3_path = s3_path
         self._rows: List[Dict[str, Any]] = []
+
     def _normalize_for_parquet(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         fields: Dict[str, Any] = {}
         fields["document_id"] = payload.get("document_id") or ""
@@ -294,12 +375,25 @@ class S3ParquetWriter:
         fields["parser_version"] = payload.get("parser_version") or PARSER_VERSION
         fields["used_ocr"] = bool(payload.get("used_ocr", False))
         return fields
+
     def write_payload(self, payload: Dict[str, Any]) -> int:
         self._rows.append(self._normalize_for_parquet(payload))
         return 1
+
     def finalize_and_upload(self, out_basename: str) -> Tuple[int, str, str, int]:
+        """
+        Returns: (rows_count, uploaded_s3_key, sha256_of_parquet, size_bytes)
+        Raises RuntimeError if pyarrow is not available.
+        """
         if not self._rows:
             return 0, "", "", 0
+        _ensure_pyarrow()
+        if not PA_AVAILABLE or _pa is None or _pq is None:
+            raise RuntimeError("pyarrow is required to finalize parquet output (install pyarrow)")
+
+        pa = _pa
+        pq = _pq
+
         schema = pa.schema([
             pa.field("document_id", pa.string()),
             pa.field("chunk_id", pa.string()),
@@ -351,6 +445,7 @@ class S3ParquetWriter:
         except Exception:
             pass
         return len(self._rows), S3_CHUNKED_PREFIX + parquet_key, sha, size
+
 def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
     for k in list(payload.keys()):
         v = payload.get(k)
@@ -373,6 +468,7 @@ def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
             continue
         if not isinstance(v, (str, int, float, bool)):
             payload[k] = str(v)
+
 def _flush_rows_chunk(writer: S3ParquetWriter, doc_id: str, chunk_index: int, header_text: str, rows_text: List[str], start_row_num: int, manifest_tags: List[str] = None) -> Tuple[int, int]:
     if not rows_text:
         return 0, chunk_index
@@ -382,11 +478,33 @@ def _flush_rows_chunk(writer: S3ParquetWriter, doc_id: str, chunk_index: int, he
     token_ct = token_count_for(chunk_text)
     end_row_num = start_row_num + len(rows_text) - 1
     source_url = f"s3://{S3_BUCKET}/{writer.s3_path}" if S3_BUCKET else None
-    payload: Dict[str, Any] = {"document_id": doc_id or "", "chunk_id": chunk_id or "", "chunk_type": "row_group", "text": canonicalize_text(chunk_text) or "", "token_count": int(token_ct or 0), "figures": "[]", "embedding": None, "file_type": "application/x-ndjson", "source_url": source_url, "file_name": filename_from_source_url(source_url) if source_url else "", "row_range": [int(start_row_num), int(end_row_num)], "token_range": None, "audio_range": None, "timestamp": datetime.utcnow().isoformat() + "Z", "parser_version": PARSER_VERSION or "", "tags": manifest_tags or [], "layout_tags": [], "used_ocr": False, "heading_path": [], "headings": []}
+    payload: Dict[str, Any] = {
+        "document_id": doc_id or "",
+        "chunk_id": chunk_id or "",
+        "chunk_type": "row_group",
+        "text": canonicalize_text(chunk_text) or "",
+        "token_count": int(token_ct or 0),
+        "figures": "[]",
+        "embedding": None,
+        "file_type": "application/x-ndjson",
+        "source_url": source_url,
+        "file_name": filename_from_source_url(source_url) if source_url else "",
+        "row_range": [int(start_row_num), int(end_row_num)],
+        "token_range": None,
+        "audio_range": None,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "parser_version": PARSER_VERSION or "",
+        "tags": manifest_tags or [],
+        "layout_tags": [],
+        "used_ocr": False,
+        "heading_path": [],
+        "headings": []
+    }
     sanitize_payload_for_weaviate(payload)
     writer.write_payload(payload)
     log.info("Buffered chunk %s", payload["chunk_id"])
     return 1, chunk_index
+
 def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text, next_row_num, writer: S3ParquetWriter, manifest_tags: List[str] = None):
     saved = 0
     rows_text: List[str] = []
@@ -412,7 +530,28 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
                 candidate_text = header_text + "\n" + w["text"] if header_text and (header_tokens + w["token_count"] <= TARGET_TOKENS_PER_CHUNK) else w["text"]
                 token_ct = token_count_for(candidate_text)
                 source_url = f"s3://{S3_BUCKET}/{s3_path}" if S3_BUCKET else None
-                payload: Dict[str, Any] = {"document_id": doc_id or "", "chunk_id": chunk_id or "", "chunk_type": "token_window", "text": canonicalize_text(candidate_text) or "", "figures": "[]", "token_count": int(token_ct or 0), "embedding": None, "file_type": "application/x-ndjson", "source_url": source_url, "file_name": filename_from_source_url(source_url) if source_url else "", "row_range": [int(row_num), int(row_num)], "token_range": [int(w.get("token_start")), int(w.get("token_end"))], "audio_range": None, "timestamp": datetime.utcnow().isoformat() + "Z", "parser_version": PARSER_VERSION or "", "tags": manifest_tags or [], "layout_tags": [], "used_ocr": False, "heading_path": [], "headings": []}
+                payload: Dict[str, Any] = {
+                    "document_id": doc_id or "",
+                    "chunk_id": chunk_id or "",
+                    "chunk_type": "token_window",
+                    "text": canonicalize_text(candidate_text) or "",
+                    "figures": "[]",
+                    "token_count": int(token_ct or 0),
+                    "embedding": None,
+                    "file_type": "application/x-ndjson",
+                    "source_url": source_url,
+                    "file_name": filename_from_source_url(source_url) if source_url else "",
+                    "row_range": [int(row_num), int(row_num)],
+                    "token_range": [int(w.get("token_start")), int(w.get("token_end"))],
+                    "audio_range": None,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "parser_version": PARSER_VERSION or "",
+                    "tags": manifest_tags or [],
+                    "layout_tags": [],
+                    "used_ocr": False,
+                    "heading_path": [],
+                    "headings": []
+                }
                 sanitize_payload_for_weaviate(payload)
                 writer.write_payload(payload)
                 log.info("Buffered token_window %s", payload["chunk_id"])
@@ -435,8 +574,16 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
         wrote, chunk_index = _flush_rows_chunk(writer, doc_id, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags)
         saved += wrote
     return saved, chunk_index, next_row_num
+
 def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Main router-callable function. Validates runtime envs and performs parsing.
+    Returns dict with at least 'saved_chunks'.
+    """
+    if not S3_BUCKET:
+        raise RuntimeError("S3_BUCKET env must be set to run parse_file()")
     start_all = time.perf_counter()
+    s3 = get_s3_client()
     try:
         head_obj = s3.head_object(Bucket=S3_BUCKET, Key=s3_key)
     except Exception as e:
@@ -527,10 +674,6 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e_pd:
         total_ms = int((time.perf_counter() - start_all) * 1000)
         log.error("Skipping malformed or unreadable JSONL %s error=%s", s3_key, str(e_pd))
-        try:
-            pass
-        except Exception:
-            pass
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_pd)}
     try:
         if saved == 0:
@@ -550,10 +693,13 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
         total_ms = int((time.perf_counter() - start_all) * 1000)
         log.error("Failed to upload chunked file for %s error=%s", s3_key, str(e_up))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
+
+# CLI behavior only
 if __name__ == "__main__":
     if not S3_BUCKET:
         log.error("S3_BUCKET env required")
         sys.exit(1)
+    s3 = get_s3_client()
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=S3_BUCKET, Prefix=S3_RAW_PREFIX):
         for obj in page.get("Contents", []):

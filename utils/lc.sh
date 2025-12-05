@@ -6,9 +6,10 @@ CLUSTER_NAME="${CLUSTER_NAME:-rag8s-local}"
 LOCAL_BIN="${LOCAL_BIN:-$HOME/.local/bin}"
 KIND_VERSION="${KIND_VERSION:-v0.29.0}"
 KUBECTL_VERSION="${KUBECTL_VERSION:-$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)}"
-CONTROLPLANE_CONTAINER_MEMORY="${CONTROLPLANE_CONTAINER_MEMORY:-2g}"
+# increased control-plane mem/cpu to reduce CoreDNS/API pressure
+CONTROLPLANE_CONTAINER_MEMORY="${CONTROLPLANE_CONTAINER_MEMORY:-3g}"
 CONTROLPLANE_CONTAINER_CPUS="${CONTROLPLANE_CONTAINER_CPUS:-3}"
-WORKER_CONTAINER_MEMORY="${WORKER_CONTAINER_MEMORY:-2g}"
+WORKER_CONTAINER_MEMORY="${WORKER_CONTAINER_MEMORY:-2.5g}"
 WORKER_CONTAINER_CPUS="${WORKER_CONTAINER_CPUS:-3}"
 INSTALL_MONITORING="${INSTALL_MONITORING:-true}"
 PROM_HELM_REPO="${PROM_HELM_REPO:-prometheus-community}"
@@ -109,23 +110,19 @@ kubectl --context "${CONTEXT}" wait --for=condition=Ready nodes --all --timeout=
 # Ensure context is set and usable
 kubectl config use-context "${CONTEXT}" >/dev/null 2>&1 || true
 
-# Create helpful namespaces
-kubectl create namespace inference --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
-kubectl create namespace indexing --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
-kubectl create namespace kubeblocks --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
-kubectl create namespace models --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
-kubectl create namespace qdrant --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+# Create helpful namespaces (idempotent)
+for ns in inference indexing kubeblocks models qdrant monitoring; do
+  kubectl create namespace "${ns}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+done
 
 # ---- Networking hardening for dev: ensure DNS & egress won't get accidentally blocked ----
-# 1) Delete any restrictive NetworkPolicy in inference/models namespaces (dev convenience)
-kubectl -n inference delete networkpolicy --all --ignore-not-found >/dev/null 2>&1 || true
-kubectl -n models delete networkpolicy --all --ignore-not-found >/dev/null 2>&1 || true
-kubectl -n qdrant delete networkpolicy --all --ignore-not-found >/dev/null 2>&1 || true
+# 1) Delete any restrictive NetworkPolicy in inference/models/qdrant namespaces (dev convenience)
+for ns in inference models qdrant; do
+  kubectl -n "${ns}" delete networkpolicy --all --ignore-not-found >/dev/null 2>&1 || true
+done
 
-# 2) Create permissive egress policy for inference + models (dev only)
-#    This allows all outbound traffic from pods in these namespaces to anywhere (0.0.0.0/0).
-#    If you want stricter rules later, replace this with targeted namespace/service rules.
-cat <<'EOF' | kubectl -n inference apply -f -
+# 2) Create permissive egress policy for inference + models + qdrant (dev only)
+cat <<'EOF' | kubectl -n inference apply -f - >/dev/null 2>&1 || true
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -140,7 +137,8 @@ spec:
         cidr: 0.0.0.0/0
 EOF
 
-cat <<'EOF' | kubectl -n models apply -f -
+for ns in models qdrant; do
+  cat <<'EOF' | kubectl -n "${ns}" apply -f - >/dev/null 2>&1 || true
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -154,30 +152,62 @@ spec:
     - ipBlock:
         cidr: 0.0.0.0/0
 EOF
+done
 
-cat <<'EOF' | kubectl -n qdrant apply -f -
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
+# --- make CoreDNS resilient in dev ---
+echo "[INFO] CoreDNS: ensure 2 replicas + resource requests/limits + fallback forwarders"
+
+# wait briefly for kube-system components to exist
+kubectl -n kube-system wait --for=condition=Available deployment/coredns --timeout=90s >/dev/null 2>&1 || true
+
+# scale to 2 replicas (idempotent)
+kubectl -n kube-system get deployment coredns >/dev/null 2>&1 && \
+  kubectl -n kube-system scale deployment coredns --replicas=2 --timeout=60s >/dev/null 2>&1 || true
+
+# set sane resource requests/limits so containerd/kubelet doesn't OOM/CPU-throttle it
+kubectl -n kube-system get deployment coredns >/dev/null 2>&1 && \
+  kubectl -n kube-system set resources deployment coredns \
+    --requests=cpu=200m,memory=256Mi \
+    --limits=cpu=500m,memory=512Mi >/dev/null 2>&1 || true
+
+# patch CoreDNS Corefile to add public forwarders as fallback (idempotent)
+if kubectl -n kube-system get configmap coredns >/dev/null 2>&1; then
+  CURRENT_COREFILE=$(kubectl -n kube-system get configmap coredns -o jsonpath='{.data.Corefile}' 2>/dev/null || true)
+  if [ -n "${CURRENT_COREFILE}" ]; then
+    if ! printf '%s' "${CURRENT_COREFILE}" | grep -q '8.8.8.8'; then
+      # prefer replacing 'forward . /etc/resolv.conf' if present, otherwise append a fallback forward stanza
+      if printf '%s' "${CURRENT_COREFILE}" | grep -q 'forward[[:space:]]\.[[:space:]]*/etc/resolv.conf'; then
+        NEW_COREFILE=$(printf '%s' "${CURRENT_COREFILE}" | sed '0,/forward \. \/etc\/resolv.conf/ s/forward \. \/etc\/resolv.conf/forward . 8.8.8.8 8.8.4.4 {policy sequential}/')
+      else
+        # append fallback forwarders at end
+        NEW_COREFILE="$(printf '%s\n\n# fallback forwarders added by lc.sh\nforward . 8.8.8.8 8.8.4.4 {policy sequential}\n' "${CURRENT_COREFILE}")"
+      fi
+      # apply updated ConfigMap (preserve name/namespace; this will overwrite data.Corefile only)
+      cat <<EOF | kubectl -n kube-system apply -f - >/dev/null 2>&1 || true
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: allow-all-egress-dev
-spec:
-  podSelector: {}
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - ipBlock:
-        cidr: 0.0.0.0/0
+  name: coredns
+  namespace: kube-system
+data:
+  Corefile: |
+$(printf '%s\n' "${NEW_COREFILE}" | sed 's/^/    /')
 EOF
+      kubectl -n kube-system rollout restart deployment coredns >/dev/null 2>&1 || true
+      kubectl -n kube-system rollout status deployment coredns --timeout=120s >/dev/null 2>&1 || true
+    else
+      echo "[INFO] CoreDNS already configured with public forwarders; skipping patch."
+    fi
+  else
+    echo "[WARN] CoreDNS ConfigMap present but Corefile empty -- skipping Corefile patch."
+  fi
+else
+  echo "[WARN] CoreDNS ConfigMap not found yet; skipping Corefile patch."
+fi
 
-# 3) Make CoreDNS resilient: ensure at least 2 replicas in dev to avoid transient DNS loss
-echo "[INFO] Ensuring CoreDNS has 2 replicas (improves resilience)"
-kubectl -n kube-system get deployment/coredns >/dev/null 2>&1 && \
-  kubectl -n kube-system scale deployment/coredns --replicas=2 --timeout=60s || true
-
-# 4) Wait for critical networking pods (coredns, kindnet, kube-proxy) to be ready
+# Wait for critical networking pods (coredns, kindnet, kube-proxy) to be ready
 echo "[INFO] Waiting for critical networking/system pods to be Ready..."
-kubectl -n kube-system wait --for=condition=Available deployment/coredns --timeout=120s || true
+kubectl -n kube-system wait --for=condition=Available deployment/coredns --timeout=120s >/dev/null 2>&1 || true
 kubectl -n kube-system get pods -l k8s-app=kube-dns -o wide || true
 # wait for kindnet/kube-proxy (CNI) to be ready
 kubectl -n kube-system wait --for=condition=Ready pods -l k8s-app=kindnet --timeout=120s 2>/dev/null || true
@@ -193,27 +223,46 @@ if [ "${INSTALL_MONITORING}" = "true" ]; then
     --namespace monitoring --create-namespace --wait --version "${PROM_HELM_CHART_VERSION}" >/dev/null 2>&1 || true
 fi
 
+# Host sysctls helpful for inotify-heavy workloads and file handles
 sudo sysctl -w fs.inotify.max_user_watches=524288
 sudo sysctl -w fs.inotify.max_user_instances=1024
 sudo sysctl -w fs.file-max=2097152
 # persist across reboot (optional)
-echo "fs.inotify.max_user_watches=524288" | sudo tee -a /etc/sysctl.conf
-echo "fs.inotify.max_user_instances=1024" | sudo tee -a /etc/sysctl.conf
-echo "fs.file-max=2097152" | sudo tee -a /etc/sysctl.conf
+if ! grep -q '^fs.inotify.max_user_watches=524288' /etc/sysctl.conf 2>/dev/null; then
+  echo "fs.inotify.max_user_watches=524288" | sudo tee -a /etc/sysctl.conf >/dev/null
+fi
+if ! grep -q '^fs.inotify.max_user_instances=1024' /etc/sysctl.conf 2>/dev/null; then
+  echo "fs.inotify.max_user_instances=1024" | sudo tee -a /etc/sysctl.conf >/dev/null
+fi
+if ! grep -q '^fs.file-max=2097152' /etc/sysctl.conf 2>/dev/null; then
+  echo "fs.file-max=2097152" | sudo tee -a /etc/sysctl.conf >/dev/null
+fi
 
-# pull required images into all kind node containers
+echo "[+] Updating sysctls inside kind nodes..."
+for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
+  echo "  - patching $node"
+  docker exec "$node" sysctl -w fs.inotify.max_user_watches=524288 || true
+  docker exec "$node" sysctl -w fs.inotify.max_user_instances=1024 || true
+  docker exec "$node" sysctl -w fs.file-max=2097152 || true
+done
+echo "[+] Sysctl patching complete."
+
+# pull required images into all kind node containers (preload)
+CLUSTER_NAME=rag8s-local
 for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
   echo "[INFO] Preloading images into ${node}"
   docker exec "${node}" ctr -n k8s.io images pull docker.io/qdrant/qdrant:v1.16.0
   docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/dense:amd64-arm64-v1
-  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/sparse:amd64-arm64-v2
-  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/reranker:amd64-arm64-v1
-  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/retrieval:amd64-arm64-v1
-  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/frontend:amd64-arm64-v1
-  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/indexing_pipeline_cpu:amd64-arm64-v10
+  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/sparse:amd64-arm64-v2 
+  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/reranker:amd64-arm64-v1 
+  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/retrieval:amd64-arm64-v1 
+  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/frontend:amd64-arm64-v1 
+  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/indexing_pipeline_cpu:amd64-arm64-v7
 done
 
 echo "kind cluster ${CLUSTER_NAME} created (1 control-plane + 2 workers). Context: ${CONTEXT}"
-kubectl get nodes
+kubectl get nodes -o wide
 
 exit 0
+
+

@@ -6,9 +6,9 @@ Deterministic generator for Reranker Kubernetes manifests.
 Writes manifests to infra/manifests/reranker/
 
 Usage:
-  python gen_reranker.py --generate
-  python gen_reranker.py --apply
-  python gen_reranker.py --delete
+  python3 gen_reranker.py --generate
+  python3 gen_reranker.py --apply
+  python3 gen_reranker.py --delete
 """
 from pathlib import Path
 import os

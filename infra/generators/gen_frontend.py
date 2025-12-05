@@ -6,9 +6,9 @@ Deterministic generator for Inference frontend Kubernetes manifests.
 Writes manifests to infra/manifests/inference/
 
 Usage:
-  python gen_frontend.py --generate
-  python gen_frontend.py --apply
-  python gen_frontend.py --delete
+  python3 gen_frontend.py --generate
+  python3 gen_frontend.py --apply
+  python3 gen_frontend.py --delete
 """
 from pathlib import Path
 import os
