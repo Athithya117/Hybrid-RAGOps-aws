@@ -7,18 +7,9 @@ spec:
   generators:
     - list:
         elements:
-          - name: ingress
-            path: "/workspace/infra/manifests/ingress"
-            destNamespace: ingress-nginx
-          - name: k8s-core
-            path: "/workspace/infra/manifests/k8s-core"
-            destNamespace: kube-system
-          - name: karpenter
-            path: "/workspace/infra/manifests/karpenter"
-            destNamespace: karpenter
-          - name: monitoring
-            path: "/workspace/infra/manifests/monitoring"
-            destNamespace: monitoring
+          - name: inference
+            path: "/workspace/infra/manifests/inference"
+            destNamespace: inference
           - name: qdrant
             path: "/workspace/infra/manifests/qdrant"
             destNamespace: qdrant
