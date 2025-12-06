@@ -68,7 +68,7 @@ def kubectl_apply_yaml(yaml_str: str, dry_run=False):
 def load_config():
     cfg = {}
     cfg["ENV"] = os.environ.get("FRONTEND_ENV", os.environ.get("ENV", "STAGING")).upper()
-    cfg["MANIFESTS_DIR"] = Path(os.environ.get("MANIFESTS_DIR", "infra/manifests/inference"))
+    cfg["MANIFESTS_DIR"] = Path(os.environ.get("MANIFESTS_DIR", "infra/manifests/frontend"))
     cfg["INPUTS_HASH_PATH"] = cfg["MANIFESTS_DIR"] / ".inputs_hash"
     cfg["IMAGE"] = os.environ.get("FRONTEND_IMAGE", "athithya5354/frontend:amd64-arm64-v1")
     cfg["NAMESPACE"] = os.environ.get("FRONTEND_NAMESPACE", "inference")

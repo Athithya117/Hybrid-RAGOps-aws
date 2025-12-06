@@ -34,3 +34,7 @@ docker-login:
 
 index-image:
 	bash apps/index/build_and_push_image.sh
+
+
+init-reranker:
+	python3 infra/generators/gen_reranker.py --generate

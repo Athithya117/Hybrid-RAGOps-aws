@@ -1,1 +1,0 @@
-{"release":"qdrant","namespace":"qdrant","replicas":3,"storageClass":"standard","values_file":"infra/manifests/local/values.yaml","chart_version":"1.16.0","image_tag":"v1.16.0","vendor_chart_dir":"infra/archive/qdrant-helm-chart/qdrant"}

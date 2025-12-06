@@ -1,5 +1,5 @@
 """
-run_indexing_cronjob.py
+python3 run_indexing_cronjob.py
 
 Run a CronJob manually by creating a Job from it, stream logs from the Job pod,
 and clean up afterwards.
@@ -12,6 +12,7 @@ Options:
   --create-secrets  (for staging) create secrets in-cluster from env vars (qdrant + aws) before creating the Job
   --timeout SECS     max seconds to wait for pod to appear / start (default 180)
   --no-cleanup       keep Job & pods after completion for debugging
+
 """
 
 from __future__ import annotations

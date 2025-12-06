@@ -81,7 +81,7 @@ def kubectl_apply_yaml(yaml_str: str, dry_run=False):
 def load_config():
     cfg = {}
     cfg["ENV"] = os.environ.get("QUERY_ENV", os.environ.get("ENV", "STAGING")).upper()
-    cfg["MANIFESTS_DIR"] = Path(os.environ.get("MANIFESTS_DIR", "infra/manifests/inference"))
+    cfg["MANIFESTS_DIR"] = Path(os.environ.get("MANIFESTS_DIR", "infra/manifests/retriever"))
     cfg["INPUTS_HASH_PATH"] = cfg["MANIFESTS_DIR"] / ".inputs_hash"
     cfg["IMAGE"] = os.environ.get("QUERY_IMAGE", "athithya5354/retrieval:amd64-arm64-v1")
     cfg["NAMESPACE"] = os.environ.get("QUERY_NAMESPACE", "inference")
