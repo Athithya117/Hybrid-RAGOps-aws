@@ -1,0 +1,16 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: github-com-athithya-sakthivel-rag8s-git-ingress
+  namespace: flux-system
+spec:
+  interval: 60s
+  retryInterval: 60s
+  timeout: 120s
+  prune: true
+  wait: true
+  sourceRef:
+    kind: GitRepository
+    name: github-com-athithya-sakthivel-rag8s-git
+    namespace: flux-system
+  path: "./infra/manifests/ingress"
