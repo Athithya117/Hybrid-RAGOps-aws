@@ -45,7 +45,7 @@ gh auth login
 ```
 #### Create a private repo in your gh account
 ```sh
-export REPO_NAME="rag-45"
+export REPO_NAME="rag8s"
 
 git remote remove origin 2>/dev/null || true
 gh repo create "$REPO_NAME" --private >/dev/null 2>&1
@@ -132,6 +132,45 @@ export INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT="2Gi"     # Memory limit for CronJob
 export INDEXING_PIPELINE_CPU_IMAGE_REPO="athithya5354/indexing_pipeline_cpu"  # Use the prebuilt docker image or build your own by running `make index-image`
 export INDEXING_PIPELINE_CPU_IMAGE_TAG="amd64-arm64-v7" # Set a consistent tag name for clarity. You may change if building your own image
 
+
+
+export AWS_REGION="${AWS_REGION:-ap-south-1}"
+
+export PULUMI_S3_BUCKET="${PULUMI_S3_BUCKET:-e2e-rag-42}"
+export S3_BUCKET="${S3_BUCKET:-${PULUMI_S3_BUCKET}}"
+export S3_PREFIX="${S3_PREFIX:-pulumi/}"
+export PULUMI_STATE_BUCKET="${PULUMI_STATE_BUCKET:-${PULUMI_S3_BUCKET}}"
+export PULUMI_STATE_PREFIX="${PULUMI_STATE_PREFIX:-${S3_PREFIX}}"
+export DDB_TABLE="${DDB_TABLE:-pulumi-state-locks}"
+
+export PULUMI_STACK="${PULUMI_STACK:-prod}"
+export STACK="${STACK:-${PULUMI_STACK}}"
+export PULUMI_CONFIG_PASSPHRASE="${PULUMI_CONFIG_PASSPHRASE:-password}"
+
+export ENABLE_PULUMI_AUTOINIT="${ENABLE_PULUMI_AUTOINIT:-true}"
+export PIP_BREAK_SYSTEM_PACKAGES_FLAG="${PIP_BREAK_SYSTEM_PACKAGES_FLAG:---no-input}"
+export PULUMI_LOGIN_URL="${PULUMI_LOGIN_URL:-s3://${S3_BUCKET}/${S3_PREFIX}}"
+export PULUMI_PYTHON_CMD="${PULUMI_PYTHON_CMD:-${VENV_DIR}/bin/python}"
+
+# ---- Minimal-Cost Defaults Below ----
+export AVOID_DOMAIN="${AVOID_DOMAIN:-true}"
+export MULTI_AZ_DEPLOYMENT="${MULTI_AZ_DEPLOYMENT:-true}"
+export AZ_COUNT="${AZ_COUNT:-3}"
+export VPC_CIDR="${VPC_CIDR:-10.0.0.0/16}"
+export PUBLIC_SUBNET_CIDRS="${PUBLIC_SUBNET_CIDRS:-}"
+export PRIVATE_SUBNET_CIDRS="${PRIVATE_SUBNET_CIDRS:-}"
+
+# >>> COST MINIMAL DEFAULTS <<<
+export NO_NAT="${NO_NAT:-true}"                         # ✔ No NAT Gateways (major cost saving)
+export NAT_SINGLE="${NAT_SINGLE:-false}"                # irrelevant when NO_NAT=true
+export CREATE_VPC_ENDPOINTS="${CREATE_VPC_ENDPOINTS:-true}"  
+export CREATE_VPC_ENDPOINT_SERVICES="${CREATE_VPC_ENDPOINT_SERVICES:-s3,ecr.api,ecr.dkr,ssm,sts}"
+
+export ENABLE_FLOW_LOGS="${ENABLE_FLOW_LOGS:-false}"    # ✔ avoid CloudWatch ingestion charges
+export FLOW_LOG_DEST="${FLOW_LOG_DEST:-cloudwatch}"
+export FLOW_LOG_S3_BUCKET="${FLOW_LOG_S3_BUCKET:-}"
+
+export TAG_PREFIX="${TAG_PREFIX:-pulumi}"
 
 
 

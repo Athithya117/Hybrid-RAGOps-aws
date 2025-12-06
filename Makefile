@@ -27,6 +27,7 @@ clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
 	find . -type f -name "*.log" ! -path "./.git/*" -delete
+	find . -type f -name "*.pulumi-logs" ! -path "./.git/*" -delete
 	clear
 
 docker-login:
@@ -38,3 +39,17 @@ index-image:
 
 init-reranker:
 	python3 infra/generators/gen_reranker.py --generate
+
+setup-flux:
+	python3 infra/scripts/setup_fluxcd.py --auto-push
+
+inspect-flux:
+	tail -f infra/manifests/flux-system/setup_fluxcd.log
+
+flux-status:
+	flux check && flux get kustomizations -n flux-system
+
+pulumi-up:
+	bash infra/pulumi_aws/pulumi_setup.sh --create || true
+pulumi-destroy:
+	bash infra/pulumi_aws/pulumi_setup.sh --delete || true

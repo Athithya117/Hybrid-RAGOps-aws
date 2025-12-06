@@ -25,7 +25,9 @@ infra/manifests/qdrant/secret-sample.yaml
 ###############################################################################
 infra/manifests/qdrant/secret-sample.yaml
 tmp
-
+infra/pulumi_aws/pulumi-outputs.json
+infra/pulumi_aws/pulumi-exports.sh
+infra/pulumi_aws/.pulumi-logs
 models/
 *.onnx
 *.pt
