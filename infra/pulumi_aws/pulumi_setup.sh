@@ -45,29 +45,20 @@ export CREATE_VPC_ENDPOINTS="${CREATE_VPC_ENDPOINTS:-true}" # create common VPC 
 export CREATE_VPC_ENDPOINT_SERVICES="${CREATE_VPC_ENDPOINT_SERVICES:-s3,ecr.api,ecr.dkr,ssm,sts}" # services list
 
 export FLOW_LOG_MODE="${FLOW_LOG_MODE:-s3}"       # none|cloudwatch|s3 — use cloudwatch for dev, s3 for analytics
-export ENABLE_FLOW_LOGS="${ENABLE_FLOW_LOGS:-false}"      # legacy toggle; used only if FLOW_LOG_MODE unset
-export FLOW_LOG_CW_LOG_GROUP="${FLOW_LOG_CW_LOG_GROUP:-/aws/vpc/flowlogs/${STACK}}" # CW group name; change retention below
-export FLOW_LOG_CW_RETENTION_DAYS="${FLOW_LOG_CW_RETENTION_DAYS:-14}" # retention for CW logs (shorter for dev)
+export ENABLE_FLOW_LOGS="${ENABLE_FLOW_LOGS:-true}"  # Legacy toggle; used only if FLOW_LOG_MODE unset
+
+export FLOW_LOG_CW_LOG_GROUP="${FLOW_LOG_CW_LOG_GROUP:-/aws/vpc/flowlogs/${STACK}}" # (if FLOW_LOG_MODE=cloudwatch) CW group name; change retention below
+export FLOW_LOG_CW_RETENTION_DAYS="${FLOW_LOG_CW_RETENTION_DAYS:-14}" # (if FLOW_LOG_MODE=cloudwatch)  retention for CW logs (shorter for dev)
 
 export FLOW_LOG_S3_BUCKET="${FLOW_LOG_S3_BUCKET:-rag-vpc-flow-31}"        # existing bucket name or ARN when using external bucket (s3 mode)
-export FLOW_LOG_S3_CREATE="${FLOW_LOG_S3_CREATE:-false}"  # true => auto-create bucket in same stack (careful in prod)
 export FLOW_LOG_S3_CREATE_NAME="${FLOW_LOG_S3_CREATE_NAME:-${TAG_PREFIX}-${STACK}-vpc-flow-logs}" # bucket name when auto-creating
-export FLOW_LOG_S3_PREFIX="${FLOW_LOG_S3_PREFIX:-AWSLogs/<ACCOUNT>/vpcflowlogs/}" # delivery prefix; change only if transforming layout
 export FLOW_LOG_S3_LIFECYCLE_TRANSITION_DAYS="${FLOW_LOG_S3_LIFECYCLE_TRANSITION_DAYS:-30}" # move to IA after X days
 export FLOW_LOG_S3_EXPIRATION_DAYS="${FLOW_LOG_S3_EXPIRATION_DAYS:-365}" # expire logs after X days; increase for compliance
-export FLOW_LOG_S3_ACCESS_LOGGING="${FLOW_LOG_S3_ACCESS_LOGGING:-false}" # enable S3 server access logs for the log bucket
-export FLOW_LOG_S3_ACCESS_BUCKET="${FLOW_LOG_S3_ACCESS_BUCKET:-}" # bucket to receive access logs (required if access logging enabled)
-
-export FLOW_LOG_SSE_ALGORITHM="${FLOW_LOG_SSE_ALGORITHM:-AES256}" # AES256|aws:kms — choose aws:kms for compliance
-export FLOW_LOG_KMS_CREATE="${FLOW_LOG_KMS_CREATE:-false}"   # true => create CMK for log bucket (requires approvals)
-export FLOW_LOG_KMS_ARN="${FLOW_LOG_KMS_ARN:-}"              # existing CMK ARN to use (mutually exclusive with CREATE true)
+export FLOW_LOG_S3_ACCESS_LOGGING="${FLOW_LOG_S3_ACCESS_LOGGING:-true}"
+export FLOW_LOG_S3_ACCESS_BUCKET="${FLOW_LOG_S3_ACCESS_BUCKET:-rag-vpc-flow-31}" # bucket to receive access logs (required if access logging enabled)
 
 export CREATE_GLUE_CRAWLER="${CREATE_GLUE_CRAWLER:-true}"    # create Glue crawler to discover partitions (cheap, recommended)
 export GLUE_CRAWLER_SCHEDULE="${GLUE_CRAWLER_SCHEDULE:-cron(0 * ? * * *)}" # schedule for crawler (hourly default)
-export CREATE_GLUE_ETL="${CREATE_GLUE_ETL:-false}"          # true => create Glue ETL job to convert raw->parquet (costly; default OFF)
-export GLUE_ETL_SCHEDULE="${GLUE_ETL_SCHEDULE:-cron(0 2 * * ? *)}" # ETL schedule (daily 02:00 UTC)
-export GLUE_ETL_DPU="${GLUE_ETL_DPU:-10}"                   # Glue DPUs for ETL job; increase for big volumes
-export GLUE_SCRIPT_S3_PREFIX="${GLUE_SCRIPT_S3_PREFIX:-glue-scripts/}" # where ETL script is uploaded within scripts bucket
 
 export CREATE_ATHENA="${CREATE_ATHENA:-true}"               # create Athena helper (Glue DB + named query) when using parquet
 export ATHENA_DB_NAME="${ATHENA_DB_NAME:-vpc_flow_logs_${STACK}}" # Glue/Athena DB name; centralize if needed
@@ -75,10 +66,6 @@ export ATHENA_TABLE_NAME="${ATHENA_TABLE_NAME:-vpc_flow_parquet}" # Athena table
 export ATHENA_OUTPUT_BUCKET="${ATHENA_OUTPUT_BUCKET:-}"     # optional Athena query results bucket; defaults to log bucket when empty
 
 export FLOW_LOG_MAX_DAILY_BYTES="${FLOW_LOG_MAX_DAILY_BYTES:-1073741824}" # 1 GiB/day guardrail; tune per traffic expectations
-export ZSTD_COMPRESSION_LEVEL=3 
-
-export AVOID_DOMAIN="${AVOID_DOMAIN:-true}"                # if true, skip creating DNS/certs (useful for learners / freenom)
-
 
 
 if [ -z "$PYTHON_BIN" ]; then

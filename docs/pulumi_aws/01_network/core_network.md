@@ -8,7 +8,7 @@
 
 # Short summary of what the file does (one sentence)
 
-`core_network.py` is a single Pulumi program that **creates a VPC + subnets + NAT/route tables + endpoints**, and optionally **configures VPC Flow Logs** (CloudWatch or S3), plus **Glue crawler + Glue ETL job + Athena helper** to convert and catalog S3 flow logs for efficient analytics.
+`core_network.py` is a single Pulumi program that **creates a VPC + subnets + NAT/route tables + endpoints**, and optionally **configures VPC Flow Logs** (CloudWatch or S3), plus **Glue crawler (optional) + Athena helper** to catalog S3 flow logs for efficient analytics.
 
 ---
 
@@ -22,7 +22,7 @@
 6. VPC endpoints — gateway (S3) + interface endpoints (ECR, SSM, STS, etc.).
 7. Logging infra — S3 bucket (optional create), KMS (optional create), bucket policy, lifecycle.
 8. FlowLog resource — CloudWatch or S3 Flow Log creation, with least-privilege IAM role for CloudWatch.
-9. Glue crawler + Glue ETL job + Glue trigger — crawler to discover partitions, ETL to convert raw gz → partitioned Parquet, scheduled Glue trigger.
+9. Glue crawler — crawler to discover partitions for S3 parquet flow logs (optional, schedulable).
 10. Athena named query helper — DDL to create partitioned Parquet table (exported as a named query).
 11. Pulumi exports — stable outputs (`vpc_id`, `public_subnet_ids`, `flow_log` map, etc.).
 
@@ -55,14 +55,14 @@
 ### 4) Apply stage
 
 * When you run `pulumi up` and confirm, Pulumi will instruct the provider to create resources in the required order.
-* AWS resource creation occurs via API calls: VPC → subnets → IGW → route tables → NATs (with EIP allocations) → private route tables → VPC endpoints → S3/KMS buckets/keys if configured → IAM role/policies → FlowLog → Glue resources.
+* AWS resource creation occurs via API calls: VPC → subnets → IGW → route tables → NATs (with EIP allocations) → private route tables → VPC endpoints → S3/KMS buckets/keys if configured → IAM role/policies → FlowLog → Glue crawler (if configured).
 * `depends_on` ensures the create order for resources that must be present before others (e.g., ensure bucket & policy exist before FlowLog creation).
-* For AWS items that take time to reach consistent state (EIP/NAT provisioning, Glue job state), Pulumi waits until the provider resources reach a created state or times out based on provider defaults.
+* For AWS items that take time to reach consistent state (EIP/NAT provisioning, Glue crawler runs), Pulumi waits until the provider resources reach a created state or times out based on provider defaults.
 
 ### 5) Post-apply
 
 * Pulumi writes stack outputs (the `pulumi.export(...)` values) into the stack state. Downstream modules or CI scripts can `pulumi stack output --json` to consume them.
-* Note: the Glue ETL job may not have run yet (if scheduled) — the ETL job runs on schedule after the Glue trigger executes. Glue crawler may take minutes to finish its first run; Flow Log objects typically land in S3 with a delay (delivery is not instantaneous).
+* Note: the Glue crawler may take minutes to finish its first run; Flow Log objects typically land in S3 with a delay (delivery is not instantaneous).
 
 ---
 
@@ -135,31 +135,14 @@
   * Creates a Glue `Crawler` that targets the S3 raw logs prefix (the `AWSLogs/<acct>/vpcflowlogs/<region>/` path). The crawler inspects folders and files and writes table metadata to the Glue Data Catalog. Use this to let Athena prune partitions by path (after crawler runs).
   * Optionally schedules the crawler via `Aws::Glue::CrawlerSchedule` (a cron expression) e.g., hourly.
 
-## Glue ETL job (convert raw gz -> partitioned Parquet)
-
-* If `CREATE_GLUE_ETL` is true:
-
-  * Creates (or uploads) a PySpark script to S3 that:
-
-    * Reads raw text/gz logs (line by line).
-    * Splits whitespace into canonical VPC Flow Log fields.
-    * Casts types, derives `year/month/day` from the `start` epoch and computes `region`.
-    * Writes Parquet output partitioned by `region/year/month/day` to a `vpcflowlogs_parquet/` prefix.
-  * Creates a Glue job resource with an IAM role allowing read from the raw prefix, write to the Parquet prefix, access to Glue/Athena, and KMS if needed.
-  * Schedules a Glue Trigger (cron-like) to run the ETL (e.g., daily) or you can run it ad-hoc.
-
-### Why ETL → Parquet and partitioning?
-
-* Raw gz text scans are expensive. Parquet is columnar and dramatically reduces Athena scanned bytes and cost. Partitioning by time (and region) allows Athena partition pruning to read only the relevant files for a query.
-
 ## Athena named query (DDL helper)
 
-* The program creates an Athena `NamedQuery` containing a DDL `CREATE EXTERNAL TABLE` pointing at the Parquet target (or a template that the user can run). This is a convenience for operators to run the query in the Athena console and create the partitioned table. In practice you may run CTAS (CREATE TABLE AS SELECT) to convert data or the Glue ETL job will write Parquet directly and update the Glue Catalog.
+* The program creates an Athena `NamedQuery` containing a DDL `CREATE EXTERNAL TABLE` pointing at the Parquet target (or a template that the user can run). This is a convenience for operators to run the query in the Athena console and create the partitioned table. In practice you may run CTAS (CREATE TABLE AS SELECT) or rely on the Glue crawler to populate the Glue Catalog.
 
 ## Pulumi exports
 
 * `vpc_id`, `public_subnet_ids`, `private_subnet_ids`, `nat_gateway_ids`, `route_table_ids`, `vpc_endpoint_ids`.
-* `flow_log` — a map containing `mode`, `cloudwatch_log_group`, `s3_bucket` (as an `Output` if created), `s3_prefix`, `kms_key_arn`, `flow_log_resource_id`, `glue_db`, `glue_crawler`, `glue_job`, `glue_trigger`, `athena_named_query_id`. Downstream code uses these outputs to patch manifests, secrets, or to set ARNs in Kubernetes manifests.
+* `flow_log` — a map containing `mode`, `cloudwatch_log_group`, `s3_bucket` (as an `Output` if created), `s3_prefix`, `kms_key_arn`, `flow_log_resource_id`, `glue_db`, `glue_crawler`, `athena_named_query_id`. Downstream code uses these outputs to patch manifests, secrets, or to set ARNs in Kubernetes manifests.
 
 ---
 
@@ -177,9 +160,9 @@
 
    * KMS key policies are tricky. The module sets a key policy that grants usage to the Flow Logs service principal and to the account root (via `aws:SourceAccount`), and also creates grants when necessary. Still, different AWS accounts and organizations might need extra policy statements.
 
-4. **Glue crawler / ETL timing**
+4. **Glue crawler timing**
 
-   * The crawler may take several minutes to detect partitions. ETL jobs take time depending on data volume. The Pulumi apply completes when resources are created; data ingestion / catalog population may still be in progress.
+   * The crawler may take several minutes to detect partitions. The Pulumi apply completes when resources are created; data ingestion / catalog population may still be in progress.
 
 5. **IAM least-privilege tradeoffs**
 
@@ -199,7 +182,7 @@ Run these commands after `pulumi up` if something looks wrong:
 * For S3: `aws s3 ls s3://<bucket>/<prefix>/ --recursive --human-readable --summarize | head` — check whether objects exist.
 * For FlowLogs: `aws ec2 describe-flow-logs --filter Name=resource-id,Values=<vpc-id>` — check FlowLog status.
 * For CloudWatch: `aws logs describe-log-groups --log-group-name-prefix "/aws/vpc/flowlogs"` and `aws logs get-log-events` / CloudWatch Logs Insights in console.
-* For Glue crawler/job: `aws glue get-crawler --name <crawler>` and `aws glue get-job-runs --job-name <job>` to see last run details.
+* For Glue crawler: `aws glue get-crawler --name <crawler>` to see last run details.
 * For Athena: run the named query or go to console to inspect the table and partitions.
 
 ---
@@ -244,8 +227,8 @@ echo
 echo "=== EC2 Flow Logs (recent) ==="
 aws ec2 describe-flow-logs --output json | jq -r '.FlowLogs[] | {FlowLogId:.FlowLogId,ResourceId:.ResourceId,LogDestinationType:.LogDestinationType,LogGroupName:.LogGroupName,LogDestination:.LogDestination,LogFormat:.LogFormat,CreationTime:.CreationTime,FlowLogStatus:.FlowLogStatus}' | sed -n '1,50p' || true
 echo
-echo "=== Glue jobs (list) ==="
-aws glue get-jobs --output json | jq -r '.Jobs[] | .Name' | sed -n '1,50p' || true
+echo "=== Glue crawlers (list) ==="
+aws glue get-crawlers --output json | jq -r '.Crawlers[] | .Name' | sed -n '1,50p' || true
 echo
 echo "=== End of diagnostic ==="
 ```
@@ -257,8 +240,8 @@ echo "=== End of diagnostic ==="
 # Common failure modes & how to fix them
 
 1. **`FlowLog` fails to write to S3**: check bucket policy, KMS grants & `aws:SourceAccount` conditions; ensure FlowLog resource uses the exact bucket ARN and that the Flow Logs service principal is allowed by both bucket policy and KMS key policy. Use the `describe-flow-logs` AWS CLI command to see `FlowLogStatus`.
-2. **Glue job fails**: check IAM role attached to glue job for `s3:GetObject` on the raw prefix and `s3:PutObject` on parquet prefix; check logs in CloudWatch Logs (Glue job logs appear there).
-3. **Athena queries scan too much data**: ensure ETL writes partitioned Parquet; run `MSCK REPAIR TABLE <table>` or have the crawler run to add partitions. Prefer partitioned Parquet to raw gz.
+2. **Glue crawler misconfigurations**: check IAM role attached to the crawler for `s3:GetObject` on the raw prefix and `glue:*` permissions as needed; check crawler logs in CloudWatch.
+3. **Athena queries scan too much data**: ensure S3 delivery is Parquet and partitioned; run `MSCK REPAIR TABLE <table>` or have the crawler run to add partitions. Prefer partitioned Parquet to raw gz.
 4. **Pulumi preview shows destructive changes**: inspect stack config and resource names; if you changed bucket naming defaults, Pulumi may try to replace buckets — avoid accidental bucket rename by setting explicit `FLOW_LOG_S3_CREATE_NAME`.
 5. **Provider API mismatch errors**: pin Pulumi / pulumi-aws versions in `requirements.txt`.
 
@@ -278,8 +261,8 @@ echo "=== End of diagnostic ==="
 # Quick mental model for engineers
 
 * `core_network.py` declares *what* you want; Pulumi will do *how* and *when*.
-* The program performs *declarative* resource creation; side-effects (like Glue ETL runs or Flow Log files landing) happen after creation and may be delayed.
-* Treat S3 + Glue/ETL as an eventual consistency pipeline — the program sets up the pipeline, but ingestion and catalog population are asynchronous.
+* The program performs *declarative* resource creation; side-effects (like Flow Log files landing) happen after creation and may be delayed.
+* Treat S3 + Glue/crawler as an eventual consistency pipeline — the program sets up the pipeline, but ingestion and catalog population are asynchronous.
 
 ---
 
@@ -290,6 +273,3 @@ echo "=== End of diagnostic ==="
 3. In CI, run the diagnostic script after `pulumi up` to capture stack outputs and resource states automatically into the PR for reviewers.
 4. Keep `FLOW_LOG_S3_CREATE_NAME` stable between runs to avoid accidental bucket replacements.
 5. Add strict IAM least-privilege policy linting (policy-as-code checks) to prevent accidentally granting `*` permissions to Glue/Jobs/Key usage.
-
----
-

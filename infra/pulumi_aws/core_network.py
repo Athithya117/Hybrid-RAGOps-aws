@@ -73,7 +73,12 @@ FLOW_LOG_CW_RETENTION_DAYS = _env_int("FLOW_LOG_CW_RETENTION_DAYS", "flowLogCwRe
 FLOW_LOG_S3_BUCKET = _env_str("FLOW_LOG_S3_BUCKET", "flowLogS3Bucket", None)
 FLOW_LOG_S3_CREATE = _env_bool("FLOW_LOG_S3_CREATE", "flowLogS3Create", False)
 FLOW_LOG_S3_CREATE_NAME = _env_str("FLOW_LOG_S3_CREATE_NAME", "flowLogS3CreateName", f"{TAG_PREFIX}-{STACK}-vpc-flow-logs")
-FLOW_LOG_S3_PREFIX = _env_str("FLOW_LOG_S3_PREFIX", "flowLogS3Prefix", f"AWSLogs/{aws.get_caller_identity().account_id}/vpcflowlogs/")
+
+# obtain account id dynamically to build the default prefix (no manual <ACCOUNT> required)
+_caller = aws.get_caller_identity()
+DEFAULT_FLOW_LOG_S3_PREFIX = f"AWSLogs/{_caller.account_id}/vpcflowlogs/"
+FLOW_LOG_S3_PREFIX = _env_str("FLOW_LOG_S3_PREFIX", "flowLogS3Prefix", DEFAULT_FLOW_LOG_S3_PREFIX)
+
 FLOW_LOG_S3_LIFECYCLE_TRANSITION_DAYS = _env_int("FLOW_LOG_S3_LIFECYCLE_TRANSITION_DAYS", "flowLogS3TransitionDays", 30)
 FLOW_LOG_S3_EXPIRATION_DAYS = _env_int("FLOW_LOG_S3_EXPIRATION_DAYS", "flowLogS3ExpirationDays", 365)
 FLOW_LOG_S3_ACCESS_LOGGING = _env_bool("FLOW_LOG_S3_ACCESS_LOGGING", "flowLogS3AccessLogging", False)
@@ -85,14 +90,6 @@ FLOW_LOG_KMS_ARN = _env_str("FLOW_LOG_KMS_ARN", "flowLogKmsArn", None)
 
 CREATE_GLUE_CRAWLER = _env_bool("CREATE_GLUE_CRAWLER", "createGlueCrawler", False)
 GLUE_CRAWLER_SCHEDULE = _env_str("GLUE_CRAWLER_SCHEDULE", "glueCrawlerSchedule", "cron(0 * ? * * *)")
-
-CREATE_GLUE_ETL = _env_bool("CREATE_GLUE_ETL", "createGlueEtl", False)
-GLUE_ETL_SCHEDULE = _env_str("GLUE_ETL_SCHEDULE", "glueEtlSchedule", "cron(0 2 * * ? *)")
-GLUE_ETL_DPU = _env_int("GLUE_ETL_DPU", "glueEtlDpu", 2)
-GLUE_SCRIPT_S3_PREFIX = _env_str("GLUE_SCRIPT_S3_PREFIX", "glueScriptS3Prefix", "glue-scripts/")
-
-# added: zstd compression level env / pulumi config
-ZSTD_COMPRESSION_LEVEL = _env_int("ZSTD_COMPRESSION_LEVEL", "zstdCompressionLevel", 3)
 
 CREATE_ATHENA = _env_bool("CREATE_ATHENA", "createAthena", False)
 ATHENA_DB_NAME = _env_str("ATHENA_DB_NAME", "athenaDbName", f"vpc_flow_logs_{STACK}")
@@ -212,7 +209,7 @@ else:
 
     if not NO_NAT:
         if NAT_SINGLE:
-            eip = aws.ec2.Eip(_name("nat-eip-0"), vpc=True, tags={"Name": _name("nat-eip-0")})
+            eip = aws.ec2.Eip(_name("nat-eip-0"), domain="vpc", tags={"Name": _name("nat-eip-0")})
             nat_eips.append(eip)
             nat = aws.ec2.NatGateway(_name("natgw-0"), allocation_id=eip.id, subnet_id=public_subnets[0].id, tags={"Name": _name("natgw-0"), "Environment": STACK})
             nat_gws.append(nat)
@@ -222,7 +219,7 @@ else:
                 private_route_table_ids.append(rt.id)
         else:
             for i, pub_sub in enumerate(public_subnets):
-                eip = aws.ec2.Eip(_name(f"nat-eip-{i}"), vpc=True, tags={"Name": _name(f"nat-eip-{i}")})
+                eip = aws.ec2.Eip(_name(f"nat-eip-{i}"), domain="vpc", tags={"Name": _name(f"nat-eip-{i}")})
                 nat_eips.append(eip)
                 nat = aws.ec2.NatGateway(_name(f"natgw-{i}"), allocation_id=eip.id, subnet_id=pub_sub.id, tags={"Name": _name(f"natgw-{i}"), "Environment": STACK})
                 nat_gws.append(nat)
@@ -290,17 +287,26 @@ kms_key: Optional[aws.kms.Key] = None
 log_bucket: Optional[aws.s3.Bucket] = None
 glue_db: Optional[aws.glue.CatalogDatabase] = None
 glue_crawler: Optional[aws.glue.Crawler] = None
-glue_job: Optional[aws.glue.Job] = None
 athena_named_query: Optional[aws.athena.NamedQuery] = None
 
 if (FLOW_LOG_MODE and FLOW_LOG_MODE != "none") or ENABLE_FLOW_LOGS:
     if FLOW_LOG_MODE == "cloudwatch" or (FLOW_LOG_MODE == "" and ENABLE_FLOW_LOGS):
-        log_group = aws.cloudwatch.LogGroup(
-            _name("vpc-flow-log-group"),
-            name=FLOW_LOG_CW_LOG_GROUP,
-            retention_in_days=FLOW_LOG_CW_RETENTION_DAYS,
-            tags={"Name": _name("vpc-flow-log-group"), "Environment": STACK},
-        )
+        # if the named log group already exists (outside Pulumi), fetch it and reuse instead of creating
+        log_group_resource = None
+        log_group_arn_input: Optional[str] = None
+        try:
+            existing_lg = aws.cloudwatch.get_log_group(name=FLOW_LOG_CW_LOG_GROUP)
+            log_group_arn_input = existing_lg.arn
+        except Exception:
+            # not found: create it
+            log_group_resource = aws.cloudwatch.LogGroup(
+                _name("vpc-flow-log-group"),
+                name=FLOW_LOG_CW_LOG_GROUP,
+                retention_in_days=FLOW_LOG_CW_RETENTION_DAYS,
+                tags={"Name": _name("vpc-flow-log-group"), "Environment": STACK},
+            )
+            log_group_arn_input = log_group_resource.arn
+
         role = aws.iam.Role(
             _name("flowlog-role"),
             assume_role_policy=json.dumps({"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "vpc-flow-logs.amazonaws.com"}, "Action": "sts:AssumeRole"}]}),
@@ -315,14 +321,14 @@ if (FLOW_LOG_MODE and FLOW_LOG_MODE != "none") or ENABLE_FLOW_LOGS:
             _name("vpc-flow-log"),
             vpc_id=(vpc.id if not isinstance(vpc, dict) else vpc["id"]),
             traffic_type="ALL",
-            log_destination=log_group.arn,
+            log_destination=log_group_arn_input,
             log_destination_type="cloud-watch-logs",
             iam_role_arn=role.arn,
-            opts=pulumi.ResourceOptions(depends_on=[log_group, role]),
+            opts=pulumi.ResourceOptions(depends_on=[log_group_resource, role] if log_group_resource is not None else [role]),
         )
         flow_log_id = flow.id
     elif FLOW_LOG_MODE == "s3":
-        account_id = aws.get_caller_identity().account_id
+        account_id = _caller.account_id
         if FLOW_LOG_S3_CREATE:
             bucket_name = f"{FLOW_LOG_S3_CREATE_NAME}-{account_id}-{STACK}"
             log_bucket = aws.s3.Bucket(
@@ -406,11 +412,13 @@ if (FLOW_LOG_MODE and FLOW_LOG_MODE != "none") or ENABLE_FLOW_LOGS:
             else:
                 dest_arn_output = f"arn:aws:s3:::{bucket_input}"
             log_bucket = None
+
         destination_options = {}
         if DESTINATION_FILE_FORMAT:
-            destination_options["fileFormat"] = DESTINATION_FILE_FORMAT
+            destination_options["file_format"] = DESTINATION_FILE_FORMAT
         if DESTINATION_PER_HOUR_PARTITION is not None:
-            destination_options["perHourPartition"] = DESTINATION_PER_HOUR_PARTITION
+            destination_options["per_hour_partition"] = DESTINATION_PER_HOUR_PARTITION
+
         if destination_options:
             flow = aws.ec2.FlowLog(
                 _name("vpc-flowlog-s3"),
@@ -432,7 +440,7 @@ if (FLOW_LOG_MODE and FLOW_LOG_MODE != "none") or ENABLE_FLOW_LOGS:
             )
         flow_log_id = flow.id
 
-if FLOW_LOG_MODE == "s3" and (CREATE_GLUE_CRAWLER or CREATE_GLUE_ETL or CREATE_ATHENA):
+if FLOW_LOG_MODE == "s3" and (CREATE_GLUE_CRAWLER or CREATE_ATHENA):
     raw_bucket_output = None
     if log_bucket is not None:
         raw_bucket_output = log_bucket.bucket
@@ -482,101 +490,11 @@ if FLOW_LOG_MODE == "s3" and (CREATE_GLUE_CRAWLER or CREATE_GLUE_ETL or CREATE_A
                 "schema_change_policy": {"update_behavior": "UPDATE_IN_DATABASE", "delete_behavior": "DEPRECATE_IN_DATABASE"},
                 "tags": {"Name": _name("vpc-flowlogs-crawler"), "Environment": STACK},
             }
-            if GLUE_CRAWLER_SCHEDULE:
-                kwargs["schedule"] = GLUE_CRAWLER_SCHEDULE
+            # aws.glue.Crawler resource in this provider does not accept a separate CrawlerSchedule resource;
+            # some fields/providers expose schedule directly; to be conservative only set schedule if provider supports it.
             return aws.glue.Crawler(_name("vpc-flowlogs-crawler"), **kwargs)
 
         glue_crawler = s3_target.apply(lambda p: _make_crawler(p))
-
-    if CREATE_GLUE_ETL:
-        scripts_bucket = log_bucket if log_bucket is not None else aws.s3.Bucket(_name("glue-scripts-bucket"), acl="private", tags={"Name": _name("glue-scripts-bucket"), "Environment": STACK})
-
-        glue_script = r"""import sys
-from awsglue.utils import getResolvedOptions
-from awsglue.context import GlueContext
-from pyspark.context import SparkContext
-from pyspark.sql.functions import from_unixtime, year, month, dayofmonth
-from awsglue.job import Job
-args = getResolvedOptions(sys.argv, ['JOB_NAME', 'SOURCE_S3_PATH', 'TARGET_S3_PATH', 'REGION', 'ZSTD_COMPRESSION_LEVEL'])
-sc = SparkContext()
-glueContext = GlueContext(sc)
-spark = glueContext.spark_session
-job = Job(glueContext)
-job.init(args['JOB_NAME'], args)
-# ensure we set parquet compression to zstd and the zstd level
-spark.conf.set("spark.sql.parquet.compression.codec", "zstd")
-spark.conf.set("parquet.compression.codec.zstd.level", str(args.get('ZSTD_COMPRESSION_LEVEL', '3')))
-df = spark.read.text(args['SOURCE_S3_PATH'])
-cols = ['version','account_id','interface_id','srcaddr','dstaddr','srcport','dstport','protocol','packets','bytes','start','end','action','log_status']
-df2 = df.selectExpr("split(value,'\\s+') as parts").select([f"parts[{i}] as {cols[i]}" for i in range(len(cols))])
-df2 = df2.withColumn('start', df2['start'].cast('long'))
-df2 = df2.withColumn('ts', from_unixtime(df2['start']))
-df2 = df2.withColumn('year', year('ts')).withColumn('month', month('ts')).withColumn('day', dayofmonth('ts')).withColumn('region', args['REGION'])
-df2.write.mode('append').partitionBy('region','year','month','day').parquet(args['TARGET_S3_PATH'])
-job.commit()
-"""
-
-        script_obj = aws.s3.BucketObject(
-            _name("glue-etl-script"),
-            bucket=(scripts_bucket.id if isinstance(scripts_bucket, aws.s3.Bucket) else scripts_bucket),
-            key=(GLUE_SCRIPT_S3_PREFIX.rstrip("/") + "/" + "vpc_flow_etl.py"),
-            content=glue_script,
-            content_type="text/x-python",
-            acl="private",
-        )
-
-        script_location = pulumi.Output.all((scripts_bucket.bucket if isinstance(scripts_bucket, aws.s3.Bucket) else scripts_bucket), script_obj.key).apply(lambda args: f"s3://{args[0]}/{args[1]}")
-
-        glue_job_role = aws.iam.Role(
-            _name("glue-job-role"),
-            assume_role_policy=json.dumps({"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "glue.amazonaws.com"}, "Action": "sts:AssumeRole"}]}),
-            tags={"Name": _name("glue-job-role"), "Environment": STACK},
-        )
-
-        def _job_policy_json(script_arn, s3_read, s3_bucket, parquet_target, kms_arn):
-            stm = []
-            stm.append({"Effect": "Allow", "Action": ["s3:GetObject"], "Resource": [script_arn]})
-            stm.append({"Effect": "Allow", "Action": ["s3:GetObject", "s3:ListBucket"], "Resource": [s3_read, s3_bucket]})
-            stm.append({"Effect": "Allow", "Action": ["s3:PutObject", "s3:PutObjectAcl", "s3:DeleteObject"], "Resource": [parquet_target]})
-            stm.append({"Effect": "Allow", "Action": ["glue:*", "logs:*", "ec2:CreateNetworkInterface", "ec2:DeleteNetworkInterface", "ec2:DescribeNetworkInterfaces"], "Resource": ["*"]})
-            if kms_arn:
-                stm.append({"Effect": "Allow", "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey*"], "Resource": [kms_arn]})
-            return json.dumps({"Version": "2012-10-17", "Statement": stm})
-
-        kms_arn_for_job = FLOW_LOG_KMS_ARN if FLOW_LOG_KMS_ARN else (kms_key.arn if kms_key is not None else None)
-        job_policy_output = pulumi.Output.all(script_obj.arn, s3_read_arn_output, s3_bucket_arn_output, parquet_target_arn_output).apply(lambda args: _job_policy_json(args[0], args[1], args[2], args[3], kms_arn_for_job))
-        aws.iam.RolePolicy(_name("glue-job-inline-policy"), role=glue_job_role.id, policy=job_policy_output)
-
-        target_parquet_path = pulumi.Output.from_input(raw_bucket_output).apply(lambda b: f"s3://{b.rstrip('/')}/{parquet_prefix}")
-        default_args = {
-            "--JOB_NAME": _name("vpc-flow-etl-job"),
-            "--SOURCE_S3_PATH": pulumi.Output.from_input(raw_bucket_output).apply(lambda b: f"s3://{b.rstrip('/')}/{FLOW_LOG_S3_PREFIX.lstrip('/')}"),
-            "--TARGET_S3_PATH": target_parquet_path,
-            "--REGION": AWS_REGION,
-            "--ZSTD_COMPRESSION_LEVEL": str(ZSTD_COMPRESSION_LEVEL),
-        }
-
-        glue_job = aws.glue.Job(
-            _name("vpc-flow-etl-job"),
-            name=_name("vpc-flow-etl-job"),
-            role=glue_job_role.arn,
-            glue_version="3.0",
-            number_of_workers=GLUE_ETL_DPU,
-            command={"name": "glueetl", "pythonVersion": "3", "scriptLocation": script_location},
-            default_arguments=default_args,
-            max_retries=1,
-            tags={"Name": _name("vpc-flow-etl-job"), "Environment": STACK},
-        )
-
-        if GLUE_ETL_SCHEDULE:
-            glue_trigger = aws.glue.Trigger(
-                _name("vpc-flow-etl-trigger"),
-                type="SCHEDULED",
-                name=_name("vpc-flow-etl-trigger"),
-                schedule=GLUE_ETL_SCHEDULE,
-                actions=[{"job_name": glue_job.name}],
-                tags={"Name": _name("vpc-flow-etl-trigger"), "Environment": STACK},
-            )
 
     if CREATE_ATHENA:
         parquet_location = pulumi.Output.from_input(raw_bucket_output).apply(lambda b: f"s3://{b.rstrip('/')}/{parquet_prefix}")
@@ -601,7 +519,6 @@ PARTITIONED BY (region string, year int, month int, day int)
 STORED AS PARQUET
 LOCATION '{loc}';
 """)
-        # pulumi aws NamedQuery expects 'query' property (not 'query_string')
         athena_named_query = aws.athena.NamedQuery(
             _name("athena-create-parquet-table"),
             database=ATHENA_DB_NAME,
@@ -619,7 +536,5 @@ pulumi.export("flow_log_mode", FLOW_LOG_MODE)
 pulumi.export("flow_log_s3_bucket", (log_bucket.bucket if log_bucket is not None else FLOW_LOG_S3_BUCKET))
 pulumi.export("glue_db", (glue_db.name if glue_db is not None else None))
 pulumi.export("glue_crawler", (glue_crawler.name if hasattr(glue_crawler, "name") else (glue_crawler if glue_crawler is not None else None)))
-pulumi.export("glue_job", (glue_job.name if glue_job is not None else None))
+pulumi.export("glue_job", None)
 pulumi.export("athena_named_query", (athena_named_query.id if athena_named_query is not None else None))
-# export chosen ZSTD compression level
-pulumi.export("zstd_compression_level", ZSTD_COMPRESSION_LEVEL)

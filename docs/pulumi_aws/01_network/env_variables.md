@@ -56,7 +56,7 @@ Pick `FLOW_LOG_MODE` first (`none` / `cloudwatch` / `s3`). All other logging-rel
 
   * `none`: cost-conscious environments; no flow logs created. Good for dev-only when you don’t need network audit data.
   * `cloudwatch`: quick, real-time debugging; good for development and short retention production troubleshooting. Choose this for fast on-call debugging.
-  * `s3`: required for long-term analytics, Athena queries, Glue ETL. Choose this for production observability / security / compliance.
+  * `s3`: required for long-term analytics and Athena queries; supports direct Parquet delivery and optional Glue crawler for cataloging.
 
 > **Rule**: choose *exactly one* of the three. Most production analytics use `s3`, ops teams often keep `cloudwatch` for recent troubleshooting.
 
@@ -65,13 +65,13 @@ Pick `FLOW_LOG_MODE` first (`none` / `cloudwatch` / `s3`). All other logging-rel
 * `FLOW_LOG_S3_BUCKET` — string (bucket name OR arn `arn:aws:s3:::bucket`) — default: `None` — if set, use this existing bucket rather than creating one.
   When to choose: set this if your org manages central logging buckets (recommended in enterprise).
 
-* `FLOW_LOG_S3_CREATE` — boolean — default: `true` in our file (but we recommended *off* for prod centrally-managed buckets) — whether the module should create the S3 bucket.
+* `FLOW_LOG_S3_CREATE` — boolean — default: `true` in our file (but recommended *off* for prod centrally-managed buckets) — whether the module should create the S3 bucket.
   When to choose: use `true` only in small orgs or when you own the bucket lifecycle; for enterprise multi-stack setups set `false` and provide `FLOW_LOG_S3_BUCKET` with an existing audited bucket.
 
 * `FLOW_LOG_S3_CREATE_NAME` — string — default: `<TAG_PREFIX>-<stack>-vpc-flow-logs` — bucket name used when auto-creating.
   When to choose: override for naming policy or if your naming must follow company convention.
 
-* `FLOW_LOG_S3_PREFIX` — string — default: `AWSLogs/<account>/vpcflowlogs/` — the prefix under the bucket where raw AWS flow logs land.
+* `FLOW_LOG_S3_PREFIX` (fetched automatically) — string — default: `AWSLogs/<account>/vpcflowlogs/` — the prefix under the bucket where raw AWS flow logs land.
   When to choose: leave default unless you require a different layout. Note: Athena/Glue behavior depends on this value.
 
 * `FLOW_LOG_S3_TRANSITION_DAYS` — int — default: `30` — transition to IA after N days.
@@ -107,25 +107,13 @@ Pick `FLOW_LOG_MODE` first (`none` / `cloudwatch` / `s3`). All other logging-rel
 * `FLOW_LOG_CW_RETENTION_DAYS` — int — default: `14` — retention in days for CloudWatch logs.
   When to choose: CloudWatch logs cost more per GB stored; typical short retention = 7–30 days for operational debugging. For compliance increase retention or export to S3.
 
-### Glue / ETL / Athena helpers
+### Glue / Athena helpers
 
-* `CREATE_GLUE_CRAWLER` — boolean — default: `true` — create a Glue crawler to discover partitions in raw S3 layout.
-  When to choose: enable when you want quick partition discovery without ETL; good short-term choice.
+* `CREATE_GLUE_CRAWLER` — boolean — default: `true` — create a Glue crawler to discover partitions in S3 layout.
+  When to choose: enable when you want quick partition discovery for Athena; good short-term choice.
 
 * `GLUE_CRAWLER_SCHEDULE` — cron expression — default: `cron(0 * ? * * *)` (hourly) — schedule for the crawler.
-  When to choose: hourly is common for logs; for high-volume setups you might run it more frequently or use partition projection+ETL to avoid crawlers.
-
-* `CREATE_GLUE_ETL` — boolean — default: `true` — create a Glue ETL job that converts raw gz text into partitioned Parquet.
-  When to choose: set `true` for production analytic pipelines (recommended). For small environments you can set `false` and rely on crawler + raw queries.
-
-* `GLUE_ETL_SCHEDULE` — cron — default: `cron(0 2 * * ? *)` (daily at 02:00 UTC) — schedule to run the ETL.
-  When to choose: choose daily for batch workflows; for near-real-time analytics schedule more frequently.
-
-* `GLUE_ETL_DPU` — int — default: `10` — number of DPUs (parallelism) for the Glue job.
-  When to choose: increase for larger data volumes; start small (e.g., 2–10) and scale up.
-
-* `GLUE_SCRIPT_S3_PREFIX` — string — default: `glue-scripts/` — location/prefix to upload ETL script.
-  When to change: only if you have strict script bucket layout policies.
+  When to choose: hourly is common for logs; for high-volume setups you might run it more frequently or use partition projection to avoid crawlers.
 
 * `CREATE_ATHENA` — boolean — default: `true` — creates Athena named query (DDL) pointing at parquet target.
   When to choose: helpful to export DDL and let analysts run it; safe to enable.
@@ -169,7 +157,7 @@ Pick `FLOW_LOG_MODE` first (`none` / `cloudwatch` / `s3`). All other logging-rel
 * `NAT_SINGLE=true` (save cost but HA reduced)
 * `FLOW_LOG_MODE=s3`, `FLOW_LOG_S3_CREATE=true`, `FLOW_LOG_S3_CREATE_NAME=acme-staging-vpc-logs`
 * `FLOW_LOG_SSE_ALGORITHM=aes256` (unless compliance requires KMS)
-* `CREATE_GLUE_CRAWLER=true`, `CREATE_GLUE_ETL=false` (start with crawler)
+* `CREATE_GLUE_CRAWLER=true` (start with crawler), `CREATE_ATHENA=true`
   Why: keep data for analytics while limiting operational complexity.
 
 ### Production (analytics + compliance)
@@ -179,8 +167,7 @@ Pick `FLOW_LOG_MODE` first (`none` / `cloudwatch` / `s3`). All other logging-rel
 * `NAT_SINGLE=false` (one NAT per AZ)
 * `FLOW_LOG_MODE=s3`, `FLOW_LOG_S3_CREATE=false`, `FLOW_LOG_S3_BUCKET=org-central-logs` (central audited bucket)
 * `FLOW_LOG_SSE_ALGORITHM=aws:kms`, `FLOW_LOG_KMS_ARN=arn:aws:kms:...` (use central key)
-* `CREATE_GLUE_CRAWLER=false`, `CREATE_GLUE_ETL=true` (ETL -> Parquet partitioned), `GLUE_ETL_SCHEDULE=cron(0/15 * ? * * *)` for near-real-time if needed
-* `GLUE_ETL_DPU=20+` tuned by data volume
+* `CREATE_GLUE_CRAWLER=false` (if you use direct Parquet delivery + partition projection) or `CREATE_GLUE_CRAWLER=true` to discover partitions; `CREATE_ATHENA=true`
   Why: long-term analytics, compliance, cost control via Parquet + partitions, central key/bucket management.
 
 ---
@@ -190,8 +177,8 @@ Pick `FLOW_LOG_MODE` first (`none` / `cloudwatch` / `s3`). All other logging-rel
 * **KMS**: providing your own KMS (`FLOW_LOG_KMS_ARN`) is preferred in enterprises. If the module creates a CMK (`FLOW_LOG_KMS_CREATE=true`), you must manage key policies and rotations.
 * **Bucket creation**: `FLOW_LOG_S3_CREATE=true` creates a bucket in the stack account. In multi-account orgs, prefer a central logging account/bucket and set `FLOW_LOG_S3_BUCKET` to that name.
 * **Access controls**: the module creates bucket policies and IAM roles; review them in `pulumi preview` for principle and resource scoping.
-* **Cost**: CloudWatch costs scale with ingestion; S3 + Athena has cheaper per-query cost if you convert to Parquet and partition. Glue ETL incurs Glue/EMR cost.
-* **Partitioning**: for Athena queries, ETL -> Parquet + partition by `region/year/month/day` is the most cost-efficient. Merely relying on Glue crawler over raw gz may still be expensive.
+* **Cost**: CloudWatch costs scale with ingestion; S3 + Athena has cheaper per-query cost if you use Parquet and partitioning. Glue crawler runs have modest cost; full ETL jobs (if you later reintroduce them) incur Glue/EMR cost.
+* **Partitioning**: for Athena queries, Parquet + partition by `region/year/month/day` (or use partition projection) is the most cost-efficient. Merely relying on Glue crawler over raw gz may still be expensive.
 * **Cross-account**: if logs will be delivered from another account, you must adapt bucket policy with `aws:SourceAccount` and SourceArn conditions (the module assumes same-account by default).
 
 ---
@@ -202,15 +189,12 @@ Pick `FLOW_LOG_MODE` first (`none` / `cloudwatch` / `s3`). All other logging-rel
 * Choosing `aws:kms` without providing `FLOW_LOG_KMS_ARN` or enabling `FLOW_LOG_KMS_CREATE` → stack fails.
 * Using `FLOW_LOG_S3_CREATE=true` in a multi-stack org without naming policy → many buckets created and management burden.
 * Leaving CloudWatch retention high for many GB/day → high bill. Use small retention or export to S3/parquet for archive.
-* Not tuning Glue ETL DPUs → job either fails for memory or takes too long.
+* Not tuning crawler frequency or Athena partitioning → queries scan more data than necessary.
 
 ---
 
 # Quick decision cheat-sheet
 
 * You need short-term debugging and low infra churn → `FLOW_LOG_MODE=cloudwatch`, small retention.
-* You need historical analytics, security forensics, compliance → `FLOW_LOG_MODE=s3` + ETL->Parquet + partitioning + KMS.
-* You want cheap, ad-hoc analytics quickly (low volume) → `s3` + Glue Crawler (no ETL initially), but plan to move to Parquet later.
-
----
-
+* You need historical analytics, security forensics, compliance → `FLOW_LOG_MODE=s3` + Parquet + partitioning + KMS + Athena.
+* You want cheap, ad-hoc analytics quickly (low volume) → `s3` + Glue Crawler (no ETL initially), but plan to move to Parquet/direct delivery for scale.
