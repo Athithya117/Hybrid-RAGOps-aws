@@ -1,3 +1,1 @@
-"""A Python Pulumi program"""
-
-import pulumi
+from core_network import *

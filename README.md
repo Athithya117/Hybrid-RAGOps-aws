@@ -75,9 +75,12 @@ export AWS_SECRET_ACCESS_KEY=""
 
 export AWS_REGION="ap-south-1"                        # AWS region for infra and S3; change when your AWS resources are in another region (e.g., us-east-1)
 export S3_BUCKET="e2e-rag-system-42"                  # Global S3 bucket name used for data/backups; must be globally unique — change per environment or tenant
+export PULUMI_S3_BUCKET="rag-pulumi-state31"         
+export PULUMI_CONFIG_PASSPHRASE="mypassword"
+
+
 
 export PLATFORMS="linux/amd64,linux/arm64"      # Multi arch default; set only amd64 for x86 EC2 (C5/C6/M5/M6/R5/R6) or only arm64 for Graviton (C7g/M7g/R7g)
-
 
 export S3_RAW_PREFIX="data/raw/"                      # Prefix where raw/unprocessed files are uploaded; change to isolate different ingestion sources
 export S3_CHUNKED_PREFIX="data/chunked/"              # Prefix where chunked/processed outputs are written; change to separate processed datasets

@@ -1,14 +1,15 @@
+#!/usr/bin/env python3
 """
 USAGE:
   python3 utils/s3_buckets.py --create --region $AWS_REGION
-  python3 utils/s3_buckets.py --delete $S3_BUCKET --region "$AWS_REGION" 
-  python3 utils/s3_buckets.py --delete $BACKUP_S3_BUCKET --region "$AWS_REGION" 
+  python3 utils/s3_buckets.py --delete $S3_BUCKET --region "$AWS_REGION"
+  python3 utils/s3_buckets.py --delete $PULUMI_S3_BUCKET --region "$AWS_REGION"
+
 HEADLESS:
   python3 utils/s3_buckets.py --create --region $AWS_REGION
-  python3 utils/s3_buckets.py --delete $S3_BUCKET --region "$AWS_REGION" --force 
-  python3 utils/s3_buckets.py --delete $BACKUP_S3_BUCKET --region "$AWS_REGION" --force
+  python3 utils/s3_buckets.py --delete $S3_BUCKET --region "$AWS_REGION" --force
+  python3 utils/s3_buckets.py --delete $PULUMI_S3_BUCKET --region "$AWS_REGION" --force
 """
-
 import os
 import sys
 import argparse
@@ -36,11 +37,17 @@ AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 S3_BUCKET = os.getenv("S3_BUCKET", "").strip() or None
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/").strip()
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/").strip()
+
+# New: Pulumi backend bucket (required)
+PULUMI_S3_BUCKET = os.getenv("PULUMI_S3_BUCKET", "").strip() or None
+
+# Optional backup bucket (kept optional)
 BACKUP_S3_BUCKET = os.getenv("BACKUP_S3_BUCKET", "").strip() or None
 S3_BLOCK_PUBLIC_ACCESS = getenv_bool("S3_BLOCK_PUBLIC_ACCESS", True)
 BACKUP_RETENTION_DAYS = int(os.getenv("BACKUP_RETENTION_DAYS") or 0)
 BACKUP_S3_PATH_PREFIX = os.getenv("BACKUP_S3_PATH_PREFIX", "weaviate-backups/").rstrip("/") + "/"
-DEFAULT_PREFIXES = [S3_RAW_PREFIX, S3_CHUNKED_PREFIX, "pulumi/"]
+# prefixes created in data bucket
+DEFAULT_PREFIXES = [S3_RAW_PREFIX, S3_CHUNKED_PREFIX]
 
 def require_env_and_creds():
     missing = []
@@ -52,8 +59,11 @@ def require_env_and_creds():
         missing.append("AWS_REGION")
     if not S3_BUCKET:
         missing.append("S3_BUCKET")
-    if not BACKUP_S3_BUCKET:
-        missing.append("BACKUP_S3_BUCKET")
+    if not PULUMI_S3_BUCKET:
+        missing.append("PULUMI_S3_BUCKET")
+    # If user intends to use BACKUP retention but didn't supply BACKUP_S3_BUCKET -> fail
+    if BACKUP_RETENTION_DAYS > 0 and not BACKUP_S3_BUCKET:
+        missing.append("BACKUP_S3_BUCKET (required when BACKUP_RETENTION_DAYS>0)")
     if missing:
         log.error("Missing required environment variables: %s", ", ".join(missing))
         sys.exit(2)
@@ -111,7 +121,7 @@ def create_bucket_if_missing(bucket_name, region):
             client.create_bucket(Bucket=bucket_name)
         else:
             client.create_bucket(Bucket=bucket_name, CreateBucketConfiguration={"LocationConstraint": region or AWS_REGION})
-        log.info("Created bucket %s in region %s without versioning", bucket_name, region or AWS_REGION)
+        log.info("Created bucket %s in region %s", bucket_name, region or AWS_REGION)
         return region or AWS_REGION
     except ClientError as e:
         code = e.response.get("Error", {}).get("Code", "")
@@ -125,7 +135,7 @@ def create_bucket_if_missing(bucket_name, region):
         log.exception("Failed to create bucket %s: %s", bucket_name, e)
         sys.exit(5)
 
-def configure_bucket(bucket_name, region, set_lifecycle=False, lifecycle_days=0, prefixes=None):
+def configure_bucket(bucket_name, region, set_lifecycle=False, lifecycle_days=0, prefixes=None, enable_versioning=False):
     client = make_s3_client(region_name=region)
     try:
         pab = {
@@ -147,6 +157,12 @@ def configure_bucket(bucket_name, region, set_lifecycle=False, lifecycle_days=0,
         log.info("Enabled AES256 default encryption for bucket %s", bucket_name)
     except ClientError as e:
         log.warning("Bucket encryption failed for %s: %s", bucket_name, e)
+    if enable_versioning:
+        try:
+            client.put_bucket_versioning(Bucket=bucket_name, VersioningConfiguration={"Status": "Enabled"})
+            log.info("Enabled versioning for bucket %s", bucket_name)
+        except ClientError as e:
+            log.warning("Failed to enable versioning for %s: %s", bucket_name, e)
     if set_lifecycle and lifecycle_days and lifecycle_days > 0:
         lifecycle_rules = [{
             "ID": "expire-after",
@@ -163,17 +179,26 @@ def configure_bucket(bucket_name, region, set_lifecycle=False, lifecycle_days=0,
     if prefixes:
         for prefix in prefixes:
             try:
+                # create a zero-byte object to represent the prefix
                 client.put_object(Bucket=bucket_name, Key=prefix)
                 log.info("Created prefix %s in bucket %s", prefix, bucket_name)
             except ClientError as e:
                 log.warning("Failed to create prefix '%s' in %s: %s", prefix, bucket_name, e)
 
-def ensure_buckets_strict(data_bucket, backup_bucket, region):
+def ensure_buckets_strict(data_bucket, pulumi_bucket, region):
+    # Create data bucket and configure basic prefixes
     data_region = create_bucket_if_missing(data_bucket, region)
-    configure_bucket(data_bucket, data_region, set_lifecycle=False, lifecycle_days=0, prefixes=DEFAULT_PREFIXES)
-    backup_region = create_bucket_if_missing(backup_bucket, region)
-    configure_bucket(backup_bucket, backup_region, set_lifecycle=(BACKUP_RETENTION_DAYS > 0), lifecycle_days=BACKUP_RETENTION_DAYS, prefixes=[BACKUP_S3_PATH_PREFIX])
-    return data_bucket, backup_bucket
+    configure_bucket(data_bucket, data_region, set_lifecycle=False, lifecycle_days=0, prefixes=DEFAULT_PREFIXES, enable_versioning=False)
+
+    # Create pulumi backend bucket; enable versioning and create 'pulumi/' prefix
+    pulumi_region = create_bucket_if_missing(pulumi_bucket, region)
+    configure_bucket(pulumi_bucket, pulumi_region, set_lifecycle=False, lifecycle_days=0, prefixes=["pulumi/"], enable_versioning=True)
+
+    # If backup bucket provided, create and configure it (optional)
+    if BACKUP_S3_BUCKET:
+        backup_region = create_bucket_if_missing(BACKUP_S3_BUCKET, region)
+        configure_bucket(BACKUP_S3_BUCKET, backup_region, set_lifecycle=(BACKUP_RETENTION_DAYS > 0), lifecycle_days=BACKUP_RETENTION_DAYS, prefixes=[BACKUP_S3_PATH_PREFIX], enable_versioning=False)
+    return data_bucket, pulumi_bucket
 
 def purge_and_delete_bucket(bucket_name, region=None):
     s3res = make_s3_resource(region_name=region)
@@ -221,8 +246,9 @@ def main():
             log.error("AWS region not provided")
             sys.exit(2)
         try:
-            data, backup = ensure_buckets_strict(S3_BUCKET, BACKUP_S3_BUCKET, region)
-            print(data, backup)
+            data, pulumi = ensure_buckets_strict(S3_BUCKET, PULUMI_S3_BUCKET, region)
+            # Print created bucket names to stdout for automation consumption
+            print(data, pulumi)
         except SystemExit:
             raise
         except Exception as e:

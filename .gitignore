@@ -28,6 +28,8 @@ tmp
 infra/pulumi_aws/pulumi-outputs.json
 infra/pulumi_aws/pulumi-exports.sh
 infra/pulumi_aws/.pulumi-logs
+infra/pulumi_aws/backups
+
 models/
 *.onnx
 *.pt
