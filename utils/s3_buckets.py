@@ -4,12 +4,16 @@ USAGE:
   python3 utils/s3_buckets.py --create --region $AWS_REGION
   python3 utils/s3_buckets.py --delete $S3_BUCKET --region "$AWS_REGION"
   python3 utils/s3_buckets.py --delete $PULUMI_S3_BUCKET --region "$AWS_REGION"
+  python3 utils/s3_buckets.py --delete $FLOW_LOG_S3_BUCKET --region "$AWS_REGION"
 
 HEADLESS:
   python3 utils/s3_buckets.py --create --region $AWS_REGION
   python3 utils/s3_buckets.py --delete $S3_BUCKET --region "$AWS_REGION" --force
   python3 utils/s3_buckets.py --delete $PULUMI_S3_BUCKET --region "$AWS_REGION" --force
+  python3 utils/s3_buckets.py --delete $FLOW_LOG_S3_BUCKET --region "$AWS_REGION" --force
 """
+
+from __future__ import annotations
 import os
 import sys
 import argparse
@@ -34,18 +38,26 @@ def getenv_bool(name, default):
 AWS_REGION = os.getenv("AWS_REGION", "").strip() or None
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-S3_BUCKET = os.getenv("S3_BUCKET", "").strip() or None
+
+S3_BUCKET = os.getenv("S3_BUCKET", "").strip() or None                 # primary data bucket
 S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/").strip()
 S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/").strip()
 
-# New: Pulumi backend bucket (required)
-PULUMI_S3_BUCKET = os.getenv("PULUMI_S3_BUCKET", "").strip() or None
+# Pulumi backend bucket (required)
+PULUMI_S3_BUCKET = os.getenv("PULUMI_STATE_BUCKET", "").strip() or None
+
+# Flow logs bucket (new): if not provided, a safe default based on S3_BUCKET will be used
+FLOW_LOG_S3_BUCKET = os.getenv("FLOW_LOG_S3_BUCKET", "").strip() or None
+FLOW_LOG_S3_PREFIX = os.getenv("FLOW_LOG_S3_PREFIX", "AWSLogs/").strip().rstrip("/") + "/"  # prefix for delivery
+FLOW_LOG_S3_TRANSITION_DAYS = int(os.getenv("FLOW_LOG_S3_TRANSITION_DAYS") or 30)
+FLOW_LOG_S3_EXPIRE_DAYS = int(os.getenv("FLOW_LOG_S3_EXPIRE_DAYS") or 365)
 
 # Optional backup bucket (kept optional)
 BACKUP_S3_BUCKET = os.getenv("BACKUP_S3_BUCKET", "").strip() or None
 S3_BLOCK_PUBLIC_ACCESS = getenv_bool("S3_BLOCK_PUBLIC_ACCESS", True)
 BACKUP_RETENTION_DAYS = int(os.getenv("BACKUP_RETENTION_DAYS") or 0)
 BACKUP_S3_PATH_PREFIX = os.getenv("BACKUP_S3_PATH_PREFIX", "weaviate-backups/").rstrip("/") + "/"
+
 # prefixes created in data bucket
 DEFAULT_PREFIXES = [S3_RAW_PREFIX, S3_CHUNKED_PREFIX]
 
@@ -61,6 +73,7 @@ def require_env_and_creds():
         missing.append("S3_BUCKET")
     if not PULUMI_S3_BUCKET:
         missing.append("PULUMI_S3_BUCKET")
+    # FLOW_LOG_S3_BUCKET is not strictly required: we will auto-generate a name if missing (based on S3_BUCKET)
     # If user intends to use BACKUP retention but didn't supply BACKUP_S3_BUCKET -> fail
     if BACKUP_RETENTION_DAYS > 0 and not BACKUP_S3_BUCKET:
         missing.append("BACKUP_S3_BUCKET (required when BACKUP_RETENTION_DAYS>0)")
@@ -185,25 +198,40 @@ def configure_bucket(bucket_name, region, set_lifecycle=False, lifecycle_days=0,
             except ClientError as e:
                 log.warning("Failed to create prefix '%s' in %s: %s", prefix, bucket_name, e)
 
-def ensure_buckets_strict(data_bucket, pulumi_bucket, region):
-    # Create data bucket and configure basic prefixes
+def ensure_buckets_strict(data_bucket, pulumi_bucket, flow_log_bucket, region):
+    """
+    Create and configure:
+      - data_bucket: S3_BUCKET (DEFAULT_PREFIXES)
+      - pulumi_bucket: PULUMI_S3_BUCKET (enable versioning + 'pulumi/' prefix)
+      - flow_log_bucket: FLOW_LOG_S3_BUCKET (enable lifecycle, prefixes, encryption)
+    Also optionally create and configure BACKUP_S3_BUCKET if set.
+    Returns a tuple: (data_bucket_name, pulumi_bucket_name, flow_log_bucket_name)
+    """
+    # Data bucket
     data_region = create_bucket_if_missing(data_bucket, region)
     configure_bucket(data_bucket, data_region, set_lifecycle=False, lifecycle_days=0, prefixes=DEFAULT_PREFIXES, enable_versioning=False)
 
-    # Create pulumi backend bucket; enable versioning and create 'pulumi/' prefix
+    # Pulumi backend bucket (enable versioning + pulumi prefix)
     pulumi_region = create_bucket_if_missing(pulumi_bucket, region)
     configure_bucket(pulumi_bucket, pulumi_region, set_lifecycle=False, lifecycle_days=0, prefixes=["pulumi/"], enable_versioning=True)
 
-    # If backup bucket provided, create and configure it (optional)
+    # Flow log bucket: enable lifecycle + create delivery prefix for flow logs
+    flow_region = create_bucket_if_missing(flow_log_bucket, region)
+    # prefixes for flow logs: ensure the FLOW_LOG_S3_PREFIX root exists
+    flow_prefixes = [FLOW_LOG_S3_PREFIX]
+    configure_bucket(flow_log_bucket, flow_region, set_lifecycle=True, lifecycle_days=FLOW_LOG_S3_EXPIRE_DAYS, prefixes=flow_prefixes, enable_versioning=False)
+
+    # Optional backup bucket
     if BACKUP_S3_BUCKET:
         backup_region = create_bucket_if_missing(BACKUP_S3_BUCKET, region)
         configure_bucket(BACKUP_S3_BUCKET, backup_region, set_lifecycle=(BACKUP_RETENTION_DAYS > 0), lifecycle_days=BACKUP_RETENTION_DAYS, prefixes=[BACKUP_S3_PATH_PREFIX], enable_versioning=False)
-    return data_bucket, pulumi_bucket
+    return data_bucket, pulumi_bucket, flow_log_bucket
 
 def purge_and_delete_bucket(bucket_name, region=None):
     s3res = make_s3_resource(region_name=region)
     bucket = s3res.Bucket(bucket_name)
     try:
+        # Delete all object versions (if versioned)
         bucket.object_versions.delete()
     except ClientError as e:
         code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
@@ -245,10 +273,21 @@ def main():
         if not region:
             log.error("AWS region not provided")
             sys.exit(2)
+
+        # If FLOW_LOG_S3_BUCKET not provided, derive a safe default from S3_BUCKET
+        flow_bucket_to_use = FLOW_LOG_S3_BUCKET
+        if not flow_bucket_to_use:
+            if S3_BUCKET:
+                flow_bucket_to_use = f"{S3_BUCKET.rstrip('-')}-flow-logs"
+                log.warning("FLOW_LOG_S3_BUCKET not provided; using derived default '%s' (you may override via env)", flow_bucket_to_use)
+            else:
+                log.error("FLOW_LOG_S3_BUCKET not provided and cannot derive default (S3_BUCKET missing).")
+                sys.exit(2)
+
         try:
-            data, pulumi = ensure_buckets_strict(S3_BUCKET, PULUMI_S3_BUCKET, region)
+            data, pulumi, flow = ensure_buckets_strict(S3_BUCKET, PULUMI_S3_BUCKET, flow_bucket_to_use, region)
             # Print created bucket names to stdout for automation consumption
-            print(data, pulumi)
+            print(data, pulumi, flow)
         except SystemExit:
             raise
         except Exception as e:

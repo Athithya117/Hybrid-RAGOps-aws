@@ -4,46 +4,83 @@ if [ "${BASH_SOURCE[0]}" != "$0" ]; then
   echo "ERROR: do not source this file. Run it: bash $0" >&2
   return 1 2>/dev/null || exit 1
 fi
-export PROJECT_DIR="${PROJECT_DIR:-infra/pulumi_aws}"
-export VENV_DIR="${VENV_DIR:-${PROJECT_DIR}/venv}"
-export REQ_FILE="${REQ_FILE:-${PROJECT_DIR}/requirements.txt}"
-export AWS_REGION="${AWS_REGION:-ap-south-1}"
-export S3_BUCKET="${S3_BUCKET:-e2e-rag-42}"
-export PULUMI_S3_BUCKET="${PULUMI_S3_BUCKET:-${S3_BUCKET}}"
-export S3_PREFIX="${S3_PREFIX:-pulumi/}"
-export PULUMI_STATE_BUCKET="${PULUMI_STATE_BUCKET:-${PULUMI_S3_BUCKET}}"
-export PULUMI_STATE_PREFIX="${PULUMI_STATE_PREFIX:-${S3_PREFIX}}"
-export DDB_TABLE="${DDB_TABLE:-pulumi-state-locks}"
-export PULUMI_STACK="${PULUMI_STACK:-prod}"
-export STACK="${STACK:-${PULUMI_STACK}}"
-export PULUMI_CONFIG_PASSPHRASE="${PULUMI_CONFIG_PASSPHRASE:-password}"
-export PULUMI_ORG="${PULUMI_ORG:-}"
-export PULUMI_BINARY_PATH="${PULUMI_BINARY_PATH:-}"
-export PULUMI_CREDS_FILE="${PULUMI_CREDS_FILE:-/tmp/pulumi-ci-credentials.json}"
-export PULUMI_AUTOINIT="${PULUMI_AUTOINIT:-true}"
-export POLICY_NAME="${POLICY_NAME:-PulumiStateAccessPolicy}"
-export FORCE_DELETE="${FORCE_DELETE:-true}"
-export FORCE_DELETE_BUCKET="${FORCE_DELETE_BUCKET:-false}"
-export ENABLE_PULUMI_AUTOINIT="${ENABLE_PULUMI_AUTOINIT:-true}"
-export PIP_BREAK_SYSTEM_PACKAGES_FLAG="${PIP_BREAK_SYSTEM_PACKAGES_FLAG:---no-input}"
-export PULUMI_LOGIN_URL="${PULUMI_LOGIN_URL:-s3://${PULUMI_S3_BUCKET}/${S3_PREFIX}}"
-export PULUMI_PYTHON_CMD="${PULUMI_PYTHON_CMD:-${VENV_DIR}/bin/python}"
-export AVOID_DOMAIN="${AVOID_DOMAIN:-true}"
-export MULTI_AZ_DEPLOYMENT="${MULTI_AZ_DEPLOYMENT:-true}"
-export AZ_COUNT="${AZ_COUNT:-3}"
-export VPC_CIDR="${VPC_CIDR:-10.0.0.0/16}"
-export PUBLIC_SUBNET_CIDRS="${PUBLIC_SUBNET_CIDRS:-}"
-export PRIVATE_SUBNET_CIDRS="${PRIVATE_SUBNET_CIDRS:-}"
-export NO_NAT="${NO_NAT:-true}"
-export NAT_SINGLE="${NAT_SINGLE:-false}"
-export CREATE_VPC_ENDPOINTS="${CREATE_VPC_ENDPOINTS:-true}"
-export CREATE_VPC_ENDPOINT_SERVICES="${CREATE_VPC_ENDPOINT_SERVICES:-s3,ecr.api,ecr.dkr,ssm,sts}"
-export ENABLE_FLOW_LOGS="${ENABLE_FLOW_LOGS:-false}"
-export FLOW_LOG_DEST="${FLOW_LOG_DEST:-cloudwatch}"
-export FLOW_LOG_S3_BUCKET="${FLOW_LOG_S3_BUCKET:-}"
-export TAG_PREFIX="${TAG_PREFIX:-pulumi}"
-export PULUMI_IAM_USER="${PULUMI_IAM_USER:-}"
-export PYTHON_BIN="${PYTHON_BIN:-}"
+
+export PROJECT_DIR="${PROJECT_DIR:-infra/pulumi_aws}"       # pulumi project dir; change if repo layout differs
+export VENV_DIR="${VENV_DIR:-${PROJECT_DIR}/venv}"         # virtualenv path used by pulumi_setup.sh
+export REQ_FILE="${REQ_FILE:-${PROJECT_DIR}/requirements.txt}" # pip requirements file for bootstrapping
+export AWS_REGION="${AWS_REGION:-ap-south-1}"              # AWS region for infra; change per target region
+export S3_BUCKET="${S3_BUCKET:-e2e-rag-42}"                # global artifacts bucket (used to create pulumi state bucket if needed)
+export PULUMI_S3_BUCKET="${PULUMI_STATE_BUCKET:-rag-pulumi-state31}"  # Pulumi backend S3 bucket; change to central bucket in prod
+export S3_PREFIX="${S3_PREFIX:-pulumi/}"                   # S3 prefix used by Pulumi backend
+export PULUMI_STATE_BUCKET="${PULUMI_STATE_BUCKET:-rag-pulumi-state31}" # Pulumi state bucket alias (keeps names readable)
+export PULUMI_STATE_PREFIX="${PULUMI_STATE_PREFIX:-${S3_PREFIX}}" # Pulumi state prefix alias
+export DDB_TABLE="${DDB_TABLE:-pulumi-state-locks}"        # DynamoDB table for Pulumi state locking; change if shared
+export PULUMI_STACK="${PULUMI_STACK:-prod}"                # default stack name; override per environment (dev/stage/prod)
+export STACK="${STACK:-${PULUMI_STACK}}"                  # convenience alias used by scripts & code
+export PULUMI_CONFIG_PASSPHRASE="${PULUMI_CONFIG_PASSPHRASE:-password}" # pulumi config passphrase (use secure secret in prod)
+export PULUMI_ORG="${PULUMI_ORG:-}"                       # pulumi cloud org (empty when using S3 backend)
+export PULUMI_BINARY_PATH="${PULUMI_BINARY_PATH:-}"       # override pulumi CLI path if needed
+export PULUMI_CREDS_FILE="${PULUMI_CREDS_FILE:-/tmp/pulumi-ci-credentials.json}" # local creds file for automation
+export PULUMI_AUTOINIT="${PULUMI_AUTOINIT:-true}"         # auto bootstrap pulumi backend resources when running setup
+export ENABLE_PULUMI_AUTOINIT="${ENABLE_PULUMI_AUTOINIT:-true}" # duplicate guard for scripts that read different var
+export POLICY_NAME="${POLICY_NAME:-PulumiStateAccessPolicy}" # IAM policy name for Pulumi state access (creation)
+export FORCE_DELETE="${FORCE_DELETE:-true}"               # allow force delete of created infra in destroy scripts
+export FORCE_DELETE_BUCKET="${FORCE_DELETE_BUCKET:-false}" # only true to allow programmatic S3 bucket deletion (dangerous)
+export PIP_BREAK_SYSTEM_PACKAGES_FLAG="${PIP_BREAK_SYSTEM_PACKAGES_FLAG:---no-input}" # pip flag for noninteractive installs
+export PULUMI_LOGIN_URL="${PULUMI_LOGIN_URL:-s3://${PULUMI_S3_BUCKET}/${S3_PREFIX}}" # pulumi login url (S3 backend default)
+export PULUMI_PYTHON_CMD="${PULUMI_PYTHON_CMD:-${VENV_DIR}/bin/python}" # python used to run pulumi programs in the venv
+export PULUMI_CREDS_JSON="${PULUMI_CREDS_JSON:-}"          # optional JSON creds for pulumi (CI) if using cloud backend
+export PULUMI_IAM_USER="${PULUMI_IAM_USER:-}"              # optional IAM user name to grant pulumi-state access (if creating)
+export PYTHON_BIN="${PYTHON_BIN:-python3}"                 # system python binary fallback used by helper scripts
+
+export TAG_PREFIX="${TAG_PREFIX:-pulumi}"                  # resource name prefix; set company prefix in prod
+export MULTI_AZ_DEPLOYMENT="${MULTI_AZ_DEPLOYMENT:-false}"  # true => create AZ_COUNT AZs; set false for single-AZ dev
+export AZ_COUNT="${AZ_COUNT:-3}"                           # AZ count when MULTI_AZ_DEPLOYMENT=true; keep <= region AZs
+export VPC_CIDR="${VPC_CIDR:-10.0.0.0/16}"                  # VPC CIDR; change to avoid peering overlaps
+export PUBLIC_SUBNET_CIDRS="${PUBLIC_SUBNET_CIDRS:-}"      # comma list or empty to auto-generate (recommended empty)
+export PRIVATE_SUBNET_CIDRS="${PRIVATE_SUBNET_CIDRS:-}"    # comma list or empty to auto-generate
+export NO_NAT="${NO_NAT:-true}"                            # true => private subnets have no NAT egress (isolated workloads)
+export NAT_SINGLE="${NAT_SINGLE:-false}"                   # true => create single NAT (cheaper) vs per-AZ NATs
+export CREATE_VPC_ENDPOINTS="${CREATE_VPC_ENDPOINTS:-true}" # create common VPC endpoints (s3, ecr, ssm, sts); disable if managed elsewhere
+export CREATE_VPC_ENDPOINT_SERVICES="${CREATE_VPC_ENDPOINT_SERVICES:-s3,ecr.api,ecr.dkr,ssm,sts}" # services list
+
+export FLOW_LOG_MODE="${FLOW_LOG_MODE:-s3}"       # none|cloudwatch|s3 — use cloudwatch for dev, s3 for analytics
+export ENABLE_FLOW_LOGS="${ENABLE_FLOW_LOGS:-false}"      # legacy toggle; used only if FLOW_LOG_MODE unset
+export FLOW_LOG_CW_LOG_GROUP="${FLOW_LOG_CW_LOG_GROUP:-/aws/vpc/flowlogs/${STACK}}" # CW group name; change retention below
+export FLOW_LOG_CW_RETENTION_DAYS="${FLOW_LOG_CW_RETENTION_DAYS:-14}" # retention for CW logs (shorter for dev)
+
+export FLOW_LOG_S3_BUCKET="${FLOW_LOG_S3_BUCKET:-rag-vpc-flow-31}"        # existing bucket name or ARN when using external bucket (s3 mode)
+export FLOW_LOG_S3_CREATE="${FLOW_LOG_S3_CREATE:-false}"  # true => auto-create bucket in same stack (careful in prod)
+export FLOW_LOG_S3_CREATE_NAME="${FLOW_LOG_S3_CREATE_NAME:-${TAG_PREFIX}-${STACK}-vpc-flow-logs}" # bucket name when auto-creating
+export FLOW_LOG_S3_PREFIX="${FLOW_LOG_S3_PREFIX:-AWSLogs/<ACCOUNT>/vpcflowlogs/}" # delivery prefix; change only if transforming layout
+export FLOW_LOG_S3_LIFECYCLE_TRANSITION_DAYS="${FLOW_LOG_S3_LIFECYCLE_TRANSITION_DAYS:-30}" # move to IA after X days
+export FLOW_LOG_S3_EXPIRATION_DAYS="${FLOW_LOG_S3_EXPIRATION_DAYS:-365}" # expire logs after X days; increase for compliance
+export FLOW_LOG_S3_ACCESS_LOGGING="${FLOW_LOG_S3_ACCESS_LOGGING:-false}" # enable S3 server access logs for the log bucket
+export FLOW_LOG_S3_ACCESS_BUCKET="${FLOW_LOG_S3_ACCESS_BUCKET:-}" # bucket to receive access logs (required if access logging enabled)
+
+export FLOW_LOG_SSE_ALGORITHM="${FLOW_LOG_SSE_ALGORITHM:-AES256}" # AES256|aws:kms — choose aws:kms for compliance
+export FLOW_LOG_KMS_CREATE="${FLOW_LOG_KMS_CREATE:-false}"   # true => create CMK for log bucket (requires approvals)
+export FLOW_LOG_KMS_ARN="${FLOW_LOG_KMS_ARN:-}"              # existing CMK ARN to use (mutually exclusive with CREATE true)
+
+export CREATE_GLUE_CRAWLER="${CREATE_GLUE_CRAWLER:-true}"    # create Glue crawler to discover partitions (cheap, recommended)
+export GLUE_CRAWLER_SCHEDULE="${GLUE_CRAWLER_SCHEDULE:-cron(0 * ? * * *)}" # schedule for crawler (hourly default)
+export CREATE_GLUE_ETL="${CREATE_GLUE_ETL:-false}"          # true => create Glue ETL job to convert raw->parquet (costly; default OFF)
+export GLUE_ETL_SCHEDULE="${GLUE_ETL_SCHEDULE:-cron(0 2 * * ? *)}" # ETL schedule (daily 02:00 UTC)
+export GLUE_ETL_DPU="${GLUE_ETL_DPU:-10}"                   # Glue DPUs for ETL job; increase for big volumes
+export GLUE_SCRIPT_S3_PREFIX="${GLUE_SCRIPT_S3_PREFIX:-glue-scripts/}" # where ETL script is uploaded within scripts bucket
+
+export CREATE_ATHENA="${CREATE_ATHENA:-true}"               # create Athena helper (Glue DB + named query) when using parquet
+export ATHENA_DB_NAME="${ATHENA_DB_NAME:-vpc_flow_logs_${STACK}}" # Glue/Athena DB name; centralize if needed
+export ATHENA_TABLE_NAME="${ATHENA_TABLE_NAME:-vpc_flow_parquet}" # Athena table name for parquet dataset
+export ATHENA_OUTPUT_BUCKET="${ATHENA_OUTPUT_BUCKET:-}"     # optional Athena query results bucket; defaults to log bucket when empty
+
+export FLOW_LOG_MAX_DAILY_BYTES="${FLOW_LOG_MAX_DAILY_BYTES:-1073741824}" # 1 GiB/day guardrail; tune per traffic expectations
+export ZSTD_COMPRESSION_LEVEL=3 
+
+export AVOID_DOMAIN="${AVOID_DOMAIN:-true}"                # if true, skip creating DNS/certs (useful for learners / freenom)
+
+
+
 if [ -z "$PYTHON_BIN" ]; then
   for p in python3.12 python3.11 python3.10 python3; do
     if command -v "$p" >/dev/null 2>&1; then
