@@ -1,0 +1,13 @@
+{
+  "generated_at": "2025-12-08T01:28:48.611437Z",
+  "image": "athithya5354/frontend:amd64-arm64-v1",
+  "namespace": "inference",
+  "replicas": 1,
+  "files": {
+    "namespace": "infra/manifests/frontend/00-namespace.yaml",
+    "sa_role": "infra/manifests/frontend/01-sa-role.yaml",
+    "deployment": "infra/manifests/frontend/02-deployment.yaml",
+    "service": "infra/manifests/frontend/03-service.yaml",
+    "hpa": "infra/manifests/frontend/04-hpa.yaml"
+  }
+}

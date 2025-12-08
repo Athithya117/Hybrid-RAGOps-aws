@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy-google
+  namespace: auth
+  labels: &id001
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/component: auth
+    app.kubernetes.io/managed-by: gen_oauth2proxy
+    env: staging
+    app.kubernetes.io/instance: oauth2-proxy-google
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: oauth2-proxy-google
+  template:
+    metadata:
+      labels: *id001
+    spec:
+      containers:
+      - name: oauth2-proxy-google
+        image: quay.io/oauth2-proxy/oauth2-proxy:v7.13.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 4180
+        env:
+        - name: OAUTH2_PROXY_PROVIDER
+          value: google
+        - name: OAUTH2_PROXY_REDIRECT_URL
+          value: http://google.auth.127.0.0.1.nip.io/oauth2/callback
+        - name: OAUTH2_PROXY_COOKIE_NAME
+          value: _oauth2_google
+        - name: OAUTH2_PROXY_COOKIE_SECURE
+          value: 'false'
+        - name: OAUTH2_PROXY_COOKIE_SAMESITE
+          value: lax
+        - name: OAUTH2_PROXY_COOKIE_DOMAIN
+          value: ''
+        - name: OAUTH2_PROXY_SCOPE
+          value: openid profile email
+        - name: OAUTH2_PROXY_SESSION_STORE_TYPE
+          value: cookie
+        - name: OAUTH2_PROXY_UPSTREAMS
+          value: http://frontend.frontend.svc.cluster.local:8000/
+        - name: OAUTH2_PROXY_SET_XAUTHREQUEST
+          value: 'true'
+        - name: OAUTH2_PROXY_PASS_ACCESS_TOKEN
+          value: 'true'
+        - name: OAUTH2_PROXY_PASS_ID_TOKEN
+          value: 'true'
+        - name: OAUTH2_PROXY_EMAIL_DOMAINS
+          value: example.com
+        - name: OAUTH2_PROXY_HTTP_ADDRESS
+          value: 0.0.0.0:4180
+        - name: OAUTH2_PROXY_COOKIE_REFRESH
+          value: 1h
+        - name: OAUTH2_PROXY_COOKIE_EXPIRY
+          value: 24h
+        - name: OAUTH2_PROXY_COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: oauth2-proxy-secrets
+              key: cookie-secret
+              optional: false
+        - name: OAUTH2_PROXY_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: oauth2-proxy-secrets
+              key: google-client-id
+              optional: false
+        - name: OAUTH2_PROXY_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: oauth2-proxy-secrets
+              key: google-client-secret
+              optional: false
+        livenessProbe:
+          httpGet:
+            path: /ping
+            port: 4180
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 1
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: 4180
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 1
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
