@@ -1,6 +1,7 @@
 # apps/inference/frontend/Dockerfile
 # Multi-stage build: wheel cache in builder, minimal runtime image.
 # Base python version aligned with repo.
+
 FROM python:3.12.12-slim AS builder
 
 ARG PIP_EXTRA_INDEX_URL=""

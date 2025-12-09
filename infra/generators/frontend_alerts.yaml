@@ -1,0 +1,64 @@
+# frontend-alerts.yaml
+groups:
+- name: frontend.rules
+  rules:
+
+  # ---------------------------------------------------------
+  # 1) High error rate (>5% for 5m)
+  # ---------------------------------------------------------
+  - alert: FrontendHighErrorRate
+    expr: |
+      (
+        sum by (service, env) (rate(frontend_errors_total[5m]))
+        /
+        sum by (service, env) (rate(frontend_requests_total[5m]))
+      ) > 0.05
+    for: 5m
+    labels:
+      severity: page
+    annotations:
+      summary: "High error rate for {{ $labels.service }} ({{ $labels.env }})"
+      description: "Error rate exceeded 5% for 5 minutes."
+
+  # ---------------------------------------------------------
+  # 2) Backend Unhealthy (service_ready == 0)
+  # ---------------------------------------------------------
+  - alert: FrontendBackendUnhealthy
+    expr: service_ready == 0
+    for: 2m
+    labels:
+      severity: page
+    annotations:
+      summary: "Frontend backend unhealthy ({{ $labels.service }} – {{ $labels.env }})"
+      description: "service_ready gauge has been 0 for 2 minutes."
+
+  # ---------------------------------------------------------
+  # 3) Backend High Latency (>1.0s average 5m)
+  # ---------------------------------------------------------
+  - alert: FrontendBackendHighLatency
+    expr: |
+      (increase(frontend_backend_latency_seconds_sum[5m])
+       /
+       increase(frontend_backend_latency_seconds_count[5m])) > 1.0
+    for: 5m
+    labels:
+      severity: warn
+    annotations:
+      summary: "High backend latency (>1s) for {{ $labels.service }} ({{ $labels.env }})"
+      description: "Average backend latency >1.0s for 5 minutes."
+
+  # ---------------------------------------------------------
+  # 4) Slow overall request latency (p95 > 1.2s)
+  # ---------------------------------------------------------
+  - alert: FrontendHighRequestLatencyP95
+    expr: |
+      histogram_quantile(
+        0.95,
+        sum by (le, service, env) (rate(frontend_request_duration_seconds_bucket[5m]))
+      ) > 1.2
+    for: 5m
+    labels:
+      severity: warn
+    annotations:
+      summary: "High p95 request latency for {{ $labels.service }} ({{ $labels.env }})"
+      description: "95th percentile request latency exceeded 1.2s for 5 minutes."

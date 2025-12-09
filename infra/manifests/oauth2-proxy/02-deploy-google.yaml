@@ -28,7 +28,7 @@ spec:
         - name: OAUTH2_PROXY_PROVIDER
           value: google
         - name: OAUTH2_PROXY_REDIRECT_URL
-          value: http://google.auth.127.0.0.1.nip.io/oauth2/callback
+          value: http://localhost:4180/oauth2/callback
         - name: OAUTH2_PROXY_COOKIE_NAME
           value: _oauth2_google
         - name: OAUTH2_PROXY_COOKIE_SECURE
@@ -81,14 +81,12 @@ spec:
             port: 4180
           initialDelaySeconds: 10
           periodSeconds: 10
-          timeoutSeconds: 1
         readinessProbe:
           httpGet:
             path: /ping
             port: 4180
           initialDelaySeconds: 5
           periodSeconds: 10
-          timeoutSeconds: 1
         resources:
           requests:
             cpu: 100m

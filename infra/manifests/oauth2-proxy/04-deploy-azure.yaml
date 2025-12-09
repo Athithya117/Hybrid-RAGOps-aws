@@ -28,7 +28,7 @@ spec:
         - name: OAUTH2_PROXY_PROVIDER
           value: oidc
         - name: OAUTH2_PROXY_REDIRECT_URL
-          value: http://azure.auth.127.0.0.1.nip.io/oauth2/callback
+          value: http://localhost:4180/oauth2/callback
         - name: OAUTH2_PROXY_COOKIE_NAME
           value: _oauth2_azure
         - name: OAUTH2_PROXY_COOKIE_SECURE
@@ -58,7 +58,7 @@ spec:
         - name: OAUTH2_PROXY_COOKIE_EXPIRY
           value: 24h
         - name: OAUTH2_PROXY_OIDC_ISSUER_URL
-          value: https://login.microsoftonline.com/b8a65a11-9d1c-4d48-b9f6-dabfc67f2e4b/v2.0
+          value: https://login.microsoftonline.com/common/v2.0
         - name: OAUTH2_PROXY_OIDC_EXTRA_SCOPES
           value: openid profile email
         - name: OAUTH2_PROXY_COOKIE_SECRET
@@ -85,14 +85,12 @@ spec:
             port: 4180
           initialDelaySeconds: 10
           periodSeconds: 10
-          timeoutSeconds: 1
         readinessProbe:
           httpGet:
             path: /ping
             port: 4180
           initialDelaySeconds: 5
           periodSeconds: 10
-          timeoutSeconds: 1
         resources:
           requests:
             cpu: 100m
