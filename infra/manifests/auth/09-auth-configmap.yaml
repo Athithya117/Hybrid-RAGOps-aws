@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: forward-auth-config
+  namespace: inference-auth
+data:
+  OAUTH_REDIRECT_BASE: http://localhost:8000/auth/callback
+  FRONTEND_BASE: http://localhost:8000/auth/callback
+  ENABLE_GOOGLE_AUTH: 'false'
+  ENABLE_MICROSOFT_AUTH: 'false'
+  ENABLE_GITHUB_AUTH: 'false'
+  JWT_EXP_SECONDS: '1800'
+  JWT_ISS: stateless-openid-auth
+  JWT_AUD: rag-ui
+  COOKIE_NAME: app_session
+  COOKIE_SAMESITE: lax
+  COOKIE_SECURE: 'false'
+  COOKIE_MODE: both

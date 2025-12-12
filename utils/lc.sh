@@ -7,11 +7,11 @@ LOCAL_BIN="${LOCAL_BIN:-$HOME/.local/bin}"
 KIND_VERSION="${KIND_VERSION:-v0.29.0}"
 KUBECTL_VERSION="${KUBECTL_VERSION:-$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)}"
 # increased control-plane mem/cpu to reduce CoreDNS/API pressure
-CONTROLPLANE_CONTAINER_MEMORY="${CONTROLPLANE_CONTAINER_MEMORY:-3g}"
+CONTROLPLANE_CONTAINER_MEMORY="${CONTROLPLANE_CONTAINER_MEMORY:-4g}"
 CONTROLPLANE_CONTAINER_CPUS="${CONTROLPLANE_CONTAINER_CPUS:-3}"
 WORKER_CONTAINER_MEMORY="${WORKER_CONTAINER_MEMORY:-2.5g}"
 WORKER_CONTAINER_CPUS="${WORKER_CONTAINER_CPUS:-3}"
-INSTALL_MONITORING="${INSTALL_MONITORING:-true}"
+INSTALL_MONITORING="${INSTALL_MONITORING:-false}"
 PROM_HELM_REPO="${PROM_HELM_REPO:-prometheus-community}"
 PROM_HELM_CHART="${PROM_HELM_CHART:-kube-prometheus-stack}"
 PROM_HELM_CHART_VERSION="${PROM_HELM_CHART_VERSION:-79.5.0}"
@@ -247,92 +247,43 @@ for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
 done
 echo "[+] Sysctl patching complete."
 
-# pull required images into all kind node containers (preload)
-CLUSTER_NAME=rag8s-local
+echo "[INFO] Waiting for cluster to become stable before preloading images..."
+kubectl -n kube-system wait --for=condition=Available deployment/coredns --timeout=120s || true
+kubectl -n kube-system wait --for=condition=Ready pods -l k8s-app=kube-proxy --timeout=120s || true
+kubectl -n kube-system wait --for=condition=Ready pods -l k8s-app=kindnet --timeout=120s || true
+
+echo "[INFO] Preloading images safely (post-bootstrap)..."
 for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
-  echo "[INFO] Preloading images into ${node}"
-  docker exec "${node}" ctr -n k8s.io images pull docker.io/qdrant/qdrant:v1.16.0
-  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/dense:amd64-arm64-v1
-  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/sparse:amd64-arm64-v2 
-  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/reranker:amd64-arm64-v1 
-  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/retrieval:amd64-arm64-v1 
-  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/frontend:amd64-arm64-v1 
-  docker exec "${node}" ctr -n k8s.io images pull docker.io/athithya5354/indexing_pipeline_cpu:amd64-arm64-v7
+  echo "  → Loading into ${node}"
+
+  # ensure containerd is ready
+  docker exec "$node" bash -c 'ctr version >/dev/null 2>&1' || {
+    echo "    [WARN] containerd not ready on $node — skipping"
+    continue
+  }
+
+  # preload images (safe retries)
+  for IMAGE in \
+    docker.io/qdrant/qdrant:v1.16.0 \
+    docker.io/athithya5354/dense:amd64-arm64-v1 \
+    docker.io/athithya5354/sparse:amd64-arm64-v2 \
+    docker.io/athithya5354/reranker:amd64-arm64-v1 \
+    docker.io/athithya5354/retrieval:amd64-arm64-v2 \
+    docker.io/athithya5354/athithya5354/frontend-and-auth:v5
+  do
+    echo "    pulling $IMAGE..."
+    docker exec "$node" ctr -n k8s.io images pull "$IMAGE" || {
+      echo "    [WARN] failed pulling $IMAGE on $node"
+    }
+  done
 done
+
+echo "[INFO] Safe preload complete."
 
 echo "kind cluster ${CLUSTER_NAME} created (1 control-plane + 2 workers). Context: ${CONTEXT}"
 kubectl get nodes -o wide
 
 exit 0
 
-
-python3 - <<'PY'
-import os, sys, subprocess, textwrap, re
-from pathlib import Path
-
-REPO = os.getenv("REPO_URL", "https://github.com/Athithya-Sakthivel/RAG8s.git")
-BR = os.getenv("BRANCH", "main")
-MANIFEST_PATH = Path(os.getenv("MANIFEST_PATH", "infra/manifests"))
-EXCLUDE = os.getenv("EXCLUDE_DIR", "jobs")
-FLUX_NS = os.getenv("FLUX_NS", "flux-system")
-GITNAME = "rag8s"
-
-def sanitize(n):
-    return re.sub(r'[^a-z0-9-]', '-', n.lower()).strip('-')[:63]
-
-if not MANIFEST_PATH.is_dir():
-    print(f"Manifest path not found: {MANIFEST_PATH}", file=sys.stderr)
-    sys.exit(1)
-
-gitrepo = textwrap.dedent(f"""\
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: GitRepository
-metadata:
-  name: {GITNAME}
-  namespace: {FLUX_NS}
-spec:
-  interval: 1m0s
-  url: {REPO}
-  ref:
-    branch: {BR}
-""")
-
-r = subprocess.run("kubectl apply -f -", shell=True, input=gitrepo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-if r.returncode != 0:
-    sys.exit(1)
-
-subprocess.run(f"kubectl wait gitrepository/{GITNAME} -n {FLUX_NS} --for=condition=Ready --timeout=60s", shell=True)
-subprocess.run(f"flux reconcile source git {GITNAME} -n {FLUX_NS}", shell=True)
-
-kustomizations = []
-dirs = [d for d in sorted(MANIFEST_PATH.iterdir()) if d.is_dir() and d.name != EXCLUDE]
-for d in dirs:
-    name = sanitize(d.name)
-    subprocess.run(f"kubectl create ns {name} --dry-run=client -o yaml | kubectl apply -f -", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    ky = textwrap.dedent(f"""\
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata:
-  name: {GITNAME}-{name}
-  namespace: {FLUX_NS}
-spec:
-  interval: 1m0s
-  prune: true
-  sourceRef:
-    kind: GitRepository
-    name: {GITNAME}
-  path: ./{MANIFEST_PATH.as_posix()}/{d.name}
-  targetNamespace: {name}
-""")
-    kustomizations.append(ky)
-
-if kustomizations:
-    allk = "\n---\n".join(kustomizations)
-    r = subprocess.run("kubectl apply -f -", shell=True, input=allk, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if r.returncode != 0:
-        sys.exit(1)
-    for d in dirs:
-        name = sanitize(d.name)
-        subprocess.run(f"flux reconcile kustomization {GITNAME}-{name} -n {FLUX_NS}", shell=True)
-        subprocess.run(f"kubectl wait kustomization/{GITNAME}-{name} -n {FLUX_NS} --for=condition=Ready --timeout=60s", shell=True)
-PY
+# \
+ #   docker.io/athithya5354/indexing_pipeline_cpu:v12

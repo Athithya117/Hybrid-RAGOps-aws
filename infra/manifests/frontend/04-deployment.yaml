@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+  namespace: inference
+  labels: &id001
+    app.kubernetes.io/name: frontend
+spec:
+  replicas: 3
+  selector:
+    matchLabels: *id001
+  template:
+    metadata:
+      labels: *id001
+    spec:
+      serviceAccountName: frontend-sa
+      containers:
+      - name: frontend
+        image: athithya5354/frontend:amd64-arm64-v3
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: frontend-config
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /orchestrator/health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /orchestrator/health
+            port: 8000
+          initialDelaySeconds: 3
+          periodSeconds: 5

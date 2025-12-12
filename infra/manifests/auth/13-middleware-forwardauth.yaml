@@ -1,0 +1,12 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: forward-auth-forwardauth
+  namespace: inference-auth
+spec:
+  forwardAuth:
+    address: http://forward-auth-svc.inference-auth.svc.cluster.local:9000/auth/check
+    trustForwardHeader: true
+    authResponseHeaders:
+    - X-Auth-User
+    - X-Auth-Email

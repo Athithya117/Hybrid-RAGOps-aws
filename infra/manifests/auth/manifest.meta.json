@@ -1,0 +1,18 @@
+{
+  "traefik_namespace": "kube-system",
+  "ratelimit_middleware": null,
+  "stripprefix_middleware": null,
+  "cors_middleware": null,
+  "forward_auth_middleware": null,
+  "files": {
+    "namespace": "/workspace/infra/manifests/auth/00-namespace.yaml",
+    "traefik_values_kind": "/workspace/infra/manifests/auth/01-traefik-values-kind.yaml",
+    "traefik_values_aks": "/workspace/infra/manifests/auth/02-traefik-values-aks.yaml",
+    "mw_ratelimit": "/workspace/infra/manifests/auth/10-middleware-ratelimit.yaml",
+    "mw_stripprefix": "/workspace/infra/manifests/auth/11-middleware-stripprefix.yaml",
+    "mw_cors": "/workspace/infra/manifests/auth/12-middleware-cors.yaml",
+    "meta": "/workspace/infra/manifests/auth/manifest.meta.json",
+    "inputs_hash": "/workspace/infra/manifests/auth/.inputs_hash"
+  },
+  "inputs_hash": "fdf85cb4bce37fd6028cbc03fbc56e9ef22cf4d66d2763746cd2b1112120fd27"
+}

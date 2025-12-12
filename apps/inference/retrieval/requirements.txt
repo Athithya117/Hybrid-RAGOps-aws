@@ -9,12 +9,12 @@ qdrant-client==1.12.0
 numpy==2.2.6
 pydantic==2.12.4
 anyio==4.11.0
-
+itsdangerous==2.2.0
 # Optional but available and installed
 tiktoken==0.11.0
 
-# AWS SDKs
-boto3==1.40.61
-aioboto3==15.5.0
+# Azure SDKs replacing AWS SDKs
+azure-storage-blob==12.21.0
+azure-identity==1.14.0
 
 prometheus_client==0.23.1

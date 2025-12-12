@@ -9,7 +9,7 @@ set -euo pipefail
 SCRIPT_DIR="apps/inference/retrieval/"
 BUILD_CONTEXT_DIR="apps/inference/retrieval/"
 
-IMAGE_TAG="${IMAGE_TAG:-amd64-arm64-v1}"
+IMAGE_TAG="${IMAGE_TAG:-amd64-arm64-v2}"
 DOCKER_USERNAME="${DOCKER_USERNAME:-}"
 DOCKER_PASSWORD="${DOCKER_PASSWORD:-}"
 IMAGE_NAME="${IMAGE_NAME:-${DOCKER_USERNAME:+${DOCKER_USERNAME}/}retrieval:${IMAGE_TAG}}"

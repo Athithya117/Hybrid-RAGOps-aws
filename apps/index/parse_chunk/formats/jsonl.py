@@ -1,69 +1,89 @@
 #!/usr/bin/env python3
-"""
-jsonl format parser — import-safe and compatible with router.py.
-
-This module exposes:
-    def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]
-and does not perform heavy work or exit at import time.
-"""
+# jsonl_parser_dualmode.py
+# Dual-mode JSONL/NDJSON parser/indexer for Azure blob storage
+# Auth mode is controlled ONLY by AZURE_USE_MANAGED_IDENTITY (true/false).
 from __future__ import annotations
 import os
 import sys
 import io
 import json
 import time
-import logging
 import hashlib
 import tempfile
 import unicodedata
-import urllib.parse
+import threading
 from datetime import datetime
 from typing import Any, Dict, Iterator, Tuple, List, Optional
-import botocore
 
-# optional/slow deps: imported lazily where needed
-try:
-    import polars as pl  # optional
-except Exception:
-    pl = None
+# ---------- Structured JSON logger ----------
+class LoggerShim:
+    def __init__(self, name: str):
+        self.name = name
 
-try:
-    import tiktoken  # optional
-except Exception:
-    tiktoken = None
+    def _emit(self, level: str, event: str, msg: str = "", **extra):
+        out = {
+            "ts": datetime.utcnow().isoformat() + "Z",
+            "level": level,
+            "event": event,
+            "msg": msg,
+        }
+        if extra:
+            out.update(extra)
+        print(json.dumps(out, ensure_ascii=False), flush=True)
 
-try:
-    import colorama
-    colorama.init()
-except Exception:
-    pass
+    def _unpack(self, a, b, fmt_args, kwargs, default_event):
+        if b is None:
+            event = kwargs.pop("event", default_event)
+            msg = a
+        else:
+            event = a
+            msg = b
+        if fmt_args:
+            try:
+                msg = msg % fmt_args
+            except Exception:
+                try:
+                    msg = msg.format(*fmt_args)
+                except Exception:
+                    pass
+        return event, msg, kwargs
 
-# --- logging ---
-RESET = "\033[0m"
-COLORS = {
-    logging.DEBUG: "\033[90m",
-    logging.INFO: "\033[97m",
-    logging.WARNING: "\033[33m",
-    logging.ERROR: "\033[31m",
-    logging.CRITICAL: "\033[1;41m"
-}
-class ColorFormatter(logging.Formatter):
-    def format(self, record):
-        color = COLORS.get(record.levelno, RESET)
-        message = super().format(record)
-        return f"{color}{message}{RESET}"
+    def info(self, a, b=None, *fmt_args, **kwargs):
+        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "info")
+        self._emit("info", event, msg, **kw)
 
-logger = logging.getLogger("jsonl_parser")
-logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
-handler = logging.StreamHandler()
-handler.setFormatter(ColorFormatter("%(asctime)s %(levelname)s %(message)s"))
-logger.handlers[:] = [handler]
-log = logger
+    def warning(self, a, b=None, *fmt_args, **kwargs):
+        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "warn")
+        self._emit("warn", event, msg, **kw)
 
-# --- basic config (read from env but do not fail on import) ---
-S3_BUCKET = os.getenv("S3_BUCKET")
-S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "").rstrip("/") + "/"
-S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "").rstrip("/") + "/"
+    def warn(self, a, b=None, *fmt_args, **kwargs):
+        self.warning(a, b, *fmt_args, **kwargs)
+
+    def error(self, a, b=None, *fmt_args, **kwargs):
+        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "error")
+        self._emit("error", event, msg, **kw)
+
+    def exception(self, a, b=None, *fmt_args, **kwargs):
+        import traceback
+        tb = traceback.format_exc()
+        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "exception")
+        kw.update({"traceback": tb})
+        self._emit("error", event, msg, **kw)
+
+log = LoggerShim("jsonl_parser")
+
+# ---------- Config ----------
+# Deterministic switch: ONLY AZURE_USE_MANAGED_IDENTITY controls auth mode.
+USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", "").strip().lower() in ("1", "true", "yes")
+
+# App config envs (defaults)
+AZURE_CONTAINER = os.getenv("AZURE_CONTAINER") or os.getenv("STORAGE_CONTAINER") or os.getenv("AZ_CONTAINER")
+if not AZURE_CONTAINER:
+    log.error("startup_missing_container", "AZURE_CONTAINER (or STORAGE_CONTAINER) must be set")
+    sys.exit(1)
+
+STORAGE_RAW_PREFIX = (os.getenv("STORAGE_RAW_PREFIX") or "data/raw/").rstrip("/") + "/"
+STORAGE_CHUNKED_PREFIX = (os.getenv("STORAGE_CHUNKED_PREFIX") or "data/chunked/").rstrip("/") + "/"
 PARSER_VERSION = os.getenv("PARSER_VERSION_JSONL", "polars-jsonl-v1")
 FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
 ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
@@ -71,34 +91,131 @@ TARGET_TOKENS_PER_CHUNK = int(os.getenv("JSONL_TARGET_TOKENS_PER_CHUNK", os.gete
 ROWS_PER_CHUNK_OVERRIDE = os.getenv("JSONL_ROWS_PER_CHUNK", os.getenv("CSV_ROWS_PER_CHUNK", ""))
 MIN_ROWS_PER_CHUNK = int(os.getenv("JSONL_MIN_ROWS_PER_CHUNK", os.getenv("CSV_MIN_ROWS_PER_CHUNK", "1")))
 MAX_ROWS_PER_CHUNK = int(os.getenv("JSONL_MAX_ROWS_PER_CHUNK", os.getenv("CSV_MAX_ROWS_PER_CHUNK", "100")))
-S3_PUT_RETRIES = int(os.getenv("S3_PUT_RETRIES", "3"))
-S3_PUT_BACKOFF = float(os.getenv("S3_PUT_BACKOFF", "0.5"))
-S3_RANGE_BYTES = int(os.getenv("S3_RANGE_BYTES", "131072"))
+PUT_RETRIES = int(os.getenv("PUT_RETRIES", "3"))
+PUT_BACKOFF = float(os.getenv("PUT_BACKOFF", "0.5"))
+RANGE_BYTES = int(os.getenv("RANGE_BYTES", "131072"))
 
-# lazy boto3 client
-_s3_client = None
-def get_s3_client():
-    global _s3_client
-    if _s3_client is None:
-        try:
-            import boto3
-        except Exception as e:
-            raise RuntimeError("boto3 must be installed to use jsonl parser") from e
-        _s3_client = boto3.client("s3")
-    return _s3_client
+# ---------- Optional libs ----------
+try:
+    import fsspec
+    from fsspec.spec import AbstractFileSystem
+except Exception:
+    fsspec = None  # type: ignore
+    AbstractFileSystem = object  # type: ignore
 
-# tiktoken encoder (optional)
-ENCODER = None
-if tiktoken is not None:
+try:
+    import polars as pl
+except Exception:
+    pl = None
+
+_tiktoken = None
+try:
+    import tiktoken as _tiktoken
+except Exception:
+    _tiktoken = None
+
+# Azure SDKs (only needed in managed identity mode)
+try:
+    from azure.identity import DefaultAzureCredential  # type: ignore
+    from azure.storage.blob import BlobServiceClient, ContainerClient  # type: ignore
+    AZURE_SDK_AVAILABLE = True
+except Exception:
+    DefaultAzureCredential = None  # type: ignore
+    BlobServiceClient = None  # type: ignore
+    ContainerClient = None  # type: ignore
+    AZURE_SDK_AVAILABLE = False
+
+# ---------- Helpers for validation ----------
+def fail(msg: str, code: int = 2):
+    log.error("fatal", msg)
+    sys.stderr.write(msg + "\n")
+    sys.exit(code)
+
+def validate_env_and_libs():
+    # Managed identity path validation
+    if USE_MANAGED_IDENTITY:
+        if not AZURE_SDK_AVAILABLE:
+            fail("PROD/Managed-Identity mode requires 'azure-identity' and 'azure-storage-blob' (pip install azure-identity azure-storage-blob)")
+        if not (os.getenv("AZURE_STORAGE_ACCOUNT_NAME") or os.getenv("AZURE_ACCOUNT_NAME")):
+            fail("AZURE_STORAGE_ACCOUNT_NAME (or AZURE_ACCOUNT_NAME) must be set for managed identity mode")
+    else:
+        # non-managed identity path: need fsspec/adlfs and credentials
+        if fsspec is None:
+            fail("STAGING/non-managed mode requires 'fsspec' and 'adlfs' (pip install fsspec adlfs)")
+        # at least one auth option must exist (conn string, key, sas, or anon)
+        if not (os.getenv("AZURE_STORAGE_CONNECTION_STRING") or os.getenv("AZURE_STORAGE_ACCOUNT_KEY") or os.getenv("AZURE_SAS_TOKEN") or os.getenv("AZURE_ANON")):
+            fail("non-managed identity mode requires AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_ACCOUNT_KEY or AZURE_SAS_TOKEN or AZURE_ANON")
+
+validate_env_and_libs()
+
+# ---------- Storage wiring (dual-mode) ----------
+def build_storage_options() -> Dict[str, str]:
+    if USE_MANAGED_IDENTITY:
+        return {}
+    opts: Dict[str, str] = {}
+    conn = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+    if conn:
+        opts["connection_string"] = conn
+        return opts
+    acct = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.environ.get("AZURE_ACCOUNT_NAME")
+    key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY") or os.environ.get("AZURE_ACCOUNT_KEY")
+    sas = os.environ.get("AZURE_SAS_TOKEN")
+    eps = os.environ.get("AZURE_ENDPOINT_SUFFIX") or "core.windows.net"
+    if acct and key:
+        opts["account_name"] = acct
+        opts["account_key"] = key
+        opts["endpoint_suffix"] = eps
+        return opts
+    if acct and sas:
+        opts["account_name"] = acct
+        opts["sas_token"] = sas
+        opts["endpoint_suffix"] = eps
+        return opts
+    if os.environ.get("AZURE_ANON"):
+        if acct:
+            opts["account_name"] = acct
+        opts["anon"] = True
+        return opts
+    return opts
+
+FS_OPTS = build_storage_options()
+
+if USE_MANAGED_IDENTITY:
+    account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.getenv("AZURE_ACCOUNT_NAME")
+    account_url = f"https://{account_name}.{os.environ.get('AZURE_ENDPOINT_SUFFIX','core.windows.net')}"
     try:
-        ENCODER = tiktoken.get_encoding(ENC_NAME)
-    except Exception:
-        try:
-            ENCODER = tiktoken.encoding_for_model("gpt2")
-        except Exception:
-            ENCODER = None
+        CREDENTIAL = DefaultAzureCredential()
+        BLOB_SERVICE_CLIENT = BlobServiceClient(account_url=account_url, credential=CREDENTIAL, connection_timeout=60)
+    except Exception as e:
+        fail(f"Failed to initialize BlobServiceClient with managed identity: {e}")
+    FS: Optional[AbstractFileSystem] = None
+else:
+    try:
+        FS = fsspec.filesystem("az", **FS_OPTS)  # type: ignore
+    except Exception as e:
+        fail(f"Failed to initialize fsspec 'az' filesystem: {e}")
+    BLOB_SERVICE_CLIENT = None
 
-# helper utilities
+STORAGE_ROOT = f"az://{AZURE_CONTAINER.rstrip('/')}/"
+
+# ---------- utilities ----------
+def full_path_from_key(key: str) -> str:
+    return STORAGE_ROOT + key.lstrip("/")
+
+def strip_root_from_path(full: str) -> str:
+    if full.startswith(STORAGE_ROOT):
+        return full[len(STORAGE_ROOT):]
+    proto_prefix = "az://"
+    if full.startswith(proto_prefix):
+        rest = full[len(proto_prefix):]
+        if rest.startswith(AZURE_CONTAINER + "/"):
+            return rest[len(AZURE_CONTAINER) + 1:]
+        if rest == AZURE_CONTAINER:
+            return ""
+    if full.startswith(AZURE_CONTAINER + "/"):
+        return full[len(AZURE_CONTAINER) + 1:]
+    return full
+
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 
@@ -112,28 +229,15 @@ def canonicalize_text(s: Any) -> str:
     s = s.replace("\r\n", "\n").replace("\r", "\n")
     return " ".join(s.split()).strip()
 
-def s3_object_exists(key: str) -> bool:
+ENCODER = None
+if _tiktoken is not None:
     try:
-        s3 = get_s3_client()
-        s3.head_object(Bucket=S3_BUCKET, Key=key)
-        return True
-    except botocore.exceptions.ClientError:
-        return False
+        ENCODER = _tiktoken.get_encoding(ENC_NAME)
     except Exception:
-        return False
-
-def s3_put_object_with_retries(key: str, body: bytes, content_type: str = "application/json") -> None:
-    s3 = get_s3_client()
-    attempt = 0
-    while True:
         try:
-            s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body, ContentType=content_type)
-            return
+            ENCODER = _tiktoken.encoding_for_model("gpt2")
         except Exception:
-            attempt += 1
-            if attempt >= max(1, S3_PUT_RETRIES):
-                raise
-            time.sleep(S3_PUT_BACKOFF * attempt)
+            ENCODER = None
 
 def token_count_for(text: str) -> int:
     if not text:
@@ -208,7 +312,7 @@ def detect_total_memory_bytes() -> int:
                 val = f.read().strip()
                 if val.isdigit():
                     v = int(val)
-                    if v > 0 and v < 2**60:
+                    if v > 0 and v < 2 ** 60:
                         return v
         path_v1 = "/sys/fs/cgroup/memory/memory.limit_in_bytes"
         if os.path.exists(path_v1):
@@ -219,7 +323,7 @@ def detect_total_memory_bytes() -> int:
     except Exception:
         pass
     try:
-        import psutil  # optional
+        import psutil
         return int(psutil.virtual_memory().total)
     except Exception:
         pass
@@ -228,86 +332,270 @@ def detect_total_memory_bytes() -> int:
         page_size = os.sysconf("SC_PAGE_SIZE")
         return int(pages * page_size)
     except Exception:
-        return 512 * (1024**2)
+        return 512 * (1024 ** 2)
 
 def compute_streaming_chunk_size() -> int:
     total = detect_total_memory_bytes()
     size = max(32_000_000, min(256_000_000, max(16_000_000, int(total // 8))))
     return int(size)
 
-if pl is not None:
-    try:
+try:
+    if pl is not None:
         pl.Config.set_streaming_chunk_size(compute_streaming_chunk_size())
-    except Exception:
-        pass
+except Exception:
+    pass
 
-def get_header_and_sample_tokens(s3_key: str) -> Tuple[str, int]:
-    s3 = get_s3_client()
-    try:
-        range_header = {"Range": f"bytes=0-{S3_RANGE_BYTES-1}"}
-        resp = s3.get_object(Bucket=S3_BUCKET, Key=s3_key, Range=range_header["Range"])
-        body_bytes = resp.get("Body").read()
-    except Exception:
-        try:
-            obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
-            body_bytes = obj.get("Body").read()
-        except Exception:
-            return "", 32
-    try:
-        text = body_bytes.decode("utf-8", errors="replace")
-        lines = [ln for ln in text.splitlines() if ln.strip()]
-        parsed = []
-        for ln in lines[:4]:
+# ---------- Storage client abstraction (dual-mode) ----------
+class AzureStorageClient:
+    def __init__(self, fs_obj: Optional[AbstractFileSystem], root: str, container: str, blob_service_client=None):
+        self.fs = fs_obj
+        self.root = root
+        self.container = container
+        self.blob_service_client = blob_service_client
+
+    def _container_client(self) -> "ContainerClient":
+        if self.blob_service_client is None:
+            raise RuntimeError("blob_service_client not initialized for managed-identity mode")
+        return self.blob_service_client.get_container_client(self.container)
+
+    def exists(self, Bucket, Key) -> bool:
+        if self.fs is not None:
             try:
-                parsed.append(json.loads(ln))
+                return self.fs.exists(full_path_from_key(Key))
             except Exception:
-                continue
-        if not parsed:
-            return "", 32
-        keys = sorted(set().union(*(list(p.keys()) for p in parsed if isinstance(p, dict))))
-        header_text = canonicalize_text(" | ".join(keys))
-        sample_obj = parsed[0]
-        sample_text = row_to_schema_text(sample_obj)
-        sample_tokens = max(1, token_count_for(sample_text))
-        return header_text, sample_tokens
-    except Exception:
-        return "", 32
+                return False
+        else:
+            try:
+                blob_client = self._container_client().get_blob_client(Key)
+                return blob_client.exists()
+            except Exception:
+                return False
 
-def make_doc_id(s3_key: str, last_modified: Any) -> str:
-    return sha256_hex(s3_key + str(last_modified or ""))
+    def head_object(self, Bucket, Key):
+        if self.fs is not None:
+            full = full_path_from_key(Key)
+            info = self.fs.info(full)
+            out = {}
+            out["ContentLength"] = int(info.get("size", 0))
+            etag = info.get("etag") or info.get("ETag") or ""
+            out["ETag"] = etag
+            lm = info.get("Last-Modified") or info.get("last_modified") or info.get("LastModified") or ""
+            out["LastModified"] = lm
+            metadata = info.get("metadata") or info.get("meta") or {}
+            out["Metadata"] = metadata
+            return out
+        else:
+            container = self._container_client()
+            blob_client = container.get_blob_client(Key)
+            props = blob_client.get_blob_properties()
+            out = {
+                "ContentLength": getattr(props, "size", 0),
+                "ETag": getattr(props, "etag", ""),
+                "LastModified": getattr(props, "last_modified", ""),
+                "Metadata": getattr(props, "metadata", {}) or {},
+            }
+            return out
 
-def filename_from_source_url(source_url: Optional[str]) -> str:
-    if not source_url:
-        return ""
-    try:
-        if source_url.startswith("s3://"):
-            return os.path.basename(source_url)
-        parsed = urllib.parse.urlparse(source_url)
-        if parsed.path:
-            return os.path.basename(parsed.path)
-        return os.path.basename(source_url)
-    except Exception:
-        return os.path.basename(str(source_url))
+    def get_object(self, Bucket, Key):
+        if self.fs is not None:
+            full = full_path_from_key(Key)
+            with self.fs.open(full, "rb") as f:
+                data = f.read()
+            return {"Body": io.BytesIO(data)}
+        else:
+            container = self._container_client()
+            blob_client = container.get_blob_client(Key)
+            stream = blob_client.download_blob()
+            data = stream.readall()
+            return {"Body": io.BytesIO(data)}
 
-def s3_upload_file_atomic(local_path: str, bucket: str, key: str, content_type: str = "application/octet-stream") -> None:
-    s3 = get_s3_client()
-    tmp_key = f"{key}.tmp.{os.getpid()}.{int(time.time())}"
-    for attempt in range(1, S3_PUT_RETRIES + 1):
-        try:
-            s3.upload_file(local_path, bucket, tmp_key, ExtraArgs={"ContentType": content_type})
-            copy_source = {"Bucket": bucket, "Key": tmp_key}
-            s3.copy_object(CopySource=copy_source, Bucket=bucket, Key=key)
-            s3.delete_object(Bucket=bucket, Key=tmp_key)
+    def put_object(self, Bucket, Key, Body, ContentType=None):
+        if self.fs is not None:
+            full = full_path_from_key(Key)
+            if isinstance(Body, (bytes, bytearray)):
+                b = bytes(Body)
+            elif isinstance(Body, str):
+                b = Body.encode("utf-8")
+            elif hasattr(Body, "read"):
+                b = Body.read()
+                if isinstance(b, str):
+                    b = b.encode("utf-8")
+            else:
+                b = bytes(Body)
+            with self.fs.open(full, "wb") as f:
+                f.write(b)
+            return {"ResponseMetadata": {"HTTPStatusCode": 200}}
+        else:
+            container = self._container_client()
+            blob_client = container.get_blob_client(Key)
+            if isinstance(Body, (bytes, bytearray)):
+                data = Body
+            elif isinstance(Body, str):
+                data = Body.encode("utf-8")
+            elif hasattr(Body, "read"):
+                data = Body.read()
+                if isinstance(data, str):
+                    data = data.encode("utf-8")
+            else:
+                data = str(Body).encode("utf-8")
+            blob_client.upload_blob(data, overwrite=True)
+            return {"ResponseMetadata": {"HTTPStatusCode": 200}}
+
+    def upload_file(self, LocalFile, Bucket, Key, ExtraArgs=None):
+        if self.fs is not None:
+            full = full_path_from_key(Key)
+            if hasattr(self.fs, "put"):
+                self.fs.put(LocalFile, full)
+            else:
+                with open(LocalFile, "rb") as lf:
+                    data = lf.read()
+                with self.fs.open(full, "wb") as f:
+                    f.write(data)
             return
-        except Exception as e:
-            log.warning("s3 atomic upload attempt %d failed for %s: %s", attempt, key, e)
-            time.sleep(S3_PUT_BACKOFF * attempt)
-    raise Exception(f"s3 atomic upload failed for {key} after {S3_PUT_RETRIES} attempts")
+        else:
+            container = self._container_client()
+            blob_client = container.get_blob_client(Key)
+            with open(LocalFile, "rb") as lf:
+                blob_client.upload_blob(lf, overwrite=True)
 
-# Defer pyarrow import until needed (finalize/upload step)
+    def copy_object(self, CopySource, Bucket, Key):
+        src = CopySource.get("Key")
+        if self.fs is not None:
+            full_src = full_path_from_key(src)
+            full_dst = full_path_from_key(Key)
+            with self.fs.open(full_src, "rb") as rf:
+                data = rf.read()
+            with self.fs.open(full_dst, "wb") as wf:
+                wf.write(data)
+            return
+        else:
+            src_blob_client = self._container_client().get_blob_client(src)
+            dst_blob_client = self._container_client().get_blob_client(Key)
+            src_url = src_blob_client.url
+            dst_blob_client.start_copy_from_url(src_url)
+
+    def delete_object(self, Bucket, Key):
+        if self.fs is not None:
+            full = full_path_from_key(Key)
+            try:
+                self.fs.rm(full)
+            except Exception:
+                try:
+                    self.fs.delete(full)
+                except Exception:
+                    pass
+            return
+        else:
+            blob_client = self._container_client().get_blob_client(Key)
+            try:
+                blob_client.delete_blob()
+            except Exception:
+                pass
+
+    def get_paginator(self, name):
+        if self.fs is not None:
+            class P:
+                def __init__(self, fs, root):
+                    self.fs = fs
+                    self.root = root
+
+                def paginate(self, Bucket, Prefix, PaginationConfig=None):
+                    base = (Prefix.rstrip("/")) + "/"
+                    root_path = self.root + base
+                    try:
+                        if hasattr(self.fs, "find"):
+                            found = self.fs.find(root_path)
+                        else:
+                            found = self.fs.glob(root_path + "**", recursive=True)
+                    except Exception:
+                        found = []
+                    page = {"Contents": []}
+                    for f in found:
+                        try:
+                            info = self.fs.info(f)
+                        except Exception:
+                            continue
+                        if info.get("type") == "directory":
+                            continue
+                        rel = strip_root_from_path(f)
+                        page["Contents"].append({"Key": rel})
+                        if len(page["Contents"]) >= 1000:
+                            yield page
+                            page = {"Contents": []}
+                    if page["Contents"]:
+                        yield page
+            return P(self.fs, self.root)
+        else:
+            class Pblob:
+                def __init__(self, container_client):
+                    self.container_client = container_client
+
+                def paginate(self, Bucket, Prefix, PaginationConfig=None):
+                    blobs = self.container_client.list_blobs(name_starts_with=Prefix)
+                    page = {"Contents": []}
+                    for b in blobs:
+                        page["Contents"].append({"Key": b.name})
+                        if len(page["Contents"]) >= 1000:
+                            yield page
+                            page = {"Contents": []}
+                    if page["Contents"]:
+                        yield page
+            return Pblob(self._container_client())
+
+# singleton client
+_storage_client: Optional[AzureStorageClient] = None
+_storage_lock = threading.Lock()
+
+def get_storage_client_singleton():
+    global _storage_client
+    if _storage_client is None:
+        with _storage_lock:
+            if _storage_client is None:
+                if USE_MANAGED_IDENTITY:
+                    _storage_client = AzureStorageClient(None, STORAGE_ROOT, AZURE_CONTAINER, blob_service_client=BLOB_SERVICE_CLIENT)
+                else:
+                    _storage_client = AzureStorageClient(FS, STORAGE_ROOT, AZURE_CONTAINER, blob_service_client=None)
+    return _storage_client
+
+def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "application/octet-stream"):
+    full = full_path_from_key(key)
+    tmp = f"{full}.tmp.{os.getpid()}.{int(time.time())}"
+    client = get_storage_client_singleton()
+    for attempt in range(1, PUT_RETRIES + 1):
+        try:
+            if client.fs is not None:
+                if hasattr(client.fs, "put"):
+                    client.fs.put(local_path, tmp)
+                else:
+                    with open(local_path, "rb") as lf:
+                        d = lf.read()
+                    with client.fs.open(tmp, "wb") as f:
+                        f.write(d)
+                if hasattr(client.fs, "mv"):
+                    client.fs.mv(tmp, full)
+                else:
+                    with client.fs.open(tmp, "rb") as rf:
+                        data = rf.read()
+                    with client.fs.open(full, "wb") as wf:
+                        wf.write(data)
+                    try:
+                        client.fs.rm(tmp)
+                    except Exception:
+                        pass
+                return
+            else:
+                client.upload_file(local_path, AZURE_CONTAINER, key)
+                return
+        except Exception as e:
+            log.warning("upload_retry", "attempt=%d key=%s error=%s", attempt, key, str(e))
+            time.sleep(PUT_BACKOFF * attempt)
+    raise Exception(f"atomic upload failed for {key} after {PUT_RETRIES} attempts")
+
+# ---------- pyarrow / parquet helper ----------
 PA_AVAILABLE = False
 _pa = None
 _pq = None
+
 def _ensure_pyarrow():
     global PA_AVAILABLE, _pa, _pq
     if PA_AVAILABLE:
@@ -322,12 +610,11 @@ def _ensure_pyarrow():
         PA_AVAILABLE = False
         _pa = None
         _pq = None
-        # do not exit; raise later when parquet actually needed
 
-class S3ParquetWriter:
-    def __init__(self, doc_id: str, s3_path: str):
+class ParquetWriter:
+    def __init__(self, doc_id: str, source_path: str):
         self.doc_id = doc_id
-        self.s3_path = s3_path
+        self.source_path = source_path
         self._rows: List[Dict[str, Any]] = []
 
     def _normalize_for_parquet(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -335,7 +622,7 @@ class S3ParquetWriter:
         fields["document_id"] = payload.get("document_id") or ""
         fields["chunk_id"] = payload.get("chunk_id") or ""
         fields["chunk_type"] = payload.get("chunk_type") or ""
-        fields["text"] = payload.get("text") or ""
+        fields["text"] = str(payload.get("text") or "")
         try:
             fields["token_count"] = int(payload.get("token_count") or 0)
         except Exception:
@@ -345,7 +632,10 @@ class S3ParquetWriter:
             try:
                 fields[k] = json.dumps(v, ensure_ascii=False, sort_keys=True) if v is not None else "[]"
             except Exception:
-                fields[k] = "[]"
+                try:
+                    fields[k] = json.dumps([], ensure_ascii=False)
+                except Exception:
+                    fields[k] = "[]"
         fields["file_type"] = payload.get("file_type") or ""
         fields["source_url"] = payload.get("source_url") or ""
         fields["file_name"] = payload.get("file_name") or ""
@@ -381,19 +671,13 @@ class S3ParquetWriter:
         return 1
 
     def finalize_and_upload(self, out_basename: str) -> Tuple[int, str, str, int]:
-        """
-        Returns: (rows_count, uploaded_s3_key, sha256_of_parquet, size_bytes)
-        Raises RuntimeError if pyarrow is not available.
-        """
         if not self._rows:
             return 0, "", "", 0
         _ensure_pyarrow()
         if not PA_AVAILABLE or _pa is None or _pq is None:
             raise RuntimeError("pyarrow is required to finalize parquet output (install pyarrow)")
-
         pa = _pa
         pq = _pq
-
         schema = pa.schema([
             pa.field("document_id", pa.string()),
             pa.field("chunk_id", pa.string()),
@@ -416,7 +700,7 @@ class S3ParquetWriter:
             pa.field("parser_version", pa.string()),
             pa.field("used_ocr", pa.bool_())
         ])
-        cols = {name: [] for name in [f.name for f in schema]}
+        cols: Dict[str, List[Any]] = {name: [] for name in [f.name for f in schema]}
         for r in self._rows:
             for name in cols:
                 cols[name].append(r.get(name) if name in r else None)
@@ -439,37 +723,49 @@ class S3ParquetWriter:
         sha = sha256_hex_bytes(b)
         size = os.path.getsize(local_parquet_path)
         parquet_key = out_basename + ".parquet"
-        s3_upload_file_atomic(local_parquet_path, S3_BUCKET, S3_CHUNKED_PREFIX + parquet_key, content_type="application/octet-stream")
+        storage_upload_file_atomic(local_parquet_path, STORAGE_CHUNKED_PREFIX + parquet_key, content_type="application/octet-stream")
         try:
             os.unlink(local_parquet_path)
         except Exception:
             pass
-        return len(self._rows), S3_CHUNKED_PREFIX + parquet_key, sha, size
+        return len(self._rows), STORAGE_CHUNKED_PREFIX + parquet_key, sha, size
 
-def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
-    for k in list(payload.keys()):
+def sanitize_payload(payload: Dict[str, Any]) -> None:
+    if "text" in payload:
+        payload["text"] = canonicalize_text(payload.get("text") or "")
+    else:
+        payload["text"] = ""
+    for k in ("tags", "figures", "layout_tags", "heading_path", "headings"):
         v = payload.get(k)
-        if k == "tags":
-            if v is None:
-                payload[k] = []
-            elif isinstance(v, (list, tuple)):
-                payload[k] = [str(x) for x in v]
-            else:
-                payload[k] = [str(v)]
-            continue
         if v is None:
-            payload.pop(k, None)
+            payload[k] = []
+        elif isinstance(v, (list, tuple)):
+            payload[k] = [x for x in v]
+        else:
+            payload[k] = [v]
+    for rk in ("row_range", "token_range", "audio_range"):
+        v = payload.get(rk)
+        if v is None:
+            payload[rk] = None
             continue
-        if isinstance(v, (list, tuple, dict)):
+        if isinstance(v, (list, tuple)) and len(v) >= 2:
             try:
-                payload[k] = json.dumps(v)
+                payload[rk] = [int(v[0]), int(v[1])]
             except Exception:
-                payload[k] = str(v)
-            continue
-        if not isinstance(v, (str, int, float, bool)):
-            payload[k] = str(v)
+                payload[rk] = None
+        else:
+            payload[rk] = None
+    try:
+        payload["token_count"] = int(payload.get("token_count") or 0)
+    except Exception:
+        payload["token_count"] = 0
+    payload["file_name"] = payload.get("file_name") or ""
+    payload["source_url"] = payload.get("source_url") or ""
+    payload["file_type"] = payload.get("file_type") or ""
+    if not payload.get("timestamp"):
+        payload["timestamp"] = datetime.utcnow().isoformat() + "Z"
 
-def _flush_rows_chunk(writer: S3ParquetWriter, doc_id: str, chunk_index: int, header_text: str, rows_text: List[str], start_row_num: int, manifest_tags: List[str] = None) -> Tuple[int, int]:
+def _flush_rows_chunk(writer: ParquetWriter, doc_id: str, chunk_index: int, header_text: str, rows_text: List[str], start_row_num: int, manifest_tags: List[str] = None) -> Tuple[int, int]:
     if not rows_text:
         return 0, chunk_index
     chunk_index += 1
@@ -477,17 +773,17 @@ def _flush_rows_chunk(writer: S3ParquetWriter, doc_id: str, chunk_index: int, he
     chunk_text = header_text + "\n" + "\n".join(rows_text) if header_text else "\n".join(rows_text)
     token_ct = token_count_for(chunk_text)
     end_row_num = start_row_num + len(rows_text) - 1
-    source_url = f"s3://{S3_BUCKET}/{writer.s3_path}" if S3_BUCKET else None
+    source_url = f"az://{AZURE_CONTAINER}/{writer.source_path}" if writer.source_path else None
     payload: Dict[str, Any] = {
         "document_id": doc_id or "",
         "chunk_id": chunk_id or "",
         "chunk_type": "row_group",
         "text": canonicalize_text(chunk_text) or "",
         "token_count": int(token_ct or 0),
-        "figures": "[]",
+        "figures": [],
         "embedding": None,
         "file_type": "application/x-ndjson",
-        "source_url": source_url,
+        "source_url": source_url or "",
         "file_name": filename_from_source_url(source_url) if source_url else "",
         "row_range": [int(start_row_num), int(end_row_num)],
         "token_range": None,
@@ -500,12 +796,12 @@ def _flush_rows_chunk(writer: S3ParquetWriter, doc_id: str, chunk_index: int, he
         "heading_path": [],
         "headings": []
     }
-    sanitize_payload_for_weaviate(payload)
+    sanitize_payload(payload)
     writer.write_payload(payload)
-    log.info("Buffered chunk %s", payload["chunk_id"])
+    log.info("buffered_chunk", "Buffered chunk", chunk_id=payload["chunk_id"])
     return 1, chunk_index
 
-def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text, next_row_num, writer: S3ParquetWriter, manifest_tags: List[str] = None):
+def _process_batch_rows(rows_iterable, doc_id, source_path, chunk_index, header_text, next_row_num, writer: ParquetWriter, manifest_tags: List[str] = None):
     saved = 0
     rows_text: List[str] = []
     start_row_of_current = next_row_num
@@ -529,20 +825,20 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
                 chunk_id = f"{doc_id}_{chunk_index}"
                 candidate_text = header_text + "\n" + w["text"] if header_text and (header_tokens + w["token_count"] <= TARGET_TOKENS_PER_CHUNK) else w["text"]
                 token_ct = token_count_for(candidate_text)
-                source_url = f"s3://{S3_BUCKET}/{s3_path}" if S3_BUCKET else None
+                source_url = f"az://{AZURE_CONTAINER}/{source_path}" if source_path else None
                 payload: Dict[str, Any] = {
                     "document_id": doc_id or "",
                     "chunk_id": chunk_id or "",
                     "chunk_type": "token_window",
                     "text": canonicalize_text(candidate_text) or "",
-                    "figures": "[]",
+                    "figures": [],
                     "token_count": int(token_ct or 0),
                     "embedding": None,
                     "file_type": "application/x-ndjson",
-                    "source_url": source_url,
+                    "source_url": source_url or "",
                     "file_name": filename_from_source_url(source_url) if source_url else "",
                     "row_range": [int(row_num), int(row_num)],
-                    "token_range": [int(w.get("token_start")), int(w.get("token_end"))],
+                    "token_range": [int(w.get("token_start") or 0), int(w.get("token_end") or 0)],
                     "audio_range": None,
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                     "parser_version": PARSER_VERSION or "",
@@ -552,9 +848,9 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
                     "heading_path": [],
                     "headings": []
                 }
-                sanitize_payload_for_weaviate(payload)
+                sanitize_payload(payload)
                 writer.write_payload(payload)
-                log.info("Buffered token_window %s", payload["chunk_id"])
+                log.info("buffered_token_window", "Buffered token window", chunk_id=payload["chunk_id"])
                 saved += 1
             start_row_of_current = next_row_num
             continue
@@ -575,45 +871,87 @@ def _process_batch_rows(rows_iterable, doc_id, s3_path, chunk_index, header_text
         saved += wrote
     return saved, chunk_index, next_row_num
 
-def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Main router-callable function. Validates runtime envs and performs parsing.
-    Returns dict with at least 'saved_chunks'.
-    """
-    if not S3_BUCKET:
-        raise RuntimeError("S3_BUCKET env must be set to run parse_file()")
-    start_all = time.perf_counter()
-    s3 = get_s3_client()
+def get_header_and_sample_tokens(blob_key: str) -> Tuple[str, int]:
     try:
-        head_obj = s3.head_object(Bucket=S3_BUCKET, Key=s3_key)
+        client = get_storage_client_singleton()
+        if client.fs is not None:
+            full = full_path_from_key(blob_key)
+            with client.fs.open(full, "rb") as fh:
+                data = fh.read(min(int(RANGE_BYTES), 256 * 1024))
+        else:
+            obj = client.get_object(Bucket=AZURE_CONTAINER, Key=blob_key)
+            data = obj.get("Body").read()
+        text = data.decode("utf-8", errors="replace")
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        parsed = []
+        for ln in lines[:4]:
+            try:
+                parsed.append(json.loads(ln))
+            except Exception:
+                continue
+        if not parsed:
+            return "", 32
+        keys = sorted(set().union(*(list(p.keys()) for p in parsed if isinstance(p, dict))))
+        header_text = canonicalize_text(" | ".join(keys))
+        sample_obj = parsed[0]
+        sample_text = row_to_schema_text(sample_obj)
+        sample_tokens = max(1, token_count_for(sample_text))
+        return header_text, sample_tokens
+    except Exception:
+        return "", 32
+
+def make_doc_id(blob_key: str, last_modified: Any) -> str:
+    return sha256_hex(blob_key + str(last_modified or ""))
+
+def filename_from_source_url(source_url: Optional[str]) -> str:
+    if not source_url:
+        return ""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(source_url)
+        if parsed.path:
+            return os.path.basename(parsed.path)
+        return os.path.basename(source_url)
+    except Exception:
+        return os.path.basename(str(source_url))
+
+def parse_file(blob_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
+    start_all = time.perf_counter()
+    client = get_storage_client_singleton()
+    try:
+        head_obj = client.head_object(Bucket=AZURE_CONTAINER, Key=blob_key)
     except Exception as e:
-        log.error("Could not head S3 object %s: %s", s3_key, e)
+        log.error("head_failed", "Could not head object", key=blob_key, error=str(e))
         return {"saved_chunks": 0, "total_parse_duration_ms": 0, "skipped": True, "error": str(e)}
     last_modified = head_obj.get("LastModified", "")
-    doc_id = manifest.get("file_hash") or make_doc_id(s3_key, last_modified)
-    s3_path = f"{s3_key}"
+    doc_id = manifest.get("file_hash") or make_doc_id(blob_key, last_modified)
+    source_path = f"{blob_key}"
     out_basename = f"{doc_id}"
     out_parquet_key = f"{out_basename}.parquet"
-    raw_manifest_key = s3_key + ".manifest.json"
-    if not FORCE_OVERWRITE and s3_object_exists(S3_CHUNKED_PREFIX + out_parquet_key):
-        total_ms = int((time.perf_counter() - start_all) * 1000)
-        log.info("Skipping entire file because parquet chunked file exists: %s", out_parquet_key)
-        try:
-            if not s3_object_exists(raw_manifest_key):
-                head = s3.head_object(Bucket=S3_BUCKET, Key=S3_CHUNKED_PREFIX + out_parquet_key)
-                etag = head.get("ETag", "")
-                if isinstance(etag, str):
-                    etag = etag.strip('"')
-                size = head.get("ContentLength", 0)
-                raw_manifest = {"s3_key": S3_CHUNKED_PREFIX + out_parquet_key, "doc_id": doc_id, "rows": 0, "sha256": etag, "size_bytes": size, "schema_version": os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1"), "parser_version": PARSER_VERSION, "created_at": datetime.utcnow().isoformat() + "Z"}
-                s3.put_object(Bucket=S3_BUCKET, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
-        except Exception:
-            pass
-        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
-    header_text, sample_row_tokens = get_header_and_sample_tokens(s3_key)
+    raw_manifest_key = blob_key + ".manifest.json"
+    try:
+        # Check for existing chunk using client.exists
+        if not FORCE_OVERWRITE and client.exists(AZURE_CONTAINER, STORAGE_CHUNKED_PREFIX + out_parquet_key):
+            total_ms = int((time.perf_counter() - start_all) * 1000)
+            log.info("skip_parquet_exists", "parquet exists", key=out_parquet_key)
+            try:
+                if not client.exists(AZURE_CONTAINER, raw_manifest_key):
+                    head = client.head_object(Bucket=AZURE_CONTAINER, Key=STORAGE_CHUNKED_PREFIX + out_parquet_key)
+                    etag = head.get("ETag", "")
+                    if isinstance(etag, str):
+                        etag = etag.strip('"')
+                    size = head.get("ContentLength", 0)
+                    raw_manifest = {"storage_key": STORAGE_CHUNKED_PREFIX + out_parquet_key, "doc_id": doc_id, "rows": 0, "sha256": etag, "size_bytes": size, "schema_version": os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1"), "parser_version": PARSER_VERSION, "created_at": datetime.utcnow().isoformat() + "Z"}
+                    client.put_object(Bucket=AZURE_CONTAINER, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
+            except Exception:
+                pass
+            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+    except Exception:
+        pass
+    header_text, sample_row_tokens = get_header_and_sample_tokens(blob_key)
     header_tokens = token_count_for(header_text) if header_text else 0
     if header_tokens >= TARGET_TOKENS_PER_CHUNK:
-        log.warning("JSONL header token count >= target chunk size. Header will not be prepended to row_group chunks to avoid exceeding target.")
+        log.warning("header_too_large", "Header token count >= target; omitting header in chunks", key=blob_key)
         header_text = ""
         header_tokens = 0
     if ROWS_PER_CHUNK_OVERRIDE:
@@ -622,99 +960,114 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
         available_for_rows = max(1, TARGET_TOKENS_PER_CHUNK - header_tokens)
         estimated_rows = max(1, int(available_for_rows / max(1, sample_row_tokens)))
         rows_per_chunk = max(MIN_ROWS_PER_CHUNK, min(MAX_ROWS_PER_CHUNK, estimated_rows))
-    log.info("%s sample_row_tokens=%d header_tokens=%d rows_per_chunk=%d", s3_key, sample_row_tokens, header_tokens, rows_per_chunk)
+    log.info("sampling", "sample info", key=blob_key, sample_row_tokens=sample_row_tokens, header_tokens=header_tokens, rows_per_chunk=rows_per_chunk)
     saved = 0
     chunk_index = 0
     next_row_num = 1
     manifest_tags = manifest.get("tags", []) if isinstance(manifest, dict) else []
-    writer = S3ParquetWriter(doc_id=doc_id, s3_path=s3_path)
+    writer = ParquetWriter(doc_id=doc_id, source_path=source_path)
     try:
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
-        body = obj.get("Body")
+        resp = client.get_object(Bucket=AZURE_CONTAINER, Key=blob_key)
+        body = resp.get("Body")
         try:
-            iter_lines = body.iter_lines(chunk_size=4096, keepends=False)
+            if hasattr(body, "iter_lines"):
+                iter_lines = body.iter_lines(chunk_size=4096, keepends=False)
+            else:
+                content = body.read()
+                lines = [ln for ln in content.decode("utf-8", errors="replace").splitlines() if ln.strip()]
+                iter_lines = (ln.encode("utf-8") for ln in lines)
             buffer: List[Dict[str, Any]] = []
             for ln in iter_lines:
                 if not ln:
                     continue
                 try:
-                    rec = json.loads(ln.decode("utf-8"))
+                    rec = json.loads(ln.decode("utf-8") if isinstance(ln, (bytes, bytearray)) else ln)
                 except Exception:
                     continue
                 buffer.append(rec)
                 if len(buffer) >= rows_per_chunk:
                     indexed_iter = ((i, row) for i, row in enumerate(buffer))
-                    saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, s3_path, chunk_index, header_text, next_row_num, writer, manifest_tags)
+                    saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, source_path, chunk_index, header_text, next_row_num, writer, manifest_tags)
                     saved += saved_chunk
                     buffer = []
             if buffer:
                 indexed_iter = ((i, row) for i, row in enumerate(buffer))
-                saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, s3_path, chunk_index, header_text, next_row_num, writer, manifest_tags)
+                saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, source_path, chunk_index, header_text, next_row_num, writer, manifest_tags)
                 saved += saved_chunk
-        except Exception:
-            body_bytes = body.read()
-            text = body_bytes.decode("utf-8", errors="replace")
-            lines = [ln for ln in text.splitlines() if ln.strip()]
-            buffer = []
-            for ln in lines:
-                try:
-                    rec = json.loads(ln)
-                except Exception:
-                    continue
-                buffer.append(rec)
-                if len(buffer) >= rows_per_chunk:
+        except Exception as e_inner:
+            try:
+                body_bytes = body.read()
+                text = body_bytes.decode("utf-8", errors="replace")
+                lines = [ln for ln in text.splitlines() if ln.strip()]
+                buffer = []
+                for ln in lines:
+                    try:
+                        rec = json.loads(ln)
+                    except Exception:
+                        continue
+                    buffer.append(rec)
+                    if len(buffer) >= rows_per_chunk:
+                        indexed_iter = ((i, row) for i, row in enumerate(buffer))
+                        saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, source_path, chunk_index, header_text, next_row_num, writer, manifest_tags)
+                        saved += saved_chunk
+                        buffer = []
+                if buffer:
                     indexed_iter = ((i, row) for i, row in enumerate(buffer))
-                    saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, s3_path, chunk_index, header_text, next_row_num, writer, manifest_tags)
+                    saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, source_path, chunk_index, header_text, next_row_num, writer, manifest_tags)
                     saved += saved_chunk
-                    buffer = []
-            if buffer:
-                indexed_iter = ((i, row) for i, row in enumerate(buffer))
-                saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, s3_path, chunk_index, header_text, next_row_num, writer, manifest_tags)
-                saved += saved_chunk
+            except Exception as inner2:
+                raise inner2 from e_inner
     except Exception as e_pd:
         total_ms = int((time.perf_counter() - start_all) * 1000)
-        log.error("Skipping malformed or unreadable JSONL %s error=%s", s3_key, str(e_pd))
+        log.error("read_failed", "Skipping malformed or unreadable JSONL", key=blob_key, error=str(e_pd))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_pd)}
     try:
         if saved == 0:
             total_ms = int((time.perf_counter() - start_all) * 1000)
-            log.info("No chunks produced for %s", s3_key)
+            log.info("no_chunks", "No chunks produced", key=blob_key)
             return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": False}
-        count, uploaded_s3_key, sha, size = writer.finalize_and_upload(out_basename)
+        count, uploaded_key, sha, size = writer.finalize_and_upload(out_basename)
         total_ms = int((time.perf_counter() - start_all) * 1000)
         try:
-            raw_manifest = {"s3_key": uploaded_s3_key, "doc_id": doc_id, "rows": count, "sha256": sha, "size_bytes": size, "schema_version": os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1"), "parser_version": PARSER_VERSION, "created_at": datetime.utcnow().isoformat() + "Z"}
-            s3.put_object(Bucket=S3_BUCKET, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
+            raw_manifest = {"storage_key": uploaded_key, "doc_id": doc_id, "rows": count, "sha256": sha, "size_bytes": size, "schema_version": os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1"), "parser_version": PARSER_VERSION, "created_at": datetime.utcnow().isoformat() + "Z"}
+            client.put_object(Bucket=AZURE_CONTAINER, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
         except Exception:
-            log.warning("Failed to write raw manifest for %s", s3_key)
-        log.info("Wrote %d chunks for %s → %s (%d ms)", count, s3_key, uploaded_s3_key, total_ms)
+            log.warning("manifest_write_failed", "Failed to write raw manifest", key=blob_key)
+        log.info("write_complete", "Wrote chunks", count=count, raw=blob_key, chunked=uploaded_key, duration_ms=total_ms)
         return {"saved_chunks": count, "total_parse_duration_ms": total_ms, "skipped": False}
     except Exception as e_up:
         total_ms = int((time.perf_counter() - start_all) * 1000)
-        log.error("Failed to upload chunked file for %s error=%s", s3_key, str(e_up))
+        log.error("upload_failed", "Failed to upload chunked file", key=blob_key, error=str(e_up))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
 
-# CLI behavior only
+# CLI behavior
 if __name__ == "__main__":
-    if not S3_BUCKET:
-        log.error("S3_BUCKET env required")
-        sys.exit(1)
-    s3 = get_s3_client()
-    paginator = s3.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=S3_BUCKET, Prefix=S3_RAW_PREFIX):
+    log.info("startup", "JSONL parser start", use_managed_identity=str(USE_MANAGED_IDENTITY).lower(), token_encoder=os.getenv("TOKEN_ENCODER", ENC_NAME), tiktoken_present="yes" if ENCODER is not None else "no")
+    client = get_storage_client_singleton()
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=AZURE_CONTAINER, Prefix=STORAGE_RAW_PREFIX):
         for obj in page.get("Contents", []):
             key = obj["Key"]
-            if not (key.lower().endswith(".jsonl") or key.lower().endswith(".ndjson") or key.lower().endswith(".json")):
+            lower = key.lower()
+            if lower.endswith(".manifest.json"):
                 continue
-            log.info("Routing parse_file for s3://%s/%s", S3_BUCKET, key)
+            if not (lower.endswith(".jsonl") or lower.endswith(".ndjson")):
+                continue
+            log.info("cli_route", "Routing parse_file", key=key)
             manifest_key = key + ".manifest.json"
             try:
-                mf_obj = s3.get_object(Bucket=S3_BUCKET, Key=manifest_key)
-                manifest = json.load(mf_obj["Body"])
+                mf_obj = client.get_object(Bucket=AZURE_CONTAINER, Key=manifest_key)
+                # manifest body may be a BytesIO; attempt to load
+                try:
+                    body = mf_obj.get("Body")
+                    manifest = json.load(body) if hasattr(body, "read") else json.loads(mf_obj)
+                except Exception:
+                    manifest = {}
             except Exception:
                 manifest = {}
             try:
                 result = parse_file(key, manifest)
-                log.info("Result for %s: %s", key, result)
-            except Exception as e:
-                log.exception("Failed to parse %s: %s", key, e)
+                log.info("cli_result", "Result for file", key=key, result=result)
+            except Exception:
+                log.exception("cli_parse_failed", "Failed to parse", key=key)
+

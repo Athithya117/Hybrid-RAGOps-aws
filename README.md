@@ -1,15 +1,3 @@
-
-
-
-
-
-
-
-
-
-
-
-
 # Get started
 
 ## Prerequesities

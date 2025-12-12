@@ -1,0 +1,3 @@
+name: pulumi-infra-rag
+runtime: python
+description: Single-file Pulumi program to provision Azure infra for RAG (AKS + storage + keyvault + identities)

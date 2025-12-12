@@ -4,5 +4,6 @@ httpx==0.28.1
 jinja2==3.1.6
 prometheus_client==0.23.1
 python-multipart==0.0.20
-authlib==1.6.5
 PyJWT==2.8.0
+itsdangerous==2.2.0
+authlib==1.6.5

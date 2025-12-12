@@ -1,8 +1,0 @@
-{
-  "file_hash": "43ffde0fabac5c6262468d1d97566e64dfdcaf9d5512ec28c4853420af8f93b7",
-  "mime_type": "audio/x-wav",
-  "parser_version": "2.42.1",
-  "pipeline_run_id": "950dfea2-0a1d-4731-b9c1-87e555166978",
-  "s3_key": "data/raw/audio/random_news.mp3.wav",
-  "timestamp": "2025-12-05T11:21:15.685057Z"
-}

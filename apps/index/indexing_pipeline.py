@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Tuple
 DEFAULT_WORKDIR = "/indexing_pipeline"
 ROUTER = "parse_chunk/router.py"
 INDEX = "index.py"
-PRE_CONVERSIONS = "pre_conversions.sh"
+PRE_CONVERSIONS = "pre_conversions.py"
 
 # ----- Logging setup -----
 class ColoredFormatter(logging.Formatter):
@@ -88,7 +88,6 @@ def run_cmd(cmd: List[str], cwd: str = ".", env: dict = None, timeout: int = Non
         return 1, "", f"Exception while running {cmd}: {e}"
 
 def connect_or_start_local():
-    # stub for Ray / distributed modes; here we run local
     logger.info("Running pipeline in local mode (no Ray).")
 
 def run_local_and_stream(script_path: Path, workdir: str, timeout: Optional[int] = None) -> int:
@@ -117,7 +116,6 @@ def run_local_and_stream(script_path: Path, workdir: str, timeout: Optional[int]
                 if not line:
                     break
                 collect.append(line)
-                # prefix with script name so logs show origin
                 logger.info("[%s] %s", prefix, line.rstrip())
         except Exception:
             pass
@@ -147,19 +145,20 @@ def run_pre_conversions(workdir: str) -> None:
         logger.info("No pre_conversions script found at %s, skipping.", script)
         return
     try:
-        # ensure exec bit
-        try:
-            mode = script.stat().st_mode
-            script.chmod(mode | 0o111)
-        except Exception:
-            pass
         timeout_env = os.getenv("PRE_CONVERSIONS_TIMEOUT", "")
         try:
             timeout = int(timeout_env) if timeout_env else None
         except Exception:
             timeout = None
-        logger.info("Running pre_conversions: %s (timeout=%s)", script, timeout)
-        rc, out, err = run_cmd(["bash", "-e", str(script)], cwd=str(workdir_path), timeout=timeout)
+        logger.info("Running pre_conversions (python): %s (timeout=%s)", script, timeout)
+        # ensure readable
+        if not os.access(str(script), os.R_OK):
+            logger.debug("Making pre_conversions.py readable")
+            try:
+                script.chmod(script.stat().st_mode | 0o444)
+            except Exception:
+                pass
+        rc, out, err = run_cmd([sys.executable, str(script)], cwd=str(workdir_path), timeout=timeout)
         if out:
             for line in out.splitlines():
                 logger.info("[pre_conversions] %s", line)
@@ -178,18 +177,12 @@ def run_pre_conversions(workdir: str) -> None:
 
 def run_pipeline(workdir: str):
     try:
-        # attempt raising file descriptors early
         try_raise_nofile()
-
         workdir = str(Path(workdir).resolve())
         if not Path(workdir).exists():
             log_and_exit(f"Workdir not found: {workdir}", 2)
-
         logger.info("Pipeline start order: 1) pre_conversions 2) router 3) index")
-        # 1) pre conversions
         run_pre_conversions(workdir)
-
-        # 2) router: chunking & preprocessing
         connect_or_start_local()
         router_path = Path(workdir) / ROUTER
         if not router_path.exists():
@@ -200,8 +193,6 @@ def run_pipeline(workdir: str):
             logger.error("Router failed (rc=%s).", rc)
             log_and_exit(f"Router failed rc={rc}", rc)
         logger.info("Router completed successfully.")
-
-        # 3) index: embeddings + upsert
         index_path = Path(workdir) / INDEX
         if not index_path.exists():
             logger.error("Index missing: %s", index_path)
@@ -210,7 +201,6 @@ def run_pipeline(workdir: str):
         if rc != 0:
             logger.error("Index failed (rc=%s).", rc)
             log_and_exit(f"Index failed rc={rc}", rc)
-
         logger.info("Index completed successfully.")
         logger.info("Pipeline completed successfully.")
     except SystemExit:
@@ -223,7 +213,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--workdir", default=os.getenv("WORKDIR", DEFAULT_WORKDIR))
     args = parser.parse_args()
-    # graceful shutdown handlers
     def _handler(sig, frame):
         logger.info("Signal %s received, exiting.", sig)
         try:
@@ -233,7 +222,6 @@ def main():
         sys.exit(1)
     signal.signal(signal.SIGINT, _handler)
     signal.signal(signal.SIGTERM, _handler)
-
     try:
         run_pipeline(args.workdir)
     except SystemExit as e:

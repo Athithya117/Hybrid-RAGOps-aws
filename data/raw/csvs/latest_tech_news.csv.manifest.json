@@ -1,8 +1,0 @@
-{
-  "file_hash": "f534df29e023adaf4e28f56d59e64630548775ec4d74327d51297adca4c4dce3",
-  "mime_type": "text/csv",
-  "parser_version": "2.42.1",
-  "pipeline_run_id": "950dfea2-0a1d-4731-b9c1-87e555166978",
-  "s3_key": "data/raw/csvs/latest_tech_news.csv",
-  "timestamp": "2025-12-05T11:21:17.047544Z"
-}

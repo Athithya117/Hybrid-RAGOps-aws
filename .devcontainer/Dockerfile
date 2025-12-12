@@ -35,6 +35,49 @@ WORKDIR /workspace
 # ===================================================================
 # Note: This ensures that every time the container is rebuilt,
 # buildx + qemu emulation are preconfigured for multi-arch builds.
-RUN docker buildx create --name multiarch-builder --use || true \
-    && docker run --rm --privileged multiarch/qemu-user-static --reset -p yes \
-    && docker buildx inspect --bootstrap || true
+
+RUN set -euo pipefail && \
+    echo ">>> Installing Azure CLI (Deb)" && \
+    curl -sL https://aka.ms/InstallAzureCLIDeb | bash && \
+    echo ">>> Azure CLI Installed:" && az version && \
+    \
+    echo ">>> Upgrading Azure CLI" && \
+    az upgrade --yes --all || true && \
+    \
+    echo ">>> Removing all extensions" && \
+    for ext in $(az extension list -o tsv --query '[].name' 2>/dev/null || true); do \
+        az extension remove -n "$ext" || true; \
+    done && \
+    \
+    echo ">>> Clearing ~/.azure caches" && \
+    rm -rf ~/.azure/config ~/.azure/commands ~/.azure/cache ~/.azure/*.json ~/.azure/az* 2>/dev/null || true && \
+    \
+    echo ">>> Disabling autoupdates and dynamic extension installs" && \
+    az config set auto_update.disable=true && \
+    az config set extension.use_dynamic_install=no && \
+    \
+    echo ">>> Installing storage-preview extension" && \
+    az extension add -n storage-preview --version 1.0.0b7 --yes || true && \
+    \
+    echo ">>> Pinning safe API version" && \
+    echo 'export AZURE_STORAGE_API_VERSION="2025-04-01"' >> /etc/profile.d/azure-api-version.sh && \
+    \
+    echo ">>> Final CLI State:" && \
+    az version && \
+    az extension list -o table && \
+    echo ">>> Azure CLI stable provisioning COMPLETE"
+
+RUN sudo bash -c 'cat <<EOF >/etc/sysctl.d/99-rag-inotify.conf
+fs.inotify.max_user_watches=1048576
+fs.inotify.max_user_instances=4096
+fs.file-max=2097152
+EOF' && sudo bash -c 'cat <<EOF >/etc/sysctl.d/99-rag-inotify.conf
+fs.inotify.max_user_watches=1048576
+fs.inotify.max_user_instances=4096
+fs.file-max=2097152
+EOF' && sudo sysctl --system
+
+
+
+
+

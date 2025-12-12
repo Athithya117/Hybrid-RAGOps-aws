@@ -1,208 +1,701 @@
 #!/usr/bin/env python3
-"""
-Safe, resilient router for parse_chunk formats.
-
-- Ensures import paths so both `indexing_pipeline.parse_chunk.formats.X` and
-  `parse_chunk.formats.X` resolve when running from different cwd.
-- Tries package import first, then falls back to loading the formats/*.py file
-  directly from known locations.
-- Keeps existing router behavior (S3 listing, hashing, dedupe, manifest write).
-"""
 from __future__ import annotations
 import os
 import sys
 import time
 import json
 import uuid
-import boto3
 import hashlib
 import importlib
 import importlib.util
 import mimetypes
-import logging
 import urllib.parse
+import logging
+import io
 from datetime import datetime
-from botocore.exceptions import ClientError
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Tuple, Dict, Any
 
-# ---------- ensure import paths so package imports resolve --------------------
-def ensure_import_paths():
-    """
-    Make sure `parse_chunk` and `indexing_pipeline.parse_chunk` packages are
-    importable regardless of where router is executed from.
-    """
-    here = Path(__file__).resolve()                  # .../apps/index/parse_chunk/router.py
-    pkg_dir = here.parent                             # .../apps/index/parse_chunk
-    app_dir = pkg_dir.parent                          # .../apps/index
-    repo_root = app_dir.parent                        # .../workspace (optional)
-    # Insert pkg_dir first so local package imports win, then app_dir, then repo_root
-    candidates = [str(pkg_dir), str(app_dir), str(repo_root)]
-    for p in reversed(candidates):
-        if p and p not in sys.path:
-            sys.path.insert(0, p)
-
-ensure_import_paths()
-
-# -------------------- logging setup -----------------------------------------
+# filesystem (may be optional depending on mode)
 try:
-    import colorama
-    colorama.init()
+    import fsspec
+    from fsspec.spec import AbstractFileSystem  # type: ignore
 except Exception:
-    pass
+    fsspec = None
+    AbstractFileSystem = object  # type: ignore
 
-RESET = "\033[0m"
-COLORS = {
-    logging.DEBUG: "\033[90m",
-    logging.INFO: "\033[97m",
-    logging.WARNING: "\033[33m",
-    logging.ERROR: "\033[31m",
-    logging.CRITICAL: "\033[1;41m"
-}
+# --- logging setup: silence noisy third-party loggers ---
+_root = logging.getLogger()
+_root.setLevel(logging.WARNING)
+_noisy = (
+    "adlfs",
+    "azure",
+    "azure.storage",
+    "azure.core",
+    "azure.identity",
+    "urllib3",
+    "botocore",
+    "requests",
+    "httpx",
+)
+for n in _noisy:
+    lg = logging.getLogger(n)
+    lg.setLevel(logging.WARNING)
+    lg.propagate = False
 
-class ColorFormatter(logging.Formatter):
-    def format(self, record):
-        color = COLORS.get(record.levelno, RESET)
-        message = super().format(record)
-        return f"{color}{message}{RESET}"
 
-logger = logging.getLogger("router")
-logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
-handler = logging.StreamHandler(sys.stdout)
-fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-handler.setFormatter(ColorFormatter(fmt._fmt))
-logger.handlers[:] = [handler]
+def ts_now() -> str:
+    return datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
 
-def env_or_fail(var, default=None, mandatory=True):
-    val = os.environ.get(var, default)
-    if mandatory and val is None:
-        print(f"ERROR: Required env var '{var}' not set.", file=sys.stderr)
-        sys.exit(1)
-    return val
 
-# -------------------- config/env --------------------------------------------
-S3_BUCKET = env_or_fail("S3_BUCKET")
-S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "data/raw/").rstrip("/") + "/"
-S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/").rstrip("/") + "/"
-CHUNK_FORMAT = os.getenv("CHUNK_FORMAT", "json").lower()
-FORCE_PROCESS = os.getenv("FORCE_PROCESS", "false").lower() == "true"
+CONTAINER = (
+    os.getenv("AZURE_CONTAINER")
+    or os.getenv("STORAGE_CONTAINER")
+    or os.getenv("AZ_CONTAINER")
+)
+if not CONTAINER:
+    print(
+        json.dumps(
+            {
+                "ts": ts_now(),
+                "level": "error",
+                "event": "startup",
+                "msg": "AZURE_CONTAINER (or STORAGE_CONTAINER or AZ_CONTAINER) must be set",
+            }
+        ),
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
-assert CHUNK_FORMAT in ("json", "jsonl"), f"Invalid CHUNK_FORMAT '{CHUNK_FORMAT}'"
+RAW_PREFIX = (
+    (os.getenv("STORAGE_RAW_PREFIX") or os.getenv("S3_RAW_PREFIX") or "data/raw/")
+    .rstrip("/")
+    + "/"
+)
+CHUNKED_PREFIX = (
+    (os.getenv("STORAGE_CHUNKED_PREFIX") or os.getenv("S3_CHUNKED_PREFIX") or "data/chunked/")
+    .rstrip("/")
+    + "/"
+)
 
-s3 = boto3.client("s3")
 
-# -------------------- helpers & core ---------------------------------------
-def log(*args, level="INFO", **kwargs):
-    msg = " ".join(str(a) for a in args)
-    lvl = level.upper()
-    if lvl == "WARN":
-        lvl = "WARNING"
-    levelno = getattr(logging, lvl, logging.INFO)
-    logger.log(levelno, msg, **kwargs)
+def log(level: str, event: str, msg: str, **extra) -> None:
+    o = {
+        "ts": ts_now(),
+        "level": level,
+        "event": event,
+        "msg": msg,
+        "container": CONTAINER,
+    }
+    if extra:
+        o.update(extra)
+    print(json.dumps(o, ensure_ascii=False), flush=True)
 
-def _is_not_found_client_error(e: ClientError) -> bool:
+
+# ------------------- Deterministic auth switch -------------------
+# Use AZURE_USE_MANAGED_IDENTITY exclusively (true/false)
+USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower() in ("1", "true", "yes")
+
+# ------------------- Azure SDK detection helpers -------------------
+def azure_storage_sdk_available() -> bool:
     try:
-        code = e.response.get("Error", {}).get("Code", "")
-        status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-        if code in ("404", "NoSuchKey", "NotFound") or status == 404:
-            return True
+        import azure.storage.blob  # noqa: F401
+        return True
     except Exception:
-        pass
-    return False
+        return False
 
-def retry(func, retries=3, delay=2, backoff=2):
+
+# Helper to build fsspec options (same as before)
+def build_storage_options() -> Dict[str, Any]:
+    opts: Dict[str, Any] = {}
+    conn = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+    if conn:
+        opts["connection_string"] = conn
+        return opts
+    acct = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.environ.get("AZURE_ACCOUNT_NAME")
+    key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY") or os.environ.get("AZURE_ACCOUNT_KEY")
+    sas = os.environ.get("AZURE_SAS_TOKEN")
+    eps = os.environ.get("AZURE_ENDPOINT_SUFFIX") or "core.windows.net"
+    if acct and key:
+        opts["account_name"] = acct
+        opts["account_key"] = key
+        opts["endpoint_suffix"] = eps
+        return opts
+    if acct and sas:
+        opts["account_name"] = acct
+        opts["sas_token"] = sas
+        opts["endpoint_suffix"] = eps
+        return opts
+    if os.environ.get("AZURE_ANON"):
+        if acct:
+            opts["account_name"] = acct
+        opts["anon"] = True
+        return opts
+    return opts
+
+
+STORAGE_URL = f"az://{CONTAINER.rstrip('/')}/"
+
+
+# Storage backend abstraction implementing the small surface used across this file
+class StorageBackend:
+    def __init__(self, container: str):
+        self.container = container
+        self.storage_url = f"az://{container.rstrip('/')}/"
+        self.fs: Optional[AbstractFileSystem] = None
+        self.blob_service = None
+        self.container_client = None
+
+        # Endpoint suffix
+        endpoint_suffix = os.environ.get("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
+
+        # MANAGED IDENTITY PATH
+        if USE_MANAGED_IDENTITY:
+            # require azure.identity + azure.storage.blob
+            try:
+                from azure.identity import DefaultAzureCredential  # type: ignore
+                from azure.storage.blob import BlobServiceClient  # type: ignore
+            except Exception as e:
+                log(
+                    "error",
+                    "azure_sdk_missing",
+                    "azure.identity + azure.storage.blob required for managed identity mode",
+                    error=str(e),
+                )
+                # Fail fast: MI selected -> cannot silently fallback
+                sys.exit(2)
+
+            account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.environ.get("AZURE_ACCOUNT_NAME")
+            if not account_name:
+                log(
+                    "error",
+                    "config",
+                    "AZURE_STORAGE_ACCOUNT_NAME required when AZURE_USE_MANAGED_IDENTITY=true",
+                )
+                sys.exit(2)
+            account_url = f"https://{account_name}.{endpoint_suffix}"
+            try:
+                cred = DefaultAzureCredential()
+                self.blob_service = BlobServiceClient(account_url=account_url, credential=cred)
+                self.container_client = self.blob_service.get_container_client(self.container)
+                log("info", "storage.init", "managed_identity_initialized", account=account_name)
+            except Exception as e:
+                # MI chosen but couldn't create client -> fail fast, with helpful guidance.
+                log(
+                    "error",
+                    "blobclient.managed.init.failed",
+                    "failed creating BlobServiceClient with managed identity. Are you running in an environment with Workload Identity / MSI available? If not, set AZURE_USE_MANAGED_IDENTITY=0 and provide AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_CONNECTION_STRING or AZURE_SAS_TOKEN.",
+                    error=str(e),
+                )
+                sys.exit(2)
+            return
+
+        # NON-MANAGED IDENTITY PATH: prefer azure.storage.blob if available
+        sdk_ok = azure_storage_sdk_available()
+        conn_str = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+        acct = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.environ.get("AZURE_ACCOUNT_NAME")
+        acct_key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY") or os.environ.get("AZURE_ACCOUNT_KEY")
+        sas = os.environ.get("AZURE_SAS_TOKEN")
+
+        if sdk_ok:
+            try:
+                from azure.storage.blob import BlobServiceClient  # type: ignore
+                # 1) connection string
+                if conn_str:
+                    try:
+                        self.blob_service = BlobServiceClient.from_connection_string(conn_str)  # type: ignore
+                        self.container_client = self.blob_service.get_container_client(self.container)
+                        log("info", "storage.init", "azure_sdk_connstr", method="connection_string")
+                        return
+                    except Exception as e:
+                        log("warn", "connstr.failed", "from_connection_string failed", error=str(e))
+                # 2) account key
+                if acct and acct_key:
+                    try:
+                        account_url = f"https://{acct}.{endpoint_suffix}"
+                        self.blob_service = BlobServiceClient(account_url=account_url, credential=acct_key)  # type: ignore
+                        self.container_client = self.blob_service.get_container_client(self.container)
+                        log("info", "storage.init", "azure_sdk_account_key", account=acct)
+                        return
+                    except Exception as e:
+                        log("warn", "account_key.failed", "BlobServiceClient(account_key) failed", error=str(e))
+                # 3) SAS token
+                if acct and sas:
+                    try:
+                        token = sas if sas.startswith("?") else ("?" + sas)
+                        account_url = f"https://{acct}.{endpoint_suffix}{token}"
+                        self.blob_service = BlobServiceClient(account_url=account_url)  # type: ignore
+                        self.container_client = self.blob_service.get_container_client(self.container)
+                        log("info", "storage.init", "azure_sdk_sas", account=acct)
+                        return
+                    except Exception as e:
+                        log("warn", "sas.failed", "BlobServiceClient(sas) failed", error=str(e))
+                # If azure SDK present but none of above succeeded -> fall through to fsspec fallback (if available)
+                log("info", "storage.init", "azure_sdk_present_but_no_valid_credentials", account=acct is not None)
+            except Exception as e:
+                log("warn", "azure_sdk_import.failed", "import azure.storage.blob failed after availability check", error=str(e))
+
+        # fsspec/adlfs fallback – requires fsspec installed (and adlfs plugin)
+        opts = build_storage_options()
+        if not opts:
+            # no mechanism to authenticate in non-MI mode
+            log(
+                "error",
+                "no_credentials",
+                "non-managed-identity mode requires AZURE_STORAGE_CONNECTION_STRING or (AZURE_STORAGE_ACCOUNT_NAME + AZURE_STORAGE_ACCOUNT_KEY) or (AZURE_STORAGE_ACCOUNT_NAME + AZURE_SAS_TOKEN) or AZURE_ANON",
+            )
+            sys.exit(2)
+
+        if fsspec is None:
+            log(
+                "error",
+                "fsspec_missing",
+                "fsspec (and adlfs) required for key/SAS mode fallback (pip install fsspec adlfs)",
+            )
+            sys.exit(2)
+
+        try:
+            self.fs = fsspec.filesystem("az", **opts)  # type: ignore
+            log("info", "storage.init", "fsspec_initialized", opts_summary=list(opts.keys()))
+        except Exception as e:
+            log("error", "fsspec_init_failed", "failed to init fsspec az", error=str(e))
+            sys.exit(2)
+
+    # helpers to convert paths
+    def _strip_az_prefix(self, full: str) -> str:
+        # given az://container/... or container/... or ... -> return blob name
+        if full.startswith("az://"):
+            rest = full[len("az://") :]
+            if rest.startswith(self.container + "/"):
+                return rest[len(self.container) + 1 :]
+            if rest == self.container:
+                return ""
+            return rest
+        if full.startswith(self.container + "/"):
+            return full[len(self.container) + 1 :]
+        return full
+
+    def find(self, root_path: str) -> List[str]:
+        # root_path is like STORAGE_URL + base
+        if self.fs is not None:
+            try:
+                return self.fs.find(root_path)  # type: ignore
+            except Exception:
+                try:
+                    return self.fs.glob(root_path + "**", recursive=True)  # type: ignore
+                except Exception:
+                    return []
+        else:
+            # blob listing
+            prefix = self._strip_az_prefix(root_path)
+            prefix = prefix.lstrip("/")
+            out: List[str] = []
+            try:
+                for b in self.container_client.list_blobs(name_starts_with=prefix):
+                    out.append(f"az://{self.container}/{b.name}")
+            except Exception as e:
+                log("warn", "list_blobs_failed", "list_blobs error", error=str(e))
+                return []
+            return out
+
+    def glob(self, pattern: str) -> List[str]:
+        if self.fs is not None:
+            try:
+                return self.fs.glob(pattern, recursive=True)  # type: ignore
+            except Exception:
+                return []
+        else:
+            prefix = self._strip_az_prefix(pattern)
+            prefix = prefix.lstrip("/")
+            out: List[str] = []
+            try:
+                for b in self.container_client.list_blobs(name_starts_with=prefix):
+                    out.append(f"az://{self.container}/{b.name}")
+            except Exception as e:
+                log("warn", "glob_failed", "list_blobs error", error=str(e))
+                return []
+            return out
+
+    def info(self, full_path: str) -> Dict[str, Any]:
+        if self.fs is not None:
+            try:
+                return self.fs.info(full_path)  # type: ignore
+            except Exception:
+                raise
+        else:
+            name = self._strip_az_prefix(full_path).lstrip("/")
+            blob_client = self.container_client.get_blob_client(name)
+            props = blob_client.get_blob_properties()
+            meta = getattr(props, "metadata", {}) or {}
+            # return keys similar to fsspec info
+            info_obj: Dict[str, Any] = {
+                "size": int(getattr(props, "size", 0) or 0),
+                "etag": getattr(props, "etag", "") or "",
+                "ETag": getattr(props, "etag", "") or "",
+                "eTag": getattr(props, "etag", "") or "",
+                "Content-Type": (getattr(props, "content_settings", None).content_type if getattr(props, "content_settings", None) else getattr(props, "content_type", "")) or "",
+                "content-type": (getattr(props, "content_settings", None).content_type if getattr(props, "content_settings", None) else getattr(props, "content_type", "")) or "",
+                "content_type": (getattr(props, "content_settings", None).content_type if getattr(props, "content_settings", None) else getattr(props, "content_type", "")) or "",
+                "last_modified": getattr(props, "last_modified", ""),
+                "Last-Modified": getattr(props, "last_modified", ""),
+                "metadata": meta,
+                "meta": meta,
+                "type": "file",
+            }
+            return info_obj
+
+    def exists(self, full_path: str) -> bool:
+        if self.fs is not None:
+            try:
+                return self.fs.exists(full_path)  # type: ignore
+            except Exception:
+                return False
+        else:
+            name = self._strip_az_prefix(full_path).lstrip("/")
+            blob_client = self.container_client.get_blob_client(name)
+            try:
+                return blob_client.exists()
+            except Exception:
+                return False
+
+    def makedirs(self, path: str, exist_ok: bool = True) -> None:
+        # blob storage doesn't need directories - noop
+        if self.fs is not None:
+            try:
+                if hasattr(self.fs, "makedirs"):
+                    self.fs.makedirs(path, exist_ok=exist_ok)  # type: ignore
+            except Exception:
+                pass
+
+    def open(self, full_path: str, mode: str = "rb"):
+        if self.fs is not None:
+            return self.fs.open(full_path, mode)  # type: ignore
+        else:
+            name = self._strip_az_prefix(full_path).lstrip("/")
+            blob_client = self.container_client.get_blob_client(name)
+            if "r" in mode:
+                stream = blob_client.download_blob()
+                data = stream.readall()
+                return io.BytesIO(data)
+            # write modes: provide a context manager that uploads on close
+            class _BlobWriter(io.BytesIO):
+                def __init__(self, bc):
+                    super().__init__()
+                    self._bc = bc
+
+                def close(self):
+                    try:
+                        self.seek(0)
+                        data = self.read()
+                        # upload_blob expects bytes
+                        self._bc.upload_blob(data, overwrite=True)
+                    except Exception as e:
+                        log("warn", "upload_failed", "blob upload failed in writer.close", error=str(e))
+                    super().close()
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, exc_type, exc, tb):
+                    self.close()
+                    return False
+
+            return _BlobWriter(blob_client)
+
+    def rm(self, full_path: str) -> None:
+        if self.fs is not None:
+            try:
+                self.fs.rm(full_path)  # type: ignore
+            except Exception:
+                try:
+                    self.fs.delete(full_path)  # type: ignore
+                except Exception:
+                    pass
+        else:
+            name = self._strip_az_prefix(full_path).lstrip("/")
+            blob_client = self.container_client.get_blob_client(name)
+            try:
+                blob_client.delete_blob()
+            except Exception:
+                pass
+
+    def delete(self, full_path: str) -> None:
+        # alias
+        self.rm(full_path)
+
+
+# instantiate backend
+storage = StorageBackend(CONTAINER)
+
+
+# ------------------- original functions (adapted to storage backend) -------------------
+
+def full_path_from_key(key: str) -> str:
+    return STORAGE_URL + key.lstrip("/")
+
+
+def strip_root_from_path(full: str) -> str:
+    if full.startswith(STORAGE_URL):
+        return full[len(STORAGE_URL) :]
+    proto_prefix = "az://"
+    if full.startswith(proto_prefix):
+        rest = full[len(proto_prefix) :]
+        if rest.startswith(CONTAINER + "/"):
+            return rest[len(CONTAINER) + 1 :]
+        if rest == CONTAINER:
+            return ""
+    if full.startswith(CONTAINER + "/"):
+        return full[len(CONTAINER) + 1 :]
+    return full
+
+
+def retry(func, retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
     for attempt in range(retries):
         try:
             return func()
-        except ClientError as e:
-            if _is_not_found_client_error(e):
-                raise
-            if attempt == retries - 1:
-                raise
-            log(f"Retry {attempt + 1}/{retries} after error: {e}", level="WARN")
-            time.sleep(delay)
-            delay *= backoff
         except Exception as e:
             if attempt == retries - 1:
                 raise
-            log(f"Retry {attempt + 1}/{retries} after error: {e}", level="WARN")
+            log("warn", "retry", f"attempt={attempt+1} error={str(e)}")
             time.sleep(delay)
             delay *= backoff
 
-def list_raw_files():
-    paginator = s3.get_paginator("list_objects_v2")
-    pages = paginator.paginate(Bucket=S3_BUCKET, Prefix=S3_RAW_PREFIX)
-    for page in pages:
-        for obj in page.get("Contents", []):
-            key = obj["Key"]
-            if key.endswith("/"):
-                continue
-            if key.lower().endswith(".manifest.json"):
-                continue
-            yield key
 
-def file_sha256(s3_key):
-    h = hashlib.sha256()
-    obj = retry(lambda: s3.get_object(Bucket=S3_BUCKET, Key=s3_key))
-    stream = obj["Body"]
-    for chunk in iter(lambda: stream.read(8192), b""):
-        if not chunk:
-            break
-        h.update(chunk)
+def list_raw_files() -> List[str]:
+    base = RAW_PREFIX
+    root_path = STORAGE_URL + base
+    out: List[str] = []
+    try:
+        found = storage.find(root_path)
+    except Exception:
+        try:
+            found = storage.glob(root_path + "**")
+        except Exception:
+            found = []
+    for full in found:
+        try:
+            info_obj = storage.info(full)
+        except Exception:
+            continue
+        if info_obj.get("type") == "directory":
+            continue
+        rel = strip_root_from_path(full)
+        if rel.endswith("/"):
+            continue
+        if rel.lower().endswith(".manifest.json"):
+            continue
+        out.append(rel)
+    return out
+
+
+def head_remote_metadata(full_remote_path: str) -> Dict[str, str]:
+    try:
+        info_obj = storage.info(full_remote_path)
+        meta: Dict = {}
+        for k in ("metadata", "meta", "Metadata"):
+            if k in info_obj and isinstance(info_obj[k], dict):
+                meta = info_obj[k]
+                break
+        if not meta:
+            for k, v in info_obj.items():
+                if isinstance(v, dict) and any(x in k.lower() for x in ("meta", "metadata", "content")):
+                    meta = v
+                    break
+        return {k.lower(): v for k, v in (meta or {}).items()}
+    except Exception:
+        return {}
+
+
+def list_remote_objects(container: str, prefix: str) -> List[Tuple[str, str, int, str]]:
+    prefix_key = prefix.rstrip("/") + "/"
+    root = STORAGE_URL + prefix_key
+    out: List[Tuple[str, str, int, str]] = []
+    try:
+        found = storage.find(root)
+    except Exception:
+        try:
+            found = storage.glob(root + "**")
+        except Exception:
+            found = []
+    for full in found:
+        try:
+            info_obj = storage.info(full)
+        except Exception:
+            continue
+        if info_obj.get("type") == "directory":
+            continue
+        rel = strip_root_from_path(full)
+        size = int(info_obj.get("size", 0) or 0)
+        etag = ""
+        for k in ("etag", "ETag", "eTag"):
+            if k in info_obj:
+                etag = str(info_obj.get(k) or "")
+                break
+        out.append((full, rel, size, etag))
+    return out
+
+
+def upload_file_fs(local_path: str, full_remote_path: str, sha256: Optional[str], content_type: str = "application/octet-stream"):
+    with open(local_path, "rb") as lf:
+        data = lf.read()
+    # ensure directory/parent exists when using implementations that require it
+    parent = str(Path(full_remote_path).parent)
+    try:
+        storage.makedirs(parent, exist_ok=True)
+    except Exception:
+        pass
+    # use storage.open for write
+    try:
+        with storage.open(full_remote_path, "wb") as f:
+            if hasattr(f, "write"):
+                f.write(data)
+            else:
+                # fallback — write via blob client possibly returned a BytesIO-like
+                try:
+                    f.write(data)
+                except Exception:
+                    pass
+    except Exception as e:
+        raise
+
+
+def download_file_fs(full_remote_path: str, local_target: str):
+    target = Path(local_target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with storage.open(full_remote_path, "rb") as f:
+        data = f.read()
+    target.write_bytes(data)
+    return {"rel_path": full_remote_path}
+
+
+def delete_remote_file_fs(full_remote_path: str):
+    try:
+        storage.rm(full_remote_path)
+    except Exception:
+        try:
+            storage.delete(full_remote_path)
+        except Exception:
+            pass
+    return full_remote_path
+
+
+def list_local_files(base_dir: str) -> List[Tuple[str, str]]:
+    base = Path(base_dir)
+    if not base.exists():
+        return []
+    out: List[Tuple[str, str]] = []
+    for p in base.rglob("*"):
+        if p.is_file():
+            try:
+                rel = p.relative_to(base).as_posix()
+            except Exception:
+                rel = p.name
+            out.append((str(p.resolve()), rel))
+    return out
+
+
+def compute_md5(path: str, chunk_size: int = 8 * 1024 * 1024) -> str:
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            h.update(chunk)
     return h.hexdigest()
 
-def manifest_path(s3_key, file_hash=None):
+
+def compute_sha256(path: str, chunk_size: int = 8 * 1024 * 1024) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def file_sha256(s3_key: str) -> str:
+    full = full_path_from_key(s3_key)
+
+    def _read():
+        h = hashlib.sha256()
+        with storage.open(full, "rb") as stream:
+            for chunk in iter(lambda: stream.read(8192), b""):
+                if not chunk:
+                    break
+                h.update(chunk)
+        return h.hexdigest()
+
+    return retry(_read)
+
+
+def manifest_path(s3_key: str, file_hash: Optional[str] = None) -> str:
     return f"{s3_key}.manifest.json"
 
-def is_already_processed(file_hash):
-    if FORCE_PROCESS:
+
+def is_already_processed(file_hash: str) -> bool:
+    if os.getenv("FORCE_PROCESS", "false").lower() == "true":
         return False
-    base_prefix = S3_CHUNKED_PREFIX.rstrip("/") + "/"
+    base_prefix = CHUNKED_PREFIX
     search_prefix = f"{base_prefix}{file_hash}_"
+    glob_pattern = STORAGE_URL + search_prefix + "*"
     try:
-        paginator = s3.get_paginator("list_objects_v2")
-        pages = paginator.paginate(Bucket=S3_BUCKET, Prefix=search_prefix, PaginationConfig={"MaxItems": 1})
-        for page in pages:
-            if page.get("Contents"):
-                return True
-    except ClientError as e:
-        log(f"S3 list_objects_v2 error while checking {search_prefix}: {e}", level="WARN")
+        matches = storage.glob(glob_pattern)
+    except Exception:
+        matches = []
+    if matches:
+        return True
     for ext in ("json", "jsonl"):
         test_key = f"{base_prefix}{file_hash}_1.{ext}"
+        full = full_path_from_key(test_key)
         try:
-            s3.head_object(Bucket=S3_BUCKET, Key=test_key)
-            return True
-        except ClientError as e:
-            if _is_not_found_client_error(e):
-                continue
-            raise
+            if storage.exists(full):
+                return True
+        except Exception:
+            pass
     return False
 
-def save_manifest(s3_key, manifest):
+
+def save_manifest(s3_key: str, manifest: dict) -> bool:
     key = manifest_path(s3_key, manifest.get("file_hash"))
+    full = full_path_from_key(key)
     try:
-        retry(lambda: s3.put_object(
-            Bucket=S3_BUCKET,
-            Key=key,
-            Body=json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8"),
-            ContentType="application/json"
-        ))
-        log(f"Saved manifest to s3://{S3_BUCKET}/{key}")
+        parent = str(Path(full).parent)
+        try:
+            storage.makedirs(parent, exist_ok=True)
+        except Exception:
+            pass
+        with storage.open(full, "wb") as f:
+            if hasattr(f, "write"):
+                f.write(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8"))
+            else:
+                # attempt to write via fallback
+                try:
+                    f.write(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8"))
+                except Exception:
+                    pass
+        log("info", "saved_manifest", "manifest_written", key=full)
         return True
     except Exception as e:
-        log(f"Failed to save manifest: {e}", level="ERROR")
+        log("error", "save_manifest_failed", str(e), key=full)
         return False
 
-# -------------------- format module lookup & loading ------------------------
+
 def get_format_module(ext: str) -> Optional[str]:
-    return {
+    mapping = {
         "pdf": "pdf",
-        "pptx": "pptx",
+        "pptx": "_pptx",
+        "ppt": "_pptx",
         "html": "_html",
+        "htm": "_html",
         "md": "md",
         "markdown": "md",
+        "mdown": "md",
         "txt": "txt",
         "wav": "wav",
+        "mp3": "wav",
         "jpg": "images",
         "jpeg": "images",
         "png": "images",
@@ -213,14 +706,17 @@ def get_format_module(ext: str) -> Optional[str]:
         "bmp": "images",
         "csv": "_csv",
         "jsonl": "jsonl",
-        "ndjson": "jsonl"
-    }.get(ext.lower())
+        "ndjson": "jsonl",
+    }
+    return mapping.get(ext.lower())
 
-def detect_mime(key):
+
+def detect_mime(key: str) -> str:
     mime, _ = mimetypes.guess_type(key)
     return mime or "application/octet-stream"
 
-def detect_ext_from_key(s3_client, bucket, key):
+
+def detect_ext_from_key(some_fs, bucket: str, key: str) -> str:
     k = urllib.parse.unquote(key.split("?", 1)[0].split("#", 1)[0])
     base, ext = os.path.splitext(k)
     ext = ext.lstrip(".").lower()
@@ -228,10 +724,16 @@ def detect_ext_from_key(s3_client, bucket, key):
         ext = "md"
     if ext:
         return ext
+
+    # No extension on filename; inspect metadata / content-type
     try:
-        head = s3_client.head_object(Bucket=bucket, Key=key)
-        ctype = (head.get("ContentType") or "").lower()
-        metadata = head.get("Metadata") or {}
+        full = full_path_from_key(key)
+        head = storage.info(full)
+        ctype = (
+            (head.get("Content-Type") or head.get("content-type") or head.get("content_type") or "")
+            .lower()
+        )
+        metadata = head.get("metadata") or head.get("meta") or head.get("Metadata") or {}
         meta_fn = metadata.get("filename") or metadata.get("originalname") or ""
         if meta_fn:
             _, mext = os.path.splitext(meta_fn)
@@ -242,16 +744,28 @@ def detect_ext_from_key(s3_client, bucket, key):
                 return mext
         if "markdown" in ctype or "text/markdown" in ctype:
             return "md"
+        if "text/html" in ctype:
+            return "html"
         if ctype.startswith("text/"):
             return "txt"
+        if "application/pdf" in ctype:
+            return "pdf"
+        if "presentation" in ctype or "powerpoint" in ctype or "officedocument.presentationml" in ctype:
+            return "pptx"
+        if "wordprocessingml" in ctype or "officedocument.wordprocessingml" in ctype:
+            return "docx"
+        if "officedocument.spreadsheetml" in ctype or "excel" in ctype:
+            return "xlsx"
+        if ctype.startswith("image/"):
+            return "jpg"
+        if ctype.startswith("audio/"):
+            return "wav"
     except Exception:
         pass
     return ""
 
+
 def load_module_from_path(module_name: str, path: Path):
-    """
-    Load a module from a file path and return the module object.
-    """
     loader_name = f"local_formats_{module_name}"
     spec = importlib.util.spec_from_file_location(loader_name, str(path))
     if spec and spec.loader:
@@ -260,20 +774,16 @@ def load_module_from_path(module_name: str, path: Path):
         return mod
     raise ImportError(f"Cannot load module {module_name} from {path}")
 
+
 def _import_format_module(module_name: str):
-    """
-    Try package imports first, then fallback to loading the module file directly
-    from known locations relative to this router/app directory.
-    """
-    tried = []
+    tried: List[str] = []
     for pkg in ("indexing_pipeline.parse_chunk.formats", "parse_chunk.formats"):
         fq = f"{pkg}.{module_name}"
         try:
             return importlib.import_module(fq)
-        except Exception as e:
+        except Exception:
             tried.append(fq)
-    # fallback: try file paths (apps/index relative locations)
-    workdir = Path(__file__).resolve().parent.parent   # .../apps/index
+    workdir = Path(__file__).resolve().parent.parent
     candidates = [
         workdir / "parse_chunk" / "formats" / f"{module_name}.py",
         workdir / "indexing_pipeline" / "parse_chunk" / "formats" / f"{module_name}.py",
@@ -287,67 +797,88 @@ def _import_format_module(module_name: str):
         if p.exists():
             try:
                 return load_module_from_path(module_name, p)
-            except Exception as e:
+            except Exception:
                 tried.append(str(p))
     raise ImportError(f"Failed to import module for format '{module_name}', tried: {', '.join(tried)}")
 
-# -------------------- main pipeline ----------------------------------------
-def main():
-    log("Router pipeline started")
+
+def main() -> None:
     run_id = os.getenv("RUN_ID") or str(uuid.uuid4())
     parser_version = os.getenv("PARSER_VERSION", "2.42.1")
-    keys = list(list_raw_files())
-    log(f"Found {len(keys)} files")
+
+    keys = list_raw_files()
+    log("info", "scan", "found_files", count=len(keys))
+
     for key in keys:
-        if key.lower().endswith(".manifest.json"):
-            log(f"Skipping manifest file {key}")
-            continue
-        ext = detect_ext_from_key(s3, S3_BUCKET, key)
-        module_name = get_format_module(ext)
-        if not module_name:
-            log(f"Skipping unsupported '{ext or 'unknown'}': {key}", level="WARN")
-            continue
         try:
-            mod = _import_format_module(module_name)
-            if not hasattr(mod, "parse_file"):
-                log(f"No parse_file() in {module_name}, skipping {key}", level="WARN")
+            if key.lower().endswith(".manifest.json"):
+                log("debug", "skip", "manifest", key=key)
                 continue
-        except Exception as e:
-            log(f"Import error in module {module_name}: {e}", level="ERROR")
-            continue
-        try:
-            file_hash = file_sha256(key)
-        except Exception as e:
-            log(f"Hash error for {key}: {e}", level="ERROR")
-            continue
-        if is_already_processed(file_hash):
-            log(f"Already processed {file_hash}, skipping")
-            continue
-        sd = os.getenv("SOURCE_DATE_EPOCH")
-        if sd:
+
+            ext = detect_ext_from_key(None, CONTAINER, key)
+            module_name = get_format_module(ext)
+            if not module_name:
+                log("warn", "skip_unsupported", "unsupported_ext", key=key, ext=ext)
+                continue
+
             try:
-                ts = datetime.utcfromtimestamp(int(sd)).isoformat() + "Z"
-            except Exception:
+                mod = _import_format_module(module_name)
+            except Exception as e:
+                log("error", "import_failed", str(e), module=module_name, key=key)
+                continue
+
+            if not hasattr(mod, "parse_file"):
+                log("warn", "skip_no_parse", "no_parse_file", module=module_name, key=key)
+                continue
+
+            try:
+                file_hash = file_sha256(key)
+            except Exception as e:
+                log("error", "hash_failed", str(e), key=key)
+                continue
+
+            if is_already_processed(file_hash):
+                log("info", "already_processed", "skipping", file_hash=file_hash, key=key)
+                continue
+
+            sd = os.getenv("SOURCE_DATE_EPOCH")
+            if sd:
+                try:
+                    ts = datetime.utcfromtimestamp(int(sd)).isoformat() + "Z"
+                except Exception:
+                    ts = datetime.utcnow().isoformat() + "Z"
+            else:
                 ts = datetime.utcnow().isoformat() + "Z"
-        else:
-            ts = datetime.utcnow().isoformat() + "Z"
-        manifest = {
-            "file_hash": file_hash,
-            "s3_key": key,
-            "pipeline_run_id": run_id,
-            "mime_type": detect_mime(key),
-            "timestamp": ts,
-            "parser_version": parser_version
-        }
-        try:
-            result = mod.parse_file(key, manifest)
-            if not isinstance(result, dict) or "saved_chunks" not in result:
-                raise ValueError("Invalid parse_file() return. Expected dict with 'saved_chunks'.")
-        except Exception as e:
-            log(f"Parse error for {key}: {e}", level="ERROR")
+
+            manifest = {
+                "file_hash": file_hash,
+                "s3_key": key,
+                "pipeline_run_id": run_id,
+                "mime_type": detect_mime(key),
+                "timestamp": ts,
+                "parser_version": parser_version,
+            }
+
+            try:
+                result = mod.parse_file(key, manifest)
+                if not isinstance(result, dict) or "saved_chunks" not in result:
+                    raise ValueError("Invalid parse_file() return. Expected dict with 'saved_chunks'.")
+            except Exception as e:
+                log("error", "parse_failed", str(e), key=key)
+                try:
+                    manifest.setdefault("error", str(e))
+                    save_manifest(key, manifest)
+                except Exception:
+                    pass
+                continue
+
+            count = int(result.get("saved_chunks", 0) or 0)
+            log("info", "parsed", "parsed_and_stored", key=key, saved_chunks=count)
+            save_manifest(key, manifest)
+        except Exception as exc_outer:
+            log("error", "loop_failure", str(exc_outer), key=key if "key" in locals() else None)
             continue
-        log(f"Parsed and stored {result['saved_chunks']} chunks for {key}")
-        save_manifest(key, manifest)
+
 
 if __name__ == "__main__":
     main()

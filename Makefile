@@ -36,6 +36,8 @@ docker-login:
 index-image:
 	bash apps/index/build_and_push_image.sh
 
+frontend-image:
+	bash apps/inference/frontend/test_and_push_frontend.sh
 
 init-reranker:
 	python3 infra/generators/gen_reranker.py --generate
@@ -53,3 +55,21 @@ pulumi-up:
 	bash infra/pulumi_aws/pulumi_setup.sh --create || true
 pulumi-destroy:
 	bash infra/pulumi_aws/pulumi_setup.sh --delete || true
+
+deploy-dense:
+	python3 infra/generators/dense.py --apply
+
+deploy-sparse:
+	python3 infra/generators/sparse.py --apply
+
+deploy-reranker:
+	python3 infra/generators/reranker.py --apply
+
+deploy-qdrant:
+	python3 infra/generators/qdrant_cluster.py --apply
+
+deploy-retriever:
+	python3 infra/generators/retriever.py --apply --confirm
+
+deploy-frontend:
+	python3 infra/generators/frontend_auth.py --apply --confirm

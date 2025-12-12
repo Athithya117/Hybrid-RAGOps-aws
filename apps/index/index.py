@@ -1,4 +1,16 @@
 #!/usr/bin/env python3
+"""
+Indexer (retrieve CSV/parquet chunk files from Azure blob storage, embed, upsert to Qdrant).
+
+Dual-mode storage auth (deterministic):
+ - AZURE_USE_MANAGED_IDENTITY=1 (or "true") -> Managed Identity (DefaultAzureCredential).
+   Optionally set AZURE_CLIENT_ID (or UAI_RAG_RW_CLIENT_ID) to select a user-assigned identity.
+ - AZURE_USE_MANAGED_IDENTITY=0 (or not set / "false") -> key / SAS / connection-string mode.
+
+This file intentionally uses AZURE_USE_MANAGED_IDENTITY as the single deterministic switch.
+"""
+
+from __future__ import annotations
 import os
 import json
 import hashlib
@@ -10,14 +22,16 @@ import re
 import traceback
 from typing import List, Dict, Any, Optional, Callable
 from datetime import datetime, timezone
+import random
+
 import numpy as np
 import httpx
+
+# Qdrant client imports
 from qdrant_client import QdrantClient
 from qdrant_client.models import SparseVector
-import random
-import functools
 
-# parquet
+# pyarrow required (fail fast)
 try:
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -25,7 +39,7 @@ except Exception as e:
     print("pyarrow required: pip install pyarrow", file=sys.stderr)
     raise SystemExit("pyarrow missing") from e
 
-# ---------- Logging ----------
+# ---------- Logging bootstrap ----------
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 _third_party_names = (
     "httpx", "httpcore", "urllib3", "qdrant_client",
@@ -50,30 +64,40 @@ _h.setFormatter(logging.Formatter("%(message)s"))
 logger.addHandler(_h)
 logger.propagate = False
 
-# ---------- Defaults (corrected) ----------
+# ---------- Env / configuration ----------
+# NOTE: Authentication mode MUST be controlled only by AZURE_USE_MANAGED_IDENTITY (deterministic).
+USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", "").strip().lower() in ("1", "true", "yes")
+# Backwards-friendly: also accept USE_MANAGED_IDENTITY (without AZURE_ prefix)
+if not USE_MANAGED_IDENTITY:
+    USE_MANAGED_IDENTITY = os.getenv("USE_MANAGED_IDENTITY", "").strip().lower() in ("1", "true", "yes")
 
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "default_rag_collection1")
-S3_BUCKET = os.getenv("S3_BUCKET", "e2e-rag-system-42")
-S3_CHUNKED_PREFIX = os.getenv("S3_CHUNKED_PREFIX", "data/chunked/")
 
-# prefer in-cluster DNS by default; will still be overridable via env when you run locally
-QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant.qdrant.svc.cluster.local:6333")
-DENSE_URL   = os.getenv("DENSE_URL",   "http://dense-svc.models.svc.cluster.local:8200")
-SPARSE_URL  = os.getenv("SPARSE_URL",  "http://sparse-svc.models.svc.cluster.local:8201")
+AZURE_STORAGE_ACCOUNT_NAME = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "")
+AZURE_STORAGE_ACCOUNT_KEY = os.getenv("AZURE_STORAGE_ACCOUNT_KEY", "")
+AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+AZURE_SAS_TOKEN = os.getenv("AZURE_SAS_TOKEN", "")
+AZURE_CONTAINER = os.getenv("AZURE_CONTAINER", "e2e-rag-system-42")
+AZURE_CHUNKED_PREFIX = os.getenv("AZURE_CHUNKED_PREFIX", "data/chunked/")
+AZURE_ENDPOINT_SUFFIX = os.getenv("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
+# Optional client id for user assigned identity
+AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID") or os.getenv("UAI_RAG_RW_CLIENT_ID") or None
+
+QDRANT_URL = os.getenv("QDRANT_URL", "http://0.0.0.0:6333")
+DENSE_URL   = os.getenv("DENSE_URL",   "http://0.0.0.0:8200")
+SPARSE_URL  = os.getenv("SPARSE_URL",  "http://0.0.0.0:8201")
 
 DENSE_DIM = int(os.getenv("DENSE_DIM", "384"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "16"))
 UPSERT_CHUNK = int(os.getenv("UPSERT_CHUNK", "500"))
 HTTP_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "10.0"))
 
-# embed-specific timeouts and retries
-DENSE_EMBED_TIMEOUT = float(os.getenv("DENSE_EMBED_TIMEOUT", str(max(HTTP_TIMEOUT, 30.0))))  # longer by default
+DENSE_EMBED_TIMEOUT = float(os.getenv("DENSE_EMBED_TIMEOUT", str(max(HTTP_TIMEOUT, 30.0))))
 SPARSE_EMBED_TIMEOUT = float(os.getenv("SPARSE_EMBED_TIMEOUT", str(max(HTTP_TIMEOUT, 30.0))))
 EMBED_RETRIES = int(os.getenv("EMBED_RETRIES", "3"))
 EMBED_BACKOFF_BASE = float(os.getenv("EMBED_BACKOFF_BASE", "1.0"))
 
-# generic network retry config (used for S3, Qdrant, general HTTP wrappers)
 NETWORK_RETRY_COUNT = int(os.getenv("NETWORK_RETRY_COUNT", "5"))
 NETWORK_RETRY_BACKOFF_BASE = float(os.getenv("NETWORK_RETRY_BACKOFF_BASE", "1.0"))
 NETWORK_RETRY_BACKOFF_MAX = float(os.getenv("NETWORK_RETRY_BACKOFF_MAX", "30.0"))
@@ -87,10 +111,11 @@ NORMALIZE_DENSE = True
 SHUTDOWN = False
 INFO_EVENTS = {"index.start", "batch.embedded", "index.prepared", "index.completed", "load.chunks", "collection.created", "collection.exists"}
 
-# Avoid proxy pitfalls interfering with localhost access
+# unset proxy envs to avoid azure/http proxy surprises inside cluster
 for p in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
     os.environ.pop(p, None)
 
+# ---------- helper functions ----------
 def iso_ts():
     return datetime.now(timezone.utc).isoformat()
 
@@ -137,13 +162,11 @@ def l2_normalize(v: List[float]) -> List[float]:
     if n > 0: a = a / n
     return a.astype(float).tolist()
 
-# ---------- retry utilities ----------
 class TransientHTTPError(Exception):
     pass
 
 def _sleep_with_jitter(base: float, cap: float, attempt: int) -> None:
     backoff = min(cap, base * (2 ** max(0, attempt - 1)))
-    # jitter between 0.5x and 1.0x of backoff
     jittered = backoff * (0.5 + random.random() * 0.5)
     time.sleep(jittered)
 
@@ -160,7 +183,6 @@ def retry_call(func: Callable, *args, retries: int = NETWORK_RETRY_COUNT, backof
                     should_retry = bool(retriable(e))
                 except Exception:
                     should_retry = False
-            # never retry if shutdown requested
             if SHUTDOWN:
                 raise
             if not should_retry or attempt > retries:
@@ -168,7 +190,7 @@ def retry_call(func: Callable, *args, retries: int = NETWORK_RETRY_COUNT, backof
             slog("warning", "transient.retry", error=str(e), attempt=attempt, max_retries=retries)
             _sleep_with_jitter(backoff_base, backoff_cap, attempt)
 
-# ---------- HTTP embed clients (with request retries) ----------
+# ---------- Dense / Sparse clients (unchanged) ----------
 class DenseClient:
     def __init__(self, url: str, timeout: float = HTTP_TIMEOUT, embed_timeout: float = DENSE_EMBED_TIMEOUT):
         self.url = url.rstrip("/")
@@ -180,13 +202,11 @@ class DenseClient:
         def call():
             try:
                 r = self.client.get(url, timeout=timeout or HTTP_TIMEOUT)
-                # treat 5xx as transient
                 if 500 <= r.status_code < 600:
                     raise TransientHTTPError(f"server error {r.status_code}")
                 return r
             except httpx.HTTPError as e:
                 raise e
-        # retriable predicate: httpx errors or TransientHTTPError
         return retry_call(call, retriable=lambda e: isinstance(e, (httpx.HTTPError, TransientHTTPError)))
 
     def _post_with_retries(self, path: str, json: Any, timeout: float = None) -> httpx.Response:
@@ -325,7 +345,7 @@ def sparse_to_qdrant_sparsevector(sparse_obj: Any) -> SparseVector:
         return SparseVector(indices=inds, values=vals)
     raise RuntimeError("unsupported sparse object")
 
-# ---------- helpers for parsing list-like fields ----------
+# ---------- parsing helpers (unchanged) ----------
 def _parse_list_like(x):
     if x is None: return []
     if isinstance(x, (list, tuple)): return list(x)
@@ -408,6 +428,7 @@ def normalize_chunk(chunk: Dict[str, Any]) -> Dict[str, Any]:
             c[t] = str(c.get(t))
     return c
 
+# ---------- Qdrant collection helpers (unchanged) ----------
 def create_collection_hybrid(client, name, dense_dim):
     try:
         if client.collection_exists(name):
@@ -508,7 +529,7 @@ def existing_point_ids(client, collection_name, ids: List[int]) -> set:
                     if pid is not None: out.add(pid)
     return out
 
-# ---------- embed helpers with retry and split ----------
+# ---------- embedding helpers (unchanged) ----------
 def _embed_with_retry_and_split_dense(client: DenseClient, texts: List[str]) -> List[Optional[List[float]]]:
     attempts = 0
     while attempts <= EMBED_RETRIES:
@@ -601,7 +622,6 @@ def embed_and_upsert(client, collection_name, chunks, sparse_client, dense_clien
             break
         slice_pts = to_upsert[j:j+UPSERT_CHUNK]
         try:
-            # Qdrant upsert wrapped with retries
             retry_call(lambda: client.upsert(collection_name=collection_name, points=slice_pts), retriable=lambda e: True)
             slog("debug", "upsert.chunk", start=j, end=j+len(slice_pts)-1)
         except Exception as e:
@@ -609,7 +629,6 @@ def embed_and_upsert(client, collection_name, chunks, sparse_client, dense_clien
             raise
     slog("info", "index.completed")
 
-# ---------- parquet-aware S3 loader (with retries) ----------
 def _safe_json_load(s):
     if s is None:
         return []
@@ -665,53 +684,125 @@ def _paginate_with_retries(paginator, **params):
         for p in paginator.paginate(**params):
             pages.append(p)
         return pages
-    # retriable predicate: botocore/network errors; fallback to retry on any Exception
     return retry_call(call, retriable=lambda e: True)
 
-def load_chunks_from_s3(bucket: str, prefix: str) -> List[Dict[str, Any]]:
+# ---------- Storage access: dual-mode (managed identity OR key/connstring/SAS) ----------
+def _build_blob_service_client(account_name: str, account_key: Optional[str] = None, conn_str: Optional[str] = None, sas_token: Optional[str] = None):
+    """
+    Returns initialized BlobServiceClient.
+    - If USE_MANAGED_IDENTITY: use DefaultAzureCredential (optionally with managed_identity_client_id)
+    - Else if conn_str provided: from_connection_string
+    - Else if account_key provided: credential=account_key
+    - Else if sas_token provided: credential=sas_token
+    """
     try:
-        import boto3
-        import botocore
+        from azure.storage.blob import BlobServiceClient  # type: ignore
     except Exception as e:
-        slog("error", "boto3.missing", exc=e)
-        raise SystemExit("boto3 required")
-    s3 = boto3.client("s3")
-    paginator = s3.get_paginator("list_objects_v2")
+        slog("error", "azure.sdk.missing", exc=e)
+        raise SystemExit("azure-storage-blob required: pip install azure-storage-blob") from e
+
+    account_url = f"https://{account_name}.blob.{AZURE_ENDPOINT_SUFFIX}"
+    if USE_MANAGED_IDENTITY:
+        try:
+            # import DefaultAzureCredential lazily and instantiate with optional managed_identity_client_id
+            try:
+                from azure.identity import DefaultAzureCredential  # type: ignore
+            except Exception as e:
+                slog("error", "azure.identity.missing", exc=e)
+                raise SystemExit("azure-identity required for managed identity mode: pip install azure-identity") from e
+            # If the user provided AZURE_CLIENT_ID (or UAI_RAG_RW_CLIENT_ID), pass it through to DefaultAzureCredential
+            if AZURE_CLIENT_ID:
+                try:
+                    cred = DefaultAzureCredential(managed_identity_client_id=AZURE_CLIENT_ID)
+                except TypeError:
+                    # older azure-identity versions may not accept the kwarg on DefaultAzureCredential;
+                    # fall back to explicit ManagedIdentityCredential
+                    from azure.identity import ManagedIdentityCredential  # type: ignore
+                    cred = ManagedIdentityCredential(client_id=AZURE_CLIENT_ID)
+            else:
+                cred = DefaultAzureCredential()
+            client = BlobServiceClient(account_url=account_url, credential=cred)
+            return client
+        except SystemExit:
+            raise
+        except Exception as e:
+            slog("error", "blobclient.managed.init.failed", exc=e)
+            raise SystemExit(f"Failed to init BlobServiceClient with managed identity: {e}") from e
+
+    # non-managed identity path
+    if conn_str:
+        try:
+            client = BlobServiceClient.from_connection_string(conn_str)
+            return client
+        except Exception as e:
+            slog("error", "blobclient.connstr.init.failed", exc=e)
+            raise SystemExit(f"Failed to init BlobServiceClient from connection string: {e}") from e
+    if account_key:
+        try:
+            client = BlobServiceClient(account_url=account_url, credential=account_key)
+            return client
+        except Exception as e:
+            slog("error", "blobclient.key.init.failed", exc=e)
+            raise SystemExit(f"Failed to init BlobServiceClient with account key: {e}") from e
+    if sas_token:
+        try:
+            token = sas_token if sas_token.startswith("?") else ("?" + sas_token)
+            client = BlobServiceClient(account_url=account_url + token)
+            return client
+        except Exception as e:
+            slog("error", "blobclient.sas.init.failed", exc=e)
+            raise SystemExit(f"Failed to init BlobServiceClient with SAS token: {e}") from e
+    raise SystemExit("No valid Azure storage credential available for initializing BlobServiceClient")
+
+def load_chunks_from_azure(account_name: str, account_key: Optional[str], container: str, prefix: str) -> List[Dict[str, Any]]:
+    """
+    Dual-mode loader:
+      - Managed identity mode: uses DefaultAzureCredential to authenticate and list/download blobs.
+      - Key/connstr/SAS mode: uses provided credentials.
+    Returns list of normalized chunk dicts.
+    """
+    # Build client
+    conn_str = AZURE_STORAGE_CONNECTION_STRING or None
+    sas = AZURE_SAS_TOKEN or None
+    client = _build_blob_service_client(account_name, account_key=account_key or None, conn_str=conn_str, sas_token=sas)
     try:
-        pages = _paginate_with_retries(paginator, Bucket=bucket, Prefix=prefix)
+        container_client = client.get_container_client(container)
     except Exception as e:
-        slog("error", "s3.list.failed", exc=e)
-        raise SystemExit(f"s3 list failed: {e}")
+        slog("error", "azure.container.client.failed", exc=e)
+        raise SystemExit(f"Unable to get container client: {e}") from e
+
+    try:
+        # list blobs that start with prefix
+        blob_iter = list(container_client.list_blobs(name_starts_with=prefix))
+    except Exception as e:
+        slog("error", "azure.list.failed", exc=e)
+        raise SystemExit(f"azure list failed: {e}") from e
 
     parquet_keys = []
     json_keys = []
-    for p in pages:
-        for c in p.get("Contents", []):
-            k = c.get("Key")
-            if not k:
-                continue
-            if k.lower().endswith(".parquet"):
-                parquet_keys.append(k)
-            elif k.lower().endswith(".json"):
-                json_keys.append(k)
+    for b in blob_iter:
+        k = getattr(b, "name", None)
+        if not k:
+            continue
+        if k.lower().endswith(".parquet"):
+            parquet_keys.append(k)
+        elif k.lower().endswith(".json"):
+            json_keys.append(k)
     keys = sorted(parquet_keys) if parquet_keys else sorted(json_keys)
     if not keys:
-        slog("error", "no_s3_chunks", bucket=bucket, prefix=prefix)
-        raise SystemExit(f"No chunk files in s3://{bucket}/{prefix} (looked for .parquet/.json)")
+        slog("error", "no_azure_chunks", container=container, prefix=prefix)
+        raise SystemExit(f"No chunk files in azure://{account_name}/{container}/{prefix} (looked for .parquet/.json)")
 
     chunks = []
     for k in keys:
-        # wrap get_object with retries
-        def get_obj():
-            return s3.get_object(Bucket=bucket, Key=k)
         try:
-            obj = retry_call(get_obj, retriable=lambda e: True)
+            blob_client = container_client.get_blob_client(k)
+            body = retry_call(lambda: blob_client.download_blob().readall(), retriable=lambda e: True)
         except Exception as e:
-            slog("error", "s3.get_object.failed", key=k, exc=e)
+            slog("error", "azure.get_blob.failed", key=k, exc=e)
             raise
         if k.lower().endswith(".parquet"):
             try:
-                body = obj["Body"].read()
                 table = pq.read_table(pa.BufferReader(body))
                 data = table.to_pydict()
                 if not data:
@@ -749,12 +840,12 @@ def load_chunks_from_s3(bucket: str, prefix: str) -> List[Dict[str, Any]]:
                     except Exception as e:
                         slog("warning", "chunk.normalize.failed", key=k, exc=e)
             except Exception as e:
-                slog("error", "s3.parquet.read.failed", key=k, exc=e)
+                slog("error", "azure.parquet.read.failed", key=k, exc=e)
                 raise
         else:
             try:
-                body = obj["Body"].read().decode("utf8")
-                data = json.loads(body)
+                body_text = body.decode("utf8") if isinstance(body, (bytes, bytearray)) else str(body)
+                data = json.loads(body_text)
                 if isinstance(data, list):
                     for raw in data:
                         try:
@@ -763,23 +854,58 @@ def load_chunks_from_s3(bucket: str, prefix: str) -> List[Dict[str, Any]]:
                         except Exception as e:
                             slog("warning", "chunk.normalize.failed", key=k, exc=e)
                 else:
-                    slog("error", "s3.chunk.format.invalid", key=k, type=str(type(data)))
-                    raise SystemExit(f"Expected list in s3://{bucket}/{k}")
+                    slog("error", "azure.chunk.format.invalid", key=k, type=str(type(data)))
+                    raise SystemExit(f"Expected list in azure://{account_name}/{container}/{k}")
             except Exception as e:
-                slog("error", "s3.get_object.failed", key=k, exc=e)
+                slog("error", "azure.get_blob.failed", key=k, exc=e)
                 raise
     slog("info", "load.chunks", original_chunks=len(chunks))
     return chunks
 
-# ---------- client validation ----------
+# ---------- validation and client creation ----------
+def validate_envs():
+    """
+    Validate required envs depending on identity mode.
+    - Managed identity (USE_MANAGED_IDENTITY=True): require AZURE_STORAGE_ACCOUNT_NAME and AZURE_CONTAINER.
+    - Key/connstr/SAS mode: require AZURE_STORAGE_ACCOUNT_NAME + (AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_CONNECTION_STRING or AZURE_SAS_TOKEN) and AZURE_CONTAINER.
+    """
+    missing = []
+    if not AZURE_STORAGE_ACCOUNT_NAME:
+        missing.append("AZURE_STORAGE_ACCOUNT_NAME")
+    if not AZURE_CONTAINER:
+        missing.append("AZURE_CONTAINER")
+
+    if USE_MANAGED_IDENTITY:
+        if missing:
+            slog("error", "env.missing", missing=missing)
+            raise SystemExit(f"Missing required envs for managed identity mode: {', '.join(missing)}")
+        # ensure azure sdk present
+        try:
+            import importlib
+            importlib.import_module('azure.identity')
+            importlib.import_module('azure.storage.blob')
+        except Exception as e:
+            slog("error", "azure.sdk.missing", exc=e)
+            raise SystemExit("azure-identity and azure-storage-blob Python packages required for managed identity mode (pip install azure-identity azure-storage-blob)")
+    else:
+        if not (AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_CONNECTION_STRING or AZURE_SAS_TOKEN):
+            missing.append("AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_CONNECTION_STRING or AZURE_SAS_TOKEN")
+        if missing:
+            slog("error", "env.missing", missing=missing)
+            raise SystemExit(f"Missing required envs for key/SAS/connstr mode: {', '.join(missing)}")
+        # ensure azure.storage.blob present
+        try:
+            import importlib
+            importlib.import_module('azure.storage.blob')
+        except Exception as e:
+            slog("error", "azure.sdk.missing", exc=e)
+            raise SystemExit("azure-storage-blob Python package required (pip install azure-storage-blob)")
+
 def validate_and_build_clients():
     dc = DenseClient(DENSE_URL, timeout=HTTP_TIMEOUT, embed_timeout=DENSE_EMBED_TIMEOUT)
     sc = SparseClient(SPARSE_URL, timeout=HTTP_TIMEOUT, embed_timeout=SPARSE_EMBED_TIMEOUT)
-
     slog("info", "clients.created", dense_url=dc.url, sparse_url=sc.url, qdrant_url=QDRANT_URL)
-
     dense = None; sparse = None
-
     try:
         if dc.health():
             dense = dc
@@ -798,7 +924,6 @@ def validate_and_build_clients():
     except Exception as e:
         slog("warning", "dense.check.error", exc=e)
         dense = None
-
     try:
         if sc.health():
             sparse = sc
@@ -817,16 +942,13 @@ def validate_and_build_clients():
     except Exception as e:
         slog("warning", "sparse.check.error", exc=e)
         sparse = None
-
     if dense is None and sparse is None:
         slog("error", "no_embed_services")
         raise SystemExit("Neither dense nor sparse service healthy (see logs)")
-
     return dense, sparse
 
-# ---------- main flow ----------
 def retrieve_and_index():
-    chunks = load_chunks_from_s3(S3_BUCKET, S3_CHUNKED_PREFIX)
+    chunks = load_chunks_from_azure(AZURE_STORAGE_ACCOUNT_NAME, AZURE_STORAGE_ACCOUNT_KEY, AZURE_CONTAINER, AZURE_CHUNKED_PREFIX)
     dense_client, sparse_client = validate_and_build_clients()
     hybrid_mode = (dense_client is not None and sparse_client is not None)
     try:
@@ -835,7 +957,6 @@ def retrieve_and_index():
         slog("error", "qdrant.client.init.failed", exc=e)
         raise SystemExit(f"Unable to contact Qdrant: {e}")
     try:
-        # wrap get_collections with retry
         retry_call(lambda: client.get_collections(), retriable=lambda e: True)
     except Exception as e:
         slog("error", "qdrant.unreachable", exc=e)
@@ -847,4 +968,6 @@ def retrieve_and_index():
     embed_and_upsert(client, COLLECTION_NAME, chunks, sparse_client, dense_client, hybrid_mode)
 
 if __name__ == "__main__":
+    slog("info", "startup", use_managed_identity=str(USE_MANAGED_IDENTITY).lower(), azure_client_id=str(AZURE_CLIENT_ID or ""))
+    validate_envs()
     retrieve_and_index()

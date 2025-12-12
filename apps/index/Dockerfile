@@ -1,5 +1,6 @@
+# syntax=docker/dockerfile:1
 # ---------------- BUILDER ----------------
-FROM python:3.10-slim AS builder
+FROM ubuntu:22.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 ENV VENV_PATH=/opt/venv
 ENV MODEL_HOME=/opt/models
@@ -8,33 +9,32 @@ ENV PYTHONUNBUFFERED=1
 
 # build / compile deps needed for python wheels and model utilities
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential gcc g++ clang libclang-dev git curl wget ca-certificates pkg-config \
+    build-essential gcc g++ clang libclang-dev git git-lfs curl wget ca-certificates pkg-config \
+    python3-dev libssl-dev libffi-dev libbz2-dev liblzma-dev libsndfile1 \
     libjpeg-dev zlib1g-dev libxml2-dev libxslt-dev libpng-dev libfreetype6-dev \
     libharfbuzz-dev libxcb1-dev libx11-dev libxext-dev libxrender-dev libfontconfig1-dev \
     libopenjp2-7-dev libleptonica-dev libtesseract-dev poppler-utils libmagic1 tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
-# awscli will be installed here (copied to runtime /usr/local)
-RUN pip install --no-cache-dir awscli==1.29.31
-
 WORKDIR /workspace
 COPY requirements.txt /workspace/requirements.txt
 COPY . /indexing_pipeline
 
-RUN python -m venv ${VENV_PATH}
+# create venv and build wheels deterministically
+RUN python3 -m venv ${VENV_PATH}
 RUN ${VENV_PATH}/bin/pip install --upgrade pip setuptools wheel
 RUN mkdir -p /wheels
 RUN ${VENV_PATH}/bin/pip wheel -r /workspace/requirements.txt -w /wheels
 RUN ${VENV_PATH}/bin/pip install --no-index --find-links=/wheels -r /workspace/requirements.txt
 
-RUN ${VENV_PATH}/bin/pip install --no-cache-dir huggingface_hub
+# Install Azure SDKs and optional helpers deterministically
+RUN ${VENV_PATH}/bin/pip install --no-cache-dir azure-storage-blob==12.24.0 azure-identity==1.15.0 huggingface_hub==0.17.0
 
 # download faster-whisper artifacts (keeps image reproducible)
 RUN /opt/venv/bin/python - <<'PY'
 from huggingface_hub import hf_hub_download
 from pathlib import Path
 import shutil, os, sys
-
 files = ["model.bin","config.json","tokenizer.json","vocabulary.txt","README.md"]
 base = Path("/indexing_pipeline/models/faster_whisper/faster-whisper-base")
 base.mkdir(parents=True, exist_ok=True)
@@ -57,46 +57,66 @@ if failed:
     sys.exit(2)
 PY
 
-# download spacy model into workspace models directory
+# download spacy model into workspace models directory (builder)
 RUN mkdir -p /indexing_pipeline/models/spacy && /opt/venv/bin/python -m spacy download en_core_web_sm --target /indexing_pipeline/models/spacy
 
 # ---------------- RUNTIME ----------------
-FROM python:3.10-slim AS runtime
+FROM ubuntu:22.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV VENV_PATH=/opt/venv
 
 # runtime packages required for conversion tools and OCR
-# NOTE: libgl1-mesa-glx may be unavailable on some slim images — use libgl1 / libgl1-mesa-dri instead
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libmagic1 poppler-utils ffmpeg \
-    libgl1 libgl1-mesa-dri libglib2.0-0 libsm6 libxrender1 libxext6 \
-    tesseract-ocr \
-    libreoffice-core libreoffice-writer libreoffice-calc default-jre-headless \
-    jq unzip fonts-dejavu-core tini \
-    wget curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      ca-certificates wget curl gnupg2 dirmngr lsb-release \
+      software-properties-common \
+      fonts-dejavu-core tini unzip jq; \
+    \
+    add-apt-repository ppa:libreoffice/ppa -y; \
+    apt-get update; \
+    \
+    apt-get install -y --no-install-recommends \
+      libmagic1 poppler-utils ffmpeg sox \
+      libsndfile1 \
+      libgl1 libgl1-mesa-dri libglib2.0-0 libsm6 libxrender1 libxext6 \
+      tesseract-ocr \
+      default-jre-headless; \
+    \
+    apt-get install -y \
+      libreoffice libreoffice-writer libreoffice-common libreoffice-core \
+      fonts-dejavu fonts-liberation; \
+    \
+    rm -rf /var/lib/apt/lists/*
 
-# copy venv, app code and awscli (/usr/local) from builder
+# copy venv and app code from builder
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /indexing_pipeline /indexing_pipeline
-COPY --from=builder /usr/local /usr/local
 
-# conversion helper
-COPY pre_conversions.sh /indexing_pipeline/pre_conversions.sh
-RUN chmod +x /indexing_pipeline/pre_conversions.sh
+RUN if [ -f /indexing_pipeline/pre_conversions.py ]; then chmod +x /indexing_pipeline/pre_conversions.py || true; fi
 
-# environment defaults
+# environment defaults (Azure-first)
 ENV OVERWRITE_ALL_AUDIO_FILES=${OVERWRITE_ALL_AUDIO_FILES:-false}
 ENV OVERWRITE_OTHER_TO_PDF=${OVERWRITE_OTHER_TO_PDF:-true}
 ENV OVERWRITE_SPREADSHEETS_WITH_CSV=${OVERWRITE_SPREADSHEETS_WITH_CSV:-false}
 ENV MODEL_HOST_PATH=/app/models
 ENV PORT=8000
 ENV HEALTH_PATH=/health
-ENV S3_RAW_PREFIX=data/raw/
-ENV S3_CHUNKED_PREFIX=data/chunked/
+
+# Azure storage envs (defaults left empty for safety)
+ENV STORAGE_PROTOCOL=${STORAGE_PROTOCOL:-az}
+ENV AZURE_STORAGE_ACCOUNT_NAME=${AZURE_STORAGE_ACCOUNT_NAME:-}
+ENV AZURE_STORAGE_ACCOUNT_KEY=${AZURE_STORAGE_ACCOUNT_KEY:-}
+ENV AZURE_CONTAINER=${AZURE_CONTAINER:-rag-data-prod}
+ENV AZURE_CHUNKED_PREFIX=${AZURE_CHUNKED_PREFIX:-data/chunked/}
+ENV AZURE_ENDPOINT_SUFFIX=${AZURE_ENDPOINT_SUFFIX:-core.windows.net}
+ENV BACKUP_AZ_CONTAINER=${BACKUP_AZ_CONTAINER:-backups}
+ENV AZURE_USE_MANAGED_IDENTITY=0
+
+# pipeline / chunking config
 ENV CHUNK_FORMAT=json
-ENV MAX_TOKENS_PER_CHUNK=300
+ENV MAX_TOKENS_PER_CHUNK=400
 ENV MIN_TOKENS_PER_CHUNK=100
 ENV NUMBER_OF_OVERLAPPING_SENTENCES=2
 ENV PDF_DISABLE_OCR=false

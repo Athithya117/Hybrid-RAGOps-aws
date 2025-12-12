@@ -1,0 +1,14 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: frontend-ingress
+  namespace: inference
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - match: Host(`frontend.local`) && PathPrefix(`/`)
+    kind: Rule
+    services:
+    - name: frontend-svc
+      port: 8000
