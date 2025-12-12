@@ -30,6 +30,9 @@ infra/pulumi_aws/pulumi-exports.sh
 infra/pulumi_aws/.pulumi-logs
 infra/pulumi_aws/backups
 infra/pulumi_azure/.venv-pulumi
+infra/pulumi_azure/Pulumi.staging.yaml
+infra/pulumi_azure/Pulumi.prod.yaml
+
 models/
 *.onnx
 *.pt
@@ -38,7 +41,7 @@ models/
 *.ckpt
 *.h5
 *.tar.gz
-
+infra/pulumi_azure/.pulumi-logs
 ###############################################################################
 # DOCKER / CONTAINERS
 ###############################################################################

@@ -269,7 +269,8 @@ for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
     docker.io/athithya5354/sparse:amd64-arm64-v2 \
     docker.io/athithya5354/reranker:amd64-arm64-v1 \
     docker.io/athithya5354/retrieval:amd64-arm64-v2 \
-    docker.io/athithya5354/athithya5354/frontend-and-auth:v5
+    docker.io/athithya5354/athithya5354/frontend-and-auth:v5 \
+    docker.io/athithya5354/indexing_pipeline_cpu:v12
   do
     echo "    pulling $IMAGE..."
     docker exec "$node" ctr -n k8s.io images pull "$IMAGE" || {
@@ -285,5 +286,3 @@ kubectl get nodes -o wide
 
 exit 0
 
-# \
- #   docker.io/athithya5354/indexing_pipeline_cpu:v12

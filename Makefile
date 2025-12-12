@@ -52,9 +52,9 @@ flux-status:
 	flux check && flux get kustomizations -n flux-system
 
 pulumi-up:
-	bash infra/pulumi_aws/pulumi_setup.sh --create || true
+	bash infra/pulumi_azure/pulumi_setup.sh --create || true
 pulumi-destroy:
-	bash infra/pulumi_aws/pulumi_setup.sh --delete || true
+	bash infra/pulumi_azure/pulumi_setup.sh --delete || true
 
 deploy-dense:
 	python3 infra/generators/dense.py --apply
@@ -73,3 +73,6 @@ deploy-retriever:
 
 deploy-frontend:
 	python3 infra/generators/frontend_auth.py --apply --confirm
+
+deploy-models: deploy-dense deploy-sparse deploy-reranker
+deploy-inference-svc: deploy-retriever deploy-frontend

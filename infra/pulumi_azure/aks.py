@@ -7,7 +7,7 @@ AKS provisioning helper for Pulumi (azure-native).
    - qdrant dedicated pool (stateful)
  - Uses SystemAssigned identity for AKS control plane.
  - Accepts resource_group_name and aks_subnet_id from core_network.
- - Returns dict with cluster, kubeconfig (if requested), and agent pool names.
+ - Returns dict with cluster, kubeconfig (secret Output), and agent pool resources.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ def create_aks_cluster(resource_group_name: str,
                        log_analytics_workspace_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Create AKS ManagedCluster and AgentPools. Returns dict with:
-      cluster, kube_admin_config (secret Output, optional), system_pool, app_pool, qdrant_pool
+      cluster, kube_admin_config_base64 (secret Output), system_pool, app_pool, qdrant_pool
     """
 
     # Resolve defaults from env or cfg
@@ -87,13 +87,12 @@ def create_aks_cluster(resource_group_name: str,
     qdrant_node_count = qdrant_node_count or int(_cfg_attr("qdrant_node_count") or os.environ.get("QDRANT_NODE_COUNT", "1"))
     qdrant_vm_size = qdrant_vm_size or _cfg_attr("qdrant_vm_size") or os.environ.get("QDRANT_NODE_VM_SIZE", "Standard_E8s_v5")
 
-    # Basic cluster resource
     pulumi.log.info(f"[aks] Creating managed cluster: {cluster_name} in {location}")
 
+    # IMPORTANT: pass first positional as Pulumi logical name; DO NOT pass resource_name=... kwarg (causes duplicate arg error).
     cluster = azure_native.containerservice.ManagedCluster(
-        cluster_name,
+        cluster_name,  # Pulumi logical name (do NOT also pass resource_name=cluster_name)
         resource_group_name=resource_group_name,
-        resource_name=cluster_name,
         location=location,
         dns_prefix=cluster_name,
         enable_rbac=True,
@@ -106,7 +105,7 @@ def create_aks_cluster(resource_group_name: str,
         tags=default_tags()
     )
 
-    # Create system pool (as AgentPool resource)
+    # System agent pool (explicit AgentPool resource)
     system_pool = azure_native.containerservice.AgentPool(
         f"{cluster_name}-systempool",
         resource_group_name=resource_group_name,
@@ -159,22 +158,29 @@ def create_aks_cluster(resource_group_name: str,
         tags=default_tags()
     )
 
-    # Optionally collect kubeconfig admin credentials (secret). This causes a call to get_cluster_admin_credentials which is allowed in apply phase.
-    kube_admin_config = cluster.name.apply(lambda _:
-                                           azure_native.containerservice.list_managed_cluster_user_credentials(
-                                               resource_group_name=resource_group_name,
-                                               resource_name=cluster_name
-                                           ).kubeconfigs[0].value
-                                           if True else None)
+    # Retrieve admin kubeconfig (must call list_managed_cluster_admin_credentials with resolved args)
+    # Do this via Output.all so it runs after cluster name and RG are known.
+    def _get_kubeconfig(args):
+        cluster_name_val, rg_val = args
+        creds = azure_native.containerservice.list_managed_cluster_user_credentials(
+            resource_group_name=rg_val,
+            resource_name=cluster_name_val
+        )
+        # take first kubeconfig
+        kubeconfig_base64 = creds.kubeconfigs[0].value if creds and getattr(creds, "kubeconfigs", None) else None
+        return kubeconfig_base64
 
-    # Export some values in a lightweight consistent shape (consumer can call cluster.name etc.)
+    kube_admin_config = Output.all(cluster.name, resource_group_name).apply(_get_kubeconfig)
+    kube_admin_config_secret = Output.secret(kube_admin_config)
+
+    # Export small set of values
     pulumi.export("aks_cluster_name", cluster.name)
-    pulumi.export("aks_kube_admin_config_base64", Output.secret(kube_admin_config))
+    pulumi.export("aks_kube_admin_config_base64", kube_admin_config_secret)
 
     return {
         "cluster": cluster,
         "system_pool": system_pool,
         "app_pool": app_pool,
         "qdrant_pool": qdrant_pool,
-        "kube_admin_config_base64": kube_admin_config
+        "kube_admin_config_base64": kube_admin_config_secret
     }

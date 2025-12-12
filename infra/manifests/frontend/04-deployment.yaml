@@ -16,7 +16,7 @@ spec:
       serviceAccountName: frontend-sa
       containers:
       - name: frontend
-        image: athithya5354/frontend:amd64-arm64-v3
+        image: athithya5354/frontend-and-auth:v5
         ports:
         - containerPort: 8000
         envFrom:

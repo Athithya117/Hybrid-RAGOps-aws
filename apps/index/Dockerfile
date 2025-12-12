@@ -10,7 +10,7 @@ ENV PYTHONUNBUFFERED=1
 # build / compile deps needed for python wheels and model utilities
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential gcc g++ clang libclang-dev git git-lfs curl wget ca-certificates pkg-config \
-    python3-dev libssl-dev libffi-dev libbz2-dev liblzma-dev libsndfile1 \
+    python3-dev python3-venv python3-distutils libssl-dev libffi-dev libbz2-dev liblzma-dev libsndfile1 \
     libjpeg-dev zlib1g-dev libxml2-dev libxslt-dev libpng-dev libfreetype6-dev \
     libharfbuzz-dev libxcb1-dev libx11-dev libxext-dev libxrender-dev libfontconfig1-dev \
     libopenjp2-7-dev libleptonica-dev libtesseract-dev poppler-utils libmagic1 tesseract-ocr \
@@ -19,6 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /workspace
 COPY requirements.txt /workspace/requirements.txt
 COPY . /indexing_pipeline
+
+# ensure /usr/bin/python exists for any tooling that expects 'python'
+RUN ln -s /usr/bin/python3 /usr/bin/python || true
 
 # create venv and build wheels deterministically
 RUN python3 -m venv ${VENV_PATH}
@@ -74,9 +77,11 @@ RUN set -eux; \
       software-properties-common \
       fonts-dejavu-core tini unzip jq; \
     \
+    # Add LibreOffice PPA for latest deb packages (works well inside containers)
     add-apt-repository ppa:libreoffice/ppa -y; \
     apt-get update; \
     \
+    # Install runtime conversion tools (kept --no-install-recommends for non-LibreOffice deps to reduce image size)
     apt-get install -y --no-install-recommends \
       libmagic1 poppler-utils ffmpeg sox \
       libsndfile1 \
@@ -84,16 +89,21 @@ RUN set -eux; \
       tesseract-ocr \
       default-jre-headless; \
     \
+    # Install full LibreOffice from PPA (ensure writer/pdf filters present). Do NOT use --no-install-recommends here to not drop filters.
     apt-get install -y \
       libreoffice libreoffice-writer libreoffice-common libreoffice-core \
       fonts-dejavu fonts-liberation; \
     \
+    # Clean up apt cache
     rm -rf /var/lib/apt/lists/*
 
 # copy venv and app code from builder
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /indexing_pipeline /indexing_pipeline
 
+# Ensure python pre-conversions script is present (user-provided)
+# if you have a different location, change COPY accordingly
+# Ensure it's readable/executable by runtime user
 RUN if [ -f /indexing_pipeline/pre_conversions.py ]; then chmod +x /indexing_pipeline/pre_conversions.py || true; fi
 
 # environment defaults (Azure-first)

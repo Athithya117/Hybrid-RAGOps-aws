@@ -10,12 +10,12 @@ export PULUMI_STACK="${PULUMI_STACK:-staging}"
 export PULUMI_AZ_CONTAINER="${PULUMI_AZ_CONTAINER:-pulumi-state}"
 
 # export minimal required envs (adjust per env)
-export AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID:-b1e221f4-74ef-4e62-9bca-fb70aef41930}"
-export AZURE_TENANT_ID="${AZURE_TENANT_ID:-b8a65a11-9d1c-4d48-b9f6-dabfc67f2e4b}"
+export AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID:-}"
+export AZURE_TENANT_ID="${AZURE_TENANT_ID:-}"
 export AZURE_LOCATION="${AZURE_LOCATION:-centralindia}"
 export AZURE_RESOURCE_GROUP_NAME="${AZURE_RESOURCE_GROUP_NAME:-rg-rag-prod}"
 export AZURE_STORAGE_ACCOUNT_NAME="${AZURE_STORAGE_ACCOUNT_NAME:-storeragprod42}"
-
+export AKS_K8S_VERSION="1.29"
 
 export AZ_CLI_BIN="${AZ_CLI_BIN:-az}"
 export PULUMI_BIN="${PULUMI_BIN:-pulumi}"

@@ -36,8 +36,7 @@ WORKDIR /workspace
 # Note: This ensures that every time the container is rebuilt,
 # buildx + qemu emulation are preconfigured for multi-arch builds.
 
-RUN set -euo pipefail && \
-    echo ">>> Installing Azure CLI (Deb)" && \
+RUN echo ">>> Installing Azure CLI (Deb)" && \
     curl -sL https://aka.ms/InstallAzureCLIDeb | bash && \
     echo ">>> Azure CLI Installed:" && az version && \
     \
