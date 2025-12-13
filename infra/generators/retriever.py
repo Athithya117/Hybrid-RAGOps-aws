@@ -1,13 +1,3 @@
-#!/usr/bin/env python3
-"""
-infra/generators/retriever.py
-
-Deterministic generator for the retrieval/query Kubernetes manifests (AKS / cluster-ready).
-- Writes manifests to infra/manifests/retriever/
-- Idempotent: .inputs_hash prevents unnecessary rewrites
-- Secrets: supports in-cluster secret creation from env OR emits ExternalSecret if USE_AZURE_KEYVAULT=true
-- Apply: `--apply --confirm` will create/update secrets (if provided) and `kubectl apply` the generated YAML.
-"""
 from __future__ import annotations
 import os
 import sys
@@ -20,20 +10,18 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 import datetime
 
-# ---------------------------
-# Helpers (atomic write, hash)
-# ---------------------------
-def die(msg: str):
+# ---------- small helpers ----------
+def die(msg: str) -> None:
     print("ERROR:", msg, file=sys.stderr)
     sys.exit(2)
 
-def info(msg: str):
+def info(msg: str) -> None:
     print("INFO:", msg)
 
-def ensure_dir(p: Path):
+def ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
-def atomic_write(path: Path, content: str, mode: int = 0o600):
+def atomic_write(path: Path, content: str, mode: int = 0o600) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)
@@ -63,6 +51,9 @@ def canonical_inputs_hash(cfg: Dict[str, Any]) -> str:
 def which(cmd: str) -> Optional[str]:
     return shutil.which(cmd)
 
+def run_cmd_capture(cmd: list[str], input_bytes: Optional[bytes] = None, timeout: int = 120) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, input=input_bytes, capture_output=True, timeout=timeout)
+
 # ---------------------------
 # Config loader
 # ---------------------------
@@ -72,8 +63,8 @@ def load_config() -> Dict[str, Any]:
     cfg["MANIFESTS_DIR"] = Path(os.getenv("MANIFESTS_DIR", "infra/manifests/retriever"))
     cfg["INPUTS_HASH_PATH"] = cfg["MANIFESTS_DIR"] / ".inputs_hash"
     cfg["ENV"] = os.getenv("ENV", "STAGING").upper()
-    cfg["USE_AZURE_KEYVAULT"] = os.getenv("USE_AZURE_KEYVAULT", "false").lower() in ("1","true","yes")
-    cfg["ALLOW_MISSING_SECRETS"] = os.getenv("ALLOW_MISSING_SECRETS", "false").lower() in ("1","true","yes")
+    cfg["USE_AZURE_KEYVAULT"] = os.getenv("USE_AZURE_KEYVAULT", "false").lower() in ("1", "true", "yes")
+    cfg["ALLOW_MISSING_SECRETS"] = os.getenv("ALLOW_MISSING_SECRETS", "false").lower() in ("1", "true", "yes")
 
     # core service
     cfg["IMAGE"] = os.getenv("QUERY_IMAGE", "athithya5354/retrieval:amd64-arm64-v2")
@@ -97,7 +88,7 @@ def load_config() -> Dict[str, Any]:
     cfg["STARTUP_FAILURE_THRESHOLD"] = int(os.getenv("STARTUP_FAILURE_THRESHOLD", "60"))
 
     # HPA
-    cfg["HPA_ENABLED"] = os.getenv("HPA_ENABLED", "false").lower() in ("1","true","yes")
+    cfg["HPA_ENABLED"] = os.getenv("HPA_ENABLED", "false").lower() in ("1", "true", "yes")
     cfg["HPA_MIN"] = int(os.getenv("HPA_MIN", "1"))
     cfg["HPA_MAX"] = int(os.getenv("HPA_MAX", "5"))
     cfg["HPA_TARGET_CPU"] = int(os.getenv("HPA_TARGET_CPU", "60"))
@@ -114,12 +105,12 @@ def load_config() -> Dict[str, Any]:
     cfg["AZURE_STORAGE_ACCOUNT_NAME"] = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "")
     cfg["AZURE_STORAGE_ACCOUNT_KEY"] = os.getenv("AZURE_STORAGE_ACCOUNT_KEY", "")
     cfg["AZURE_ENDPOINT_SUFFIX"] = os.getenv("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
-    cfg["AZURE_USE_MANAGED_IDENTITY"] = os.getenv("AZURE_USE_MANAGED_IDENTITY", "false").lower() in ("1","true","yes")
+    cfg["AZURE_USE_MANAGED_IDENTITY"] = os.getenv("AZURE_USE_MANAGED_IDENTITY", "false").lower() in ("1", "true", "yes")
 
     # node selector
     cfg["NODE_SELECTOR"] = os.getenv("NODE_SELECTOR", "")
 
-    # secret values (do not include in inputs hash)
+    # secret values (do not include in inputs hash, and will not be written to disk)
     cfg["SECRET_VALUES"] = {}
     if cfg["QDRANT_API_KEY"]:
         cfg["SECRET_VALUES"]["QDRANT_API_KEY"] = cfg["QDRANT_API_KEY"]
@@ -131,7 +122,7 @@ def load_config() -> Dict[str, Any]:
     cfg["ROLE_NAME"] = os.getenv("QUERY_ROLE_NAME", f"{cfg['SERVICE_NAME']}-role")
     cfg["ROLEBIND_NAME"] = os.getenv("QUERY_ROLEBIND_NAME", f"{cfg['SERVICE_NAME']}-rb")
 
-    # files
+    # files (we will not write secret manifests)
     m = cfg["MANIFESTS_DIR"]
     cfg["FILES"] = {
         "namespace": m / "00-namespace.yaml",
@@ -139,6 +130,7 @@ def load_config() -> Dict[str, Any]:
         "deployment": m / "02-deployment.yaml",
         "service": m / "03-service.yaml",
         "hpa": m / "04-hpa.yaml",
+        # secret paths retained in mapping for compatibility, but generator will NOT write them
         "secret": m / "05-secret.yaml",
         "externalsecret": m / "05-externalsecret.yaml",
     }
@@ -152,7 +144,7 @@ def load_config() -> Dict[str, Any]:
     return cfg
 
 # ---------------------------
-# Renderers
+# Renderers (unchanged except secrets are returned for in-memory apply)
 # ---------------------------
 def render_namespace(cfg: Dict[str, Any]) -> str:
     obj = {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": cfg["NAMESPACE"], "labels": {"app.kubernetes.io/managed-by": "retriever-generator"}}}
@@ -189,8 +181,6 @@ def render_deployment(cfg: Dict[str, Any]) -> str:
         {"name": "DENSE_DIM", "value": os.getenv("DENSE_DIM", "384")},
         {"name": "HTTP_TIMEOUT", "value": os.getenv("HTTP_TIMEOUT", "10.0")},
         {"name": "SPARSE_BATCH_FALLBACK", "value": os.getenv("SPARSE_BATCH_FALLBACK", "8")},
-        {"name": "GROQ_API_KEY", "value": os.getenv("GROQ_API_KEY", "")},
-        {"name": "OPENAI_API_KEY", "value": os.getenv("OPENAI_API_KEY", "")},
         {"name": "LLM_MODEL", "value": os.getenv("LLM_MODEL", "llama-3.1-8b-instant")},
         {"name": "LLM_MAX_TOKENS", "value": str(os.getenv("LLM_MAX_TOKENS", "512"))},
         {"name": "LLM_TEMPERATURE", "value": str(os.getenv("LLM_TEMPERATURE", "0.0"))},
@@ -255,7 +245,6 @@ def render_deployment(cfg: Dict[str, Any]) -> str:
 
     # optional node selector
     if cfg["NODE_SELECTOR"]:
-        # allow "k=v" single mapping or comma-separated
         sel = {}
         for part in cfg["NODE_SELECTOR"].split(","):
             if "=" in part:
@@ -291,8 +280,8 @@ def render_hpa(cfg: Dict[str, Any]) -> str:
     }
     return yaml.safe_dump(hpa, sort_keys=False)
 
-def render_secret(cfg: Dict[str, Any]) -> Optional[str]:
-    # Only render if secrets present and not using external vault
+def render_secret_yaml_string(cfg: Dict[str, Any]) -> Optional[str]:
+    # Returns YAML string for secret (stringData) for in-memory apply; does NOT write to disk
     if cfg["USE_AZURE_KEYVAULT"]:
         return None
     if not cfg["SECRET_VALUES"]:
@@ -302,33 +291,22 @@ def render_secret(cfg: Dict[str, Any]) -> Optional[str]:
         data["qdrant_api_key"] = cfg["SECRET_VALUES"]["QDRANT_API_KEY"]
     if "AZURE_STORAGE_ACCOUNT_KEY" in cfg["SECRET_VALUES"]:
         data["azure_storage_account_key"] = cfg["SECRET_VALUES"]["AZURE_STORAGE_ACCOUNT_KEY"]
-    # keep as stringData to avoid base64 handling locally
     sec = {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": f"{cfg['SERVICE_NAME']}-secret", "namespace": cfg["NAMESPACE"]}, "type": "Opaque", "stringData": data}
     return yaml.safe_dump(sec, sort_keys=False)
 
 def render_external_secret(cfg: Dict[str, Any]) -> Optional[str]:
-    """
-    Emit an ExternalSecret manifest for the External Secrets Operator (assumes azure key vault provider configured).
-    Expects KEY_VAULT_NAME env and secret names mapping to these keys:
-      - qdrant_api_key -> secret name in Key Vault (default: retriever-qdrant-api-key)
-      - azure_storage_account_key -> secret name (default: retriever-storage-account-key)
-    """
     if not cfg["USE_AZURE_KEYVAULT"]:
         return None
     kv = os.getenv("AZURE_KEY_VAULT_NAME")
     if not kv and not cfg["ALLOW_MISSING_SECRETS"]:
         die("USE_AZURE_KEYVAULT=true requires AZURE_KEY_VAULT_NAME env (or set ALLOW_MISSING_SECRETS=true)")
-    # ExternalSecret CRD sample for ExternalSecrets Operator (k8s meta)
-    # This is conservative and uses 'azurekv' provider template (cluster-scoped SecretStore required).
     keys = []
-    # default names in keyvault
     q_name = os.getenv("AZ_KEYVAULT_QDRANT_SECRET", "retriever-qdrant-api-key")
     s_name = os.getenv("AZ_KEYVAULT_STORAGE_SECRET", "retriever-storage-account-key")
     if q_name:
         keys.append({"secretKey": "qdrant_api_key", "remoteRef": {"key": q_name}})
     if s_name:
         keys.append({"secretKey": "azure_storage_account_key", "remoteRef": {"key": s_name}})
-    # if no keys, and allow missing -> return None
     if not keys and cfg["ALLOW_MISSING_SECRETS"]:
         return None
     es = {
@@ -355,18 +333,29 @@ def kubectl_apply_stream(yaml_docs: str, dry_run: bool = False) -> Dict[str, Any
     if dry_run:
         cmd = [kubectl, "apply", "--dry-run=client", "-f", "-"]
     try:
-        proc = subprocess.run(cmd, input=yaml_docs.encode("utf-8"), capture_output=True, check=True, timeout=120)
+        proc = run_cmd_capture(cmd, input_bytes=yaml_docs.encode("utf-8"), timeout=120)
+        if proc.returncode != 0:
+            return {"applied": False, "stderr": (proc.stderr.decode() if proc.stderr else "unknown error")}
         out = proc.stdout.decode() if proc.stdout else ""
         return {"applied": True, "stdout": out}
-    except subprocess.CalledProcessError as e:
-        return {"applied": False, "stderr": e.stderr.decode() if e.stderr else str(e)}
     except Exception as e:
         return {"applied": False, "stderr": str(e)}
+
+def ensure_namespace_exists_in_cluster(cfg: Dict[str, Any], dry_run: bool = False) -> Dict[str, Any]:
+    """
+    Ensure the namespace exists in-cluster. Use kubectl apply on the namespace manifest for idempotency.
+    Returns dict with 'ok' boolean.
+    """
+    ns_yaml = render_namespace(cfg)
+    res = kubectl_apply_stream(ns_yaml, dry_run=dry_run)
+    if not res.get("applied", False):
+        return {"ok": False, "stderr": res.get("stderr", "failed to ensure namespace")}
+    return {"ok": True, "stdout": res.get("stdout", "")}
 
 def create_or_update_secret_in_cluster(cfg: Dict[str, Any], dry_run: bool = False) -> Dict[str, Any]:
     """
     Create/update k8s secret from env values using kubectl pipeline.
-    Avoids writing cleartext secrets to disk permanently.
+    Does NOT write secrets to disk.
     """
     if cfg["USE_AZURE_KEYVAULT"]:
         return {"created": False, "reason": "using_azure_keyvault"}
@@ -375,6 +364,13 @@ def create_or_update_secret_in_cluster(cfg: Dict[str, Any], dry_run: bool = Fals
     kubectl = which("kubectl")
     if not kubectl:
         return {"created": False, "reason": "kubectl_missing"}
+
+    # Ensure namespace exists before creating secret
+    ns_check = ensure_namespace_exists_in_cluster(cfg, dry_run=dry_run)
+    if not ns_check.get("ok", False):
+        return {"created": False, "reason": "namespace_ensure_failed", "stderr": ns_check.get("stderr")}
+
+    # Build create secret dry-run yaml using kubectl create secret generic ... --dry-run=client -o yaml
     name = f"{cfg['SERVICE_NAME']}-secret"
     ns = cfg["NAMESPACE"]
     cmd_parts = [kubectl, "create", "secret", "generic", name, "--namespace", ns]
@@ -384,12 +380,17 @@ def create_or_update_secret_in_cluster(cfg: Dict[str, Any], dry_run: bool = Fals
         elif k == "AZURE_STORAGE_ACCOUNT_KEY":
             cmd_parts += ["--from-literal", f"azure_storage_account_key={v}"]
     cmd_parts += ["--dry-run=client", "-o", "yaml"]
+
     if dry_run:
+        # Return what would be run
         return {"created": False, "reason": "dry_run", "cmd": " ".join(cmd_parts)}
+
     try:
-        # Create with dry-run yaml then apply
-        p1 = subprocess.run(cmd_parts, capture_output=True, check=True, timeout=30)
+        p1 = run_cmd_capture(cmd_parts, timeout=30)
+        if p1.returncode != 0:
+            return {"created": False, "stderr": (p1.stderr.decode() if p1.stderr else "failed to render secret yaml")}
         yaml_out = p1.stdout.decode()
+        # Apply the generated YAML (namespace guaranteed earlier)
         res = kubectl_apply_stream(yaml_out, dry_run=False)
         if not res.get("applied", False):
             return {"created": False, "stderr": res.get("stderr")}
@@ -400,19 +401,20 @@ def create_or_update_secret_in_cluster(cfg: Dict[str, Any], dry_run: bool = Fals
         return {"created": False, "stderr": str(e)}
 
 # ---------------------------
-# Generation / apply / delete
+# Generation / apply / delete (secrets not written to disk)
 # ---------------------------
-def generate(cfg: Dict[str, Any], dry_run: bool = False):
+def generate(cfg: Dict[str, Any], dry_run: bool = False) -> None:
     ensure_dir(cfg["MANIFESTS_DIR"])
     ihash = canonical_inputs_hash(cfg)
     existing = None
     if cfg["INPUTS_HASH_PATH"].exists():
         existing = cfg["INPUTS_HASH_PATH"].read_text(encoding="utf-8").strip()
+    # If only secrets changed, do not rewrite non-secret manifests
     if existing == ihash and not dry_run:
         info("No non-secret changes; skipping generation.")
         return
 
-    # render files
+    # render files (namespace, sa_role, deployment, service, hpa); secrets NOT written to disk
     atomic_write(cfg["FILES"]["namespace"], render_namespace(cfg))
     atomic_write(cfg["FILES"]["sa_role"], render_sa_role(cfg))
     atomic_write(cfg["FILES"]["deployment"], render_deployment(cfg))
@@ -425,71 +427,66 @@ def generate(cfg: Dict[str, Any], dry_run: bool = False):
         except Exception:
             pass
 
-    # secrets: either ExternalSecret or literal Secret (stringData)
-    if cfg["USE_AZURE_KEYVAULT"]:
-        es = render_external_secret(cfg)
-        if es:
-            atomic_write(cfg["FILES"]["externalsecret"], es)
-        else:
-            try:
-                cfg["FILES"]["externalsecret"].unlink()
-            except Exception:
-                pass
-        # do not emit literal secret file when using KeyVault
-        try:
+    # Ensure we DO NOT write secret/externalsecret files to disk (safety)
+    try:
+        if cfg["FILES"]["secret"].exists():
             cfg["FILES"]["secret"].unlink()
-        except Exception:
-            pass
-    else:
-        sec = render_secret(cfg)
-        if sec:
-            atomic_write(cfg["FILES"]["secret"], sec)
-        else:
-            try:
-                cfg["FILES"]["secret"].unlink()
-            except Exception:
-                pass
+    except Exception:
+        pass
+    try:
+        if cfg["FILES"]["externalsecret"].exists():
+            cfg["FILES"]["externalsecret"].unlink()
+    except Exception:
+        pass
 
     cfg["INPUTS_HASH_PATH"].write_text(ihash, encoding="utf-8")
-    info(f"Wrote manifests to {cfg['MANIFESTS_DIR']}")
+    info(f"Wrote manifests to {cfg['MANIFESTS_DIR']} (secrets are applied directly; not written to disk)")
 
-def apply(cfg: Dict[str, Any], confirm: bool = False, dry_run: bool = False):
+def apply(cfg: Dict[str, Any], confirm: bool = False, dry_run: bool = False) -> None:
     if not confirm:
         die("Refusing to apply without --confirm")
     if not which("kubectl"):
         die("kubectl not found in PATH")
 
-    # generate files first
+    # generate non-secret manifests first (writes non-secret manifests)
     generate(cfg, dry_run=dry_run)
 
-    # create/update secret in-cluster if provided and not using KeyVault
-    secret_res = create_or_update_secret_in_cluster(cfg, dry_run=dry_run)
-    if secret_res.get("created") is False and secret_res.get("reason") == "no_secrets":
-        if not cfg["ALLOW_MISSING_SECRETS"]:
-            info("No secrets present. If your app requires secrets (qdrant key, storage key) you should provide them as envs or via KeyVault.")
-    elif secret_res.get("created") is False and secret_res.get("reason") == "kubectl_missing":
-        die("kubectl required to create secrets in cluster; install kubectl or run --generate and create secrets manually.")
-    elif secret_res.get("created") is False and secret_res.get("reason") == "using_azure_keyvault":
-        info("Using Azure KeyVault mode; ensure ExternalSecrets operator and SecretStore exist before applying.")
-    elif secret_res.get("created"):
-        info("Created/updated in-cluster secret (from envs).")
+    # ensure namespace exists before anything else (secrets, etc.)
+    ns_ok = ensure_namespace_exists_in_cluster(cfg, dry_run=dry_run)
+    if not ns_ok.get("ok", False):
+        die(f"Failed to ensure namespace: {ns_ok.get('stderr')}")
 
-    # build combined YAML stream in the correct ordering
+    # create/update secret in-cluster if provided and not using KeyVault
+    if cfg["USE_AZURE_KEYVAULT"]:
+        # apply ExternalSecret directly into the cluster (no on-disk secrets)
+        es = render_external_secret(cfg)
+        if es:
+            res_es = kubectl_apply_stream(es, dry_run=dry_run)
+            if not res_es.get("applied", False):
+                die(f"Applying ExternalSecret failed: {res_es.get('stderr')}")
+            info("Applied ExternalSecret manifest into cluster (KeyVault mode).")
+        else:
+            if not cfg["ALLOW_MISSING_SECRETS"]:
+                die("Key Vault mode enabled but no ExternalSecret data rendered and ALLOW_MISSING_SECRETS=false")
+            info("No ExternalSecret rendered (ALLOW_MISSING_SECRETS=true).")
+    else:
+        secret_res = create_or_update_secret_in_cluster(cfg, dry_run=dry_run)
+        if secret_res.get("created") is False and secret_res.get("reason") == "no_secrets":
+            if not cfg["ALLOW_MISSING_SECRETS"]:
+                die("No secrets present. Provide secrets as envs or set ALLOW_MISSING_SECRETS=true")
+            info("No secrets present, but ALLOW_MISSING_SECRETS=true — continuing.")
+        elif secret_res.get("created") is False and secret_res.get("reason") == "kubectl_missing":
+            die("kubectl required to create secrets in cluster; install kubectl or run --generate and create secrets manually.")
+        elif secret_res.get("created") is False and secret_res.get("reason") == "namespace_ensure_failed":
+            die(f"Failed to ensure namespace before secret creation: {secret_res.get('stderr')}")
+        elif secret_res.get("created"):
+            info("Created/updated in-cluster secret from environment variables.")
+
+    # Build combined YAML stream for non-secret manifests and apply
     parts = []
     for key in ("namespace", "sa_role", "service", "deployment", "hpa"):
         p = cfg["FILES"].get(key)
         if p and p.exists():
-            parts.append(p.read_text(encoding="utf-8"))
-
-    # include secret or externalsecret only as manifest file (we prefer in-cluster secret creation via kubectl pipeline)
-    if cfg["USE_AZURE_KEYVAULT"]:
-        p = cfg["FILES"].get("externalsecret")
-        if p and p.exists():
-            parts.append(p.read_text(encoding="utf-8"))
-    else:
-        p = cfg["FILES"].get("secret")
-        if p and p.exists():
-            # We still include the secret manifest for transparency; note sensitive value may be present if you exported envs.
             parts.append(p.read_text(encoding="utf-8"))
 
     if not parts:
@@ -499,15 +496,17 @@ def apply(cfg: Dict[str, Any], confirm: bool = False, dry_run: bool = False):
     res = kubectl_apply_stream(combined, dry_run=dry_run)
     if not res.get("applied", False):
         die(f"kubectl apply failed: {res.get('stderr')}")
-    info("Applied manifests to cluster.")
+    info("Applied manifests to cluster (non-secret resources).")
+
     # write last deploy summary
     summary = {"generated_at": datetime.datetime.utcnow().isoformat() + "Z", "image": cfg["IMAGE"], "namespace": cfg["NAMESPACE"], "replicas": cfg["REPLICAS"]}
     atomic_write(cfg["MANIFESTS_DIR"] / "last_deploy_summary.json", json.dumps(summary, indent=2))
+    info("Deployment completed.")
 
-def delete(cfg: Dict[str, Any], confirm: bool = False):
+def delete(cfg: Dict[str, Any], confirm: bool = False) -> None:
     if not confirm:
         die("Refusing to delete without --confirm")
-    # remove manifest files locally
+    # remove manifest files locally (non-secret)
     if cfg["MANIFESTS_DIR"].exists():
         for p in sorted(cfg["MANIFESTS_DIR"].glob("*")):
             try:
@@ -517,7 +516,6 @@ def delete(cfg: Dict[str, Any], confirm: bool = False):
         info(f"Deleted local manifests in {cfg['MANIFESTS_DIR']}")
     # attempt to delete from cluster (best-effort)
     if which("kubectl"):
-        # delete by label selector to avoid accidental deletes
         ns = cfg["NAMESPACE"]
         name = cfg["SERVICE_NAME"]
         cmds = [
@@ -556,11 +554,10 @@ def main():
     cfg = load_config()
 
     # Basic validation (fail-fast)
-    if not cfg["IMAGE"]:
-        die("QUERY_IMAGE is required (set QUERY_IMAGE env).")
+    if not cfg["IMAGE"] and not (args.generate and os.getenv("ALLOW_EMPTY_IMAGE", "false").lower() in ("1", "true", "yes")):
+        die("QUERY_IMAGE is required (set QUERY_IMAGE env) unless ALLOW_EMPTY_IMAGE=true for dry generation.")
     if not cfg["NAMESPACE"]:
         die("QUERY_NAMESPACE is required (set QUERY_NAMESPACE env).")
-    # If KeyVault mode, require KeyVault name or allow missing
     if cfg["USE_AZURE_KEYVAULT"] and not os.getenv("AZURE_KEY_VAULT_NAME") and not cfg["ALLOW_MISSING_SECRETS"]:
         die("AZURE_KEY_VAULT_NAME required when USE_AZURE_KEYVAULT=true (or set ALLOW_MISSING_SECRETS=true)")
 

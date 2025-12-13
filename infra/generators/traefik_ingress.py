@@ -2,41 +2,58 @@
 """
 gen_auth_and_ingress.py
 
-Deterministic generator for Traefik values + Traefik middlewares (stripPrefix, cors).
-Cluster-level rate-limiting is opt-in (TRAEFIK_ENABLE_CLUSTER_RATELIMIT).
-This generator will automatically ensure Traefik (CRDs) is installed via Helm before applying middleware manifests.
+Generator for Traefik values + Traefik middlewares (stripPrefix, cors).
+This variant also applies Kubernetes Secrets directly into the cluster (in-memory)
+instead of writing them to YAML files. Namespaces are ensured/created first to
+avoid "namespace not found" errors.
 
 Usage:
-  python infra/generators/traefik_ingress.py --generate
-  python infra/generators/traefik_ingress.py --apply --confirm
-  python infra/generators/traefik_ingress.py --setup-traefik --confirm
+  python infra/generators/gen_auth_and_ingress.py --generate
+  python infra/generators/gen_auth_and_ingress.py --apply --confirm
+  python infra/generators/gen_auth_and_ingress.py --setup-traefik --confirm
 
+Secrets input:
+- Pass JSON either as env SECRET_VALUES or file path SECRET_VALUES_FILE.
+- JSON should be an array of objects:
+  [
+    {
+      "name": "my-secret",
+      "namespace": "my-namespace",
+      "type": "Opaque",
+      "data": {"KEY": "plaintext-value", "OTHER": "v2"}
+    }
+  ]
 Notes:
-- Default behavior follows the platform plan: Front Door handles rate-limiting/WAF at the edge.
-- Traefik is configured to use CRD provider only (IngressRoute CRDs).
-- Idempotent: writes .inputs_hash and skips if unchanged (SECRET_VALUES excluded).
+- Secrets data values are treated as plaintext and encoded to base64 for K8s.
+- This script never writes secret YAML to disk.
+- It uses kubectl apply -f - for idempotent upserts.
 """
+
 from __future__ import annotations
 import os
 import sys
 import json
+import base64
 import hashlib
 import subprocess
 import time
 import shutil
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 import yaml
 
 # -----------------------
-# Helpers
+# Helpers (fail-fast, deterministic)
 # -----------------------
 def die(msg: str):
-    print("ERROR:", msg, file=sys.stderr)
+    print("FATAL:", msg, file=sys.stderr)
     sys.exit(2)
 
 def info(msg: str):
     print("INFO:", msg)
+
+def warn(msg: str):
+    print("WARN:", msg, file=sys.stderr)
 
 def atomic_write(path: Path, content: str, mode: int = 0o600):
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -62,7 +79,6 @@ def canonicalize(o: Any):
 def canonical_inputs_hash(cfg: Dict[str, Any]) -> str:
     serial = {}
     for k in sorted(cfg.keys()):
-        # skip files and secret / runtime-only keys
         if k in ("FILES", "SECRET_VALUES", "INPUTS_HASH_PATH"):
             continue
         serial[k] = canonicalize(cfg[k])
@@ -71,6 +87,17 @@ def canonical_inputs_hash(cfg: Dict[str, Any]) -> str:
 
 def which(cmd: str) -> Optional[str]:
     return shutil.which(cmd)
+
+def run_kubectl(args: List[str], input_bytes: Optional[bytes] = None, check: bool = True) -> subprocess.CompletedProcess:
+    cmd = ["kubectl"] + args
+    proc = subprocess.run(cmd, input=input_bytes, capture_output=True)
+    if proc.stdout:
+        sys.stdout.buffer.write(proc.stdout)
+    if proc.stderr:
+        sys.stderr.buffer.write(proc.stderr)
+    if check and proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, cmd, output=proc.stdout, stderr=proc.stderr)
+    return proc
 
 # -----------------------
 # Config loader
@@ -90,8 +117,6 @@ def load_config() -> Dict[str, Any]:
     cfg["TRAEFIK_SERVICE_TYPE_KIND"] = os.getenv("TRAEFIK_SERVICE_TYPE_KIND", "NodePort")
     cfg["TRAEFIK_SERVICE_TYPE_AKS"] = os.getenv("TRAEFIK_SERVICE_TYPE_AKS", "LoadBalancer")
 
-    # middleware knobs (non-secret)
-    # Rate-limit is opt-in; by default platform uses Front Door for rate-limiting.
     cfg["TRAEFIK_ENABLE_CLUSTER_RATELIMIT"] = os.getenv("TRAEFIK_ENABLE_CLUSTER_RATELIMIT", "false").lower() in ("1","true","yes")
     cfg["RATE_LIMIT_AVERAGE"] = int(os.getenv("RATE_LIMIT_AVERAGE", "100"))
     cfg["RATE_LIMIT_BURST"] = int(os.getenv("RATE_LIMIT_BURST", "200"))
@@ -99,7 +124,7 @@ def load_config() -> Dict[str, Any]:
     cfg["STRIPPREFIX_PATHS"] = [p for p in os.getenv("STRIPPREFIX_PATHS", "").split(",") if p]
     cfg["CORS_ALLOW_ORIGINS"] = os.getenv("CORS_ALLOW_ORIGINS", "")
 
-    # Files emitted by this generator
+    # Files emitted by this generator (non-secrets)
     m = cfg["MANIFESTS_DIR"]
     cfg["FILES"] = {
         "namespace": m / "00-namespace.yaml",
@@ -112,31 +137,69 @@ def load_config() -> Dict[str, Any]:
         "inputs_hash": m / ".inputs_hash",
     }
 
-    # no secrets here — forward-auth and secrets are managed by a separate auth generator
+    # Secret inputs: either JSON string in SECRET_VALUES or a file path SECRET_VALUES_FILE
+    cfg["SECRET_VALUES_RAW"] = os.getenv("SECRET_VALUES")
+    cfg["SECRET_VALUES_FILE"] = os.getenv("SECRET_VALUES_FILE")
+    cfg["SECRET_VALUES"] = []  # will be parsed below
+
+    # Parse secret values now (fail-fast if JSON malformed)
+    raw = None
+    if cfg["SECRET_VALUES_RAW"]:
+        raw = cfg["SECRET_VALUES_RAW"]
+    elif cfg["SECRET_VALUES_FILE"]:
+        fp = Path(cfg["SECRET_VALUES_FILE"])
+        if not fp.exists():
+            die(f"SECRET_VALUES_FILE points to missing file: {fp}")
+        raw = fp.read_text(encoding="utf-8")
+
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as e:
+            die(f"Invalid JSON in SECRET_VALUES / SECRET_VALUES_FILE: {e}")
+        # Accept list or single object or dict-of-objects; normalize to list of secret objects
+        if isinstance(parsed, dict):
+            # try dict-of-secrets keyed by name
+            # convert to list of {name, namespace, type, data}
+            secrets_list = []
+            # If dict looks like {"name":..., "namespace":...} treat as single secret
+            if "name" in parsed and "data" in parsed:
+                secrets_list = [parsed]
+            else:
+                # assume mapping secret_name -> {namespace, type, data}
+                for k, v in parsed.items():
+                    if not isinstance(v, dict):
+                        die("SECRET_VALUES object must map secret-name -> object or be a list of secret objects")
+                    new = {"name": k, **v}
+                    secrets_list.append(new)
+            cfg["SECRET_VALUES"] = secrets_list
+        elif isinstance(parsed, list):
+            cfg["SECRET_VALUES"] = parsed
+        else:
+            die("SECRET_VALUES JSON must be an object or an array of objects")
+
+    # Validate secret entries shape (lightweight)
+    for s in cfg["SECRET_VALUES"]:
+        if "name" not in s or "namespace" not in s or "data" not in s:
+            die("Each secret must include at least 'name', 'namespace', and 'data' fields")
+
     return cfg
 
 # -----------------------
-# Renderers
+# Renderers (non-secret)
 # -----------------------
-def render_namespace(cfg: Dict[str, Any]) -> str:
-    obj = {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": cfg["TRAEFIK_NAMESPACE"]}}
-    return safe_yaml(obj)
+def render_namespace_obj(name: str) -> Dict[str, Any]:
+    return {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": name}}
 
 def render_traefik_values(kind: bool, cfg: Dict[str, Any]) -> str:
-    """
-    Produce Helm values for Traefik.
-    Use CRD provider only (IngressRoute + Middleware CRDs). Do NOT enable classic KubernetesIngress provider.
-    """
     svc_type = cfg["TRAEFIK_SERVICE_TYPE_KIND"] if kind else cfg["TRAEFIK_SERVICE_TYPE_AKS"]
     vals = {
         "replicas": cfg["TRAEFIK_REPLICAS"],
         "service": {"spec": {"type": svc_type}},
-        # CRD provider only (preferred for IngressRoute)
         "additionalArguments": ["--providers.kubernetescrd"],
         "providers": {"kubernetesCRD": {"enabled": True}, "kubernetesIngress": {"enabled": False}},
         "ports": {"web": {"port": 80}, "websecure": {"port": 443}},
         "ingressClass": {"enabled": True},
-        # ensure sensible resources defaults (operators can override)
         "resources": {
             "requests": {"cpu": "250m", "memory": "256Mi"},
             "limits": {"cpu": "1000m", "memory": "1Gi"}
@@ -145,10 +208,6 @@ def render_traefik_values(kind: bool, cfg: Dict[str, Any]) -> str:
     return safe_yaml(vals)
 
 def render_mw_ratelimit(cfg: Dict[str, Any]) -> str:
-    """
-    Render cluster rate-limit middleware ONLY when explicitly enabled.
-    Default: disabled (platform expects Front Door to rate-limit at edge).
-    """
     mw = {
         "apiVersion": "traefik.containo.us/v1alpha1",
         "kind": "Middleware",
@@ -187,7 +246,99 @@ def render_mw_cors(cfg: Dict[str, Any]) -> str:
     return safe_yaml(mw)
 
 # -----------------------
-# Generate / apply / validate / delete
+# Ensure namespace + secrets application helpers
+# -----------------------
+def ensure_namespace_exists(name: str, timeout: int = 30):
+    """
+    Ensure namespace exists by applying namespace manifest (idempotent),
+    then waiting until 'kubectl get namespace' succeeds.
+    """
+    ns_obj = render_namespace_obj(name)
+    ns_yaml = safe_yaml(ns_obj).encode("utf-8")
+    try:
+        run_kubectl(["apply", "-f", "-"], input_bytes=ns_yaml)
+    except subprocess.CalledProcessError:
+        die(f"Failed to apply namespace {name}")
+
+    # wait until namespace listed
+    end = time.time() + timeout
+    while time.time() < end:
+        proc = subprocess.run(["kubectl", "get", "namespace", name], capture_output=True)
+        if proc.returncode == 0:
+            info(f"Namespace '{name}' is present")
+            return
+        time.sleep(1)
+    die(f"Timed out waiting for namespace '{name}' to become present")
+
+def build_secret_manifest(secret: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Build a Kubernetes Secret manifest dict with base64-encoded data.
+    secret shape: { name, namespace, type (optional), data: {k: plaintext} }
+    """
+    name = secret["name"]
+    ns = secret["namespace"]
+    stype = secret.get("type", "Opaque")
+    data = secret["data"]
+    b64data: Dict[str, str] = {}
+    for k, v in data.items():
+        if isinstance(v, str):
+            raw = v.encode("utf-8")
+        elif isinstance(v, bytes):
+            raw = v
+        else:
+            # convert anything else to JSON string
+            raw = json.dumps(v, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        b64data[k] = base64.b64encode(raw).decode("ascii")
+    manifest = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": name, "namespace": ns},
+        "type": stype,
+        "data": b64data
+    }
+    return manifest
+
+def apply_secret_to_cluster(secret: Dict[str, Any]):
+    """
+    Apply a single secret to the cluster using 'kubectl apply -f -'.
+    Namespaces must exist before calling this function.
+    """
+    name = secret["name"]
+    ns = secret["namespace"]
+    manifest = build_secret_manifest(secret)
+    yaml_bytes = safe_yaml(manifest).encode("utf-8")
+    # run kubectl apply -f -
+    try:
+        run_kubectl(["apply", "-f", "-"], input_bytes=yaml_bytes)
+        info(f"Applied secret '{name}' in namespace '{ns}'")
+    except subprocess.CalledProcessError as e:
+        die(f"kubectl apply for secret {name}/{ns} failed: {e}")
+
+def apply_all_secrets(cfg: Dict[str, Any]):
+    """
+    Ensure each secret's namespace exists, then apply the secret (idempotent).
+    Does not persist secrets to disk.
+    """
+    if not cfg["SECRET_VALUES"]:
+        info("No secrets provided via SECRET_VALUES / SECRET_VALUES_FILE — skipping secret application.")
+        return
+
+    if not which("kubectl"):
+        die("kubectl not found; secrets cannot be applied")
+
+    # Ensure namespaces for all secrets first (unique set)
+    namespaces = {s["namespace"] for s in cfg["SECRET_VALUES"]}
+    for ns in sorted(namespaces):
+        ensure_namespace_exists(ns)
+
+    # Now apply each secret
+    for s in cfg["SECRET_VALUES"]:
+        # minimal logging: name + namespace only (do not print values)
+        info(f"Applying secret: name={s['name']} namespace={s['namespace']}")
+        apply_secret_to_cluster(s)
+
+# -----------------------
+# Generate / apply / validate / delete (non-secret generation)
 # -----------------------
 def ensure_dir(cfg: Dict[str, Any]):
     cfg["MANIFESTS_DIR"].mkdir(parents=True, exist_ok=True)
@@ -203,14 +354,13 @@ def generate(cfg: Dict[str, Any], dry_run: bool = False):
         return
 
     written = []
-    # Namespace
-    atomic_write(cfg["FILES"]["namespace"], render_namespace(cfg)); written.append(cfg["FILES"]["namespace"])
+    # Namespace (file is non-secret; still written)
+    ns_yaml = safe_yaml(render_namespace_obj(cfg["TRAEFIK_NAMESPACE"]))
+    atomic_write(cfg["FILES"]["namespace"], ns_yaml); written.append(cfg["FILES"]["namespace"])
 
-    # Traefik Helm values (kind vs aks)
     atomic_write(cfg["FILES"]["traefik_values_kind"], render_traefik_values(True, cfg)); written.append(cfg["FILES"]["traefik_values_kind"])
     atomic_write(cfg["FILES"]["traefik_values_aks"], render_traefik_values(False, cfg)); written.append(cfg["FILES"]["traefik_values_aks"])
 
-    # Rate limit middleware only if explicitly enabled
     if cfg["TRAEFIK_ENABLE_CLUSTER_RATELIMIT"]:
         atomic_write(cfg["FILES"]["mw_ratelimit"], render_mw_ratelimit(cfg)); written.append(cfg["FILES"]["mw_ratelimit"])
     else:
@@ -219,7 +369,6 @@ def generate(cfg: Dict[str, Any], dry_run: bool = False):
         except Exception:
             pass
 
-    # stripPrefix middleware (optional)
     sp = render_mw_stripprefix(cfg)
     if sp:
         atomic_write(cfg["FILES"]["mw_stripprefix"], sp); written.append(cfg["FILES"]["mw_stripprefix"])
@@ -229,7 +378,6 @@ def generate(cfg: Dict[str, Any], dry_run: bool = False):
         except Exception:
             pass
 
-    # cors middleware (optional)
     cp = render_mw_cors(cfg)
     if cp:
         atomic_write(cfg["FILES"]["mw_cors"], cp); written.append(cfg["FILES"]["mw_cors"])
@@ -239,8 +387,6 @@ def generate(cfg: Dict[str, Any], dry_run: bool = False):
         except Exception:
             pass
 
-    # manifest.meta.json describes middleware names and namespace.
-    # forward_auth_middleware intentionally left null — separate auth generator provides it.
     meta = {
         "traefik_namespace": cfg["TRAEFIK_NAMESPACE"],
         "ratelimit_middleware": "global-ratelimit" if cfg["TRAEFIK_ENABLE_CLUSTER_RATELIMIT"] else None,
@@ -255,12 +401,9 @@ def generate(cfg: Dict[str, Any], dry_run: bool = False):
     info(f"Wrote {len(written)} files: {', '.join([p.name for p in written])}")
 
 # -----------------------
-# Ensure Traefik CRDs / Helm install helper
+# Ensure Traefik CRDs / Helm install helper (unchanged)
 # -----------------------
 def setup_traefik(cfg: Dict[str, Any], upgrade: bool = False, timeout: int = 180):
-    """Install or upgrade Traefik via Helm. This will create CRDs.
-    Uses helm upgrade --install which is idempotent.
-    """
     if not which("helm"):
         die("helm not found; install Helm to auto-install Traefik and CRDs or run --setup-traefik manually on a system with helm.")
     ensure_dir = cfg["MANIFESTS_DIR"]; ensure_dir.mkdir(parents=True, exist_ok=True)
@@ -273,12 +416,10 @@ def setup_traefik(cfg: Dict[str, Any], upgrade: bool = False, timeout: int = 180
     cmd = ["helm", "upgrade", "--install", cfg["TRAEFIK_RELEASE"], "traefik/traefik",
            "--namespace", cfg["TRAEFIK_NAMESPACE"], "--create-namespace", "-f", str(values_file),
            "--version", cfg["TRAEFIK_CHART_VERSION"], "--wait", "--timeout", "180s"]
-    # run the helm command; it's idempotent
     proc = subprocess.run(cmd, capture_output=True)
     sys.stdout.buffer.write(proc.stdout); sys.stderr.buffer.write(proc.stderr)
     if proc.returncode != 0:
         die("helm upgrade/install failed; see output above.")
-    # wait for CRD presence (api-resources) up to timeout
     end = time.time() + timeout
     while time.time() < end:
         proc = subprocess.run(["kubectl", "api-resources"], capture_output=True)
@@ -299,8 +440,14 @@ def apply(cfg: Dict[str, Any], confirm: bool = False):
     if not which("kubectl"):
         die("kubectl not found in PATH")
 
-    # Generate files first (idempotent)
+    # Generate non-secret manifests first (idempotent)
     generate(cfg, dry_run=False)
+
+    # Ensure the traefik namespace exists (so Traefik install can run into correct ns)
+    ensure_namespace_exists(cfg["TRAEFIK_NAMESPACE"])
+
+    # Apply secrets first (namespaces for secrets will be ensured inside)
+    apply_all_secrets(cfg)
 
     # check CRDs presence (ingressroutes, middlewares)
     proc = subprocess.run(["kubectl", "api-resources"], capture_output=True)
@@ -312,7 +459,6 @@ def apply(cfg: Dict[str, Any], confirm: bool = False):
 
     # Now apply the manifests (namespace + middlewares)
     order = [cfg["FILES"]["namespace"]]
-    # include optional files when present; rate-limit only if file exists (enabled)
     if cfg["FILES"]["mw_ratelimit"].exists():
         order.append(cfg["FILES"]["mw_ratelimit"])
     if cfg["FILES"]["mw_stripprefix"].exists():

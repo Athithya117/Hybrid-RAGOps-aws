@@ -4,6 +4,7 @@
 # - Use Managed Identity only when AZURE_USE_MANAGED_IDENTITY (or USE_MANAGED_IDENTITY) is "1"/"true"/"yes".
 # - Otherwise use key/SAS/connection-string mode via fsspec/adlfs.
 from __future__ import annotations
+import importlib
 import os
 import sys
 import time
@@ -94,7 +95,6 @@ class LoggerShim:
 log = LoggerShim("txt_parser")
 
 # ---------- deterministic identity switch (ONLY this!) ----------
-# Use environment variable AZURE_USE_MANAGED_IDENTITY (preferred) or USE_MANAGED_IDENTITY (legacy)
 USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower() in ("1", "true", "yes")
 
 # ---------- config ----------
@@ -123,44 +123,45 @@ STORAGE_CHUNKED_PREFIX = _norm_prefix(STORAGE_CHUNKED_PREFIX)
 # ---------- helper: pre-validate required envs and deps ----------
 def validate_runtime():
     missing = []
+    # container already validated
     if USE_MANAGED_IDENTITY:
-        # require account name + container
         acct = os.getenv("AZURE_STORAGE_ACCOUNT_NAME") or os.getenv("AZURE_ACCOUNT_NAME")
         if not acct:
             missing.append("AZURE_STORAGE_ACCOUNT_NAME")
-        if not AZURE_CONTAINER:
-            missing.append("AZURE_CONTAINER")
+        # pyarrow is optional; warn if missing
         if not pa or not pq:
-            # pyarrow only required for finalization; warn not exit (some pipelines may not write parquet)
             log.warning("dep_missing", "pyarrow not installed (writing parquet will fail). Install: pip install pyarrow")
-        # Azure SDK needed
+        # Azure SDK required for MI
         try:
-            import importlib
             importlib.import_module("azure.identity")
             importlib.import_module("azure.storage.blob")
         except Exception as e:
             log.error("dep_missing", "azure.identity / azure.storage.blob required for managed identity mode", error=str(e))
             sys.exit(2)
     else:
-        # non-managed mode requires fsspec/adlfs and credential envs
-        try:
-            import importlib
-            importlib.import_module("fsspec")
-        except Exception as e:
-            log.error("dep_missing", "fsspec/adlfs required for key/SAS mode: pip install fsspec adlfs", error=str(e))
-            sys.exit(2)
+        # non-managed: either connection string via azure sdk OR fsspec/adlfs with account+key/SAS
+        conn = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
         acct = os.getenv("AZURE_STORAGE_ACCOUNT_NAME") or os.getenv("AZURE_ACCOUNT_NAME")
         key = os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
-        conn = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
         sas = os.getenv("AZURE_SAS_TOKEN")
-        if not acct:
-            missing.append("AZURE_STORAGE_ACCOUNT_NAME")
-        if not (key or conn or sas):
-            missing.append("AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_CONNECTION_STRING or AZURE_SAS_TOKEN")
-        if not AZURE_CONTAINER:
-            missing.append("AZURE_CONTAINER")
+        # If connection string present and azure SDK installed, that's fine.
+        if conn:
+            try:
+                importlib.import_module("azure.storage.blob")
+            except Exception:
+                # if azure SDK missing but fsspec present and account/key or sas present then ok
+                if fsspec is None and not (acct and (key or sas)):
+                    missing.append("azure-storage-blob or fsspec+adlfs and credentials")
+        else:
+            # no conn string: need account + (key or sas) and fsspec
+            if not acct:
+                missing.append("AZURE_STORAGE_ACCOUNT_NAME")
+            if not (key or sas):
+                missing.append("AZURE_STORAGE_ACCOUNT_KEY or AZURE_SAS_TOKEN or AZURE_STORAGE_CONNECTION_STRING")
+            if fsspec is None:
+                missing.append("fsspec/adlfs (pip install fsspec adlfs)")
     if missing:
-        log.error("env_missing", "Missing required environment variables for selected auth mode", missing=missing, use_managed_identity=str(USE_MANAGED_IDENTITY))
+        log.error("env_missing", "Missing required environment variables or deps for selected auth mode", missing=missing, use_managed_identity=str(USE_MANAGED_IDENTITY))
         sys.exit(2)
 
 # validate early
@@ -168,7 +169,6 @@ validate_runtime()
 
 # ---------- storage options builder ----------
 def build_storage_options() -> Dict[str, str]:
-    # only used when not using managed identity
     opts: Dict[str, str] = {}
     conn = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
     if conn:
@@ -198,10 +198,11 @@ def build_storage_options() -> Dict[str, str]:
 FS_OPTS = build_storage_options()
 STORAGE_ROOT = f"az://{AZURE_CONTAINER.rstrip('/')}/"
 
-# ---------- runtime initialization: lazy import of azure sdk only when needed ----------
+# ---------- runtime initialization: robust dual-mode ----------
 BLOB_CLIENT = None
+FS = None
+
 if USE_MANAGED_IDENTITY:
-    # we validated runtime presence above; import now
     try:
         from azure.identity import DefaultAzureCredential  # type: ignore
         from azure.storage.blob import BlobServiceClient  # type: ignore
@@ -209,22 +210,50 @@ if USE_MANAGED_IDENTITY:
         log.error("azure_import", "Failed to import azure sdk despite earlier validation", error=str(e))
         sys.exit(2)
     account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME") or os.getenv("AZURE_ACCOUNT_NAME")
-    account_url = f"https://{account_name}.{os.getenv('AZURE_ENDPOINT_SUFFIX','core.windows.net')}"
+    endpoint_suffix = os.getenv("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
+    account_url = f"https://{account_name}.{endpoint_suffix}"
     try:
-        CREDENTIAL = DefaultAzureCredential()
-        BLOB_CLIENT = BlobServiceClient(account_url=account_url, credential=CREDENTIAL, connection_timeout=60)
+        # use user-assigned client id when provided, else default
+        uai_client = os.getenv("UAI_RAG_RW_CLIENT_ID") or os.getenv("AZURE_CLIENT_ID")
+        if uai_client:
+            CREDENTIAL = DefaultAzureCredential(managed_identity_client_id=uai_client)
+        else:
+            CREDENTIAL = DefaultAzureCredential()
+        BLOB_CLIENT = BlobServiceClient(account_url=account_url, credential=CREDENTIAL)
+        log.info("client_init", "Initialized BlobServiceClient (managed identity)", account=account_name)
     except Exception as e:
-        log.error("blobclient_init", "Failed to create BlobServiceClient", error=str(e))
+        log.error("blobclient_init", "Failed to create BlobServiceClient (managed identity)", error=str(e))
         sys.exit(2)
-    FS = None
 else:
-    # non-managed identity mode uses fsspec/adlfs
+    # Prefer Azure SDK connection string when present and azure.storage.blob available
+    conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    azure_sdk_available = False
     try:
-        FS = fsspec.filesystem("az", **FS_OPTS) if fsspec is not None else None
-    except Exception as e:
-        log.error("fsspec_init_failed", "failed to init fsspec az filesystem", error=str(e))
-        sys.exit(2)
-    BLOB_CLIENT = None
+        importlib.import_module("azure.storage.blob")
+        azure_sdk_available = True
+    except Exception:
+        azure_sdk_available = False
+
+    if conn_str and azure_sdk_available:
+        try:
+            from azure.storage.blob import BlobServiceClient  # type: ignore
+            BLOB_CLIENT = BlobServiceClient.from_connection_string(conn_str)
+            log.info("client_init", "Initialized BlobServiceClient (connection string)")
+        except Exception as e:
+            log.warning("connstr_failed", "BlobServiceClient.from_connection_string failed, will attempt fsspec fallback", error=str(e))
+            BLOB_CLIENT = None
+
+    if BLOB_CLIENT is None:
+        # fsspec fallback (adlfs)
+        if fsspec is None:
+            log.error("fsspec_missing", "fsspec/adlfs required for key/SAS mode fallback (pip install fsspec adlfs)")
+            sys.exit(2)
+        try:
+            FS = fsspec.filesystem("az", **FS_OPTS)  # type: ignore
+            log.info("fs.init", "Initialized fsspec az filesystem", opts_keys=list(FS_OPTS.keys()))
+        except Exception as e:
+            log.error("fsspec_init_failed", "failed to init fsspec az filesystem", error=str(e))
+            sys.exit(2)
 
 # ---------- helpers ----------
 def full_path_from_key(key: str) -> str:
@@ -298,7 +327,7 @@ class AzureStorageClient:
 
     def _container_client(self):
         if self.blob_client is None:
-            raise RuntimeError("blob_client not initialized for managed-identity mode")
+            raise RuntimeError("blob_client not initialized for managed-identity or azure-sdk mode")
         return self.blob_client.get_container_client(self.container)
 
     def head_object(self, Bucket, Key):
@@ -378,7 +407,6 @@ class AzureStorageClient:
         if self.fs is not None:
             full = full_path_from_key(Key)
             if hasattr(self.fs, "put"):
-                # adlfs exposes put
                 self.fs.put(LocalFile, full)
             else:
                 with open(LocalFile, "rb") as lf:
@@ -427,7 +455,6 @@ class AzureStorageClient:
                 pass
 
     def get_paginator(self, name):
-        # returns an object with paginate(Bucket=..., Prefix=...) like boto3 paginator style
         if self.fs is not None:
             class P:
                 def __init__(self, fs, root):
@@ -484,7 +511,7 @@ def get_storage_client_singleton():
     if _storage_single is None:
         with _storage_lock2:
             if _storage_single is None:
-                if USE_MANAGED_IDENTITY:
+                if USE_MANAGED_IDENTITY or (BLOB_CLIENT is not None and not FS):
                     _storage_single = AzureStorageClient(fs_obj=None, root=STORAGE_ROOT, container=AZURE_CONTAINER, blob_client=BLOB_CLIENT)
                 else:
                     _storage_single = AzureStorageClient(fs_obj=FS, root=STORAGE_ROOT, container=AZURE_CONTAINER, blob_client=None)
@@ -823,7 +850,6 @@ def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "a
                         pass
                 return
             else:
-                # managed identity -> upload directly to final name (overwrite) via blob client
                 client.upload_file(local_path, AZURE_CONTAINER, key)
                 return
         except Exception as e:

@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-"""
-infra/generators/gen_qdrant_cluster.py
-
-Deterministic generator for Qdrant Helm values with optional node tainting
-and local NVMe hostPath support (no PVCs).
-"""
 from pathlib import Path
 import os
 import sys
@@ -16,6 +9,7 @@ import hashlib
 import uuid
 import datetime
 import argparse
+from typing import Tuple, List
 
 # -------------------- Config loader --------------------
 def load_config():
@@ -32,7 +26,6 @@ def load_config():
     cfg["QDRANT_REPLICAS"] = int(os.environ.get("QDRANT_REPLICAS", "1" if env == "STAGING" else "3"))
     cfg["QDRANT_CPU"] = os.environ.get("QDRANT_CPU", "1" if env == "STAGING" else "4")
     cfg["QDRANT_MEMORY"] = os.environ.get("QDRANT_MEMORY", "2Gi" if env == "STAGING" else "16Gi")
-    # legacy default: "emptyDir", can be "pvc" or "emptyDir" or "hostPath"
     cfg["QDRANT_STORAGE"] = os.environ.get("QDRANT_STORAGE", "emptyDir")
     cfg["QDRANT_NODE_SELECTOR"] = os.environ.get("QDRANT_NODE_SELECTOR", "")
     cfg["QDRANT_TAINT_KEY"] = os.environ.get("QDRANT_TAINT_KEY", "qdrant-dedicated")
@@ -43,6 +36,7 @@ def load_config():
     cfg["AWS_ACCESS_KEY_ID"] = os.environ.get("AWS_ACCESS_KEY_ID", "")
     cfg["AWS_SECRET_ACCESS_KEY"] = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
     cfg["AWS_SESSION_TOKEN"] = os.environ.get("AWS_SESSION_TOKEN", "")
+    cfg["QDRANT__SERVICE__API_KEY"] = os.environ.get("QDRANT__SERVICE__API_KEY", "")
     cfg["APPLY_STAGING_SECRETS"] = os.environ.get("APPLY_STAGING_SECRETS", "true").lower() in ("1", "true", "yes")
     cfg["TIMEOUT_SECONDS"] = int(os.environ.get("TIMEOUT_SECONDS", "600"))
     cfg["INPUTS_HASH_PATH"] = cfg["MANIFESTS_DIR"] / ".inputs_hash"
@@ -67,10 +61,13 @@ def load_config():
     cfg["USE_LOCAL_NVME"] = os.environ.get("USE_LOCAL_NVME", "false").lower() in ("1", "true", "yes")
     cfg["QDRANT_LOCAL_PATH"] = os.environ.get("QDRANT_LOCAL_PATH", "/mnt/nvme/qdrant")
     cfg["TAINT_QDRANT_NODES"] = os.environ.get("TAINT_QDRANT_NODES", "false").lower() in ("1", "true", "yes")
+    # secret names used in-cluster
+    cfg["SECRET_BACKUP_NAME"] = os.environ.get("SECRET_BACKUP_NAME", "qdrant-backup-aws")
+    cfg["SECRET_SERVICE_NAME"] = os.environ.get("SECRET_SERVICE_NAME", "qdrant-service-creds")
     return cfg
 
 # -------------------- Utilities --------------------
-SENSITIVE_KEYS = {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}
+SENSITIVE_KEYS = {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "QDRANT__SERVICE__API_KEY"}
 
 def canonical_inputs_hash(cfg):
     serial = {}
@@ -78,6 +75,7 @@ def canonical_inputs_hash(cfg):
         if k == "INPUTS_HASH_PATH":
             continue
         if k in SENSITIVE_KEYS:
+            # only include presence/absence for secrets
             serial[k] = bool(cfg.get(k))
         else:
             v = cfg.get(k)
@@ -97,7 +95,7 @@ def atomic_write(path: Path, content: str):
     tmp.write_text(content)
     tmp.replace(path)
 
-def run_cmd(cmd, capture=True, check=False, timeout=None, input_bytes=None):
+def run_cmd(cmd: List[str], capture=True, check=False, timeout=None, input_bytes=None) -> Tuple[int, str, str]:
     try:
         proc = subprocess.run(cmd, capture_output=capture, text=True, check=check, timeout=timeout, input=(input_bytes.decode() if isinstance(input_bytes, bytes) else input_bytes))
         return proc.returncode, proc.stdout or "", proc.stderr or ""
@@ -119,33 +117,55 @@ def detect_storageclass(kubectl_bin="kubectl"):
     rc2, out2, err2 = run_cmd(cmd2)
     return out2.strip() if out2.strip() else None
 
-def ensure_namespace(cfg):
+def ensure_namespace(cfg) -> Tuple[bool, str]:
+    """
+    Ensure namespace exists. Returns (True, None) on success.
+    Fail-fast does not occur here; callers can decide.
+    """
     kubectl = shutil.which("kubectl")
     if not kubectl:
         return False, "kubectl-not-found"
-    cmd1 = [kubectl, "create", "namespace", cfg["QDRANT_NAMESPACE"], "--dry-run=client", "-o", "yaml"]
+    ns = cfg["QDRANT_NAMESPACE"]
+    # dry-run create -> apply to ensure idempotent creation
+    cmd1 = [kubectl, "create", "namespace", ns, "--dry-run=client", "-o", "yaml"]
     rc, out, err = run_cmd(cmd1, timeout=20)
     if rc != 0:
-        rcg, outg, errg = run_cmd([kubectl, "get", "namespace", cfg["QDRANT_NAMESPACE"]], timeout=20)
+        # maybe already exists; check
+        rcg, outg, errg = run_cmd([kubectl, "get", "namespace", ns], timeout=20)
         if rcg == 0:
             return True, None
         return False, err or out or outg or errg
+    # apply produced YAML
     rc2, out2, err2 = run_cmd([kubectl, "apply", "-f", "-"], input_bytes=out.encode("utf-8"), timeout=20)
-    return rc2 == 0, err2 if rc2 != 0 else None
+    if rc2 != 0:
+        return False, err2 or out2
+    return True, None
 
-def kubectl_create_secret_in_cluster(cfg, secret_name="qdrant-backup-aws"):
+def kubectl_create_secret_in_cluster(cfg, secret_name: str, env_keys: List[str]) -> Tuple[bool, str]:
+    """
+    Create or update a Kubernetes secret directly in the cluster.
+    - secret_name: name of the k8s secret
+    - env_keys: list of environment variable names to include in the secret (values read from process env / cfg)
+    Behavior:
+    - Ensures namespace exists first
+    - Never writes secret to disk
+    - Uses kubectl create secret generic --dry-run=client -o yaml | kubectl apply -f -
+    """
     kubectl = shutil.which("kubectl")
     if not kubectl:
         return False, "kubectl-not-found"
+    # ensure namespace exists — defensive (apply_to_cluster already calls ensure_namespace, but double-check here)
+    ok_ns, ns_err = ensure_namespace(cfg)
+    if not ok_ns:
+        return False, f"ensure-namespace-failed: {ns_err}"
     literals = []
-    if cfg.get("AWS_ACCESS_KEY_ID"):
-        literals += ["--from-literal", f"AWS_ACCESS_KEY_ID={cfg['AWS_ACCESS_KEY_ID']}"]
-    if cfg.get("AWS_SECRET_ACCESS_KEY"):
-        literals += ["--from-literal", f"AWS_SECRET_ACCESS_KEY={cfg['AWS_SECRET_ACCESS_KEY']}"]
-    if cfg.get("AWS_SESSION_TOKEN"):
-        literals += ["--from-literal", f"AWS_SESSION_TOKEN={cfg['AWS_SESSION_TOKEN']}"]
+    for k in env_keys:
+        # prefer values coming from cfg (already read from env) to avoid reading env twice
+        val = cfg.get(k, os.environ.get(k, ""))
+        if val:
+            literals += ["--from-literal", f"{k}={val}"]
     if not literals:
-        return False, "no-aws-creds-present"
+        return False, "no-secrets-present-for-this-secret"
     cmd = [kubectl, "create", "secret", "generic", secret_name, "-n", cfg["QDRANT_NAMESPACE"], "--dry-run=client", "-o", "yaml"] + literals
     rc1, out1, err1 = run_cmd(cmd, timeout=20)
     if rc1 != 0:
@@ -240,7 +260,6 @@ def _get_candidate_nodes(cfg):
         rc, out, err = run_cmd(cmd)
         names = out.strip().split() if out.strip() else []
         return names
-    # fallback: pick all non-control-plane nodes (based on label node-role.kubernetes.io/control-plane)
     cmd = [kubectl, "get", "nodes", "-o", "json"]
     rc, out, err = run_cmd(cmd)
     if rc != 0 or not out:
@@ -252,7 +271,6 @@ def _get_candidate_nodes(cfg):
             labels = it.get("metadata", {}).get("labels", {})
             if "node-role.kubernetes.io/control-plane" in labels or "node-role.kubernetes.io/master" in labels:
                 continue
-            # only include Ready nodes
             for cond in it.get("status", {}).get("conditions", []):
                 if cond.get("type") == "Ready" and cond.get("status") == "True":
                     names.append(it.get("metadata", {}).get("name"))
@@ -270,7 +288,6 @@ def _node_has_taint(node_name, taint_key, taint_effect):
         return False
     for line in out.splitlines():
         if line.strip().startswith("Taints:"):
-            # if Taints: <none> then skip
             if ":" in line and "Taints:" in line and line.strip().endswith("<none>"):
                 return False
         if taint_key in line and taint_effect in line:
@@ -285,16 +302,12 @@ def taint_nodes(cfg):
     nodes = _get_candidate_nodes(cfg)
     if not nodes:
         return False, "no-candidate-nodes-found"
-    taint = f"{cfg['QDRANT_TAINT_KEY']}={cfg['QDRANT_TAINT_KEY']}: {cfg['QDRANT_TAINT_EFFECT']}"
-    # Use kubectl taint idempotently
     for n in nodes:
         if _node_has_taint(n, cfg["QDRANT_TAINT_KEY"], cfg["QDRANT_TAINT_EFFECT"]):
             continue
-        # add taint
         cmd = ["kubectl", "taint", "nodes", n, f"{cfg['QDRANT_TAINT_KEY']}={cfg['QDRANT_TAINT_KEY']}:{cfg['QDRANT_TAINT_EFFECT']}"]
         rc, out, err = run_cmd(cmd, timeout=20)
         if rc != 0:
-            # if already exists or other error, return fail
             return False, f"taint-failed: {n}: {err or out}"
     return True, f"tainted {len(nodes)} nodes"
 
@@ -315,11 +328,11 @@ def untaint_nodes(cfg):
 
 # -------------------- Renderers --------------------
 def render_values_yaml(cfg, storage_class):
+    # split image into repo/tag safely
     repo, tag = cfg["QDRANT_IMAGE"].split(":", 1) if ":" in cfg["QDRANT_IMAGE"] else (cfg["QDRANT_IMAGE"], "latest")
     peers = []
     for i in range(0, cfg["QDRANT_REPLICAS"]):
         peers.append(f"http://{cfg['QDRANT_RELEASE']}-{i}.{cfg['QDRANT_RELEASE']}-headless:6335")
-    # base values
     values = {
         "replicaCount": cfg["QDRANT_REPLICAS"],
         "image": {"repository": repo, "tag": tag, "pullPolicy": "IfNotPresent"},
@@ -328,17 +341,31 @@ def render_values_yaml(cfg, storage_class):
         "cluster": {"enabled": True, "peers": peers},
         "snapshots": {
             "enabled": True if cfg.get("BACKUP_S3_BUCKET") else False,
-            "s3": {"bucket": cfg.get("BACKUP_S3_BUCKET", ""), "endpoint": cfg.get("BACKUP_S3_ENDPOINT", ""), "region": cfg.get("S3_REGION", cfg.get("S3_REGION")), "prefix": cfg.get("BACKUP_S3_PREFIX", "")},
+            "s3": {
+                "bucket": cfg.get("BACKUP_S3_BUCKET", ""),
+                "endpoint": cfg.get("BACKUP_S3_ENDPOINT", ""),
+                "region": cfg.get("S3_REGION", ""),
+                "prefix": cfg.get("BACKUP_S3_PREFIX", ""),
+            },
         },
-        "extraEnv": [
-            {"name": "QDRANT__SERVICE__API_KEY", "value": os.environ.get("QDRANT__SERVICE__API_KEY", "")},
-            {"name": "QDRANT__STORAGE__SNAPSHOTS_CONFIG__SNAPSHOTS_STORAGE", "value": "S3" if cfg.get("BACKUP_S3_BUCKET") else ""},
-            {"name": "QDRANT__STORAGE__SNAPSHOTS_CONFIG__S3_CONFIG__BUCKET", "value": cfg.get("BACKUP_S3_BUCKET", "")},
-            {"name": "QDRANT__STORAGE__SNAPSHOTS_CONFIG__S3_CONFIG__REGION", "value": cfg.get("S3_REGION", "")},
-            {"name": "QDRANT__STORAGE__SNAPSHOTS_CONFIG__S3_CONFIG__ENDPOINT_URL", "value": cfg.get("BACKUP_S3_ENDPOINT", "")},
-        ],
+        # IMPORTANT: use secretKeyRef to avoid writing secret values into values.yaml
+        "extraEnv": [],
         "resources": {"requests": {"cpu": cfg["QDRANT_CPU"], "memory": cfg["QDRANT_MEMORY"]}, "limits": {"cpu": cfg["QDRANT_CPU"], "memory": cfg["QDRANT_MEMORY"]}},
     }
+
+    # if we intend to create k8s secrets, reference them here via secretKeyRef
+    # backup secret: AWS_* entries
+    backup_secret = cfg.get("SECRET_BACKUP_NAME")
+    if backup_secret:
+        for k in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
+            # do not inline sensitive values; reference the k8s secret
+            values["extraEnv"].append({"name": k, "valueFrom": {"secretKeyRef": {"name": backup_secret, "key": k}}})
+
+    # service secret: QDRANT__SERVICE__API_KEY
+    service_secret = cfg.get("SECRET_SERVICE_NAME")
+    if service_secret:
+        values["extraEnv"].append({"name": "QDRANT__SERVICE__API_KEY", "valueFrom": {"secretKeyRef": {"name": service_secret, "key": "QDRANT__SERVICE__API_KEY"}}})
+
     # tolerations only if TAINT_QDRANT_NODES true
     if cfg.get("TAINT_QDRANT_NODES"):
         values["tolerations"] = [{"key": cfg["QDRANT_TAINT_KEY"], "operator": "Exists", "effect": cfg["QDRANT_TAINT_EFFECT"]}]
@@ -347,9 +374,7 @@ def render_values_yaml(cfg, storage_class):
 
     # Storage strategy
     if cfg.get("USE_LOCAL_NVME"):
-        # disable PVC persistence and use hostPath mounts to local NVMe path
         values["persistence"] = {"enabled": False}
-        # add hostPath mounts to map local NVMe into container
         host_path = cfg.get("QDRANT_LOCAL_PATH", "/mnt/nvme/qdrant")
         values["extraVolumes"] = [
             {"name": "qdrant-storage", "hostPath": {"path": host_path, "type": "DirectoryOrCreate"}},
@@ -359,17 +384,13 @@ def render_values_yaml(cfg, storage_class):
             {"name": "qdrant-storage", "mountPath": cfg.get("QDRANT__STORAGE__STORAGE_PATH", "/qdrant/storage")},
             {"name": "qdrant-snapshots", "mountPath": cfg.get("QDRANT__STORAGE__SNAPSHOTS_PATH", "/qdrant/snapshots")},
         ]
-        # suggestions for node placement: user may set nodeSelector env to pin nodes with NVMe
         if cfg.get("QDRANT_NODE_SELECTOR"):
-            # expecting 'key=value' form
             try:
                 k, v = cfg.get("QDRANT_NODE_SELECTOR").split("=", 1)
                 values["nodeSelector"] = {k: v}
             except Exception:
-                # if malformed, just set as string label to avoid accidental scheduling failures
                 values["nodeSelector"] = {}
     else:
-        # prefer PVCs if storage_class is available; otherwise emptyDir fallback
         if storage_class:
             values["persistence"] = {"enabled": True, "storageClass": storage_class, "size": "50Gi"}
         else:
@@ -377,7 +398,6 @@ def render_values_yaml(cfg, storage_class):
             values["extraVolumes"] = [{"name": "qdrant-storage", "emptyDir": {}}]
             values["extraVolumeMounts"] = [{"name": "qdrant-storage", "mountPath": cfg.get("QDRANT__STORAGE__STORAGE_PATH", "/qdrant/storage")}]
 
-    # config block: preserve explicit numeric types
     values["config"] = {
         "params": {
             "shard_number": int(cfg.get("QDRANT_SHARD_NUMBER", 1)),
@@ -401,17 +421,19 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
         return
     storage_class = detect_storageclass() or None
     values_yaml = render_values_yaml(cfg, storage_class)
+    # write values.yaml (safe - contains no literal secret values)
     atomic_write(cfg["MANIFESTS_DIR"] / "values.yaml", values_yaml)
     samples_dir = cfg["MANIFESTS_DIR"] / "_samples"
     ensure_dir(samples_dir)
-    sample_secret = {
+    # Write a sample *placeholder* secret file with NO real credentials to guide operators (safe)
+    sample_secret_placeholder = {
         "apiVersion": "v1",
         "kind": "Secret",
-        "metadata": {"name": "qdrant-backup-aws", "namespace": cfg["QDRANT_NAMESPACE"]},
+        "metadata": {"name": cfg["SECRET_BACKUP_NAME"], "namespace": cfg["QDRANT_NAMESPACE"]},
         "type": "Opaque",
-        "stringData": {"AWS_ACCESS_KEY_ID": "AKIAxxxxxxxxxxxx", "AWS_SECRET_ACCESS_KEY": "xxxxxxxxxxxxxxxxxxxx"},
+        "stringData": {"AWS_ACCESS_KEY_ID": "REPLACE_ME", "AWS_SECRET_ACCESS_KEY": "REPLACE_ME"},
     }
-    atomic_write(samples_dir / "secret-sample.yaml", yaml.safe_dump(sample_secret, sort_keys=False))
+    atomic_write(samples_dir / "secret-sample.placeholder.yaml", yaml.safe_dump(sample_secret_placeholder, sort_keys=False))
     cfg["INPUTS_HASH_PATH"].write_text(inputs_hash)
     print("Wrote manifests to", str(cfg["MANIFESTS_DIR"]))
     if verbose:
@@ -421,34 +443,54 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
     return
 
 def apply_to_cluster(cfg, dry_run=False, verbose=False):
+    # validate required CLIs
     kubectl = shutil.which("kubectl")
     helm = shutil.which("helm")
     if kubectl is None or helm is None:
         print("ERROR: kubectl and helm are required in PATH to apply to cluster.", file=sys.stderr)
         sys.exit(2)
+    # staging secret pre-conditions
     if cfg["ENV"] == "STAGING" and cfg["APPLY_STAGING_SECRETS"]:
         if not cfg["AWS_ACCESS_KEY_ID"] or not cfg["AWS_SECRET_ACCESS_KEY"]:
-            print("ERROR: ENV=STAGING requires AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to be set when using --apply (in-cluster secret will be created).", file=sys.stderr)
+            print("ERROR: ENV=STAGING requires AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY set when using --apply (in-cluster secret will be created).", file=sys.stderr)
             sys.exit(2)
+    # generate manifests (values.yaml only; secrets are applied directly)
     generate_manifests(cfg, dry_run=dry_run, verbose=verbose)
-    ok, err = ensure_namespace(cfg)
-    if not ok:
-        print("ERROR: failed to ensure namespace:", err, file=sys.stderr)
+    if dry_run:
+        print("Dry-run mode: skipping kubectl/helm apply.")
+        return
+    # ensure namespace before applying secrets
+    ok_ns, ns_err = ensure_namespace(cfg)
+    if not ok_ns:
+        print("ERROR: failed to ensure namespace:", ns_err, file=sys.stderr)
         sys.exit(2)
     print("Namespace ensured:", cfg["QDRANT_NAMESPACE"])
+    # apply secrets directly into cluster (do not write them to disk)
+    created_any_secret = False
+    # Backup secret (AWS credentials)
     if cfg["ENV"] == "STAGING" and cfg["APPLY_STAGING_SECRETS"]:
-        ok_s, err_s = kubectl_create_secret_in_cluster(cfg)
+        ok_s, err_s = kubectl_create_secret_in_cluster(cfg, cfg["SECRET_BACKUP_NAME"], ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"])
         if not ok_s:
-            print("ERROR: failed to create staging secret in-cluster:", err_s, file=sys.stderr)
+            print("ERROR: failed to create/update backup secret in-cluster:", err_s, file=sys.stderr)
             sys.exit(2)
-        print("Created/updated in-cluster secret: qdrant-backup-aws")
+        print("Created/updated in-cluster secret:", cfg["SECRET_BACKUP_NAME"])
+        created_any_secret = True
     else:
         if cfg["ENV"] == "PROD":
             print("ENV=PROD: skipping secret creation (expect IRSA/cluster-managed secrets).")
         else:
-            print("Skipping in-cluster secret creation (APPLY_STAGING_SECRETS=false).")
+            print("Skipping in-cluster backup secret creation (APPLY_STAGING_SECRETS=false).")
 
-    # If user requested tainting, perform it idempotently before helm install
+    # Service secret (API keys)
+    if cfg.get("QDRANT__SERVICE__API_KEY"):
+        ok_srv, err_srv = kubectl_create_secret_in_cluster(cfg, cfg["SECRET_SERVICE_NAME"], ["QDRANT__SERVICE__API_KEY"])
+        if not ok_srv:
+            print("ERROR: failed to create/update service secret in-cluster:", err_srv, file=sys.stderr)
+            sys.exit(2)
+        print("Created/updated in-cluster secret:", cfg["SECRET_SERVICE_NAME"])
+        created_any_secret = True
+
+    # Node tainting (idempotent) before helm install
     if cfg.get("TAINT_QDRANT_NODES"):
         ok_t, msg_t = taint_nodes(cfg)
         if not ok_t:
@@ -456,7 +498,6 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False):
             sys.exit(2)
         print("Tainting result:", msg_t)
     else:
-        # ensure taint is removed if user explicitly set false and nodes previously tainted
         ok_u, msg_u = untaint_nodes(cfg)
         if not ok_u and msg_u != "kubectl-not-found":
             print("Warning: failed to untaint nodes:", msg_u)
@@ -464,6 +505,7 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False):
             if msg_u:
                 print("Untainting result:", msg_u)
 
+    # Chart vendor / install
     v_ok, v_err = vendor_chart_if_missing(cfg, verbose=verbose)
     if not v_ok:
         print("Vendor chart not available locally; will attempt remote install. vendor error:", v_err)
@@ -475,7 +517,9 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False):
         print("ERROR: helm upgrade/install failed. See summary below.", file=sys.stderr)
         if verbose:
             print("--- helm error (tail) ---")
-            print(errtext.splitlines()[-200:])
+            # print last 200 lines of errtext safely
+            for line in (errtext or "").splitlines()[-200:]:
+                print(line)
         print(errtext, file=sys.stderr)
         sys.exit(2)
     print("Helm install/upgrade succeeded for release:", cfg["QDRANT_RELEASE"])
@@ -488,6 +532,7 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False):
         "image": cfg["QDRANT_IMAGE"],
         "vendor_chart_dir": str(cfg["VENDOR_CHART_DIR"]) if cfg["VENDOR_CHART_DIR"].exists() else None,
         "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "secrets_created": created_any_secret,
     }
     atomic_write(cfg["MANIFESTS_DIR"] / "last_deploy_summary.json", json.dumps(summary, indent=2))
     print("Wrote deploy summary ->", str(cfg["MANIFESTS_DIR"] / "last_deploy_summary.json"))
@@ -513,7 +558,7 @@ def parse_args():
     p = argparse.ArgumentParser(description="Generate/apply Qdrant Helm manifests (cluster-aware).")
     grp = p.add_mutually_exclusive_group(required=True)
     grp.add_argument("--generate", action="store_true", help="Generate manifests to MANIFESTS_DIR.")
-    grp.add_argument("--apply", action="store_true", help="Generate manifests and apply (create staging secret + helm install).")
+    grp.add_argument("--apply", action="store_true", help="Generate manifests and apply (create staging secret(s) + helm install).")
     grp.add_argument("--delete", action="store_true", help="Delete generated manifests and inputs hash.")
     p.add_argument("--dry-run", action="store_true", help="Render and validate but do not write or apply.")
     p.add_argument("--verbose", action="store_true", help="Print extra debug info (helm output tails on failure).")
@@ -522,16 +567,20 @@ def parse_args():
 def main():
     args = parse_args()
     cfg = load_config()
-    if args.delete:
-        delete_manifests(cfg); return
-    if args.generate:
-        generate_manifests(cfg, dry_run=args.dry_run, verbose=args.verbose); return
+    # fail fast validations for deterministic behavior
     if args.apply:
+        # require kubectl & helm in PATH
+        if shutil.which("kubectl") is None or shutil.which("helm") is None:
+            print("ERROR: To --apply you must have kubectl and helm installed and configured in PATH.", file=sys.stderr)
+            sys.exit(2)
+    if args.delete:
+        delete_manifests(cfg)
+        return
+    if args.generate:
         generate_manifests(cfg, dry_run=args.dry_run, verbose=args.verbose)
-        if args.dry_run:
-            print("Dry-run mode: skipping kubectl/helm apply.")
-            return
-        apply_to_cluster(cfg, dry_run=False, verbose=args.verbose)
+        return
+    if args.apply:
+        apply_to_cluster(cfg, dry_run=args.dry_run, verbose=args.verbose)
         return
 
 if __name__ == "__main__":

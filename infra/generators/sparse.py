@@ -1,20 +1,3 @@
-#!/usr/bin/env python3
-"""
-gen_sparse.py
-
-Deterministic generator for Sparse embedder Kubernetes manifests.
-Writes manifests to infra/manifests/sparse/
-
-Usage:
-  # generate files
-  python3 gen_sparse.py --generate
-
-  # apply to cluster (requires kubectl)
-  python3 gen_sparse.py --apply
-
-  # delete generated manifests
-  python3 gen_sparse.py --delete
-"""
 from pathlib import Path
 import os
 import sys
@@ -27,30 +10,42 @@ import hashlib
 import uuid
 import datetime
 import logging
+from typing import Dict, Any, Tuple, Optional
 
 # -------------------- logging --------------------
-logging.basicConfig(level=os.environ.get("GEN_SPARSE_LOGLEVEL", "INFO"))
+LOGLEVEL = os.environ.get("GEN_SPARSE_LOGLEVEL", "INFO")
+logging.basicConfig(level=LOGLEVEL)
 log = logging.getLogger("gen_sparse")
 
 # -------------------- helpers --------------------
-def ensure_dir(p: Path):
+def fatal(msg: str, code: int = 1) -> None:
+    log.error(msg)
+    sys.exit(code)
+
+def ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
-def atomic_write(path: Path, content: str):
+def atomic_write(path: Path, content: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content)
     tmp.replace(path)
 
-def run_cmd(cmd, capture=True, check=False, timeout=None, input_bytes=None):
+def run_cmd(cmd, capture=True, check=False, timeout=None, input_bytes=None) -> Tuple[int, str, str]:
     try:
-        proc = subprocess.run(cmd, input=input_bytes, capture_output=capture, text=True, check=check, timeout=timeout)
-        return proc.returncode, proc.stdout or "", proc.stderr or ""
+        proc = subprocess.run(cmd, input=input_bytes, capture_output=capture, text=False, check=check, timeout=timeout)
+        stdout = proc.stdout.decode() if proc.stdout else ""
+        stderr = proc.stderr.decode() if proc.stderr else ""
+        return proc.returncode, stdout, stderr
     except subprocess.CalledProcessError as e:
-        return e.returncode, e.stdout or "", e.stderr or ""
+        stdout = getattr(e, "stdout", b"")
+        stderr = getattr(e, "stderr", b"")
+        return e.returncode, (stdout.decode() if stdout else ""), (stderr.decode() if stderr else "")
     except subprocess.TimeoutExpired as e:
-        return 124, getattr(e, "stdout", "") or "", getattr(e, "stderr", "") or f"timeout after {timeout}s"
+        stdout = getattr(e, "stdout", b"")
+        stderr = getattr(e, "stderr", b"")
+        return 124, (stdout.decode() if stdout else ""), (stderr.decode() if stderr else f"timeout after {timeout}s")
 
-def canonical_inputs_hash(cfg: dict):
+def canonical_inputs_hash(cfg: dict) -> str:
     serial = {}
     for k in sorted(cfg.keys()):
         if k == "INPUTS_HASH_PATH":
@@ -64,26 +59,29 @@ def canonical_inputs_hash(cfg: dict):
     j = json.dumps(serial, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(j.encode("utf-8")).hexdigest()
 
-def kubectl_apply_yaml(yaml_str: str, dry_run=False):
+def kubectl_apply_yaml(yaml_str: str, timeout: int = 120) -> dict:
     kubectl = shutil.which("kubectl")
     if not kubectl:
         return {"applied": False, "error": "kubectl-not-found"}
-    cmd = [kubectl, "apply"]
-    if dry_run:
-        cmd += ["--dry-run=client", "-f", "-"]
-    else:
-        cmd += ["-f", "-"]
-    try:
-        proc = subprocess.run(cmd, input=yaml_str.encode("utf-8"), capture_output=True, check=True, timeout=120)
-        return {"applied": True, "stdout": proc.stdout.decode() if proc.stdout else ""}
-    except subprocess.CalledProcessError as e:
-        return {"applied": False, "stderr": e.stderr.decode() if e.stderr else str(e)}
-    except subprocess.TimeoutExpired as e:
-        return {"applied": False, "stderr": f"timeout: {e}"}
+    cmd = [kubectl, "apply", "-f", "-"]
+    code, out, err = run_cmd(cmd, input_bytes=yaml_str.encode("utf-8"), timeout=timeout)
+    if code == 0:
+        return {"applied": True, "stdout": out}
+    return {"applied": False, "stderr": err or out or f"kubectl exited {code}"}
+
+def kubectl_execute(cmd_args: list, timeout: int = 30) -> dict:
+    kubectl = shutil.which("kubectl")
+    if not kubectl:
+        return {"ok": False, "error": "kubectl-not-found"}
+    cmd = [kubectl] + cmd_args
+    code, out, err = run_cmd(cmd, timeout=timeout)
+    if code == 0:
+        return {"ok": True, "stdout": out}
+    return {"ok": False, "stderr": err or out or f"exit {code}"}
 
 # -------------------- config loader (SPARSE_*) --------------------
-def load_config():
-    cfg = {}
+def load_config() -> Dict[str, Any]:
+    cfg: Dict[str, Any] = {}
     # environment context
     cfg["ENV"] = os.environ.get("SPARSE_ENV", os.environ.get("ENV", "STAGING")).upper()
     cfg["MANIFESTS_DIR"] = Path(os.environ.get("MANIFESTS_DIR", "infra/manifests/sparse"))
@@ -103,17 +101,16 @@ def load_config():
             "CPU_LIMIT": os.environ.get("SPARSE_CPU_LIMIT", "4000m"),
             "MEMORY_REQUEST": os.environ.get("SPARSE_MEMORY_REQUEST", "1Gi"),
             "MEMORY_LIMIT": os.environ.get("SPARSE_MEMORY_LIMIT", "4Gi"),
-            "STARTUP_FAILURE_THRESHOLD": int(os.environ.get("SPARSE_STARTUP_FAILURE_THRESHOLD", "24")),  # ~120s with 5s period
+            "STARTUP_FAILURE_THRESHOLD": int(os.environ.get("SPARSE_STARTUP_FAILURE_THRESHOLD", "24")),
         })
     else:
-        # staging defaults tuned for typical sparse model
         cfg.update({
             "REPLICAS": int(os.environ.get("SPARSE_REPLICAS", "1")),
             "CPU_REQUEST": os.environ.get("SPARSE_CPU_REQUEST", "250m"),
             "CPU_LIMIT": os.environ.get("SPARSE_CPU_LIMIT", "1000m"),
             "MEMORY_REQUEST": os.environ.get("SPARSE_MEMORY_REQUEST", "512Mi"),
             "MEMORY_LIMIT": os.environ.get("SPARSE_MEMORY_LIMIT", "1Gi"),
-            "STARTUP_FAILURE_THRESHOLD": int(os.environ.get("SPARSE_STARTUP_FAILURE_THRESHOLD", "60")),  # ~300s with 5s period
+            "STARTUP_FAILURE_THRESHOLD": int(os.environ.get("SPARSE_STARTUP_FAILURE_THRESHOLD", "60")),
         })
     # probe timings (overridable)
     cfg["PROBE_PERIOD_SECONDS"] = int(os.environ.get("SPARSE_PROBE_PERIOD_SECONDS", "5"))
@@ -134,14 +131,12 @@ def load_config():
     cfg["SA_NAME"] = os.environ.get("SPARSE_SA_NAME", f"{cfg['SERVICE_NAME']}-sa")
     cfg["ROLE_NAME"] = os.environ.get("SPARSE_ROLE_NAME", f"{cfg['SERVICE_NAME']}-role")
     cfg["ROLEBIND_NAME"] = os.environ.get("SPARSE_ROLEBIND_NAME", f"{cfg['SERVICE_NAME']}-rb")
-    # metadata and labels
-    cfg["LABELS"] = {
-        "app.kubernetes.io/name": cfg["SERVICE_NAME"],
-        "app.kubernetes.io/component": "embedder",
-        "app.kubernetes.io/managed-by": "gen_sparse",
-        "app.kubernetes.io/instance": cfg["SERVICE_NAME"],
-        "env": cfg["ENV"].lower(),
-    }
+    # secrets sources
+    cfg["SECRETS_JSON"] = os.environ.get("SPARSE_SECRETS_JSON", "")  # JSON string: {"secretname": {"k":"v",...}, ...}
+    cfg["SECRETS_DIR"] = os.environ.get("SPARSE_SECRETS_DIR", "")    # directory path; subdirs => secret names; files => keys
+    cfg["SECRETS_ENV_PREFIX"] = os.environ.get("SPARSE_SECRETS_ENV_PREFIX", "")  # prefix for env-secret mapping; format: PREFIX<SECRET>__<KEY>
+    cfg["APPLY_SECRETS"] = os.environ.get("SPARSE_APPLY_SECRETS", "true").lower() in ("1", "true", "yes")
+    cfg["DELETE_SECRETS_ON_DELETE"] = os.environ.get("SPARSE_DELETE_SECRETS", "false").lower() in ("1", "true", "yes")
     # output filenames
     cfg["FILES"] = {
         "namespace": cfg["MANIFESTS_DIR"] / "00-namespace.yaml",
@@ -153,7 +148,7 @@ def load_config():
     cfg["UUID_SHORT"] = str(uuid.uuid4())[:8]
     return cfg
 
-# -------------------- YAML renderers --------------------
+# -------------------- YAML renderers (non-secret) --------------------
 def render_namespace(cfg):
     ns = {
         "apiVersion": "v1",
@@ -187,7 +182,13 @@ def render_sa_role(cfg):
     return "\n---\n".join([yaml.safe_dump(x, sort_keys=False) for x in (sa, role, rb)])
 
 def render_deployment(cfg):
-    labels = cfg["LABELS"].copy()
+    labels = {
+        "app.kubernetes.io/name": cfg["SERVICE_NAME"],
+        "app.kubernetes.io/component": "embedder",
+        "app.kubernetes.io/managed-by": "gen_sparse",
+        "app.kubernetes.io/instance": cfg["SERVICE_NAME"],
+        "env": cfg["ENV"].lower(),
+    }
     container = {
         "name": cfg["SERVICE_NAME"],
         "image": cfg["IMAGE"],
@@ -223,7 +224,6 @@ def render_deployment(cfg):
         },
     }
 
-    # GPU support: add resource limits if enabled
     if cfg["ENABLE_GPU"]:
         try:
             gcount = int(cfg["GPU_COUNT"])
@@ -248,11 +248,15 @@ def render_deployment(cfg):
         },
     }
 
-    # If GPU node selector provided, add to pod spec (best-effort)
     if cfg["ENABLE_GPU"] and cfg["GPU_NODE_SELECTOR"]:
-        pod_spec["spec"]["template"]["spec"]["nodeSelector"] = {k: v for k, v in [cfg["GPU_NODE_SELECTOR"].split("=", 1)]} if "=" in cfg["GPU_NODE_SELECTOR"] else {cfg["GPU_NODE_SELECTOR"]: "true"}
+        ns = {}
+        if "=" in cfg["GPU_NODE_SELECTOR"]:
+            k, v = cfg["GPU_NODE_SELECTOR"].split("=", 1)
+            ns[k] = v
+        else:
+            ns[cfg["GPU_NODE_SELECTOR"]] = "true"
+        pod_spec["spec"]["template"]["spec"]["nodeSelector"] = ns
 
-    # Add prometheus scraping annotations (optional standard)
     pod_spec["spec"]["template"]["metadata"].setdefault("annotations", {})
     pod_spec["spec"]["template"]["metadata"]["annotations"].update({
         "prometheus.io/scrape": "true",
@@ -266,7 +270,11 @@ def render_service(cfg):
     svc = {
         "apiVersion": "v1",
         "kind": "Service",
-        "metadata": {"name": f"{cfg['SERVICE_NAME']}-svc", "namespace": cfg["NAMESPACE"], "labels": cfg["LABELS"]},
+        "metadata": {"name": f"{cfg['SERVICE_NAME']}-svc", "namespace": cfg["NAMESPACE"], "labels": {
+            "app.kubernetes.io/name": cfg["SERVICE_NAME"],
+            "app.kubernetes.io/managed-by": "gen_sparse",
+            "env": cfg["ENV"].lower(),
+        }},
         "spec": {
             "type": "ClusterIP",
             "ports": [{"port": cfg["CONTAINER_PORT"], "targetPort": cfg["CONTAINER_PORT"], "protocol": "TCP", "name": "http"}],
@@ -276,7 +284,6 @@ def render_service(cfg):
     return yaml.safe_dump(svc, sort_keys=False)
 
 def render_hpa(cfg):
-    # Generate HorizontalPodAutoscaler v2 (CPU percent)
     hpa = {
         "apiVersion": "autoscaling/v2",
         "kind": "HorizontalPodAutoscaler",
@@ -292,8 +299,140 @@ def render_hpa(cfg):
     }
     return yaml.safe_dump(hpa, sort_keys=False)
 
+# -------------------- secrets ingestion --------------------
+def load_secrets_from_json(json_str: str) -> Dict[str, Dict[str, str]]:
+    try:
+        parsed = json.loads(json_str)
+        if not isinstance(parsed, dict):
+            raise ValueError("SPARSE_SECRETS_JSON must be a JSON object mapping secretName -> {key: value}")
+        # normalize to strings
+        out: Dict[str, Dict[str, str]] = {}
+        for sname, body in parsed.items():
+            if not isinstance(body, dict):
+                raise ValueError(f"secret {sname} must be an object")
+            out[sname] = {str(k): str(v) for k, v in body.items()}
+        return out
+    except Exception as e:
+        fatal(f"Invalid SPARSE_SECRETS_JSON: {e}")
+
+def load_secrets_from_dir(path: str) -> Dict[str, Dict[str, str]]:
+    p = Path(path)
+    if not p.exists():
+        fatal(f"SPARSE_SECRETS_DIR path does not exist: {path}")
+    out: Dict[str, Dict[str, str]] = {}
+    # if path contains subdirectories -> each subdir is a secret
+    subdirs = [x for x in p.iterdir() if x.is_dir()]
+    if subdirs:
+        for d in subdirs:
+            secret_name = d.name
+            keys = {}
+            for f in d.iterdir():
+                if f.is_file():
+                    keys[f.name] = f.read_bytes().decode("utf-8")
+            if keys:
+                out[secret_name] = keys
+    else:
+        # no subdirs: treat the directory as single secret
+        keys = {}
+        for f in p.iterdir():
+            if f.is_file():
+                keys[f.name] = f.read_bytes().decode("utf-8")
+        if keys:
+            out[p.name] = keys
+    return out
+
+def load_secrets_from_env(prefix: str) -> Dict[str, Dict[str, str]]:
+    out: Dict[str, Dict[str, str]] = {}
+    for k, v in os.environ.items():
+        if not k.startswith(prefix):
+            continue
+        suffix = k[len(prefix):]
+        # expected format: SECRETNAME__KEY (double underscore)
+        if "__" not in suffix:
+            log.warning("Ignoring env secret variable without secret/key format (expected SECRET__KEY): %s", k)
+            continue
+        secret_name, key = suffix.split("__", 1)
+        secret_name = secret_name.lower()
+        out.setdefault(secret_name, {})[key] = v
+    return out
+
+def collect_secrets(cfg: dict) -> Dict[str, Dict[str, str]]:
+    secrets: Dict[str, Dict[str, str]] = {}
+    if cfg.get("SECRETS_JSON"):
+        log.info("Loading secrets from SPARSE_SECRETS_JSON")
+        secrets.update(load_secrets_from_json(cfg["SECRETS_JSON"]))
+    if cfg.get("SECRETS_DIR"):
+        log.info("Loading secrets from SPARSE_SECRETS_DIR: %s", cfg["SECRETS_DIR"])
+        secrets.update(load_secrets_from_dir(cfg["SECRETS_DIR"]))
+    if cfg.get("SECRETS_ENV_PREFIX"):
+        log.info("Loading secrets from env with prefix: %s", cfg["SECRETS_ENV_PREFIX"])
+        secrets.update(load_secrets_from_env(cfg["SECRETS_ENV_PREFIX"]))
+    # normalize secret names to safe dns-1123 label if necessary
+    normalized = {}
+    for name, kv in secrets.items():
+        safe = name.lower().replace("_", "-")
+        safe = "".join(c for c in safe if (c.isalnum() or c == "-"))
+        if not safe:
+            fatal(f"Invalid secret name derived from '{name}'")
+        normalized[safe] = {str(k): str(v) for k, v in kv.items()}
+    return normalized
+
+# -------------------- cluster helpers for namespace & secrets --------------------
+def ensure_namespace(cfg: dict) -> None:
+    ns = cfg["NAMESPACE"]
+    res = kubectl_execute(["get", "namespace", ns])
+    if res.get("ok"):
+        log.info("Namespace exists: %s", ns)
+        # try to add label idempotently
+        _patch = {
+            "metadata": {"labels": {"app.kubernetes.io/managed-by": "gen_sparse"}}
+        }
+        _yaml = yaml.safe_dump(_patch, sort_keys=False)
+        kubectl_execute(["patch", "namespace", ns, "--patch", _yaml])
+        return
+    # create namespace
+    log.info("Creating namespace: %s", ns)
+    ns_manifest = render_namespace(cfg)
+    out = kubectl_apply_yaml(ns_manifest)
+    if not out.get("applied", False):
+        fatal(f"Failed to create namespace {ns}: {out.get('stderr') or out.get('error')}")
+    log.info("Namespace created: %s", ns)
+
+def apply_secret(cfg: dict, secret_name: str, data: Dict[str, str]) -> None:
+    """
+    Apply a Kubernetes secret using 'stringData' (so we never write base64 or secret to disk).
+    This is idempotent.
+    """
+    if not secret_name or not data:
+        fatal("secret_name and data are required")
+    # validate keys/values to be strings and not empty
+    for k, v in data.items():
+        if v is None or v == "":
+            fatal(f"Secret {secret_name} has empty value for key '{k}' (refusing to apply empty secret).")
+    secret_manifest = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": secret_name, "namespace": cfg["NAMESPACE"], "labels": {"app.kubernetes.io/managed-by": "gen_sparse"}},
+        # use stringData to let the API encode server-side; avoids base64 handling locally
+        "stringData": data,
+        "type": "Opaque"
+    }
+    y = yaml.safe_dump(secret_manifest, sort_keys=False)
+    out = kubectl_apply_yaml(y)
+    if not out.get("applied", False):
+        # surface error
+        fatal(f"Failed to apply secret {secret_name}: {out.get('stderr') or out.get('error')}")
+    log.info("Applied secret: %s (keys: %s)", secret_name, ", ".join(sorted(data.keys())))
+
+def delete_secret(cfg: dict, secret_name: str) -> None:
+    res = kubectl_execute(["delete", "secret", secret_name, "-n", cfg["NAMESPACE"]])
+    if not res.get("ok"):
+        log.warning("Failed to delete secret %s: %s", secret_name, res.get("stderr") or res.get("error"))
+    else:
+        log.info("Deleted secret %s", secret_name)
+
 # -------------------- generate / apply / delete --------------------
-def generate_manifests(cfg, dry_run=False, verbose=False):
+def generate_manifests(cfg: dict, dry_run: bool = False, verbose: bool = False) -> None:
     ensure_dir(cfg["MANIFESTS_DIR"])
     inputs_hash = canonical_inputs_hash(cfg)
     existing = None
@@ -318,32 +457,51 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
     cfg["INPUTS_HASH_PATH"].write_text(inputs_hash)
     log.info("Wrote manifests to %s", str(cfg["MANIFESTS_DIR"]))
     if verbose:
-        log.info("Namespace:\n%s", ns_yaml.splitlines()[:20])
+        log.info("Namespace (head):\n%s", ns_yaml.splitlines()[:20])
         log.info("Deployment (head):\n%s", deploy_yaml.splitlines()[:60])
-    return
 
-def apply_to_cluster(cfg, dry_run=False, verbose=False):
+def apply_to_cluster(cfg: dict, dry_run: bool = False, verbose: bool = False) -> None:
     # ensure kubectl exists
-    kubectl = shutil.which("kubectl")
-    if not kubectl:
-        log.error("kubectl not found in PATH; cannot apply")
-        sys.exit(2)
-    # generate first (writes files)
+    if not shutil.which("kubectl"):
+        fatal("kubectl not found in PATH; cannot apply")
+
+    # Generate non-secret manifests first (they are safe to write)
     generate_manifests(cfg, dry_run=dry_run, verbose=verbose)
     if dry_run:
-        log.info("Dry-run: skipping kubectl apply")
+        log.info("Dry-run: skipping kubectl apply.")
         return
-    # apply files in the manifest dir in deterministic order
+
+    # 1) Ensure namespace exists (idempotent)
+    ensure_namespace(cfg)
+
+    # 2) Collect and apply secrets (in-memory, never written)
+    if cfg.get("APPLY_SECRETS"):
+        secrets = collect_secrets(cfg)
+        if secrets:
+            log.info("Applying %d secret(s) to namespace %s", len(secrets), cfg["NAMESPACE"])
+            for sname, kv in secrets.items():
+                # secret names: if the user supplied arbitrary names, prefix them for clarity
+                # but do not overwrite a conscious name if it already contains the service name
+                if sname.startswith(f"{cfg['SERVICE_NAME']}-") or sname == cfg['SERVICE_NAME']:
+                    final_name = sname
+                else:
+                    final_name = f"{cfg['SERVICE_NAME']}-{sname}"
+                apply_secret(cfg, final_name, kv)
+        else:
+            log.info("No secrets found to apply (APPLY_SECRETS=%s)", cfg.get("APPLY_SECRETS"))
+    else:
+        log.info("APPLY_SECRETS disabled; skipping secret application.")
+
+    # 3) Apply non-secret manifests in deterministic order
     files = [cfg["FILES"]["namespace"], cfg["FILES"]["sa_role"], cfg["FILES"]["deployment"], cfg["FILES"]["service"]]
     if cfg["HPA_ENABLED"]:
         files.append(cfg["FILES"]["hpa"])
     combined = ""
     for p in files:
         combined += f"---\n# source: {p.name}\n" + p.read_text() + "\n"
-    res = kubectl_apply_yaml(combined, dry_run=False)
+    res = kubectl_apply_yaml(combined)
     if not res.get("applied", False):
-        log.error("kubectl apply failed: %s", res.get("stderr") or res.get("error"))
-        sys.exit(2)
+        fatal(f"kubectl apply failed: {res.get('stderr') or res.get('error')}")
     # write last_deploy_summary
     summary = {
         "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
@@ -355,13 +513,27 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False):
     atomic_write(cfg["MANIFESTS_DIR"] / "last_deploy_summary.json", json.dumps(summary, indent=2))
     log.info("Applied manifests to cluster and wrote deploy summary")
 
-def delete_manifests(cfg):
+def delete_manifests(cfg: dict) -> None:
+    # optionally delete applied secrets (explicit opt-in via SPARSE_DELETE_SECRETS=1)
+    if cfg.get("DELETE_SECRETS_ON_DELETE"):
+        log.info("Deleting applied secrets (DELETE_SECRETS_ON_DELETE=true)")
+        secrets = collect_secrets(cfg)
+        for sname in secrets.keys():
+            if sname.startswith(f"{cfg['SERVICE_NAME']}-") or sname == cfg['SERVICE_NAME']:
+                final_name = sname
+            else:
+                final_name = f"{cfg['SERVICE_NAME']}-{sname}"
+            delete_secret(cfg, final_name)
+    # remove generated manifests
     if cfg["MANIFESTS_DIR"].exists():
         for p in sorted(cfg["MANIFESTS_DIR"].glob("*")):
             try:
-                p.unlink()
-            except IsADirectoryError:
-                shutil.rmtree(p)
+                if p.is_file():
+                    p.unlink()
+                else:
+                    shutil.rmtree(p)
+            except Exception:
+                log.exception("Failed to remove %s", p)
         try:
             cfg["INPUTS_HASH_PATH"].unlink()
         except FileNotFoundError:
@@ -384,6 +556,11 @@ def parse_args():
 def main():
     args = parse_args()
     cfg = load_config()
+    # Fail-fast validations
+    if not shutil.which("kubectl"):
+        log.debug("kubectl not found; will only be able to generate files if --generate used.")
+    # Ensure manifests dir exists for generation/deletion
+    ensure_dir(cfg["MANIFESTS_DIR"])
     if args.delete:
         delete_manifests(cfg)
         return
@@ -391,10 +568,7 @@ def main():
         generate_manifests(cfg, dry_run=args.dry_run, verbose=args.verbose)
         return
     if args.apply:
-        generate_manifests(cfg, dry_run=args.dry_run, verbose=args.verbose)
-        if args.dry_run:
-            log.info("Dry-run mode: skipping kubectl apply.")
-            return
+        # apply will ensure namespace, secrets, then deployment
         apply_to_cluster(cfg, dry_run=args.dry_run, verbose=args.verbose)
         return
 

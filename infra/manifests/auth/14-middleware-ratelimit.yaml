@@ -1,9 +1,0 @@
-apiVersion: traefik.containo.us/v1alpha1
-kind: Middleware
-metadata:
-  name: forward-auth-ratelimit
-  namespace: inference-auth
-spec:
-  rateLimit:
-    average: 10
-    burst: 20
