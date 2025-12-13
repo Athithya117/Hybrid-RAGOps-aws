@@ -1,3 +1,12 @@
+#!/usr/bin/env python3
+"""
+indexing_cronjob.py - final: ensures namespace is created before secrets
+
+- Writes placeholder manifests to MANIFESTS_DIR (secrets on disk contain placeholders).
+- Applies namespace first, waits for it, then creates real secrets in-cluster from env vars.
+- Applies RBAC, ServiceAccount and CronJob (CronJob references secrets via secretKeyRef only when env provided).
+- Auth mode is decided only by AZURE_USE_MANAGED_IDENTITY or presence of UAI_RAG_RW_CLIENT_ID.
+"""
 from __future__ import annotations
 import os
 import sys
@@ -18,20 +27,62 @@ DEFAULTS: Dict[str, str] = {
     "CRONJOB_CONCURRENCY": "Allow",
     "AZURE_USE_MANAGED_IDENTITY": "0",
     "CRONJOB_BACKOFF_LIMIT": "1",
+    "CRONJOB_PARALLELISM": "1",
+    "CRONJOB_COMPLETIONS": "1",
+    "CRONJOB_DEBUG_KEEP_POD": "false",
+    "CRONJOB_TIMEZONE": "",
     "SUCCESSFUL_JOBS_HISTORY_LIMIT": "3",
     "FAILED_JOBS_HISTORY_LIMIT": "1",
     "SERVICE_ACCOUNT_NAME": "indexer-cron-sa",
     "ROLE_NAME": "indexer-cron-role",
     "ROLEBINDING_NAME": "indexer-cron-rb",
     "INDEXING_PIPELINE_CPU_IMAGE_REPO": "athithya5354/indexing_pipeline_cpu",
-    "INDEXING_PIPELINE_CPU_IMAGE_TAG": "v12",
+    "INDEXING_PIPELINE_CPU_IMAGE_TAG": "v7",
     "INDEXING_BACKUP_CRONJOB_CPU_REQUEST": "2",
     "INDEXING_BACKUP_CRONJOB_CPU_LIMIT": "4",
     "INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST": "1Gi",
     "INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT": "2Gi",
+    "AZURE_CHUNKED_PREFIX": "data/chunked/",
+    "AZURE_CONTAINER": "rag-data-prod",
+    "AZURE_ENDPOINT_SUFFIX": "core.windows.net",
+    "OVERWRITE_DOC_DOCX_TO_PDF": "true",
+    "OVERWRITE_ALL_AUDIO_FILES": "true",
+    "OVERWRITE_SPREADSHEETS_WITH_CSV": "true",
+    "OVERWRITE_PPT_WITH_PPTS": "true",
+    "MAX_TOKENS_PER_CHUNK": "320",
+    "MIN_TOKENS_PER_CHUNK": "100",
+    "NUMBER_OF_OVERLAPPING_SENTENCES": "2",
+    "PDF_DISABLE_OCR": "false",
+    "PDF_OCR_ENGINE": "rapidocr",
+    "PDF_TESSERACT_LANG": "eng",
+    "IMAGE_TESSERACT_LANG": "eng",
+    "TESSERACT_CONFIG": "--oem 1 --psm 6",
+    "PDF_FORCE_OCR": "false",
+    "PDF_OCR_RENDER_DPI": "400",
+    "PDF_MIN_IMG_SIZE_BYTES": "3072",
+    "IMAGE_OCR_ENGINE": "rapidocr",
+    "IMAGE_MIN_IMG_SIZE_BYTES": "3072",
+    "IMAGE_RENDER_DPI": "600",
+    "IMAGE_UPSCALE_FACTOR": "2.0",
+    "CSV_TARGET_TOKENS_PER_CHUNK": "600",
+    "JSONL_TARGET_TOKENS_PER_CHUNK": "600",
+    "PPTX_SLIDES_PER_CHUNK": "4",
+    "PPTX_OCR_ENGINE": "rapidocr",
+    "QDRANT_URL": "http://qdrant.qdrant.svc.cluster.local:6333",
+    "DENSE_URL": "http://dense-svc.models.svc.cluster.local:8200",
+    "SPARSE_URL": "http://sparse-svc.models.svc.cluster.local:8201",
+    "LOG_LEVEL": "INFO",
+    "HTTP_TIMEOUT": "60",
+    "BATCH_SIZE": "16",
+    "UPSERT_CHUNK": "500",
+    "DENSE_DIM": "384",
+    "SPARSE_BATCH_FALLBACK": "8",
+    "QDRANT_HNSW_EF_CONSTRUCT": "128",
+    "QDRANT_HNSW_M": "32",
+    "QDRANT_HNSW_FULL_SCAN_THRESHOLD": "10000",
+    "QDRANT_ONDISK": "TRUE",
     "PYTHONUNBUFFERED": "1",
     "MANIFESTS_DIR": "infra/manifests/jobs",
-    "HTTP_TIMEOUT": "60",
 }
 
 SENSITIVE_KEYS = {
@@ -50,17 +101,48 @@ NAMED_SECRET_MAP = {
 
 RUNTIME_KEYS = set(DEFAULTS.keys()).union(
     {
+        # azure / uai
         "AZURE_STORAGE_ACCOUNT_NAME",
         "AZURE_STORAGE_ACCOUNT_KEY",
         "AZURE_SAS_TOKEN",
         "AZURE_STORAGE_CONNECTION_STRING",
+        "AZURE_SUBSCRIPTION_ID",
+        "AZURE_RESOURCE_GROUP_NAME",
+        "AZURE_LOCATION",
         "AZURE_TENANT_ID",
+        "AZURE_CLIENT_ID",
+        "AZURE_CONTAINER",
+        "AZURE_CHUNKED_PREFIX",
+        "AZURE_ENDPOINT_SUFFIX",
+        "AZURE_STORAGE_API_VERSION",
         "UAI_RAG_RW_CLIENT_ID",
+        "UAI_RAG_RO_CLIENT_ID",
+        "UAI_RAG_RW_PRINCIPAL_ID",
+        "UAI_RAG_RO_PRINCIPAL_ID",
+        "UAI_RAG_RW_NAME",
+        "UAI_RAG_RO_NAME",
+        # qdrant / indexer
+        "QDRANT_URL",
         "QDRANT_API_KEY",
         "QDRANT_SECRET_NAME",
-        "AZURE_SECRET_NAME",
-        "EXTRA_SECRET_NAME",
+        # services
+        "DENSE_URL",
+        "SPARSE_URL",
+        # pipeline behavior
+        "BATCH_SIZE",
+        "MAX_TOKENS_PER_CHUNK",
+        "MIN_TOKENS_PER_CHUNK",
+        "CSV_TARGET_TOKENS_PER_CHUNK",
+        "JSONL_TARGET_TOKENS_PER_CHUNK",
+        "UPSERT_CHUNK",
+        "DENSE_DIM",
+        "SPARSE_BATCH_FALLBACK",
+        "OVERWRITE_DOC_DOCX_TO_PDF",
+        "OVERWRITE_ALL_AUDIO_FILES",
+        "OVERWRITE_SPREADSHEETS_WITH_CSV",
+        "OVERWRITE_PPT_WITH_PPTS",
         "USE_MANAGED_IDENTITY",
+        "ENV",
     }
 )
 
@@ -88,36 +170,33 @@ def is_cron_key(k: str) -> bool:
     return False
 
 def safe_get_env(key: str, default: str = "") -> str:
-    return os.environ.get(key) or os.environ.get(key.lower()) or default
-
-def redact_map_for_log(m: Dict[str, str]) -> Dict[str, str]:
-    redacted = {}
-    for k, v in m.items():
-        if not v:
-            redacted[k] = ""
-            continue
-        if k in SENSITIVE_KEYS or "KEY" in k or "SECRET" in k or "TOKEN" in k:
-            redacted[k] = "REDACTED"
-        else:
-            redacted[k] = v
-    return redacted
+    return os.environ.get(key, os.environ.get(key.lower(), default)) or default
 
 # -------------------- runtime env map -------------------- #
 def collect_runtime_env_map() -> Dict[str, str]:
+    """
+    Deterministic collection. Only keys in RUNTIME_KEYS or in DEFAULTS are considered.
+    Priority order:
+      1. os.environ value (if present)
+      2. DEFAULTS entry (if present)
+      3. empty string
+    """
     out: Dict[str, str] = {}
     keys = sorted(RUNTIME_KEYS.union(DEFAULTS.keys()))
     for k in keys:
         if is_cron_key(k):
             continue
+        # prefer exact env; fall back to DEFAULTS
         v = os.environ.get(k)
         if v is None:
             v = DEFAULTS.get(k, "")
         out[k] = "" if v is None else str(v)
+    # align alias
     if out.get("INDEXING_BACKUP_CRON_EXPRESSION") and not out.get("CRON_SCHEDULE"):
         out["CRON_SCHEDULE"] = out["INDEXING_BACKUP_CRON_EXPRESSION"]
     return out
 
-# -------------------- manifest builders (non-secret) -------------------- #
+# -------------------- manifest builders -------------------- #
 def ns_manifest(ns: str) -> Dict[str, Any]:
     return {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": ns}}
 
@@ -153,13 +232,15 @@ def cronjob_manifest(cfg: Dict[str, str], env_map: Dict[str, str]) -> Dict[str, 
     image = f"{cfg.get('INDEXING_PIPELINE_CPU_IMAGE_REPO')}:{cfg.get('INDEXING_PIPELINE_CPU_IMAGE_TAG')}"
     sa_name = cfg["SERVICE_ACCOUNT_NAME"]
 
-    qdrant_secret = cfg.get("QDRANT_SECRET_NAME", NAMED_SECRET_MAP.get("QDRANT_API_KEY", "qdrant-api-key"))
+    # pick secret names (defaults)
     azure_secret = cfg.get("AZURE_SECRET_NAME", NAMED_SECRET_MAP.get("AZURE_STORAGE_ACCOUNT_KEY", "indexer-azure-creds"))
+    qdrant_secret = cfg.get("QDRANT_SECRET_NAME", NAMED_SECRET_MAP.get("QDRANT_API_KEY", "qdrant-api-key"))
     extra_secret = cfg.get("EXTRA_SECRET_NAME", "indexer-extra-secrets")
 
     env_list: List[Dict[str, Any]] = []
     use_mi = cfg.get("USE_MANAGED_IDENTITY", "0") in ("1", "true", "yes")
 
+    # If using managed identity and UAI client id provided, expose AZURE_CLIENT_ID to container
     if use_mi and cfg.get("UAI_RAG_RW_CLIENT_ID"):
         env_map.setdefault("AZURE_CLIENT_ID", cfg["UAI_RAG_RW_CLIENT_ID"])
     if use_mi and cfg.get("AZURE_TENANT_ID"):
@@ -169,24 +250,28 @@ def cronjob_manifest(cfg: Dict[str, str], env_map: Dict[str, str]) -> Dict[str, 
         if is_cron_key(k):
             continue
         v = env_map[k] or ""
-        # sensitive -> secretKeyRef only if runtime env was provided (we will create secret); otherwise inject literal/default
         if k in SENSITIVE_KEYS:
+            # if runtime has the value, reference it via secretKeyRef (secret created/applied on --apply)
             if os.environ.get(k):
+                # choose secret name based on key
                 if k == "QDRANT_API_KEY":
                     env_list.append({"name": k, "valueFrom": {"secretKeyRef": {"name": qdrant_secret, "key": "QDRANT_API_KEY"}}})
                 elif k in ("AZURE_STORAGE_ACCOUNT_KEY", "AZURE_SAS_TOKEN", "AZURE_STORAGE_CONNECTION_STRING"):
                     env_list.append({"name": k, "valueFrom": {"secretKeyRef": {"name": azure_secret, "key": k}}})
                 else:
                     env_list.append({"name": k, "valueFrom": {"secretKeyRef": {"name": extra_secret, "key": k}}})
-            else:
-                # no secret provided; inject literal default (possibly empty) to avoid referencing missing secret
-                env_list.append({"name": k, "value": v})
+                continue
+            # otherwise inject empty or default value (non-sensitive)
+            env_list.append({"name": k, "value": v})
             continue
+        # normal envs: inject literal value
         env_list.append({"name": k, "value": v})
 
+    # ensure HTTP_TIMEOUT present
     if not any(e.get("name") == "HTTP_TIMEOUT" for e in env_list):
         env_list.append({"name": "HTTP_TIMEOUT", "value": cfg.get("HTTP_TIMEOUT", DEFAULTS["HTTP_TIMEOUT"])})
 
+    # pod annotations for managed identity
     pod_annotations: Dict[str, str] = {}
     if use_mi:
         if cfg.get("UAI_RAG_RW_CLIENT_ID"):
@@ -219,19 +304,19 @@ def cronjob_manifest(cfg: Dict[str, str], env_map: Dict[str, str]) -> Dict[str, 
                                     "env": env_list,
                                     "resources": {
                                         "requests": {
-                                            "cpu": cfg.get("INDEXING_BACKUP_CRONJOB_CPU_REQUEST", DEFAULTS.get("INDEXING_BACKUP_CRONJOB_CPU_REQUEST", "2")),
-                                            "memory": cfg.get("INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST", DEFAULTS.get("INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST", "1Gi")),
+                                            "cpu": cfg.get("INDEXING_BACKUP_CRONJOB_CPU_REQUEST", DEFAULTS["INDEXING_BACKUP_CRONJOB_CPU_REQUEST"]),
+                                            "memory": cfg.get("INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST", DEFAULTS["INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST"]),
                                         },
                                         "limits": {
-                                            "cpu": cfg.get("INDEXING_BACKUP_CRONJOB_CPU_LIMIT", DEFAULTS.get("INDEXING_BACKUP_CRONJOB_CPU_LIMIT", "4")),
-                                            "memory": cfg.get("INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT", DEFAULTS.get("INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT", "2Gi")),
+                                            "cpu": cfg.get("INDEXING_BACKUP_CRONJOB_CPU_LIMIT", DEFAULTS["INDEXING_BACKUP_CRONJOB_CPU_LIMIT"]),
+                                            "memory": cfg.get("INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT", DEFAULTS["INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT"]),
                                         },
                                     },
                                 }
                             ],
                         },
                     },
-                    "backoffLimit": int(cfg.get("CRONJOB_BACKOFF_LIMIT", DEFAULTS.get("CRONJOB_BACKOFF_LIMIT", "1"))),
+                    "backoffLimit": int(cfg.get("CRONJOB_BACKOFF_LIMIT", DEFAULTS["CRONJOB_BACKOFF_LIMIT"])),
                 }
             },
         },
@@ -241,31 +326,23 @@ def cronjob_manifest(cfg: Dict[str, str], env_map: Dict[str, str]) -> Dict[str, 
     return cron
 
 # -------------------- kubectl helpers (create secrets inline) -------------------- #
-def kubectl_create_secret_inline(name: str, namespace: str, literals: Dict[str, str], dry_run: bool = False) -> Tuple[bool, str]:
+def kubectl_create_secret_inline(name: str, namespace: str, literals: Dict[str, str]) -> Tuple[bool, str]:
     """
-    Create or update a secret in-cluster from literals.
-    Uses kubectl create secret --dry-run=client -o yaml | kubectl apply -f - (idempotent).
-    Returns (ok, message). Never logs literal values.
+    Create or update a secret in-cluster from literals, without writing secrets to disk.
+    Returns (ok, error_message_or_empty)
     """
     if not literals:
         return False, "no-literals"
-
     cmd = ["kubectl", "create", "secret", "generic", name, "-n", namespace, "--dry-run=client", "-o", "yaml"]
     for k, v in literals.items():
-        if v is None:
-            v = ""
-        # Use --from-literal; note: values passed to kubectl are not printed here
+        # sanitize key names (k must be non-empty)
+        if not k:
+            continue
         cmd += ["--from-literal", f"{k}={v}"]
-
-    if dry_run:
-        rc, out, err = run_cmd(cmd, timeout=20)
-        if rc != 0:
-            return False, err or out
-        return True, "DRY-RUN OK"
-
     rc, out, err = run_cmd(cmd, timeout=20)
     if rc != 0:
         return False, err or out
+    # apply produced YAML
     rc2, out2, err2 = run_cmd(["kubectl", "apply", "-f", "-"], input_bytes=(out.encode("utf-8")), timeout=20)
     if rc2 != 0:
         return False, err2 or out2
@@ -289,10 +366,10 @@ def load_cfg() -> Dict[str, str]:
     cfg["CRONJOB_CONCURRENCY"] = os.environ.get("CRONJOB_CONCURRENCY", DEFAULTS["CRONJOB_CONCURRENCY"])
     cfg["SUCCESSFUL_JOBS_HISTORY_LIMIT"] = os.environ.get("SUCCESSFUL_JOBS_HISTORY_LIMIT", DEFAULTS["SUCCESSFUL_JOBS_HISTORY_LIMIT"])
     cfg["FAILED_JOBS_HISTORY_LIMIT"] = os.environ.get("FAILED_JOBS_HISTORY_LIMIT", DEFAULTS["FAILED_JOBS_HISTORY_LIMIT"])
-    cfg["INDEXING_BACKUP_CRONJOB_CPU_REQUEST"] = os.environ.get("INDEXING_BACKUP_CRONJOB_CPU_REQUEST", DEFAULTS.get("INDEXING_BACKUP_CRONJOB_CPU_REQUEST", "2"))
-    cfg["INDEXING_BACKUP_CRONJOB_CPU_LIMIT"] = os.environ.get("INDEXING_BACKUP_CRONJOB_CPU_LIMIT", DEFAULTS.get("INDEXING_BACKUP_CRONJOB_CPU_LIMIT", "4"))
-    cfg["INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST"] = os.environ.get("INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST", DEFAULTS.get("INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST", "1Gi"))
-    cfg["INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT"] = os.environ.get("INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT", DEFAULTS.get("INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT", "2Gi"))
+    cfg["INDEXING_BACKUP_CRONJOB_CPU_REQUEST"] = os.environ.get("INDEXING_BACKUP_CRONJOB_CPU_REQUEST", DEFAULTS["INDEXING_BACKUP_CRONJOB_CPU_REQUEST"])
+    cfg["INDEXING_BACKUP_CRONJOB_CPU_LIMIT"] = os.environ.get("INDEXING_BACKUP_CRONJOB_CPU_LIMIT", DEFAULTS["INDEXING_BACKUP_CRONJOB_CPU_LIMIT"])
+    cfg["INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST"] = os.environ.get("INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST", DEFAULTS["INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST"])
+    cfg["INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT"] = os.environ.get("INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT", DEFAULTS["INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT"])
     cfg["MANIFESTS_DIR"] = os.environ.get("MANIFESTS_DIR", DEFAULTS["MANIFESTS_DIR"])
 
     use_mi_env = os.environ.get("AZURE_USE_MANAGED_IDENTITY", "").strip().lower() in ("1", "true", "yes")
@@ -303,6 +380,7 @@ def load_cfg() -> Dict[str, str]:
     cfg["UAI_RAG_RW_CLIENT_ID"] = os.environ.get("UAI_RAG_RW_CLIENT_ID", "")
     cfg["AZURE_TENANT_ID"] = os.environ.get("AZURE_TENANT_ID", "")
 
+    # add curated runtime envs deterministically
     env_map = collect_runtime_env_map()
     for k, v in env_map.items():
         if k not in cfg:
@@ -310,6 +388,10 @@ def load_cfg() -> Dict[str, str]:
     return cfg
 
 def validate_cfg(cfg: Dict[str, str]):
+    """
+    Validate configuration. For MI mode we require UAI client id and tenant + storage account name.
+    For non-MI mode we require at least one of storage key/connstr/sas.
+    """
     if cfg.get("USE_MANAGED_IDENTITY", "0") in ("1", "true", "yes"):
         required = []
         if not cfg.get("UAI_RAG_RW_CLIENT_ID"):
@@ -323,6 +405,7 @@ def validate_cfg(cfg: Dict[str, str]):
             raise SystemExit(2)
     else:
         if not (os.environ.get("AZURE_STORAGE_ACCOUNT_KEY") or os.environ.get("AZURE_STORAGE_CONNECTION_STRING") or os.environ.get("AZURE_SAS_TOKEN") or os.environ.get("QDRANT_API_KEY")):
+            # Allow QDRANT_API_KEY presence for qdrant-only flows; otherwise require azure creds in non-managed mode
             print("ERROR: non-managed identity mode requires AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_CONNECTION_STRING or AZURE_SAS_TOKEN or QDRANT_API_KEY", file=sys.stderr)
             raise SystemExit(2)
 
@@ -343,6 +426,7 @@ def apply(cfg: Dict[str, str], dry_run: bool = False):
     manifests_dir = Path(cfg.get("MANIFESTS_DIR", DEFAULTS["MANIFESTS_DIR"]))
 
     env_map = {k: v for k, v in cfg.items()}
+    # Optional strict validation
     if os.environ.get("REQUIRE_ALL_RUNTIME_ENVS", "").lower() in ("1", "true", "yes"):
         required_runtime = ["QDRANT_URL", "DENSE_URL", "SPARSE_URL", "AZURE_STORAGE_ACCOUNT_NAME"]
         missing = [k for k in required_runtime if not env_map.get(k) and not os.environ.get(k)]
@@ -350,15 +434,46 @@ def apply(cfg: Dict[str, str], dry_run: bool = False):
             print("ERROR: missing required runtime envs:", ", ".join(missing), file=sys.stderr)
             raise SystemExit(2)
 
+    # Build manifests (namespace + SA + role + rolebinding + cronjob; secrets placeholders)
     manifests: List[Tuple[str, Dict[str, Any]]] = []
     manifests.append(("00-namespace.yaml", ns_manifest(ns)))
     manifests.append(("10-serviceaccount.yaml", serviceaccount_manifest(ns, sa_name, annotate_use_wi=(cfg.get("USE_MANAGED_IDENTITY", "0") == "1"))))
     manifests.append(("20-role.yaml", role_manifest(ns, role_name)))
     manifests.append(("30-rolebinding.yaml", rolebinding_manifest(ns, rb_name, role_name, sa_name)))
 
+    # Prepare placeholder secrets for on-disk review (real secrets created in-cluster)
+    if os.environ.get("QDRANT_API_KEY"):
+        qname = cfg.get("QDRANT_SECRET_NAME", NAMED_SECRET_MAP.get("QDRANT_API_KEY", "qdrant-api-key"))
+        manifests.append(("41-secret-qdrant-placeholder.yaml", {"apiVersion":"v1","kind":"Secret","metadata":{"name":qname,"namespace":ns},"type":"Opaque","stringData":{"QDRANT_API_KEY":"REPLACE_WITH_REAL_KEY"}}))
+
+    azure_literals: Dict[str, str] = {}
+    if os.environ.get("AZURE_STORAGE_ACCOUNT_NAME"):
+        azure_literals["AZURE_STORAGE_ACCOUNT_NAME"] = os.environ["AZURE_STORAGE_ACCOUNT_NAME"]
+    if os.environ.get("AZURE_STORAGE_ACCOUNT_KEY"):
+        azure_literals["AZURE_STORAGE_ACCOUNT_KEY"] = os.environ["AZURE_STORAGE_ACCOUNT_KEY"]
+    if os.environ.get("AZURE_SAS_TOKEN"):
+        azure_literals["AZURE_SAS_TOKEN"] = os.environ["AZURE_SAS_TOKEN"]
+    if os.environ.get("AZURE_STORAGE_CONNECTION_STRING"):
+        azure_literals["AZURE_STORAGE_CONNECTION_STRING"] = os.environ["AZURE_STORAGE_CONNECTION_STRING"]
+    if azure_literals:
+        aname = cfg.get("AZURE_SECRET_NAME", NAMED_SECRET_MAP.get("AZURE_STORAGE_ACCOUNT_KEY", "indexer-azure-creds"))
+        manifests.append(("40-secret-azure-placeholder.yaml", {"apiVersion":"v1","kind":"Secret","metadata":{"name":aname,"namespace":ns},"type":"Opaque","stringData":{k:("REPLACE_WITH_REAL_VALUE" if k != "AZURE_STORAGE_ACCOUNT_NAME" else azure_literals[k]) for k in azure_literals}}))
+
+    extras: Dict[str, str] = {}
+    for k in sorted(SENSITIVE_KEYS):
+        if k in ("QDRANT_API_KEY", "AZURE_STORAGE_ACCOUNT_KEY", "AZURE_SAS_TOKEN", "AZURE_STORAGE_CONNECTION_STRING"):
+            continue
+        if os.environ.get(k):
+            extras[k] = os.environ[k]
+    if extras:
+        ename = cfg.get("EXTRA_SECRET_NAME", "indexer-extra-secrets")
+        manifests.append(("42-secret-extra-placeholder.yaml", {"apiVersion":"v1","kind":"Secret","metadata":{"name":ename,"namespace":ns},"type":"Opaque","stringData":{k:"REPLACE_WITH_REAL_KEY" for k in extras}}))
+
+    # CronJob (always rendered; will reference secretKeyRef only for envs that have runtime values)
     cron = cronjob_manifest(cfg, {k: v for k, v in cfg.items()})
     manifests.append(("50-cronjob.yaml", cron))
 
+    # Write non-secret manifest files (safe to store on disk)
     manifests_dir_path = manifests_dir
     manifests_dir_path.mkdir(parents=True, exist_ok=True)
     written_files: List[Path] = []
@@ -367,31 +482,21 @@ def apply(cfg: Dict[str, str], dry_run: bool = False):
         written_files.append(p)
 
     if dry_run:
-        print("--- DRY RUN: would write manifests (non-secrets) to", str(manifests_dir_path))
+        print("--- DRY RUN: would apply manifests ---")
         for p in written_files:
-            print(p)
-        secret_candidates = []
+            print("---", p)
+            print(Path(p).read_text(encoding="utf-8"))
+        secret_names = []
         if os.environ.get("QDRANT_API_KEY"):
-            secret_candidates.append(cfg.get("QDRANT_SECRET_NAME", NAMED_SECRET_MAP.get("QDRANT_API_KEY", "qdrant-api-key")))
-        azure_literals = {}
-        if os.environ.get("AZURE_STORAGE_ACCOUNT_NAME"):
-            azure_literals["AZURE_STORAGE_ACCOUNT_NAME"] = os.environ["AZURE_STORAGE_ACCOUNT_NAME"]
-        if os.environ.get("AZURE_STORAGE_ACCOUNT_KEY"):
-            azure_literals["AZURE_STORAGE_ACCOUNT_KEY"] = "REDACTED"
-        if os.environ.get("AZURE_SAS_TOKEN"):
-            azure_literals["AZURE_SAS_TOKEN"] = "REDACTED"
-        if os.environ.get("AZURE_STORAGE_CONNECTION_STRING"):
-            azure_literals["AZURE_STORAGE_CONNECTION_STRING"] = "REDACTED"
+            secret_names.append(cfg.get("QDRANT_SECRET_NAME", NAMED_SECRET_MAP.get("QDRANT_API_KEY", "qdrant-api-key")))
         if azure_literals:
-            secret_candidates.append(cfg.get("AZURE_SECRET_NAME", NAMED_SECRET_MAP.get("AZURE_STORAGE_ACCOUNT_KEY", "indexer-azure-creds")))
-        extras = {k: "REDACTED" for k in SENSITIVE_KEYS if os.environ.get(k) and k not in ("QDRANT_API_KEY","AZURE_STORAGE_ACCOUNT_KEY","AZURE_SAS_TOKEN","AZURE_STORAGE_CONNECTION_STRING")}
+            secret_names.append(cfg.get("AZURE_SECRET_NAME", NAMED_SECRET_MAP.get("AZURE_STORAGE_ACCOUNT_KEY", "indexer-azure-creds")))
         if extras:
-            secret_candidates.append(cfg.get("EXTRA_SECRET_NAME", "indexer-extra-secrets"))
-        print("DRY-RUN: would create secrets in-cluster (names):", ", ".join(secret_candidates) if secret_candidates else "(none)")
-        print("DRY-RUN: Would then apply RBAC, ServiceAccount, and CronJob.")
+            secret_names.append(cfg.get("EXTRA_SECRET_NAME", "indexer-extra-secrets"))
+        print("# Secrets that would be created/updated in-cluster:", ", ".join(secret_names) if secret_names else "(none)")
         return
 
-    # Apply namespace and wait before secrets
+    # apply namespace first (ensures secrets can be created)
     ns_file = manifests_dir_path / "00-namespace.yaml"
     if ns_file.exists():
         rc, out, err = run_cmd(["kubectl", "apply", "-f", str(ns_file)], timeout=20)
@@ -402,8 +507,9 @@ def apply(cfg: Dict[str, str], dry_run: bool = False):
         print("ERROR: applying namespace failed:", err or out, file=sys.stderr)
         raise SystemExit(4)
 
+    # wait for namespace to exist (polling)
     waited = 0
-    max_wait = 30
+    max_wait = 30  # seconds
     while True:
         rc2, out2, err2 = run_cmd(["kubectl", "get", "namespace", ns])
         if rc2 == 0:
@@ -419,46 +525,46 @@ def apply(cfg: Dict[str, str], dry_run: bool = False):
     # Create Qdrant secret inline (if present)
     if os.environ.get("QDRANT_API_KEY"):
         qname = cfg.get("QDRANT_SECRET_NAME", NAMED_SECRET_MAP.get("QDRANT_API_KEY", "qdrant-api-key"))
-        ok, msg = kubectl_create_secret_inline(qname, ns, {"QDRANT_API_KEY": os.environ["QDRANT_API_KEY"]}, dry_run=False)
+        ok, err = kubectl_create_secret_inline(qname, ns, {"QDRANT_API_KEY": os.environ["QDRANT_API_KEY"]})
         if not ok:
-            print("ERROR creating qdrant secret:", msg, file=sys.stderr)
+            print("ERROR creating qdrant secret:", err, file=sys.stderr)
             raise SystemExit(3)
         created_secret_names.append(qname)
 
-    # Create Azure secrets inline (if present)
-    azure_literals: Dict[str, str] = {}
+    # azure
+    azure_literals_live: Dict[str, str] = {}
     if os.environ.get("AZURE_STORAGE_ACCOUNT_NAME"):
-        azure_literals["AZURE_STORAGE_ACCOUNT_NAME"] = os.environ["AZURE_STORAGE_ACCOUNT_NAME"]
+        azure_literals_live["AZURE_STORAGE_ACCOUNT_NAME"] = os.environ["AZURE_STORAGE_ACCOUNT_NAME"]
     if os.environ.get("AZURE_STORAGE_ACCOUNT_KEY"):
-        azure_literals["AZURE_STORAGE_ACCOUNT_KEY"] = os.environ["AZURE_STORAGE_ACCOUNT_KEY"]
+        azure_literals_live["AZURE_STORAGE_ACCOUNT_KEY"] = os.environ["AZURE_STORAGE_ACCOUNT_KEY"]
     if os.environ.get("AZURE_SAS_TOKEN"):
-        azure_literals["AZURE_SAS_TOKEN"] = os.environ["AZURE_SAS_TOKEN"]
+        azure_literals_live["AZURE_SAS_TOKEN"] = os.environ["AZURE_SAS_TOKEN"]
     if os.environ.get("AZURE_STORAGE_CONNECTION_STRING"):
-        azure_literals["AZURE_STORAGE_CONNECTION_STRING"] = os.environ["AZURE_STORAGE_CONNECTION_STRING"]
-    if azure_literals:
+        azure_literals_live["AZURE_STORAGE_CONNECTION_STRING"] = os.environ["AZURE_STORAGE_CONNECTION_STRING"]
+    if azure_literals_live:
         aname = cfg.get("AZURE_SECRET_NAME", NAMED_SECRET_MAP.get("AZURE_STORAGE_ACCOUNT_KEY", "indexer-azure-creds"))
-        ok, msg = kubectl_create_secret_inline(aname, ns, azure_literals, dry_run=False)
+        ok, err = kubectl_create_secret_inline(aname, ns, azure_literals_live)
         if not ok:
-            print("ERROR creating azure secret:", msg, file=sys.stderr)
+            print("ERROR creating azure secret:", err, file=sys.stderr)
             raise SystemExit(3)
         created_secret_names.append(aname)
 
     # extras
-    extras: Dict[str, str] = {}
+    extras_live: Dict[str, str] = {}
     for k in sorted(SENSITIVE_KEYS):
         if k in ("QDRANT_API_KEY", "AZURE_STORAGE_ACCOUNT_KEY", "AZURE_SAS_TOKEN", "AZURE_STORAGE_CONNECTION_STRING"):
             continue
         if os.environ.get(k):
-            extras[k] = os.environ[k]
-    if extras:
+            extras_live[k] = os.environ[k]
+    if extras_live:
         ename = cfg.get("EXTRA_SECRET_NAME", "indexer-extra-secrets")
-        ok, msg = kubectl_create_secret_inline(ename, ns, extras, dry_run=False)
+        ok, err = kubectl_create_secret_inline(ename, ns, extras_live)
         if not ok:
-            print("ERROR creating extra secret:", msg, file=sys.stderr)
+            print("ERROR creating extra secret:", err, file=sys.stderr)
             raise SystemExit(3)
         created_secret_names.append(ename)
 
-    # Apply remaining manifests
+    # Finally apply RBAC, SA, CronJob
     to_apply_docs = []
     for fname, _ in manifests:
         if fname == "00-namespace.yaml":
@@ -495,6 +601,7 @@ def delete(cfg: Dict[str, str], dry_run: bool = False, delete_secrets: bool = Fa
             print("Would delete secrets if present")
         return
 
+    # delete resources (ignore-not-found)
     run_cmd(["kubectl", "delete", "cronjob", cron_name, "-n", ns, "--ignore-not-found"], timeout=30)
     run_cmd(["kubectl", "delete", "rolebinding", rb_name, "-n", ns, "--ignore-not-found"], timeout=30)
     run_cmd(["kubectl", "delete", "role", role_name, "-n", ns, "--ignore-not-found"], timeout=30)
@@ -511,11 +618,11 @@ def delete(cfg: Dict[str, str], dry_run: bool = False, delete_secrets: bool = Fa
 
 # -------------------- CLI -------------------- #
 def parse_args():
-    p = argparse.ArgumentParser(description="Apply indexing CronJob (UAI-enabled) and create secrets in-cluster (never write secrets to disk).")
+    p = argparse.ArgumentParser(description="Apply indexing CronJob (UAI-enabled) using kubectl + pyyaml.")
     g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument("--apply", action="store_true", help="Create/replace CronJob + RBAC + secrets (secrets created in-cluster from envs).")
+    g.add_argument("--apply", action="store_true", help="Create/replace CronJob + RBAC + secrets (secrets only if env provided)")
     g.add_argument("--delete", action="store_true", help="Delete CronJob + RBAC; use --delete-secrets to remove created secrets")
-    p.add_argument("--dry-run", action="store_true", help="Write non-secret placeholders and show actions without making changes")
+    p.add_argument("--dry-run", action="store_true", help="Show actions without making changes")
     p.add_argument("--delete-secrets", action="store_true", help="With --delete remove secrets created by this script")
     return p.parse_args()
 
@@ -530,9 +637,6 @@ def main():
         print("ERROR validating config:", e, file=sys.stderr)
         traceback.print_exc()
         raise SystemExit(2) from e
-
-    redacted = redact_map_for_log({k: v for k, v in cfg.items() if k in ("NAMESPACE", "CRONJOB_NAME", "SERVICE_ACCOUNT_NAME", "ROLE_NAME", "ROLEBINDING_NAME", "INDEXING_PIPELINE_CPU_IMAGE_REPO", "INDEXING_PIPELINE_CPU_IMAGE_TAG")})
-    print("Config (redacted):", redacted)
 
     try:
         if args.apply:

@@ -1,3 +1,14 @@
+#!/usr/bin/env python3
+"""
+frontend_auth.py
+
+- Generates non-secret Kubernetes manifests to MANIFESTS_DIR.
+- Ensures Deployment references secret via secretKeyRef (never emits secret values into files).
+- Creates/updates Kubernetes Secret in-cluster from env vars (never writes secret files).
+- Fail-fast validation, deterministic, idempotent.
+Python: 3.10+
+"""
+
 from __future__ import annotations
 import os
 import sys
@@ -5,25 +16,27 @@ import json
 import hashlib
 import subprocess
 import shutil
+import argparse
 from pathlib import Path
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Tuple
 import yaml
 from urllib.parse import urlparse
 
 # -----------------------------
 # Utility & Logging
 # -----------------------------
-def die(msg: str):
+def die(msg: str) -> None:
     print("ERROR:", msg, file=sys.stderr)
     sys.exit(2)
 
-def info(msg: str):
+def info(msg: str) -> None:
     print("INFO:", msg)
 
-def warn(msg: str):
+def warn(msg: str) -> None:
     print("WARN:", msg, file=sys.stderr)
 
-def atomic_write(path: Path, content: str, mode: int = 0o600):
+def atomic_write(path: Path, content: str, mode: int = 0o644) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)
@@ -56,16 +69,14 @@ def canonical_inputs_hash(cfg: Dict[str, Any]) -> str:
 def which(cmd: str) -> Optional[str]:
     return shutil.which(cmd)
 
-def run(cmd: List[str], input_bytes: Optional[bytes] = None, check: bool = False) -> subprocess.CompletedProcess:
-    info(f"Running: {' '.join(cmd)}")
-    proc = subprocess.run(cmd, input=input_bytes, capture_output=True)
-    if proc.stdout:
-        sys.stdout.buffer.write(proc.stdout)
-    if proc.stderr:
-        sys.stderr.buffer.write(proc.stderr)
-    if check and proc.returncode != 0:
-        die(f"Command failed: {' '.join(cmd)} (exit {proc.returncode})")
-    return proc
+def run_cmd(cmd: List[str], input_bytes: Optional[bytes] = None, timeout: int = 120) -> Tuple[int, str, str]:
+    try:
+        proc = subprocess.run(cmd, input=input_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=timeout)
+        out = (proc.stdout or b"").decode("utf-8", errors="replace").strip()
+        err = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
+        return proc.returncode, out, err
+    except subprocess.TimeoutExpired as e:
+        return 124, getattr(e, "stdout", "") or "", getattr(e, "stderr", "") or f"timeout after {timeout}s"
 
 # -----------------------------
 # Config loader
@@ -127,19 +138,19 @@ def load_config() -> Dict[str, Any]:
         "namespace": m / "00-namespace.yaml",
         "sa_role": m / "01-sa-role.yaml",
         "configmap": m / "02-configmap.yaml",
-        # secret file intentionally omitted (we apply secrets directly)
+        # secret intentionally omitted (applied directly)
         "deployment": m / "04-deployment.yaml",
         "service": m / "05-service.yaml",
         "hpa": m / "06-hpa.yaml",
         "ingressroute": m / "07-ingressroute.yaml",
-        "inputs_hash": m / ".inputs_hash"
+        "inputs_hash": m / ".inputs_hash",
     }
 
     cfg["AUTH_META_PATH"] = Path(os.getenv("AUTH_META_PATH", cfg["REPO_ROOT"] / "infra" / "manifests" / "auth" / "manifest.meta.json"))
 
-    # Runtime validation: if secrets are required but absent, fail fast unless allowed
+    # warn if secrets missing and not allowed
     if not cfg["SECRET_VALUES"] and not cfg["ALLOW_MISSING_SECRETS"]:
-        warn("No SECRET_VALUES found in environment and ALLOW_MISSING_SECRETS is false. If you intend to proceed without secrets, set ALLOW_MISSING_SECRETS=true.")
+        warn("No SECRET_VALUES found in environment and ALLOW_MISSING_SECRETS is false. Set ALLOW_MISSING_SECRETS=true to proceed without secrets.")
     return cfg
 
 # -----------------------------
@@ -157,7 +168,7 @@ def render_sa_role(cfg: Dict[str, Any]) -> str:
         "metadata": {"name": f"{cfg['SERVICE_NAME']}-role", "namespace": cfg["FRONTEND_NAMESPACE"]},
         "rules": [
             {"apiGroups": [""], "resources": ["pods", "services", "endpoints", "configmaps"], "verbs": ["get", "list", "watch"]},
-            {"apiGroups": [""], "resources": ["secrets"], "verbs": ["get"]}
+            {"apiGroups": [""], "resources": ["secrets"], "verbs": ["get"]},
         ],
     }
     rb = {
@@ -192,15 +203,17 @@ def render_configmap(cfg: Dict[str, Any]) -> str:
 
 def render_deployment(cfg: Dict[str, Any]) -> str:
     labels = {"app.kubernetes.io/name": cfg["SERVICE_NAME"]}
-    envFrom = [{"configMapRef": {"name": f"{cfg['SERVICE_NAME']}-config"}}]
-    # secrets are provided via secretRef at runtime if present
+    env_from: List[Dict[str, Any]] = [{"configMapRef": {"name": f"{cfg['SERVICE_NAME']}-config"}}]
+    # Secrets referenced via secretRef (envFrom) only — deployment must not contain secret literal
+    # If secrets are present in env, reference by the standard secret name
     if cfg["SECRET_VALUES"]:
-        envFrom.append({"secretRef": {"name": f"{cfg['SERVICE_NAME']}-secret"}})
+        env_from.append({"secretRef": {"name": f"{cfg['SERVICE_NAME']}-secret"}})
+
     container = {
         "name": cfg["SERVICE_NAME"],
         "image": cfg["IMAGE"],
         "ports": [{"containerPort": cfg["PORT"]}],
-        "envFrom": envFrom,
+        "envFrom": env_from,
         "resources": {
             "requests": {"cpu": cfg["CPU_REQUEST"], "memory": cfg["MEMORY_REQUEST"]},
             "limits": {"cpu": cfg["CPU_LIMIT"], "memory": cfg["MEMORY_LIMIT"]},
@@ -236,7 +249,7 @@ def render_hpa(cfg: Dict[str, Any]) -> str:
         "apiVersion": "autoscaling/v2",
         "kind": "HorizontalPodAutoscaler",
         "metadata": {"name": f"{cfg['SERVICE_NAME']}-hpa", "namespace": cfg["FRONTEND_NAMESPACE"]},
-        "spec": {"scaleTargetRef": {"apiVersion": "apps/v1", "kind": "Deployment", "name": f"{cfg['SERVICE_NAME']}-deployment"}, "minReplicas": cfg["HPA_MIN"], "maxReplicas": cfg["HPA_MAX"], "metrics": [{"type": "Resource", "resource": {"name": "cpu", "target": {"type": "Utilization", "averageUtilization": 60}}}]} ,
+        "spec": {"scaleTargetRef": {"apiVersion": "apps/v1", "kind": "Deployment", "name": f"{cfg['SERVICE_NAME']}-deployment"}, "minReplicas": cfg["HPA_MIN"], "maxReplicas": cfg["HPA_MAX"], "metrics": [{"type": "Resource", "resource": {"name": "cpu", "target": {"type": "Utilization", "averageUtilization": 60}}}]},
     }
     return safe_yaml(hpa)
 
@@ -274,72 +287,83 @@ def render_ingressroute(cfg: Dict[str, Any], meta: Dict[str, Any]) -> str:
     return safe_yaml(ir)
 
 # -----------------------------
+# Leak detection guard (prevent secrets in manifests)
+# -----------------------------
+def detect_secret_leak(rendered: str, secret_values: Dict[str, str]) -> Optional[str]:
+    for envk, v in secret_values.items():
+        if not v:
+            continue
+        if len(v) >= 8 and v in rendered:
+            return envk
+    return None
+
+# -----------------------------
 # Apply secrets directly (no files)
 # -----------------------------
-def apply_namespace_to_cluster(cfg: Dict[str, Any]):
-    # Ensure namespace exists first
+def apply_namespace_to_cluster(cfg: Dict[str, Any]) -> None:
     ns_yaml = render_namespace(cfg).encode("utf-8")
-    proc = run(["kubectl", "apply", "-f", "-"], input_bytes=ns_yaml)
-    if proc.returncode != 0:
-        die("Failed to create namespace")
+    rc, out, err = run_cmd(["kubectl", "apply", "-f", "-"], input_bytes=ns_yaml)
+    if rc != 0:
+        die(f"Failed to create namespace: {err or out}")
 
-def apply_secret_to_cluster(cfg: Dict[str, Any]):
-    # If no secrets and missing allowed, skip
+def apply_secret_to_cluster(cfg: Dict[str, Any]) -> None:
     if not cfg["SECRET_VALUES"]:
         info("No secrets to apply (SECRET_VALUES empty). Skipping secret creation.")
         return
-    # Build kubectl create secret generic ... --from-literal=key=value ... --dry-run=client -o yaml
     secret_name = f"{cfg['SERVICE_NAME']}-secret"
     ns = cfg["FRONTEND_NAMESPACE"]
+
     create_cmd = ["kubectl", "create", "secret", "generic", secret_name, "--namespace", ns, "--dry-run=client", "-o", "yaml"]
-    # Add --from-literal flags for each mapping (k8s key = mapped name)
     for env_var, k8s_key in cfg["SECRET_NAMES"].items():
         val = cfg["SECRET_VALUES"].get(env_var)
         if val is None:
-            # missing secret: if allowed, skip this key, otherwise die
             if cfg["ALLOW_MISSING_SECRETS"]:
-                warn(f"Secret env {env_var} missing; skipping that key in secret")
+                warn(f"{env_var} missing; skipping that key in secret")
                 continue
             else:
                 die(f"Secret env {env_var} missing and ALLOW_MISSING_SECRETS=false")
-        # --from-literal expects literal form; ensure we pass as single arg
         create_cmd.append(f"--from-literal={k8s_key}={val}")
-    # Generate YAML then apply it (idempotent)
+
     info("Generating secret YAML via kubectl create --dry-run and applying")
-    proc = subprocess.run(create_cmd, capture_output=True)
-    if proc.returncode != 0:
-        sys.stdout.buffer.write(proc.stdout); sys.stderr.buffer.write(proc.stderr)
-        die("Failed to build secret YAML with kubectl")
-    secret_yaml = proc.stdout
-    # Apply secret YAML
-    proc2 = run(["kubectl", "apply", "-f", "-"], input_bytes=secret_yaml)
-    if proc2.returncode != 0:
-        die("Failed to apply secret to cluster")
+    rc, out, err = run_cmd(create_cmd, timeout=30)
+    if rc != 0:
+        die(f"Failed to generate secret YAML: {err or out}")
+    rc2, out2, err2 = run_cmd(["kubectl", "apply", "-f", "-"], input_bytes=(out.encode("utf-8")), timeout=30)
+    if rc2 != 0:
+        die(f"Failed to apply secret: {err2 or out2}")
     info(f"Secret '{secret_name}' applied to namespace '{ns}'")
 
 # -----------------------------
 # Generation / Apply / Validate / Delete
 # -----------------------------
-def ensure_dir(cfg: Dict[str, Any]):
+def ensure_dir(cfg: Dict[str, Any]) -> None:
     cfg["MANIFESTS_DIR"].mkdir(parents=True, exist_ok=True)
 
-def generate(cfg: Dict[str, Any], dry_run: bool = False):
+def generate(cfg: Dict[str, Any], dry_run: bool = False) -> None:
     ensure_dir(cfg)
     ihash = canonical_inputs_hash(cfg)
     existing = None
-    if cfg["FILES"]["inputs_hash"].exists():
-        existing = cfg["FILES"]["inputs_hash"].read_text(encoding="utf-8").strip()
+    try:
+        if cfg["FILES"]["inputs_hash"].exists():
+            existing = cfg["FILES"]["inputs_hash"].read_text(encoding="utf-8").strip()
+    except Exception:
+        existing = None
     if existing == ihash and not dry_run:
         info("No non-secret changes; skipping generation.")
         return
 
     meta = load_auth_meta(cfg)
 
+    # Render deployment first and check leak
+    deployment_yaml = render_deployment(cfg)
+    leak = detect_secret_leak(deployment_yaml, cfg["SECRET_VALUES"])
+    if leak:
+        die(f"Secret value for {leak} would be embedded in generated Deployment YAML; refuse to generate.")
+
     atomic_write(cfg["FILES"]["namespace"], render_namespace(cfg))
     atomic_write(cfg["FILES"]["sa_role"], render_sa_role(cfg))
     atomic_write(cfg["FILES"]["configmap"], render_configmap(cfg))
-    # secret intentionally NOT written to disk
-    atomic_write(cfg["FILES"]["deployment"], render_deployment(cfg))
+    atomic_write(cfg["FILES"]["deployment"], deployment_yaml)
     atomic_write(cfg["FILES"]["service"], render_service(cfg))
     if cfg["HPA_ENABLED"]:
         atomic_write(cfg["FILES"]["hpa"], render_hpa(cfg))
@@ -351,8 +375,7 @@ def generate(cfg: Dict[str, Any], dry_run: bool = False):
 
     allow_missing = os.getenv("FRONTEND_ALLOW_MISSING_AUTH_META", "false").lower() in ("1", "true", "yes")
     if meta or allow_missing:
-        ing = render_ingressroute(cfg, meta or {})
-        atomic_write(cfg["FILES"]["ingressroute"], ing)
+        atomic_write(cfg["FILES"]["ingressroute"], render_ingressroute(cfg, meta or {}))
     else:
         info("Auth meta not present; skipping ingressroute generation.")
         try:
@@ -360,27 +383,28 @@ def generate(cfg: Dict[str, Any], dry_run: bool = False):
         except Exception:
             pass
 
-    atomic_write(cfg["FILES"]["inputs_hash"], ihash)
+    cfg["FILES"]["inputs_hash"].write_text(ihash, encoding="utf-8")
     info("Wrote frontend manifests to %s" % str(cfg["MANIFESTS_DIR"]))
 
-def apply(cfg: Dict[str, Any], confirm: bool = False):
+def apply(cfg: Dict[str, Any], confirm: bool = False) -> None:
     if not confirm:
         die("Refusing to apply without --confirm")
     if not which("kubectl"):
         die("kubectl not found in PATH")
 
-    # 1) Ensure namespace in cluster first
+    # ensure namespace
     apply_namespace_to_cluster(cfg)
 
-    # 2) Apply secrets directly (namespace must exist)
+    # apply secret in-cluster
     apply_secret_to_cluster(cfg)
 
-    # 3) Apply remaining manifests from disk (sa/role, configmap, deployment, service, hpa, ingressroute)
+    # apply non-secret manifests
     files: List[Path] = [cfg["FILES"]["sa_role"], cfg["FILES"]["configmap"], cfg["FILES"]["deployment"], cfg["FILES"]["service"]]
     if cfg["HPA_ENABLED"]:
         files.append(cfg["FILES"]["hpa"])
     if cfg["FILES"]["ingressroute"].exists():
         files.append(cfg["FILES"]["ingressroute"])
+
     combined = ""
     for p in files:
         if not p.exists():
@@ -390,13 +414,12 @@ def apply(cfg: Dict[str, Any], confirm: bool = False):
     if not combined:
         info("No manifests to apply (after filtering)")
         return
-    proc = subprocess.run(["kubectl", "apply", "-f", "-"], input=combined.encode(), capture_output=True)
-    sys.stdout.buffer.write(proc.stdout); sys.stderr.buffer.write(proc.stderr)
-    if proc.returncode != 0:
-        die("kubectl apply failed for manifests")
+    rc, out, err = run_cmd(["kubectl", "apply", "-f", "-"], input_bytes=(combined.encode("utf-8")), timeout=60)
+    if rc != 0:
+        die(f"kubectl apply failed: {err or out}")
     info("Applied frontend manifests (non-secret resources)")
 
-def validate(cfg: Dict[str, Any]):
+def validate(cfg: Dict[str, Any]) -> None:
     if not which("kubectl"):
         info("kubectl not found; skipping validation")
         return
@@ -404,12 +427,11 @@ def validate(cfg: Dict[str, Any]):
         if not isinstance(p, Path) or not p.exists():
             continue
         info(f"Validating {p.name}")
-        proc = subprocess.run(["kubectl", "apply", "--dry-run=client", "-f", str(p)], capture_output=True)
-        print(proc.stdout.decode(), proc.stderr.decode())
-        if proc.returncode != 0:
-            die(f"Validation failed for {p.name}")
+        rc, out, err = run_cmd(["kubectl", "apply", "--dry-run=client", "-f", str(p)], timeout=20)
+        if rc != 0:
+            die(f"Validation failed for {p.name}: {err or out}")
 
-def delete_manifests(cfg: Dict[str, Any], confirm: bool = False):
+def delete_manifests(cfg: Dict[str, Any], confirm: bool = False) -> None:
     if not confirm:
         die("Refusing to delete without --confirm")
     d = cfg["MANIFESTS_DIR"]
@@ -418,27 +440,29 @@ def delete_manifests(cfg: Dict[str, Any], confirm: bool = False):
         return
     for p in sorted(d.glob("*")):
         try:
-            p.unlink()
-        except IsADirectoryError:
-            shutil.rmtree(p)
+            if p.is_dir():
+                shutil.rmtree(p)
+            else:
+                p.unlink()
+        except Exception:
+            pass
     info("Deleted frontend manifests from disk")
 
 # -----------------------------
 # CLI & Entry
 # -----------------------------
-def parse_args():
-    import argparse
-    p = argparse.ArgumentParser()
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Generate/apply frontend + auth manifests; secrets applied in-cluster (not written to disk).")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--generate", action="store_true")
     g.add_argument("--apply", action="store_true")
     g.add_argument("--validate", action="store_true")
     g.add_argument("--delete", action="store_true")
-    p.add_argument("--confirm", action="store_true")
+    p.add_argument("--confirm", action="store_true", help="required for apply/delete")
     p.add_argument("--dry-run", action="store_true")
     return p.parse_args()
 
-def main():
+def main() -> None:
     args = parse_args()
     cfg = load_config()
     if args.generate:
