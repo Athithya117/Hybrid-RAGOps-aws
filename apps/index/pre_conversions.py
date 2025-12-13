@@ -1,17 +1,3 @@
-#!/usr/bin/env python3
-"""
-Deterministic, idempotent pre-conversion pipeline for Azure Blob Storage.
-
-Auth selection (deterministic):
- - USE_MANAGED_IDENTITY=1 / "true" -> use DefaultAzureCredential (AAD)
- - otherwise -> use AZURE_STORAGE_CONNECTION_STRING OR AZURE_STORAGE_ACCOUNT_NAME + AZURE_STORAGE_ACCOUNT_KEY OR AZURE_SAS_TOKEN
-
-Requirements:
- - python3
- - ffmpeg, soffice on PATH
- - Python deps: azure-storage-blob (pip install azure-storage-blob)
-   * azure-identity required only when USE_MANAGED_IDENTITY is true
-"""
 from __future__ import annotations
 import base64
 import hashlib
@@ -20,13 +6,11 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import io
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Any
 
-# -------------------- Helpers: logging / time --------------------
 TS = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 def log(level: str, event: str, msg: str, **k: Any) -> None:
@@ -35,18 +19,17 @@ def log(level: str, event: str, msg: str, **k: Any) -> None:
         o.update(k)
     print(json.dumps(o), flush=True)
 
-# -------------------- Env parsing / validation --------------------
-USE_MANAGED_IDENTITY = os.getenv("USE_MANAGED_IDENTITY", os.getenv("AZURE_USE_MANAGED_IDENTITY", "")).strip().lower() in ("1", "true", "yes")
-ENV = os.getenv("ENV", "STAGING").upper()
+USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower() in ("1", "true", "yes")
+UAI_RAG_RW_CLIENT_ID = os.getenv("UAI_RAG_RW_CLIENT_ID", "").strip()
 
-# Required deployment-level envs
 AZ_CONN = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "").strip()
 AZ_ACCOUNT = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "").strip()
 AZ_KEY = os.getenv("AZURE_STORAGE_ACCOUNT_KEY", "").strip()
 AZ_SAS = os.getenv("AZURE_SAS_TOKEN", "").strip()
 AZ_ENDPOINT_SUFFIX = os.getenv("AZURE_ENDPOINT_SUFFIX", "core.windows.net").strip()
 
-# Behavior / app envs
+AZURE_STRICT_VALIDATE = os.getenv("AZURE_STRICT_VALIDATE", "true").strip().lower() in ("1", "true", "yes")
+
 CONTAINER = os.getenv("AZURE_CONTAINER") or os.getenv("STORAGE_CONTAINER") or os.getenv("AZ_CONTAINER")
 if not CONTAINER:
     log("ERROR", "missing_env", "AZURE_CONTAINER (or STORAGE_CONTAINER/AZ_CONTAINER) must be set")
@@ -60,9 +43,7 @@ OVERWRITE_ALL_AUDIO_FILES = os.getenv("OVERWRITE_ALL_AUDIO_FILES", "false").lowe
 OVERWRITE_OTHER_TO_PDF = os.getenv("OVERWRITE_OTHER_TO_PDF", "true").lower() == "true"
 OVERWRITE_SPREADSHEETS_WITH_CSV = os.getenv("OVERWRITE_SPREADSHEETS_WITH_CSV", "false").lower() == "true"
 
-# -------------------- Azure SDK imports (fail-fast when needed) --------------------
 try:
-    # azure-storage-blob always required at runtime (we use it for all modes)
     from azure.storage.blob import BlobServiceClient, ContentSettings  # type: ignore
 except Exception as e:
     log("ERROR", "import_failure", "missing azure-storage-blob; pip install azure-storage-blob", error=str(e))
@@ -70,43 +51,34 @@ except Exception as e:
 
 if USE_MANAGED_IDENTITY:
     try:
-        from azure.identity import DefaultAzureCredential  # type: ignore
+        from azure.identity import DefaultAzureCredential, ManagedIdentityCredential  # type: ignore
     except Exception as e:
         log("ERROR", "import_failure", "azure-identity required for managed identity mode (pip install azure-identity)", error=str(e))
         raise SystemExit(2)
 
-# -------------------- Build BlobServiceClient deterministically --------------------
 def build_blob_service_client() -> "BlobServiceClient":
-    """
-    Deterministic client creation:
-      - If USE_MANAGED_IDENTITY: require AZURE_STORAGE_ACCOUNT_NAME and create BlobServiceClient(account_url=..., credential=DefaultAzureCredential())
-      - Else: prefer AZURE_STORAGE_CONNECTION_STRING, then account+key, then account+sas.
-    Fail fast with clear error messages.
-    """
-    # Managed identity path
     if USE_MANAGED_IDENTITY:
         if not AZ_ACCOUNT:
             log("ERROR", "env_missing", "AZURE_STORAGE_ACCOUNT_NAME required for managed identity mode")
             raise SystemExit(2)
         account_url = f"https://{AZ_ACCOUNT}.{AZ_ENDPOINT_SUFFIX}"
         try:
-            cred = DefaultAzureCredential()
+            if UAI_RAG_RW_CLIENT_ID:
+                try:
+                    cred = ManagedIdentityCredential(client_id=UAI_RAG_RW_CLIENT_ID)
+                    log("INFO", "mi_cred", "Using ManagedIdentityCredential with client_id", client_id=UAI_RAG_RW_CLIENT_ID)
+                except Exception as e_mi:
+                    log("WARN", "mi_cred_failed", "ManagedIdentityCredential(client_id=...) failed, trying DefaultAzureCredential", error=str(e_mi))
+                    cred = DefaultAzureCredential()
+            else:
+                cred = DefaultAzureCredential()
+                log("INFO", "mi_cred", "Using DefaultAzureCredential for managed identity")
             client = BlobServiceClient(account_url=account_url, credential=cred)
-            # quick smoke: try listing containers minimally to validate credentials (short timeout)
-            try:
-                _ = client.get_service_properties()  # lightweight check
-            except Exception as e_check:
-                # Might be ok in some environments where service endpoint access is restricted at creation time,
-                # but surface a warning so debugging is easier.
-                log("WARNING", "mi_client_smoke_failed", "managed identity client created but smoke-call failed", error=str(e_check))
             log("INFO", "client_init", "Initialized BlobServiceClient (managed identity)", account=AZ_ACCOUNT)
             return client
         except Exception as e:
-            log("ERROR", "mi_client_failed", "Failed to init BlobServiceClient with managed identity", error=str(e))
+            log("ERROR", "mi_client_failed", "Failed to init BlobServiceClient with managed identity; ensure Workload Identity / MSI available and envs are correct", error=str(e))
             raise SystemExit(2)
-
-    # Non-managed identity path
-    # 1) connection string
     if AZ_CONN:
         try:
             client = BlobServiceClient.from_connection_string(AZ_CONN)
@@ -115,8 +87,6 @@ def build_blob_service_client() -> "BlobServiceClient":
         except Exception as e:
             log("ERROR", "connstr_init_failed", "Failed to init client from connection string", error=str(e))
             raise SystemExit(2)
-
-    # 2) account + key
     if AZ_ACCOUNT and AZ_KEY:
         try:
             account_url = f"https://{AZ_ACCOUNT}.{AZ_ENDPOINT_SUFFIX}"
@@ -126,8 +96,6 @@ def build_blob_service_client() -> "BlobServiceClient":
         except Exception as e:
             log("ERROR", "acctkey_init_failed", "Failed to init client from account+key", error=str(e))
             raise SystemExit(2)
-
-    # 3) account + SAS token
     if AZ_ACCOUNT and AZ_SAS:
         try:
             account_url = f"https://{AZ_ACCOUNT}.{AZ_ENDPOINT_SUFFIX}"
@@ -138,13 +106,10 @@ def build_blob_service_client() -> "BlobServiceClient":
         except Exception as e:
             log("ERROR", "sas_init_failed", "Failed to init client from SAS token", error=str(e))
             raise SystemExit(2)
-
-    # Nothing usable
     msg = "non-managed identity mode requires AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_ACCOUNT_NAME+AZURE_STORAGE_ACCOUNT_KEY or AZURE_SAS_TOKEN"
     log("ERROR", "auth_missing", msg)
     raise SystemExit(2)
 
-# -------------------- Instantiate container client --------------------
 BLOB_SERVICE = build_blob_service_client()
 try:
     CONTAINER_CLIENT = BLOB_SERVICE.get_container_client(CONTAINER)
@@ -152,7 +117,20 @@ except Exception as e:
     log("ERROR", "container_client_failed", f"Unable to get container client for {CONTAINER}", error=str(e))
     raise SystemExit(2)
 
-# -------------------- Utility helpers --------------------
+if AZURE_STRICT_VALIDATE:
+    try:
+        CONTAINER_CLIENT.get_container_properties()
+        log("INFO", "container_validation", f"container '{CONTAINER}' exists and is accessible")
+    except Exception as e:
+        log("ERROR", "container_validation_failed", f"Failed to validate container '{CONTAINER}'. Check auth and network.", error=str(e))
+        raise SystemExit(2)
+else:
+    try:
+        CONTAINER_CLIENT.get_container_properties()
+        log("INFO", "container_validation", f"container '{CONTAINER}' exists and is accessible")
+    except Exception as e:
+        log("WARN", "container_validation_skipped", f"Could not validate container '{CONTAINER}', continuing (AZURE_STRICT_VALIDATE=false)", error=str(e))
+
 def compute_hashes(path: str, chunk_size: int = 8*1024*1024) -> Tuple[str, str]:
     md5 = hashlib.md5(); sha = hashlib.sha256()
     with open(path, "rb") as f:
@@ -196,7 +174,6 @@ def prepare_metadata(d: Dict[str, Optional[str]]) -> Dict[str, str]:
         out[kk] = vv
     return out
 
-# -------------------- Blob helpers (robust) --------------------
 def get_blob_props(name: str) -> Dict[str, Any]:
     try:
         bc = CONTAINER_CLIENT.get_blob_client(name)
@@ -239,7 +216,6 @@ def upload_blob(name: str, src_path: str, metadata: Dict[str, str], content_type
         log("ERROR", "az_upload_failed", f"upload failed {name}", error=str(e))
         return {"action": "failed", "error": str(e)}
 
-# -------------------- Conversion helpers --------------------
 def run_soffice_convert(src: str, outdir: str, convert_to: str) -> Tuple[bool, str]:
     env = os.environ.copy()
     env["SAL_USE_VCLPLUGIN"] = env.get("SAL_USE_VCLPLUGIN", "gen")
@@ -271,7 +247,6 @@ def run_ffmpeg_convert(src: str, dst: str, extra_args: Optional[list] = None) ->
     except Exception as e:
         return False, str(e)
 
-# -------------------- High-level processors (unchanged behaviour) --------------------
 def process_audio(key: str):
     name = Path(key).name
     ext = name.split('.')[-1].lower()
@@ -281,33 +256,22 @@ def process_audio(key: str):
     out_local = str(TMP_DIR / "out" / (Path(name).stem + ".wav"))
     os.makedirs(os.path.dirname(src_local), exist_ok=True)
     os.makedirs(os.path.dirname(out_local), exist_ok=True)
-
-    # download
     if not download_blob(key, src_local):
         log("WARN", "audio_download_failed", f"download failed {key}")
         return
-
     src_md5, src_sha = compute_hashes(src_local)
     src_props = get_blob_props(key)
     src_etag = (src_props.get("etag") or "").strip('"') if src_props.get("exists") else ""
-
-    if ext == "wav":
-        pass
-
     ok, err = run_ffmpeg_convert(src_local, out_local)
     if not ok:
         log("ERROR", "audio_convert_failed", f"ffmpeg failed for {key}", error=(err or "unknown"))
-        try:
-            os.remove(src_local)
-        except Exception:
-            pass
+        try: os.remove(src_local)
+        except Exception: pass
         return
-
     if ext == "wav":
         s3_target_key = f"{S3_PREFIX}audio/{name}"
     else:
         s3_target_key = f"{S3_PREFIX}audio/{Path(name).stem}.wav"
-
     metadata = prepare_metadata({
         "sha256": src_sha,
         "converted-from": key,
@@ -326,7 +290,6 @@ def process_audio(key: str):
                 log("WARN", "delete_old_failed", "failed deleting original audio", name=key, error=str(e))
     else:
         log("ERROR", "audio_upload_failed", "Upload failed", target=s3_target_key, result=up)
-
     try:
         os.remove(src_local)
         os.remove(out_local)
@@ -342,35 +305,26 @@ def process_doc(key: str):
     outdir = str(TMP_DIR / "out")
     os.makedirs(os.path.dirname(src_local), exist_ok=True)
     os.makedirs(outdir, exist_ok=True)
-
     if not download_blob(key, src_local):
         log("WARN", "doc_download_failed", f"download failed {key}")
         return
-
     ok, err = run_soffice_convert(src_local, outdir, "pdf:writer_pdf_Export")
     if not ok:
         qname = f"{S3_PREFIX}quarantine/{name}.corrupt"
         metadata = prepare_metadata({"quarantined_from": key, "error": err})
         up = upload_blob(qname, src_local, metadata, content_type="application/octet-stream", overwrite=True)
         log("WARN", "doc_convert_failed", "soffice failed or could not open file", key=key, err=(err or "unknown"), quarantine=qname, result=up)
-        try:
-            os.remove(src_local)
-        except Exception:
-            pass
+        try: os.remove(src_local)
+        except Exception: pass
         return
-
     out_pdf = None
     for f in Path(outdir).glob(f"{Path(name).stem}*.pdf"):
-        out_pdf = str(f)
-        break
+        out_pdf = str(f); break
     if not out_pdf:
         log("WARN", "doc_no_pdf", "conversion produced no pdf", source=key)
-        try:
-            os.remove(src_local)
-        except Exception:
-            pass
+        try: os.remove(src_local)
+        except Exception: pass
         return
-
     tgt_key = f"{S3_PREFIX}pdfs/{name}.pdf"
     src_md5, src_sha = compute_hashes(src_local)
     src_props = get_blob_props(key)
@@ -387,7 +341,6 @@ def process_doc(key: str):
                 log("WARN", "delete_old_failed", "failed deleting original doc", name=key, error=str(e))
     else:
         log("ERROR", "doc_upload_failed", "Upload failed", target=tgt_key, result=up)
-
     try:
         os.remove(src_local)
         os.remove(out_pdf)
@@ -403,29 +356,21 @@ def process_sheet(key: str):
     outdir = str(TMP_DIR / "out")
     os.makedirs(os.path.dirname(src_local), exist_ok=True)
     os.makedirs(outdir, exist_ok=True)
-
     if not download_blob(key, src_local):
         log("WARN", "sheet_download_failed", f"download failed {key}")
         return
-
     ok, err = run_soffice_convert(src_local, outdir, "csv")
     if not ok:
         log("WARN", "sheet_convert_failed", "soffice csv conversion produced no output", key=key, err=(err or "unknown"))
-        try:
-            os.remove(src_local)
-        except Exception:
-            pass
+        try: os.remove(src_local)
+        except Exception: pass
         return
-
     created = list(Path(outdir).glob("*.csv"))
     if not created:
         log("WARN", "sheet_no_csv", "no csvs produced", key=key)
-        try:
-            os.remove(src_local)
-        except Exception:
-            pass
+        try: os.remove(src_local)
+        except Exception: pass
         return
-
     for f in created:
         tgt_key = f"{S3_PREFIX}csvs/{name}.{f.name}"
         src_md5, src_sha = compute_hashes(src_local)
@@ -441,18 +386,14 @@ def process_sheet(key: str):
             log("INFO", "sheet_deleted_old", "Deleted original sheet", name=key)
         except Exception as e:
             log("WARN", "delete_old_failed", "failed deleting original sheet", name=key, error=str(e))
-
     try:
         os.remove(src_local)
         for f in created:
-            try:
-                os.remove(str(f))
-            except Exception:
-                pass
+            try: os.remove(str(f))
+            except Exception: pass
     except Exception:
         pass
 
-# -------------------- Grouping / finalization --------------------
 def group_remaining():
     prefix = S3_PREFIX
     try:
@@ -511,27 +452,21 @@ def group_remaining():
                     log("INFO", "group_uploaded", "group uploaded", from_name=b.name, to=dst, result=up)
                 else:
                     log("WARN", "group_move_failed_upload", "upload failed", to=dst)
-                try:
-                    os.remove(tmp_local)
-                except Exception:
-                    pass
+                try: os.remove(tmp_local)
+                except Exception: pass
         except Exception as e:
             log("WARN", "group_iteration_failed", "skipping blob", blob=getattr(b, "name", None), error=str(e))
 
-# -------------------- Main loop --------------------
 def main():
     log("INFO", "startup", "pre_conversions python start", container=CONTAINER, prefix=S3_PREFIX, use_managed_identity=str(USE_MANAGED_IDENTITY))
     os.makedirs(TMP_DIR / "src", exist_ok=True)
     os.makedirs(TMP_DIR / "out", exist_ok=True)
-
     try:
         blobs = CONTAINER_CLIENT.list_blobs(name_starts_with=S3_PREFIX)
     except Exception as e:
         log("ERROR", "list_failed", "failed listing blobs", error=str(e))
         raise SystemExit(2)
-
     keys = [b.name for b in blobs]
-
     for key in keys:
         rel = key[len(S3_PREFIX):] if key.startswith(S3_PREFIX) else key
         ext = rel.split('.')[-1].lower()
@@ -544,7 +479,6 @@ def main():
                 process_sheet(key)
         except Exception as e:
             log("ERROR", "processing_failed", f"processing {key} failed", error=str(e))
-
     group_remaining()
     log("INFO", "finished", "pre_conversions python completed")
 

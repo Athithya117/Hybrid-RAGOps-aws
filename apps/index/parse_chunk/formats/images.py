@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-"""
-images_parser_dualmode.py
-
-Dual-mode images parser for Azure blob storage.
-
-Modes:
- - AZURE_USE_MANAGED_IDENTITY=1 or USE_MANAGED_IDENTITY=1 -> use DefaultAzureCredential + azure-storage-blob (managed identity)
- - Otherwise -> use fsspec/adlfs (key / sas / connection string)
-
-This implementation is deterministic (auth depends only on the explicit env var above),
-fails fast with helpful messages, and preserves original OCR/parquet/upload behavior.
-"""
 from __future__ import annotations
 import os
 import io
@@ -27,7 +15,6 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import List, Tuple, Dict, Generator, Optional, Any
 
-# --------- structured, compact logger (supports old logger.* call patterns) ----------
 class LoggerShim:
     def __init__(self, name: str):
         self.name = name
@@ -78,8 +65,6 @@ class LoggerShim:
 
 logger = LoggerShim("images_parser")
 
-# -------- environment / defaults (azure-only) -----------------------------------
-# Deterministic auth switch: rely only on explicit env var(s)
 _mi_val = os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower()
 USE_MANAGED_IDENTITY = _mi_val in ("1", "true", "yes")
 
@@ -111,18 +96,15 @@ ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
 CHUNKED_SCHEMA_VERSION = os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1")
 RANGE_BYTES = int(os.getenv("IMAGE_RANGE_BYTES", "131072"))
 
-# -------- lazy imports and fsspec (Azure) -------------------------------------
-# we import fsspec/adlfs lazily but check availability
 try:
     import fsspec  # type: ignore
     from fsspec.spec import AbstractFileSystem  # type: ignore
     FSSPEC_AVAILABLE = True
-except Exception as e:
+except Exception:
     fsspec = None
     AbstractFileSystem = object  # type: ignore
     FSSPEC_AVAILABLE = False
 
-# Azure SDKs (optional; required for managed identity)
 try:
     from azure.identity import DefaultAzureCredential  # type: ignore
     from azure.storage.blob import BlobServiceClient, ContainerClient  # type: ignore
@@ -154,7 +136,6 @@ def build_storage_options() -> Dict[str, Any]:
 
 _FS_OPTS = build_storage_options()
 
-# Validate environment for selected auth mode (fail fast with helpful messages)
 def _validate_auth_envs():
     if USE_MANAGED_IDENTITY:
         if not AZURE_SDK_AVAILABLE:
@@ -165,18 +146,15 @@ def _validate_auth_envs():
             logger.error("missing_account_name", "Managed identity requested but AZURE_STORAGE_ACCOUNT_NAME is not set")
             sys.exit(2)
     else:
-        # key/SAS/connstring mode: ensure fsspec and at least one credential/source
         if not FSSPEC_AVAILABLE:
             logger.error("fsspec_missing", "Key/SAS mode requested but fsspec/adlfs not installed. pip install fsspec adlfs")
             sys.exit(2)
         if not (_FS_OPTS and any(k in _FS_OPTS for k in ("connection_string", "account_name", "sas_token", "anon"))):
-            # no valid auth supplied
             logger.error("missing_key_creds", "Non-managed identity mode requires AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_CONNECTION_STRING or AZURE_SAS_TOKEN (or AZURE_ANON)")
             sys.exit(2)
 
 _validate_auth_envs()
 
-# initialize runtime storage access
 BLOB_CLIENT = None
 FS = None
 if USE_MANAGED_IDENTITY:
@@ -217,7 +195,6 @@ def strip_root_from_path(full: str) -> str:
         return full[len(AZURE_CONTAINER) + 1:]
     return full
 
-# ---------- simple retry helper ----------------------------------------------
 def retry(func, retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
     for attempt in range(retries):
         try:
@@ -229,19 +206,16 @@ def retry(func, retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
             time.sleep(delay)
             delay *= backoff
 
-# ---------- Azure storage client shim (dual-mode, keeps boto3-like API) ----------
 class AzureStorageClient:
     def __init__(self, fs_obj=None, root: str = "", container: str = "", blob_client=None):
         self.fs = fs_obj
         self.root = root
         self.container = container
         self.blob_client = blob_client
-
     def _container_client(self) -> "ContainerClient":
         if self.blob_client is None:
             raise RuntimeError("blob_client not initialized for managed-identity mode")
         return self.blob_client.get_container_client(self.container)
-
     def head_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -266,7 +240,6 @@ class AzureStorageClient:
                 "Metadata": getattr(props, "metadata", {}) or {},
             }
             return out
-
     def get_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -279,7 +252,6 @@ class AzureStorageClient:
             stream = blob_client.download_blob()
             data = stream.readall()
             return {"Body": io.BytesIO(data)}
-
     def put_object(self, Bucket, Key, Body, ContentType=None):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -311,7 +283,6 @@ class AzureStorageClient:
                 data = str(Body).encode("utf-8")
             blob_client.upload_blob(data, overwrite=True)
             return {"ResponseMetadata": {"HTTPStatusCode": 200}}
-
     def upload_file(self, LocalFile, Bucket, Key, ExtraArgs=None):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -331,7 +302,6 @@ class AzureStorageClient:
             blob_client = container_client.get_blob_client(Key)
             with open(LocalFile, "rb") as lf:
                 blob_client.upload_blob(lf, overwrite=True)
-
     def copy_object(self, CopySource, Bucket, Key):
         src = CopySource.get("Key")
         if self.fs is not None:
@@ -347,7 +317,6 @@ class AzureStorageClient:
             dst_blob_client = self._container_client().get_blob_client(Key)
             src_url = src_blob_client.url
             dst_blob_client.start_copy_from_url(src_url)
-
     def delete_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -365,7 +334,6 @@ class AzureStorageClient:
                 blob_client.delete_blob()
             except Exception:
                 pass
-
     def get_paginator(self, name):
         if self.fs is not None:
             class P:
@@ -424,11 +392,9 @@ def get_storage_client():
                     _storage_client = AzureStorageClient(fs_obj=FS, root=STORAGE_ROOT, container=AZURE_CONTAINER, blob_client=None)
     return _storage_client
 
-# keep old name for compatibility
 def get_s3_client():
     return get_storage_client()
 
-# ---------- small utils -----------------------------------------------------
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 def sha256_hex_bytes(b: bytes) -> str:
@@ -460,7 +426,6 @@ def token_count_for(text: str) -> int:
     except Exception:
         return len(text.split())
 
-# ---------- storage helpers (exists / upload atomic / download to tmp) ----------
 def storage_object_exists(key: str) -> bool:
     client = get_storage_client()
     try:
@@ -471,7 +436,6 @@ def storage_object_exists(key: str) -> bool:
 
 def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "application/octet-stream") -> None:
     client = get_storage_client()
-    # If using fsspec (local/staging), preserve tmp+mv semantics.
     if client.fs is not None:
         full = full_path_from_key(key)
         tmp = f"{full}.tmp.{os.getpid()}.{int(time.time())}"
@@ -536,7 +500,6 @@ def download_blob_to_temp(blob_key: str, ext: str) -> str:
                 pass
             raise
 
-# ---------- payload sanitizer (renamed, generic) ------------------------------
 def sanitize_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
@@ -585,7 +548,6 @@ def sanitize_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     payload["used_ocr"] = bool(payload.get("used_ocr", False))
     return payload
 
-# ---------- parquet writer (lazy pyarrow) ------------------------------------
 class S3ParquetWriter:
     def __init__(self, doc_id: str):
         self.doc_id = doc_id
@@ -693,7 +655,6 @@ class S3ParquetWriter:
             pass
         return len(self._rows), target_key, sha, size
 
-# ---------- document id / mime helpers --------------------------------------
 def _derive_doc_id_from_head(blob_key: str, head_obj: dict, manifest: dict) -> str:
     if isinstance(manifest, dict) and manifest.get("file_hash"):
         return manifest.get("file_hash")
@@ -743,7 +704,6 @@ def postprocess_ocr_text(text: str) -> str:
     except Exception:
         return text
 
-# ---------- OCR / preprocessing helpers (lazy imports) -----------------------
 @contextmanager
 def without_cwd_on_syspath():
     saved = list(sys.path)
@@ -881,7 +841,6 @@ def run_ocr_on_pil_image(engine_name: str, engine_obj, pil_img) -> str:
             logger.exception("tesseract_exec", "Tesseract OCR failed to OCR image"); return ""
     return ""
 
-# ---------- tokeniser / chunker (re-used logic) ------------------------------
 def split_long_sentence_by_words(sent_text: str, max_tokens: int, encoder: Any) -> List[str]:
     words = sent_text.split()
     pieces: List[str] = []
@@ -1027,7 +986,6 @@ class SentenceChunker:
         token_model = os.getenv("TOKEN_ENCODER_MODEL", os.getenv("TOKEN_ENCODER", "gpt2"))
         return cls(max_tokens_per_chunk=max_tokens, overlap_sentences=overlap, token_model=token_model, nlp=None, min_tokens_per_chunk=min_tokens)
 
-# ---------- main image processing pipeline (Azure) ---------------------------
 def process_image_s3_object(blob_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
     client = get_storage_client()
@@ -1210,7 +1168,6 @@ def process_image_s3_object(blob_key: str, manifest: dict) -> dict:
         logger.exception("process_error", "Error while processing", key=blob_key, error=str(e))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
 
-# ---------- public entrypoint used by router.py (signature kept) -------------
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start = time.perf_counter()
     if not AZURE_CONTAINER:
@@ -1222,7 +1179,6 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         logger.exception("parse_file_error", "parse_file error", key=s3_key, error=str(e))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
 
-# ---------- CLI entrypoint (keeps behaviour similar to original) -------------
 if __name__ == "__main__":
     engine_name, engine_obj = get_image_ocr_engine()
     logger.info("cli_startup", "Engine result", engine=engine_name, loaded=bool(engine_obj))

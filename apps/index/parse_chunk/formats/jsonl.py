@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-# jsonl_parser_dualmode.py
-# Dual-mode JSONL/NDJSON parser/indexer for Azure blob storage
-# Auth mode is controlled ONLY by AZURE_USE_MANAGED_IDENTITY (true/false).
 from __future__ import annotations
 import os
 import sys
@@ -15,18 +12,12 @@ import threading
 from datetime import datetime
 from typing import Any, Dict, Iterator, Tuple, List, Optional
 
-# ---------- Structured JSON logger ----------
 class LoggerShim:
     def __init__(self, name: str):
         self.name = name
 
     def _emit(self, level: str, event: str, msg: str = "", **extra):
-        out = {
-            "ts": datetime.utcnow().isoformat() + "Z",
-            "level": level,
-            "event": event,
-            "msg": msg,
-        }
+        out = {"ts": datetime.utcnow().isoformat() + "Z", "level": level, "event": event, "msg": msg}
         if extra:
             out.update(extra)
         print(json.dumps(out, ensure_ascii=False), flush=True)
@@ -72,11 +63,8 @@ class LoggerShim:
 
 log = LoggerShim("jsonl_parser")
 
-# ---------- Config ----------
-# Deterministic switch: ONLY AZURE_USE_MANAGED_IDENTITY controls auth mode.
 USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", "").strip().lower() in ("1", "true", "yes")
 
-# App config envs (defaults)
 AZURE_CONTAINER = os.getenv("AZURE_CONTAINER") or os.getenv("STORAGE_CONTAINER") or os.getenv("AZ_CONTAINER")
 if not AZURE_CONTAINER:
     log.error("startup_missing_container", "AZURE_CONTAINER (or STORAGE_CONTAINER) must be set")
@@ -95,7 +83,6 @@ PUT_RETRIES = int(os.getenv("PUT_RETRIES", "3"))
 PUT_BACKOFF = float(os.getenv("PUT_BACKOFF", "0.5"))
 RANGE_BYTES = int(os.getenv("RANGE_BYTES", "131072"))
 
-# ---------- Optional libs ----------
 try:
     import fsspec
     from fsspec.spec import AbstractFileSystem
@@ -114,7 +101,6 @@ try:
 except Exception:
     _tiktoken = None
 
-# Azure SDKs (only needed in managed identity mode)
 try:
     from azure.identity import DefaultAzureCredential  # type: ignore
     from azure.storage.blob import BlobServiceClient, ContainerClient  # type: ignore
@@ -125,30 +111,25 @@ except Exception:
     ContainerClient = None  # type: ignore
     AZURE_SDK_AVAILABLE = False
 
-# ---------- Helpers for validation ----------
 def fail(msg: str, code: int = 2):
     log.error("fatal", msg)
     sys.stderr.write(msg + "\n")
     sys.exit(code)
 
 def validate_env_and_libs():
-    # Managed identity path validation
     if USE_MANAGED_IDENTITY:
         if not AZURE_SDK_AVAILABLE:
             fail("PROD/Managed-Identity mode requires 'azure-identity' and 'azure-storage-blob' (pip install azure-identity azure-storage-blob)")
         if not (os.getenv("AZURE_STORAGE_ACCOUNT_NAME") or os.getenv("AZURE_ACCOUNT_NAME")):
             fail("AZURE_STORAGE_ACCOUNT_NAME (or AZURE_ACCOUNT_NAME) must be set for managed identity mode")
     else:
-        # non-managed identity path: need fsspec/adlfs and credentials
         if fsspec is None:
             fail("STAGING/non-managed mode requires 'fsspec' and 'adlfs' (pip install fsspec adlfs)")
-        # at least one auth option must exist (conn string, key, sas, or anon)
         if not (os.getenv("AZURE_STORAGE_CONNECTION_STRING") or os.getenv("AZURE_STORAGE_ACCOUNT_KEY") or os.getenv("AZURE_SAS_TOKEN") or os.getenv("AZURE_ANON")):
             fail("non-managed identity mode requires AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_ACCOUNT_KEY or AZURE_SAS_TOKEN or AZURE_ANON")
 
 validate_env_and_libs()
 
-# ---------- Storage wiring (dual-mode) ----------
 def build_storage_options() -> Dict[str, str]:
     if USE_MANAGED_IDENTITY:
         return {}
@@ -182,10 +163,23 @@ FS_OPTS = build_storage_options()
 
 if USE_MANAGED_IDENTITY:
     account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.getenv("AZURE_ACCOUNT_NAME")
-    account_url = f"https://{account_name}.{os.environ.get('AZURE_ENDPOINT_SUFFIX','core.windows.net')}"
+    endpoint_suffix = os.environ.get("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
+    account_url = f"https://{account_name}.{endpoint_suffix}"
     try:
-        CREDENTIAL = DefaultAzureCredential()
+        mi_client_id = os.getenv("UAI_RAG_RW_CLIENT_ID") or os.getenv("AZURE_CLIENT_ID")
+        if mi_client_id:
+            CREDENTIAL = DefaultAzureCredential(managed_identity_client_id=mi_client_id)
+        else:
+            CREDENTIAL = DefaultAzureCredential()
         BLOB_SERVICE_CLIENT = BlobServiceClient(account_url=account_url, credential=CREDENTIAL, connection_timeout=60)
+        try:
+            container_client = BLOB_SERVICE_CLIENT.get_container_client(AZURE_CONTAINER)
+            try:
+                container_client.get_container_properties()
+            except Exception as e_smoke:
+                log.warning("mi_smoke", "managed identity client created, but smoke-check failed (may be normal in restricted env)", error=str(e_smoke))
+        except Exception:
+            pass
     except Exception as e:
         fail(f"Failed to initialize BlobServiceClient with managed identity: {e}")
     FS: Optional[AbstractFileSystem] = None
@@ -198,7 +192,6 @@ else:
 
 STORAGE_ROOT = f"az://{AZURE_CONTAINER.rstrip('/')}/"
 
-# ---------- utilities ----------
 def full_path_from_key(key: str) -> str:
     return STORAGE_ROOT + key.lstrip("/")
 
@@ -345,7 +338,6 @@ try:
 except Exception:
     pass
 
-# ---------- Storage client abstraction (dual-mode) ----------
 class AzureStorageClient:
     def __init__(self, fs_obj: Optional[AbstractFileSystem], root: str, container: str, blob_service_client=None):
         self.fs = fs_obj
@@ -498,7 +490,6 @@ class AzureStorageClient:
                 def __init__(self, fs, root):
                     self.fs = fs
                     self.root = root
-
                 def paginate(self, Bucket, Prefix, PaginationConfig=None):
                     base = (Prefix.rstrip("/")) + "/"
                     root_path = self.root + base
@@ -529,7 +520,6 @@ class AzureStorageClient:
             class Pblob:
                 def __init__(self, container_client):
                     self.container_client = container_client
-
                 def paginate(self, Bucket, Prefix, PaginationConfig=None):
                     blobs = self.container_client.list_blobs(name_starts_with=Prefix)
                     page = {"Contents": []}
@@ -542,7 +532,6 @@ class AzureStorageClient:
                         yield page
             return Pblob(self._container_client())
 
-# singleton client
 _storage_client: Optional[AzureStorageClient] = None
 _storage_lock = threading.Lock()
 
@@ -591,7 +580,6 @@ def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "a
             time.sleep(PUT_BACKOFF * attempt)
     raise Exception(f"atomic upload failed for {key} after {PUT_RETRIES} attempts")
 
-# ---------- pyarrow / parquet helper ----------
 PA_AVAILABLE = False
 _pa = None
 _pq = None
@@ -930,7 +918,6 @@ def parse_file(blob_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
     out_parquet_key = f"{out_basename}.parquet"
     raw_manifest_key = blob_key + ".manifest.json"
     try:
-        # Check for existing chunk using client.exists
         if not FORCE_OVERWRITE and client.exists(AZURE_CONTAINER, STORAGE_CHUNKED_PREFIX + out_parquet_key):
             total_ms = int((time.perf_counter() - start_all) * 1000)
             log.info("skip_parquet_exists", "parquet exists", key=out_parquet_key)
@@ -1040,7 +1027,6 @@ def parse_file(blob_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
         log.error("upload_failed", "Failed to upload chunked file", key=blob_key, error=str(e_up))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
 
-# CLI behavior
 if __name__ == "__main__":
     log.info("startup", "JSONL parser start", use_managed_identity=str(USE_MANAGED_IDENTITY).lower(), token_encoder=os.getenv("TOKEN_ENCODER", ENC_NAME), tiktoken_present="yes" if ENCODER is not None else "no")
     client = get_storage_client_singleton()
@@ -1057,7 +1043,6 @@ if __name__ == "__main__":
             manifest_key = key + ".manifest.json"
             try:
                 mf_obj = client.get_object(Bucket=AZURE_CONTAINER, Key=manifest_key)
-                # manifest body may be a BytesIO; attempt to load
                 try:
                     body = mf_obj.get("Body")
                     manifest = json.load(body) if hasattr(body, "read") else json.loads(mf_obj)
@@ -1070,4 +1055,3 @@ if __name__ == "__main__":
                 log.info("cli_result", "Result for file", key=key, result=result)
             except Exception:
                 log.exception("cli_parse_failed", "Failed to parse", key=key)
-

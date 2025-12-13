@@ -6,8 +6,6 @@ Dual-mode storage auth (deterministic):
  - AZURE_USE_MANAGED_IDENTITY=1 (or "true") -> Managed Identity (DefaultAzureCredential).
    Optionally set AZURE_CLIENT_ID (or UAI_RAG_RW_CLIENT_ID) to select a user-assigned identity.
  - AZURE_USE_MANAGED_IDENTITY=0 (or not set / "false") -> key / SAS / connection-string mode.
-
-This file intentionally uses AZURE_USE_MANAGED_IDENTITY as the single deterministic switch.
 """
 
 from __future__ import annotations
@@ -20,18 +18,16 @@ import signal
 import sys
 import re
 import traceback
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Tuple
 from datetime import datetime, timezone
 import random
 
 import numpy as np
 import httpx
 
-# Qdrant client imports
 from qdrant_client import QdrantClient
 from qdrant_client.models import SparseVector
 
-# pyarrow required (fail fast)
 try:
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -39,7 +35,6 @@ except Exception as e:
     print("pyarrow required: pip install pyarrow", file=sys.stderr)
     raise SystemExit("pyarrow missing") from e
 
-# ---------- Logging bootstrap ----------
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 _third_party_names = (
     "httpx", "httpcore", "urllib3", "qdrant_client",
@@ -64,10 +59,7 @@ _h.setFormatter(logging.Formatter("%(message)s"))
 logger.addHandler(_h)
 logger.propagate = False
 
-# ---------- Env / configuration ----------
-# NOTE: Authentication mode MUST be controlled only by AZURE_USE_MANAGED_IDENTITY (deterministic).
 USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", "").strip().lower() in ("1", "true", "yes")
-# Backwards-friendly: also accept USE_MANAGED_IDENTITY (without AZURE_ prefix)
 if not USE_MANAGED_IDENTITY:
     USE_MANAGED_IDENTITY = os.getenv("USE_MANAGED_IDENTITY", "").strip().lower() in ("1", "true", "yes")
 
@@ -81,7 +73,6 @@ AZURE_SAS_TOKEN = os.getenv("AZURE_SAS_TOKEN", "")
 AZURE_CONTAINER = os.getenv("AZURE_CONTAINER", "e2e-rag-system-42")
 AZURE_CHUNKED_PREFIX = os.getenv("AZURE_CHUNKED_PREFIX", "data/chunked/")
 AZURE_ENDPOINT_SUFFIX = os.getenv("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
-# Optional client id for user assigned identity
 AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID") or os.getenv("UAI_RAG_RW_CLIENT_ID") or None
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://0.0.0.0:6333")
@@ -111,11 +102,9 @@ NORMALIZE_DENSE = True
 SHUTDOWN = False
 INFO_EVENTS = {"index.start", "batch.embedded", "index.prepared", "index.completed", "load.chunks", "collection.created", "collection.exists"}
 
-# unset proxy envs to avoid azure/http proxy surprises inside cluster
 for p in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
     os.environ.pop(p, None)
 
-# ---------- helper functions ----------
 def iso_ts():
     return datetime.now(timezone.utc).isoformat()
 
@@ -190,7 +179,6 @@ def retry_call(func: Callable, *args, retries: int = NETWORK_RETRY_COUNT, backof
             slog("warning", "transient.retry", error=str(e), attempt=attempt, max_retries=retries)
             _sleep_with_jitter(backoff_base, backoff_cap, attempt)
 
-# ---------- Dense / Sparse clients (unchanged) ----------
 class DenseClient:
     def __init__(self, url: str, timeout: float = HTTP_TIMEOUT, embed_timeout: float = DENSE_EMBED_TIMEOUT):
         self.url = url.rstrip("/")
@@ -345,7 +333,6 @@ def sparse_to_qdrant_sparsevector(sparse_obj: Any) -> SparseVector:
         return SparseVector(indices=inds, values=vals)
     raise RuntimeError("unsupported sparse object")
 
-# ---------- parsing helpers (unchanged) ----------
 def _parse_list_like(x):
     if x is None: return []
     if isinstance(x, (list, tuple)): return list(x)
@@ -428,7 +415,6 @@ def normalize_chunk(chunk: Dict[str, Any]) -> Dict[str, Any]:
             c[t] = str(c.get(t))
     return c
 
-# ---------- Qdrant collection helpers (unchanged) ----------
 def create_collection_hybrid(client, name, dense_dim):
     try:
         if client.collection_exists(name):
@@ -529,7 +515,6 @@ def existing_point_ids(client, collection_name, ids: List[int]) -> set:
                     if pid is not None: out.add(pid)
     return out
 
-# ---------- embedding helpers (unchanged) ----------
 def _embed_with_retry_and_split_dense(client: DenseClient, texts: List[str]) -> List[Optional[List[float]]]:
     attempts = 0
     while attempts <= EMBED_RETRIES:
@@ -686,41 +671,31 @@ def _paginate_with_retries(paginator, **params):
         return pages
     return retry_call(call, retriable=lambda e: True)
 
-# ---------- Storage access: dual-mode (managed identity OR key/connstring/SAS) ----------
-def _build_blob_service_client(account_name: str, account_key: Optional[str] = None, conn_str: Optional[str] = None, sas_token: Optional[str] = None):
-    """
-    Returns initialized BlobServiceClient.
-    - If USE_MANAGED_IDENTITY: use DefaultAzureCredential (optionally with managed_identity_client_id)
-    - Else if conn_str provided: from_connection_string
-    - Else if account_key provided: credential=account_key
-    - Else if sas_token provided: credential=sas_token
-    """
+def _build_blob_service_client(account_name: Optional[str], account_key: Optional[str] = None, conn_str: Optional[str] = None, sas_token: Optional[str] = None):
     try:
         from azure.storage.blob import BlobServiceClient  # type: ignore
     except Exception as e:
         slog("error", "azure.sdk.missing", exc=e)
         raise SystemExit("azure-storage-blob required: pip install azure-storage-blob") from e
 
-    account_url = f"https://{account_name}.blob.{AZURE_ENDPOINT_SUFFIX}"
     if USE_MANAGED_IDENTITY:
         try:
-            # import DefaultAzureCredential lazily and instantiate with optional managed_identity_client_id
             try:
                 from azure.identity import DefaultAzureCredential  # type: ignore
             except Exception as e:
                 slog("error", "azure.identity.missing", exc=e)
                 raise SystemExit("azure-identity required for managed identity mode: pip install azure-identity") from e
-            # If the user provided AZURE_CLIENT_ID (or UAI_RAG_RW_CLIENT_ID), pass it through to DefaultAzureCredential
             if AZURE_CLIENT_ID:
                 try:
                     cred = DefaultAzureCredential(managed_identity_client_id=AZURE_CLIENT_ID)
                 except TypeError:
-                    # older azure-identity versions may not accept the kwarg on DefaultAzureCredential;
-                    # fall back to explicit ManagedIdentityCredential
                     from azure.identity import ManagedIdentityCredential  # type: ignore
                     cred = ManagedIdentityCredential(client_id=AZURE_CLIENT_ID)
             else:
                 cred = DefaultAzureCredential()
+            if not account_name:
+                raise SystemExit("AZURE_STORAGE_ACCOUNT_NAME required for managed identity mode")
+            account_url = f"https://{account_name}.blob.{AZURE_ENDPOINT_SUFFIX}"
             client = BlobServiceClient(account_url=account_url, credential=cred)
             return client
         except SystemExit:
@@ -729,7 +704,6 @@ def _build_blob_service_client(account_name: str, account_key: Optional[str] = N
             slog("error", "blobclient.managed.init.failed", exc=e)
             raise SystemExit(f"Failed to init BlobServiceClient with managed identity: {e}") from e
 
-    # non-managed identity path
     if conn_str:
         try:
             client = BlobServiceClient.from_connection_string(conn_str)
@@ -737,15 +711,17 @@ def _build_blob_service_client(account_name: str, account_key: Optional[str] = N
         except Exception as e:
             slog("error", "blobclient.connstr.init.failed", exc=e)
             raise SystemExit(f"Failed to init BlobServiceClient from connection string: {e}") from e
-    if account_key:
+    if account_name and account_key:
         try:
+            account_url = f"https://{account_name}.blob.{AZURE_ENDPOINT_SUFFIX}"
             client = BlobServiceClient(account_url=account_url, credential=account_key)
             return client
         except Exception as e:
             slog("error", "blobclient.key.init.failed", exc=e)
             raise SystemExit(f"Failed to init BlobServiceClient with account key: {e}") from e
-    if sas_token:
+    if account_name and sas_token:
         try:
+            account_url = f"https://{account_name}.blob.{AZURE_ENDPOINT_SUFFIX}"
             token = sas_token if sas_token.startswith("?") else ("?" + sas_token)
             client = BlobServiceClient(account_url=account_url + token)
             return client
@@ -754,17 +730,10 @@ def _build_blob_service_client(account_name: str, account_key: Optional[str] = N
             raise SystemExit(f"Failed to init BlobServiceClient with SAS token: {e}") from e
     raise SystemExit("No valid Azure storage credential available for initializing BlobServiceClient")
 
-def load_chunks_from_azure(account_name: str, account_key: Optional[str], container: str, prefix: str) -> List[Dict[str, Any]]:
-    """
-    Dual-mode loader:
-      - Managed identity mode: uses DefaultAzureCredential to authenticate and list/download blobs.
-      - Key/connstr/SAS mode: uses provided credentials.
-    Returns list of normalized chunk dicts.
-    """
-    # Build client
+def load_chunks_from_azure(account_name: Optional[str], account_key: Optional[str], container: str, prefix: str) -> List[Dict[str, Any]]:
     conn_str = AZURE_STORAGE_CONNECTION_STRING or None
     sas = AZURE_SAS_TOKEN or None
-    client = _build_blob_service_client(account_name, account_key=account_key or None, conn_str=conn_str, sas_token=sas)
+    client = _build_blob_service_client(account_name or None, account_key=account_key or None, conn_str=conn_str, sas_token=sas)
     try:
         container_client = client.get_container_client(container)
     except Exception as e:
@@ -772,7 +741,6 @@ def load_chunks_from_azure(account_name: str, account_key: Optional[str], contai
         raise SystemExit(f"Unable to get container client: {e}") from e
 
     try:
-        # list blobs that start with prefix
         blob_iter = list(container_client.list_blobs(name_starts_with=prefix))
     except Exception as e:
         slog("error", "azure.list.failed", exc=e)
@@ -862,24 +830,16 @@ def load_chunks_from_azure(account_name: str, account_key: Optional[str], contai
     slog("info", "load.chunks", original_chunks=len(chunks))
     return chunks
 
-# ---------- validation and client creation ----------
 def validate_envs():
-    """
-    Validate required envs depending on identity mode.
-    - Managed identity (USE_MANAGED_IDENTITY=True): require AZURE_STORAGE_ACCOUNT_NAME and AZURE_CONTAINER.
-    - Key/connstr/SAS mode: require AZURE_STORAGE_ACCOUNT_NAME + (AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_CONNECTION_STRING or AZURE_SAS_TOKEN) and AZURE_CONTAINER.
-    """
     missing = []
-    if not AZURE_STORAGE_ACCOUNT_NAME:
-        missing.append("AZURE_STORAGE_ACCOUNT_NAME")
     if not AZURE_CONTAINER:
         missing.append("AZURE_CONTAINER")
-
     if USE_MANAGED_IDENTITY:
+        if not AZURE_STORAGE_ACCOUNT_NAME:
+            missing.append("AZURE_STORAGE_ACCOUNT_NAME")
         if missing:
             slog("error", "env.missing", missing=missing)
             raise SystemExit(f"Missing required envs for managed identity mode: {', '.join(missing)}")
-        # ensure azure sdk present
         try:
             import importlib
             importlib.import_module('azure.identity')
@@ -888,12 +848,11 @@ def validate_envs():
             slog("error", "azure.sdk.missing", exc=e)
             raise SystemExit("azure-identity and azure-storage-blob Python packages required for managed identity mode (pip install azure-identity azure-storage-blob)")
     else:
-        if not (AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_CONNECTION_STRING or AZURE_SAS_TOKEN):
-            missing.append("AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_CONNECTION_STRING or AZURE_SAS_TOKEN")
+        if not (AZURE_STORAGE_CONNECTION_STRING or (AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY) or (AZURE_STORAGE_ACCOUNT_NAME and AZURE_SAS_TOKEN)):
+            missing.append("AZURE_STORAGE_CONNECTION_STRING or (AZURE_STORAGE_ACCOUNT_NAME + AZURE_STORAGE_ACCOUNT_KEY) or (AZURE_STORAGE_ACCOUNT_NAME + AZURE_SAS_TOKEN)")
         if missing:
             slog("error", "env.missing", missing=missing)
             raise SystemExit(f"Missing required envs for key/SAS/connstr mode: {', '.join(missing)}")
-        # ensure azure.storage.blob present
         try:
             import importlib
             importlib.import_module('azure.storage.blob')
@@ -901,7 +860,7 @@ def validate_envs():
             slog("error", "azure.sdk.missing", exc=e)
             raise SystemExit("azure-storage-blob Python package required (pip install azure-storage-blob)")
 
-def validate_and_build_clients():
+def validate_and_build_clients() -> Tuple[Optional[DenseClient], Optional[SparseClient]]:
     dc = DenseClient(DENSE_URL, timeout=HTTP_TIMEOUT, embed_timeout=DENSE_EMBED_TIMEOUT)
     sc = SparseClient(SPARSE_URL, timeout=HTTP_TIMEOUT, embed_timeout=SPARSE_EMBED_TIMEOUT)
     slog("info", "clients.created", dense_url=dc.url, sparse_url=sc.url, qdrant_url=QDRANT_URL)
@@ -948,7 +907,9 @@ def validate_and_build_clients():
     return dense, sparse
 
 def retrieve_and_index():
-    chunks = load_chunks_from_azure(AZURE_STORAGE_ACCOUNT_NAME, AZURE_STORAGE_ACCOUNT_KEY, AZURE_CONTAINER, AZURE_CHUNKED_PREFIX)
+    account_name = AZURE_STORAGE_ACCOUNT_NAME or None
+    account_key = AZURE_STORAGE_ACCOUNT_KEY or None
+    chunks = load_chunks_from_azure(account_name, account_key, AZURE_CONTAINER, AZURE_CHUNKED_PREFIX)
     dense_client, sparse_client = validate_and_build_clients()
     hybrid_mode = (dense_client is not None and sparse_client is not None)
     try:

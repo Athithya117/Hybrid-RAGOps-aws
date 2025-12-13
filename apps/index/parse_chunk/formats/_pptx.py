@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# pptx_parser_dualmode.py
-# Dual-mode PPTX parser: USE_MANAGED_IDENTITY controls auth mode.
 from __future__ import annotations
 import os
 import sys
@@ -16,7 +14,6 @@ from io import BytesIO
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 
-# ---------- Structured logger ----------
 class LoggerShim:
     def __init__(self, name: str): self.name = name
     def _emit(self, level: str, event: str, msg: str = "", **extra):
@@ -45,13 +42,8 @@ class LoggerShim:
 
 log = LoggerShim("pptx_parser")
 
-# ---------- Mode & configuration ----------
-# deterministic single switch: AZURE_USE_MANAGED_IDENTITY (must be set to 1/true/yes)
 USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", "").strip().lower() in ("1", "true", "yes")
-
-# Important: do NOT override USE_MANAGED_IDENTITY from ENV variable (removed ENV->MI mapping)
 ENV = os.getenv("ENV", "STAGING").upper()
-
 STORAGE_PROTOCOL = "az"
 AZURE_CONTAINER: Optional[str] = os.getenv("AZURE_CONTAINER") or os.getenv("STORAGE_CONTAINER") or os.getenv("AZ_CONTAINER")
 AZURE_RAW_PREFIX: str = os.getenv("AZURE_RAW_PREFIX", os.getenv("STORAGE_RAW_PREFIX", "data/raw/")).rstrip("/") + "/"
@@ -69,7 +61,6 @@ CHUNKED_SCHEMA_VERSION: str = os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1")
 PUT_RETRIES = int(os.getenv("PUT_RETRIES", "3"))
 PUT_BACKOFF = float(os.getenv("PUT_BACKOFF", "0.3"))
 
-# ---------- internal singletons ----------
 _fs = None
 _pa = None
 _pq = None
@@ -77,10 +68,9 @@ _np = None
 _storage_root = None
 _storage_lock = threading.Lock()
 _storage_client = None
-BLOB_CLIENT = None  # set when managed identity path initializes
-AZURE_SDK_LOADED = False  # set to True once we successfully import azure libs in MI path
+BLOB_CLIENT = None
+AZURE_SDK_LOADED = False
 
-# ---------- silence noisy libs (optional) ----------
 try:
     import logging as _lg
     _root = _lg.getLogger()
@@ -93,48 +83,47 @@ except Exception:
     pass
 
 def _init_env():
-    """
-    Initialize either fsspec-based FS (key/SAS/connstring) OR azure.storage BlobServiceClient (managed identity),
-    plus optional numpy/pyarrow. Fail fast with helpful errors.
-    """
     global _fs, _pa, _pq, _np, _storage_root, BLOB_CLIENT, AZURE_SDK_LOADED
-
     if getattr(_init_env, "done", False): return
-    # validate container
     if not AZURE_CONTAINER:
         log.error("startup_missing_container", "AZURE_CONTAINER (or STORAGE_CONTAINER/AZ_CONTAINER) must be set")
         sys.exit(1)
-
-    # Managed identity path: lazy import azure packages only here
     if USE_MANAGED_IDENTITY:
         try:
-            # Lazy import to avoid module-level ImportError when not used
-            from azure.identity import DefaultAzureCredential  # type: ignore
-            from azure.storage.blob import BlobServiceClient  # type: ignore
+            from azure.identity import DefaultAzureCredential
+            from azure.storage.blob import BlobServiceClient
             AZURE_SDK_LOADED = True
         except Exception as e:
             log.error("azure_sdk_missing", "AZURE_USE_MANAGED_IDENTITY requested but azure-identity/azure-storage-blob not installed", error=str(e))
             sys.exit(2)
-
         account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.environ.get("AZURE_ACCOUNT_NAME")
         if not account_name:
             log.error("missing_account_name", "AZURE_STORAGE_ACCOUNT_NAME required for managed identity mode")
             sys.exit(2)
         endpoint_suffix = os.environ.get("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
-        account_url = f"https://{account_name}.{endpoint_suffix}"
+        account_url = f"https://{account_name}.blob.{endpoint_suffix}"
         try:
-            cred = DefaultAzureCredential()
+            uai_client_id = os.environ.get("UAI_RAG_RW_CLIENT_ID") or os.environ.get("AZURE_CLIENT_ID") or None
+            if uai_client_id:
+                cred = DefaultAzureCredential(managed_identity_client_id=uai_client_id)
+            else:
+                cred = DefaultAzureCredential()
             BLOB_CLIENT = BlobServiceClient(account_url=account_url, credential=cred, connection_timeout=60)
             _fs = None
             _storage_root = f"az://{AZURE_CONTAINER.rstrip('/')}/"
-            log.info("azure_mi_ready", f"Managed identity BlobServiceClient initialized for account {account_name}")
+            try:
+                container_client = BLOB_CLIENT.get_container_client(AZURE_CONTAINER)
+                try:
+                    container_client.get_container_properties()
+                    log.info("azure_mi_ready", "Managed identity BlobServiceClient initialized and container validated", account=account_name)
+                except Exception as e:
+                    log.warning("mi_smoke", "managed identity client created, but smoke-check failed (may be normal in restricted env)", error=str(e))
+            except Exception:
+                log.info("azure_mi_ready", "Managed identity BlobServiceClient initialized", account=account_name)
         except Exception as e:
             log.error("blob_client_init_failed", "Failed to create BlobServiceClient with Managed Identity", error=str(e))
             raise
-
-    # Key/SAS/connection string path using fsspec/adlfs
     else:
-        # build fsspec options deterministically
         conn = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
         opts = {}
         if conn:
@@ -151,23 +140,17 @@ def _init_env():
             elif os.environ.get("AZURE_ANON"):
                 if acct: opts["account_name"] = acct
                 opts["anon"] = True
-
-        # Validate at least one auth option present
         if not opts:
             log.error("non_mi_no_creds", "Non-managed identity mode selected but no connection_string/account_key/SAS/anon present")
             sys.exit(2)
-
-        # attempt import and init
         try:
-            import fsspec as _fsspec  # local alias
+            import fsspec as _fsspec
             _fs = _fsspec.filesystem("az", **opts)
             _storage_root = f"az://{AZURE_CONTAINER.rstrip('/')}/"
-            log.info("adlfs_ready", "adlfs filesystem initialized for Azure storage")
+            log.info("adlfs_ready", "adlfs filesystem initialized for Azure storage", opts_keys=list(opts.keys()))
         except Exception as e:
             log.error("adlfs_init_failed", "Cannot initialize adlfs/fsspec filesystem", error=str(e))
             raise
-
-    # optional libs (non-fatal)
     try:
         import numpy as _n; _np = _n
     except Exception:
@@ -176,7 +159,6 @@ def _init_env():
         import pyarrow as pa; import pyarrow.parquet as pq; _pa = pa; _pq = pq
     except Exception:
         _pa = None; _pq = None
-
     _init_env.done = True
 
 def full_path_from_key(key: str) -> str:
@@ -199,19 +181,16 @@ def retry(func, retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
             if attempt == retries - 1: raise
             log.warning("retry_attempt", "attempt=%d error=%s", attempt + 1, str(e)); time.sleep(delay); delay *= backoff
 
-# ---------- Dual-mode AzureStorageClient ----------
 class AzureStorageClient:
     def __init__(self, fs_obj=None, root=None, container=None, blob_client=None):
         self.fs = fs_obj
         self.root = root
         self.container = container
         self.blob_client = blob_client
-
     def _container_client(self):
         if self.blob_client is None:
             raise RuntimeError("blob_client not initialized for managed-identity mode")
         return self.blob_client.get_container_client(self.container)
-
     def head_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -233,7 +212,6 @@ class AzureStorageClient:
                 "Metadata": getattr(props, "metadata", {}) or {},
             }
             return out
-
     def get_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -246,7 +224,6 @@ class AzureStorageClient:
             stream = blob_client.download_blob()
             data = stream.readall()
             return {"Body": BytesIO(data)}
-
     def put_object(self, Bucket, Key, Body, ContentType=None):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -278,7 +255,6 @@ class AzureStorageClient:
                 data = str(Body).encode("utf-8")
             blob_client.upload_blob(data, overwrite=True)
             return {"ResponseMetadata": {"HTTPStatusCode": 200}}
-
     def upload_file(self, LocalFile, Bucket, Key, ExtraArgs=None):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -293,7 +269,6 @@ class AzureStorageClient:
             blob_client = container_client.get_blob_client(Key)
             with open(LocalFile, "rb") as lf:
                 blob_client.upload_blob(lf, overwrite=True)
-
     def copy_object(self, CopySource, Bucket, Key):
         src = CopySource.get("Key")
         if self.fs is not None:
@@ -306,7 +281,6 @@ class AzureStorageClient:
             dst_blob_client = self._container_client().get_blob_client(Key)
             src_url = src_blob_client.url
             dst_blob_client.start_copy_from_url(src_url)
-
     def delete_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -319,7 +293,6 @@ class AzureStorageClient:
             blob_client = self._container_client().get_blob_client(Key)
             try: blob_client.delete_blob()
             except Exception: pass
-
     def exists(self, full_key: str) -> bool:
         if self.fs is not None:
             try:
@@ -330,7 +303,6 @@ class AzureStorageClient:
             container_client = self._container_client()
             blobs = list(container_client.list_blobs(name_starts_with=full_key))
             return len(blobs) > 0
-
     def get_paginator(self, name):
         if self.fs is not None:
             class P:
@@ -376,7 +348,6 @@ def get_storage_client_singleton():
                     _storage_client = AzureStorageClient(fs_obj=_fs, root=_storage_root, container=AZURE_CONTAINER, blob_client=None)
     return _storage_client
 
-# ---------- small helpers ----------
 def sha256_hex_bytes(b: bytes) -> str: return hashlib.sha256(b).hexdigest()
 def sha256_hex_str(s: str) -> str: return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
 def canonicalize_text(s: str) -> str:
@@ -431,10 +402,8 @@ def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "a
                 with open(local_path, "rb") as lf: d = lf.read()
                 with client.fs.open(tmp, "wb") as f: f.write(d)
             else:
-                # for blob client path, upload directly
                 client.upload_file(local_path, AZURE_CONTAINER, key)
                 return
-            # move/rename to final
             if client.fs is not None and hasattr(client.fs, "mv"):
                 client.fs.mv(tmp, full)
             else:
@@ -447,7 +416,6 @@ def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "a
             log.warning("upload_retry", "attempt=%d key=%s error=%s", attempt, key, str(e)); time.sleep(PUT_BACKOFF * attempt)
     raise Exception(f"atomic upload failed for {key} after {PUT_RETRIES} attempts")
 
-# ---------- Parquet writer ----------
 class ParquetWriter:
     def __init__(self, doc_id: str): self.doc_id = doc_id; self._rows: List[Dict[str, Any]] = []
     def _normalize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -787,7 +755,6 @@ def parse_file(blob_key: str, manifest: dict) -> dict:
         log.error("upload_failed", "Failed to upload chunked file", key=blob_key, error=str(e_up))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
 
-# ---------- CLI driver ----------
 if __name__ == "__main__":
     _init_env()
     log.info("startup", "pptx parser start", container=AZURE_CONTAINER, env=ENV, use_managed_identity=str(USE_MANAGED_IDENTITY).lower())

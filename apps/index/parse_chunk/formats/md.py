@@ -65,8 +65,6 @@ class LoggerShim:
 log = LoggerShim("md_parser")
 
 # ---------- deterministic runtime switch: USE_MANAGED_IDENTITY only ----------
-# Accept either AZURE_USE_MANAGED_IDENTITY or USE_MANAGED_IDENTITY for convenience,
-# but DO NOT infer from ENV (Prod/Stage) — user explicitly requested AUTH-mode switch only.
 _USE_MI_RAW = os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower()
 USE_MANAGED_IDENTITY = _USE_MI_RAW in ("1", "true", "yes")
 
@@ -93,7 +91,6 @@ PUT_BACKOFF = float(os.getenv("PUT_BACKOFF", "0.3"))
 CHUNKED_SCHEMA_VERSION = os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1")
 
 # ---------- dependency checks (fail-fast with clear instructions) ----------
-# For key/SAS/connstr mode we require fsspec + adlfs
 FSSPEC_AVAILABLE = False
 ADLFS_AVAILABLE = False
 try:
@@ -108,7 +105,6 @@ try:
 except Exception:
     adlfs = None
 
-# For managed identity we require azure.identity + azure.storage.blob
 AZURE_SDK_AVAILABLE = False
 try:
     from azure.identity import DefaultAzureCredential  # type: ignore
@@ -119,7 +115,6 @@ except Exception:
     BlobServiceClient = None  # type: ignore
     ContainerClient = None  # type: ignore
 
-# Optional parsing/token libs
 try:
     from markdown_it import MarkdownIt  # type: ignore
 except Exception:
@@ -131,10 +126,6 @@ except Exception:
 
 # ---------- storage wiring (dual-mode) ----------
 def build_storage_options() -> Dict[str, str]:
-    """
-    Build fsspec az options for key/SAS/connstr mode.
-    Returns empty dict if managed identity (should not be used by fsspec).
-    """
     if USE_MANAGED_IDENTITY:
         return {}
     opts: Dict[str, str] = {}
@@ -164,11 +155,10 @@ def build_storage_options() -> Dict[str, str]:
     return opts
 
 FS_OPTS = build_storage_options()
-FS: Optional[object] = None  # will be fsspec filesystem or None
+FS: Optional[object] = None
 BLOB_CLIENT = None
 STORAGE_ROOT = f"az://{AZURE_CONTAINER.rstrip('/')}/"
 
-# Validate prerequisites now (fail fast)
 def _prevalidate_auth_envs_or_exit():
     if USE_MANAGED_IDENTITY:
         if not AZURE_SDK_AVAILABLE:
@@ -180,7 +170,6 @@ def _prevalidate_auth_envs_or_exit():
             sys.stderr.write("ERROR: AZURE_STORAGE_ACCOUNT_NAME (or AZURE_ACCOUNT_NAME) required for managed identity mode.\n")
             sys.exit(2)
     else:
-        # key/SAS/connstr mode requirement
         if not FSSPEC_AVAILABLE or not ADLFS_AVAILABLE:
             sys.stderr.write("ERROR: key/SAS/connection-string mode requires fsspec + adlfs.\n")
             sys.stderr.write("Install with: pip install fsspec adlfs\n")
@@ -195,25 +184,40 @@ def _prevalidate_auth_envs_or_exit():
 
 _prevalidate_auth_envs_or_exit()
 
-# Initialize appropriate client(s)
 if USE_MANAGED_IDENTITY:
     account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.environ.get("AZURE_ACCOUNT_NAME")
-    account_url = f"https://{account_name}.{os.environ.get('AZURE_ENDPOINT_SUFFIX','core.windows.net')}"
+    endpoint_suffix = os.environ.get("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
+    account_url = f"https://{account_name}.{endpoint_suffix}"
     try:
         CREDENTIAL = DefaultAzureCredential()
         BLOB_CLIENT = BlobServiceClient(account_url=account_url, credential=CREDENTIAL, connection_timeout=60)
-        FS = None
-        log.info("azure_init", "Initialized BlobServiceClient in managed-identity mode", account=account_name)
     except Exception as e:
         sys.stderr.write(f"ERROR: Failed to init BlobServiceClient (managed identity): {e}\n")
+        sys.exit(2)
+    # Validate access to container (fail-fast)
+    try:
+        container_client = BLOB_CLIENT.get_container_client(AZURE_CONTAINER)
+        container_client.get_container_properties()
+        log.info("azure_init", "Initialized BlobServiceClient in managed-identity mode", account=account_name, container=AZURE_CONTAINER)
+    except Exception as e:
+        sys.stderr.write(f"ERROR: Managed identity client could not access container {AZURE_CONTAINER}: {e}\n")
         sys.exit(2)
 else:
     try:
         FS = fsspec.filesystem("az", **FS_OPTS)  # type: ignore
-        BLOB_CLIENT = None
-        log.info("fsspec_init", "Initialized fsspec az filesystem", opts=list(FS_OPTS.keys()))
     except Exception as e:
         sys.stderr.write(f"ERROR: Failed to initialize fsspec az filesystem: {e}\n")
+        sys.exit(2)
+    # Validate access to container (fail-fast)
+    try:
+        # adlfs accepts "az://container/" style paths for ls/info
+        try:
+            _ = FS.ls(STORAGE_ROOT)  # type: ignore
+        except Exception:
+            _ = FS.info(STORAGE_ROOT)  # type: ignore
+        log.info("fsspec_init", "Initialized fsspec az filesystem", opts=list(FS_OPTS.keys()), container=AZURE_CONTAINER)
+    except Exception as e:
+        sys.stderr.write(f"ERROR: fsspec could not access container {AZURE_CONTAINER}: {e}\n")
         sys.exit(2)
 
 # ---------- helper functions ----------
@@ -355,7 +359,6 @@ class AzureStorageClient:
     def put_object(self, Bucket, Key, Body, ContentType=None):
         if self.fs is not None:
             full = full_path_from_key(Key)
-            # normalize Body -> bytes
             data_bytes = None
             if isinstance(Body, (bytes, bytearray)):
                 data_bytes = bytes(Body)
@@ -503,9 +506,6 @@ def get_storage_client_singleton():
     return _storage_client
 
 def storage_blob_exists(key: str) -> bool:
-    """
-    Key is the blob path relative to container, e.g. 'data/chunked/x.parquet'
-    """
     client = get_storage_client_singleton()
     try:
         client.head_object(Bucket=AZURE_CONTAINER, Key=key)
@@ -847,7 +847,6 @@ class ParquetWriter:
         sha = hashlib.sha256(b).hexdigest()
         size = os.path.getsize(local_parquet_path)
         parquet_key = out_basename + ".parquet"
-        # enforce chunked prefix
         storage_upload_file_atomic(local_parquet_path, STORAGE_CHUNKED_PREFIX + parquet_key, content_type="application/octet-stream")
         try: os.unlink(local_parquet_path)
         except Exception: pass
@@ -855,9 +854,6 @@ class ParquetWriter:
 
 # ---------- storage_upload_file_atomic (dual-mode) ----------
 def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "application/octet-stream"):
-    """
-    Atomic upload: in FS mode we use tmp file then mv; in blob mode we upload directly with overwrite.
-    """
     client = get_storage_client_singleton()
     if client.fs is not None:
         full = full_path_from_key(key)
@@ -871,7 +867,6 @@ def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "a
                         d = lf.read()
                     with client.fs.open(tmp, "wb") as f:  # type: ignore
                         f.write(d)
-                # atomic move/copy into place
                 if hasattr(client.fs, "mv"):
                     client.fs.mv(tmp, full)  # type: ignore
                 else:
@@ -887,7 +882,6 @@ def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "a
                 time.sleep(PUT_BACKOFF * attempt)
         raise Exception(f"atomic upload failed for {key} after {PUT_RETRIES} attempts")
     else:
-        # blob client mode: upload directly (overwrite).
         container_client = client._container_client()
         blob_client = container_client.get_blob_client(key)
         for attempt in range(1, PUT_RETRIES + 1):

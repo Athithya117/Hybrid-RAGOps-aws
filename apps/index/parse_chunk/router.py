@@ -1,4 +1,16 @@
 #!/usr/bin/env python3
+"""
+Finalized app-layer storage glue (deterministic).
+
+Auth decision:
+ - AZURE_USE_MANAGED_IDENTITY=true  => Managed Identity (User Assigned)
+     Required: AZURE_STORAGE_ACCOUNT_NAME, UAI_RAG_RW_CLIENT_ID
+ - AZURE_USE_MANAGED_IDENTITY!=true => Connection string mode (default for local/CI)
+     Required: AZURE_STORAGE_CONNECTION_STRING
+
+On startup the code validates credentials by calling get_container_properties()
+for the configured container. This is intentional: fail fast and deterministic.
+"""
 from __future__ import annotations
 import os
 import sys
@@ -16,254 +28,130 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any
 
-# filesystem (may be optional depending on mode)
-try:
-    import fsspec
-    from fsspec.spec import AbstractFileSystem  # type: ignore
-except Exception:
-    fsspec = None
-    AbstractFileSystem = object  # type: ignore
-
-# --- logging setup: silence noisy third-party loggers ---
+# --- Minimal dependencies / logging setup ---
 _root = logging.getLogger()
 _root.setLevel(logging.WARNING)
-_noisy = (
-    "adlfs",
-    "azure",
-    "azure.storage",
-    "azure.core",
-    "azure.identity",
-    "urllib3",
-    "botocore",
-    "requests",
-    "httpx",
-)
-for n in _noisy:
+for n in ("urllib3", "requests", "httpx", "azure", "adlfs"):
     lg = logging.getLogger(n)
     lg.setLevel(logging.WARNING)
     lg.propagate = False
 
-
 def ts_now() -> str:
     return datetime.utcnow().isoformat(timespec="milliseconds") + "Z"
 
-
+# -------------------- Config & validation --------------------
 CONTAINER = (
     os.getenv("AZURE_CONTAINER")
     or os.getenv("STORAGE_CONTAINER")
     or os.getenv("AZ_CONTAINER")
 )
 if not CONTAINER:
-    print(
-        json.dumps(
-            {
-                "ts": ts_now(),
-                "level": "error",
-                "event": "startup",
-                "msg": "AZURE_CONTAINER (or STORAGE_CONTAINER or AZ_CONTAINER) must be set",
-            }
-        ),
-        file=sys.stderr,
-    )
+    print(json.dumps({"ts": ts_now(), "level": "error", "event": "startup", "msg": "AZURE_CONTAINER (or STORAGE_CONTAINER or AZ_CONTAINER) must be set"}), file=sys.stderr)
     sys.exit(1)
 
-RAW_PREFIX = (
-    (os.getenv("STORAGE_RAW_PREFIX") or os.getenv("S3_RAW_PREFIX") or "data/raw/")
-    .rstrip("/")
-    + "/"
-)
-CHUNKED_PREFIX = (
-    (os.getenv("STORAGE_CHUNKED_PREFIX") or os.getenv("S3_CHUNKED_PREFIX") or "data/chunked/")
-    .rstrip("/")
-    + "/"
-)
+# deterministic auth switch: only this variable decides MI mode
+USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower() in ("1", "true", "yes")
 
+# In non-MI mode the app *requires* a single env: AZURE_STORAGE_CONNECTION_STRING
+# In MI mode it *requires* AZURE_STORAGE_ACCOUNT_NAME and UAI_RAG_RW_CLIENT_ID
+AZ_CONN = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "").strip()
+AZ_ACCOUNT = (os.getenv("AZURE_STORAGE_ACCOUNT_NAME") or os.getenv("AZURE_ACCOUNT_NAME") or "").strip()
+AZ_ENDPOINT_SUFFIX = os.getenv("AZURE_ENDPOINT_SUFFIX", "core.windows.net").strip()
+UAI_RAG_RW_CLIENT_ID = os.getenv("UAI_RAG_RW_CLIENT_ID", "").strip()
+
+if USE_MANAGED_IDENTITY:
+    missing = []
+    if not AZ_ACCOUNT:
+        missing.append("AZURE_STORAGE_ACCOUNT_NAME")
+    if not UAI_RAG_RW_CLIENT_ID:
+        missing.append("UAI_RAG_RW_CLIENT_ID")
+    if missing:
+        print(json.dumps({"ts": ts_now(), "level": "error", "event": "config", "msg": f"Missing required envs for managed identity mode: {', '.join(missing)}"}), file=sys.stderr)
+        sys.exit(2)
+else:
+    if not AZ_CONN:
+        # fail fast and actionable message
+        print(json.dumps({"ts": ts_now(), "level": "error", "event": "config", "msg": "Non-managed-identity mode requires AZURE_STORAGE_CONNECTION_STRING (mount it as a secret)"}), file=sys.stderr)
+        sys.exit(2)
+
+RAW_PREFIX = (os.getenv("STORAGE_RAW_PREFIX") or os.getenv("S3_RAW_PREFIX") or "data/raw/").rstrip("/") + "/"
+CHUNKED_PREFIX = (os.getenv("STORAGE_CHUNKED_PREFIX") or os.getenv("S3_CHUNKED_PREFIX") or "data/chunked/").rstrip("/") + "/"
 
 def log(level: str, event: str, msg: str, **extra) -> None:
-    o = {
-        "ts": ts_now(),
-        "level": level,
-        "event": event,
-        "msg": msg,
-        "container": CONTAINER,
-    }
+    o = {"ts": ts_now(), "level": level, "event": event, "msg": msg, "container": CONTAINER}
     if extra:
         o.update(extra)
     print(json.dumps(o, ensure_ascii=False), flush=True)
 
+# -------------------- Azure client factory (deterministic) --------------------
+def build_blob_service_client():
+    """
+    Deterministic:
+      - If USE_MANAGED_IDENTITY: use DefaultAzureCredential(managed_identity_client_id=...) + account_url
+      - Else: use connection string (required)
+    Fail fast with clear messages and container validation.
+    """
+    if USE_MANAGED_IDENTITY:
+        try:
+            from azure.identity import DefaultAzureCredential  # type: ignore
+            from azure.storage.blob import BlobServiceClient  # type: ignore
+        except Exception as e:
+            log("error", "azure_import", "azure.identity and azure.storage.blob are required for managed identity mode", error=str(e))
+            raise SystemExit(2)
 
-# ------------------- Deterministic auth switch -------------------
-# Use AZURE_USE_MANAGED_IDENTITY exclusively (true/false)
-USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower() in ("1", "true", "yes")
+        account_url = f"https://{AZ_ACCOUNT}.{AZ_ENDPOINT_SUFFIX}"
+        try:
+            # provide the managed identity client id explicitly (user-assigned MI)
+            cred = DefaultAzureCredential(managed_identity_client_id=UAI_RAG_RW_CLIENT_ID)
+            client = BlobServiceClient(account_url=account_url, credential=cred)
+            # HARD VALIDATION: ensure container exists and credentials valid
+            try:
+                _ = client.get_container_client(CONTAINER).get_container_properties()
+            except Exception as e_check:
+                log("error", "mi_validation_failed", "Managed Identity client created but container validation failed; verify Workload Identity, role assignment, and network/DNS", error=str(e_check))
+                raise SystemExit(2)
+            log("info", "client_init", "Initialized BlobServiceClient (managed identity)", account=AZ_ACCOUNT)
+            return client
+        except SystemExit:
+            raise
+        except Exception as e:
+            log("error", "mi_client_failed", "Failed to initialize BlobServiceClient with managed identity; check cluster workload identity configuration", error=str(e))
+            raise SystemExit(2)
+    else:
+        try:
+            from azure.storage.blob import BlobServiceClient  # type: ignore
+        except Exception as e:
+            log("error", "azure_import", "azure.storage.blob package required for connection-string mode (pip install azure-storage-blob)", error=str(e))
+            raise SystemExit(2)
+        try:
+            client = BlobServiceClient.from_connection_string(AZ_CONN)
+            # HARD VALIDATION
+            try:
+                _ = client.get_container_client(CONTAINER).get_container_properties()
+            except Exception as e_check:
+                log("error", "connstr_validation_failed", "Connection string provided but container validation failed; verify connection string and container name", error=str(e_check))
+                raise SystemExit(2)
+            log("info", "client_init", "Initialized BlobServiceClient (connection string)")
+            return client
+        except SystemExit:
+            raise
+        except Exception as e:
+            log("error", "connstr_failed", "Failed to initialize BlobServiceClient.from_connection_string; verify the connection string", error=str(e))
+            raise SystemExit(2)
 
-# ------------------- Azure SDK detection helpers -------------------
-def azure_storage_sdk_available() -> bool:
-    try:
-        import azure.storage.blob  # noqa: F401
-        return True
-    except Exception:
-        return False
-
-
-# Helper to build fsspec options (same as before)
-def build_storage_options() -> Dict[str, Any]:
-    opts: Dict[str, Any] = {}
-    conn = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
-    if conn:
-        opts["connection_string"] = conn
-        return opts
-    acct = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.environ.get("AZURE_ACCOUNT_NAME")
-    key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY") or os.environ.get("AZURE_ACCOUNT_KEY")
-    sas = os.environ.get("AZURE_SAS_TOKEN")
-    eps = os.environ.get("AZURE_ENDPOINT_SUFFIX") or "core.windows.net"
-    if acct and key:
-        opts["account_name"] = acct
-        opts["account_key"] = key
-        opts["endpoint_suffix"] = eps
-        return opts
-    if acct and sas:
-        opts["account_name"] = acct
-        opts["sas_token"] = sas
-        opts["endpoint_suffix"] = eps
-        return opts
-    if os.environ.get("AZURE_ANON"):
-        if acct:
-            opts["account_name"] = acct
-        opts["anon"] = True
-        return opts
-    return opts
-
-
-STORAGE_URL = f"az://{CONTAINER.rstrip('/')}/"
-
-
-# Storage backend abstraction implementing the small surface used across this file
+# -------------------- StorageBackend using azure sdk only (simple surface) --------------------
 class StorageBackend:
     def __init__(self, container: str):
         self.container = container
         self.storage_url = f"az://{container.rstrip('/')}/"
-        self.fs: Optional[AbstractFileSystem] = None
-        self.blob_service = None
-        self.container_client = None
-
-        # Endpoint suffix
-        endpoint_suffix = os.environ.get("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
-
-        # MANAGED IDENTITY PATH
-        if USE_MANAGED_IDENTITY:
-            # require azure.identity + azure.storage.blob
-            try:
-                from azure.identity import DefaultAzureCredential  # type: ignore
-                from azure.storage.blob import BlobServiceClient  # type: ignore
-            except Exception as e:
-                log(
-                    "error",
-                    "azure_sdk_missing",
-                    "azure.identity + azure.storage.blob required for managed identity mode",
-                    error=str(e),
-                )
-                # Fail fast: MI selected -> cannot silently fallback
-                sys.exit(2)
-
-            account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.environ.get("AZURE_ACCOUNT_NAME")
-            if not account_name:
-                log(
-                    "error",
-                    "config",
-                    "AZURE_STORAGE_ACCOUNT_NAME required when AZURE_USE_MANAGED_IDENTITY=true",
-                )
-                sys.exit(2)
-            account_url = f"https://{account_name}.{endpoint_suffix}"
-            try:
-                cred = DefaultAzureCredential()
-                self.blob_service = BlobServiceClient(account_url=account_url, credential=cred)
-                self.container_client = self.blob_service.get_container_client(self.container)
-                log("info", "storage.init", "managed_identity_initialized", account=account_name)
-            except Exception as e:
-                # MI chosen but couldn't create client -> fail fast, with helpful guidance.
-                log(
-                    "error",
-                    "blobclient.managed.init.failed",
-                    "failed creating BlobServiceClient with managed identity. Are you running in an environment with Workload Identity / MSI available? If not, set AZURE_USE_MANAGED_IDENTITY=0 and provide AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_CONNECTION_STRING or AZURE_SAS_TOKEN.",
-                    error=str(e),
-                )
-                sys.exit(2)
-            return
-
-        # NON-MANAGED IDENTITY PATH: prefer azure.storage.blob if available
-        sdk_ok = azure_storage_sdk_available()
-        conn_str = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
-        acct = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.environ.get("AZURE_ACCOUNT_NAME")
-        acct_key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY") or os.environ.get("AZURE_ACCOUNT_KEY")
-        sas = os.environ.get("AZURE_SAS_TOKEN")
-
-        if sdk_ok:
-            try:
-                from azure.storage.blob import BlobServiceClient  # type: ignore
-                # 1) connection string
-                if conn_str:
-                    try:
-                        self.blob_service = BlobServiceClient.from_connection_string(conn_str)  # type: ignore
-                        self.container_client = self.blob_service.get_container_client(self.container)
-                        log("info", "storage.init", "azure_sdk_connstr", method="connection_string")
-                        return
-                    except Exception as e:
-                        log("warn", "connstr.failed", "from_connection_string failed", error=str(e))
-                # 2) account key
-                if acct and acct_key:
-                    try:
-                        account_url = f"https://{acct}.{endpoint_suffix}"
-                        self.blob_service = BlobServiceClient(account_url=account_url, credential=acct_key)  # type: ignore
-                        self.container_client = self.blob_service.get_container_client(self.container)
-                        log("info", "storage.init", "azure_sdk_account_key", account=acct)
-                        return
-                    except Exception as e:
-                        log("warn", "account_key.failed", "BlobServiceClient(account_key) failed", error=str(e))
-                # 3) SAS token
-                if acct and sas:
-                    try:
-                        token = sas if sas.startswith("?") else ("?" + sas)
-                        account_url = f"https://{acct}.{endpoint_suffix}{token}"
-                        self.blob_service = BlobServiceClient(account_url=account_url)  # type: ignore
-                        self.container_client = self.blob_service.get_container_client(self.container)
-                        log("info", "storage.init", "azure_sdk_sas", account=acct)
-                        return
-                    except Exception as e:
-                        log("warn", "sas.failed", "BlobServiceClient(sas) failed", error=str(e))
-                # If azure SDK present but none of above succeeded -> fall through to fsspec fallback (if available)
-                log("info", "storage.init", "azure_sdk_present_but_no_valid_credentials", account=acct is not None)
-            except Exception as e:
-                log("warn", "azure_sdk_import.failed", "import azure.storage.blob failed after availability check", error=str(e))
-
-        # fsspec/adlfs fallback – requires fsspec installed (and adlfs plugin)
-        opts = build_storage_options()
-        if not opts:
-            # no mechanism to authenticate in non-MI mode
-            log(
-                "error",
-                "no_credentials",
-                "non-managed-identity mode requires AZURE_STORAGE_CONNECTION_STRING or (AZURE_STORAGE_ACCOUNT_NAME + AZURE_STORAGE_ACCOUNT_KEY) or (AZURE_STORAGE_ACCOUNT_NAME + AZURE_SAS_TOKEN) or AZURE_ANON",
-            )
-            sys.exit(2)
-
-        if fsspec is None:
-            log(
-                "error",
-                "fsspec_missing",
-                "fsspec (and adlfs) required for key/SAS mode fallback (pip install fsspec adlfs)",
-            )
-            sys.exit(2)
-
+        self.blob_service = build_blob_service_client()
         try:
-            self.fs = fsspec.filesystem("az", **opts)  # type: ignore
-            log("info", "storage.init", "fsspec_initialized", opts_summary=list(opts.keys()))
+            self.container_client = self.blob_service.get_container_client(container)
         except Exception as e:
-            log("error", "fsspec_init_failed", "failed to init fsspec az", error=str(e))
-            sys.exit(2)
+            log("error", "container_client_failed", f"Unable to get container client for {container}", error=str(e))
+            raise SystemExit(2)
 
-    # helpers to convert paths
     def _strip_az_prefix(self, full: str) -> str:
-        # given az://container/... or container/... or ... -> return blob name
         if full.startswith("az://"):
             rest = full[len("az://") :]
             if rest.startswith(self.container + "/"):
@@ -276,66 +164,45 @@ class StorageBackend:
         return full
 
     def find(self, root_path: str) -> List[str]:
-        # root_path is like STORAGE_URL + base
-        if self.fs is not None:
-            try:
-                return self.fs.find(root_path)  # type: ignore
-            except Exception:
-                try:
-                    return self.fs.glob(root_path + "**", recursive=True)  # type: ignore
-                except Exception:
-                    return []
-        else:
-            # blob listing
-            prefix = self._strip_az_prefix(root_path)
-            prefix = prefix.lstrip("/")
-            out: List[str] = []
-            try:
-                for b in self.container_client.list_blobs(name_starts_with=prefix):
-                    out.append(f"az://{self.container}/{b.name}")
-            except Exception as e:
-                log("warn", "list_blobs_failed", "list_blobs error", error=str(e))
-                return []
-            return out
+        prefix = self._strip_az_prefix(root_path).lstrip("/")
+        out: List[str] = []
+        try:
+            for b in self.container_client.list_blobs(name_starts_with=prefix):
+                out.append(f"az://{self.container}/{b.name}")
+        except Exception as e:
+            log("warn", "list_blobs_failed", "list_blobs error", error=str(e))
+        return out
 
     def glob(self, pattern: str) -> List[str]:
-        if self.fs is not None:
-            try:
-                return self.fs.glob(pattern, recursive=True)  # type: ignore
-            except Exception:
-                return []
-        else:
-            prefix = self._strip_az_prefix(pattern)
-            prefix = prefix.lstrip("/")
-            out: List[str] = []
-            try:
-                for b in self.container_client.list_blobs(name_starts_with=prefix):
-                    out.append(f"az://{self.container}/{b.name}")
-            except Exception as e:
-                log("warn", "glob_failed", "list_blobs error", error=str(e))
-                return []
-            return out
+        prefix = self._strip_az_prefix(pattern).lstrip("/")
+        out: List[str] = []
+        try:
+            for b in self.container_client.list_blobs(name_starts_with=prefix):
+                out.append(f"az://{self.container}/{b.name}")
+        except Exception as e:
+            log("warn", "glob_failed", "list_blobs error", error=str(e))
+        return out
 
     def info(self, full_path: str) -> Dict[str, Any]:
-        if self.fs is not None:
-            try:
-                return self.fs.info(full_path)  # type: ignore
-            except Exception:
-                raise
-        else:
-            name = self._strip_az_prefix(full_path).lstrip("/")
+        name = self._strip_az_prefix(full_path).lstrip("/")
+        try:
             blob_client = self.container_client.get_blob_client(name)
             props = blob_client.get_blob_properties()
             meta = getattr(props, "metadata", {}) or {}
-            # return keys similar to fsspec info
+            content_type = ""
+            try:
+                if getattr(props, "content_settings", None) is not None:
+                    content_type = getattr(props.content_settings, "content_type", "") or ""
+            except Exception:
+                content_type = getattr(props, "content_type", "") or ""
             info_obj: Dict[str, Any] = {
                 "size": int(getattr(props, "size", 0) or 0),
                 "etag": getattr(props, "etag", "") or "",
                 "ETag": getattr(props, "etag", "") or "",
                 "eTag": getattr(props, "etag", "") or "",
-                "Content-Type": (getattr(props, "content_settings", None).content_type if getattr(props, "content_settings", None) else getattr(props, "content_type", "")) or "",
-                "content-type": (getattr(props, "content_settings", None).content_type if getattr(props, "content_settings", None) else getattr(props, "content_type", "")) or "",
-                "content_type": (getattr(props, "content_settings", None).content_type if getattr(props, "content_settings", None) else getattr(props, "content_type", "")) or "",
+                "Content-Type": content_type,
+                "content-type": content_type,
+                "content_type": content_type,
                 "last_modified": getattr(props, "last_modified", ""),
                 "Last-Modified": getattr(props, "last_modified", ""),
                 "metadata": meta,
@@ -343,103 +210,76 @@ class StorageBackend:
                 "type": "file",
             }
             return info_obj
+        except Exception as e:
+            raise
 
     def exists(self, full_path: str) -> bool:
-        if self.fs is not None:
-            try:
-                return self.fs.exists(full_path)  # type: ignore
-            except Exception:
-                return False
-        else:
-            name = self._strip_az_prefix(full_path).lstrip("/")
+        name = self._strip_az_prefix(full_path).lstrip("/")
+        try:
             blob_client = self.container_client.get_blob_client(name)
-            try:
-                return blob_client.exists()
-            except Exception:
-                return False
+            return blob_client.exists()
+        except Exception:
+            return False
 
     def makedirs(self, path: str, exist_ok: bool = True) -> None:
-        # blob storage doesn't need directories - noop
-        if self.fs is not None:
-            try:
-                if hasattr(self.fs, "makedirs"):
-                    self.fs.makedirs(path, exist_ok=exist_ok)  # type: ignore
-            except Exception:
-                pass
+        # noop for blob storage
+        return
 
     def open(self, full_path: str, mode: str = "rb"):
-        if self.fs is not None:
-            return self.fs.open(full_path, mode)  # type: ignore
-        else:
-            name = self._strip_az_prefix(full_path).lstrip("/")
-            blob_client = self.container_client.get_blob_client(name)
-            if "r" in mode:
-                stream = blob_client.download_blob()
-                data = stream.readall()
-                return io.BytesIO(data)
-            # write modes: provide a context manager that uploads on close
-            class _BlobWriter(io.BytesIO):
-                def __init__(self, bc):
-                    super().__init__()
-                    self._bc = bc
-
-                def close(self):
-                    try:
-                        self.seek(0)
-                        data = self.read()
-                        # upload_blob expects bytes
-                        self._bc.upload_blob(data, overwrite=True)
-                    except Exception as e:
-                        log("warn", "upload_failed", "blob upload failed in writer.close", error=str(e))
+        name = self._strip_az_prefix(full_path).lstrip("/")
+        blob_client = self.container_client.get_blob_client(name)
+        if "r" in mode:
+            stream = blob_client.download_blob()
+            data = stream.readall()
+            return io.BytesIO(data)
+        # write: context manager that uploads on close
+        class _BlobWriter(io.BytesIO):
+            def __init__(self, bc):
+                super().__init__()
+                self._bc = bc
+            def close(self):
+                try:
+                    self.seek(0)
+                    data = self.read()
+                    # Azure BlobClient.upload_blob works with bytes
+                    self._bc.upload_blob(data, overwrite=True)
+                except Exception as e:
+                    log("warn", "upload_failed", "blob upload failed in writer.close", error=str(e))
+                    raise
+                finally:
                     super().close()
-
-                def __enter__(self):
-                    return self
-
-                def __exit__(self, exc_type, exc, tb):
-                    self.close()
-                    return False
-
-            return _BlobWriter(blob_client)
+            def __enter__(self):
+                return self
+            def __exit__(self, exc_type, exc, tb):
+                self.close()
+                return False
+        return _BlobWriter(blob_client)
 
     def rm(self, full_path: str) -> None:
-        if self.fs is not None:
-            try:
-                self.fs.rm(full_path)  # type: ignore
-            except Exception:
-                try:
-                    self.fs.delete(full_path)  # type: ignore
-                except Exception:
-                    pass
-        else:
-            name = self._strip_az_prefix(full_path).lstrip("/")
-            blob_client = self.container_client.get_blob_client(name)
-            try:
-                blob_client.delete_blob()
-            except Exception:
-                pass
+        name = self._strip_az_prefix(full_path).lstrip("/")
+        blob_client = self.container_client.get_blob_client(name)
+        try:
+            blob_client.delete_blob()
+        except Exception:
+            pass
 
     def delete(self, full_path: str) -> None:
-        # alias
         self.rm(full_path)
-
 
 # instantiate backend
 storage = StorageBackend(CONTAINER)
+STORAGE_URL = f"az://{CONTAINER.rstrip('/')}/"
 
-
-# ------------------- original functions (adapted to storage backend) -------------------
-
+# ------------------- Adapted helper functions (same behaviour) -------------------
 def full_path_from_key(key: str) -> str:
     return STORAGE_URL + key.lstrip("/")
 
-
 def strip_root_from_path(full: str) -> str:
     if full.startswith(STORAGE_URL):
-        return full[len(STORAGE_URL) :]
+        return full[len(STORAGE_URL):]
     proto_prefix = "az://"
     if full.startswith(proto_prefix):
-        rest = full[len(proto_prefix) :]
+        rest = full[len(proto_prefix):]
         if rest.startswith(CONTAINER + "/"):
             return rest[len(CONTAINER) + 1 :]
         if rest == CONTAINER:
@@ -447,7 +287,6 @@ def strip_root_from_path(full: str) -> str:
     if full.startswith(CONTAINER + "/"):
         return full[len(CONTAINER) + 1 :]
     return full
-
 
 def retry(func, retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
     for attempt in range(retries):
@@ -459,7 +298,6 @@ def retry(func, retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
             log("warn", "retry", f"attempt={attempt+1} error={str(e)}")
             time.sleep(delay)
             delay *= backoff
-
 
 def list_raw_files() -> List[str]:
     base = RAW_PREFIX
@@ -487,7 +325,6 @@ def list_raw_files() -> List[str]:
         out.append(rel)
     return out
 
-
 def head_remote_metadata(full_remote_path: str) -> Dict[str, str]:
     try:
         info_obj = storage.info(full_remote_path)
@@ -504,7 +341,6 @@ def head_remote_metadata(full_remote_path: str) -> Dict[str, str]:
         return {k.lower(): v for k, v in (meta or {}).items()}
     except Exception:
         return {}
-
 
 def list_remote_objects(container: str, prefix: str) -> List[Tuple[str, str, int, str]]:
     prefix_key = prefix.rstrip("/") + "/"
@@ -534,30 +370,25 @@ def list_remote_objects(container: str, prefix: str) -> List[Tuple[str, str, int
         out.append((full, rel, size, etag))
     return out
 
-
 def upload_file_fs(local_path: str, full_remote_path: str, sha256: Optional[str], content_type: str = "application/octet-stream"):
     with open(local_path, "rb") as lf:
         data = lf.read()
-    # ensure directory/parent exists when using implementations that require it
     parent = str(Path(full_remote_path).parent)
     try:
         storage.makedirs(parent, exist_ok=True)
     except Exception:
         pass
-    # use storage.open for write
     try:
         with storage.open(full_remote_path, "wb") as f:
             if hasattr(f, "write"):
                 f.write(data)
             else:
-                # fallback — write via blob client possibly returned a BytesIO-like
                 try:
                     f.write(data)
                 except Exception:
                     pass
     except Exception as e:
         raise
-
 
 def download_file_fs(full_remote_path: str, local_target: str):
     target = Path(local_target)
@@ -566,7 +397,6 @@ def download_file_fs(full_remote_path: str, local_target: str):
         data = f.read()
     target.write_bytes(data)
     return {"rel_path": full_remote_path}
-
 
 def delete_remote_file_fs(full_remote_path: str):
     try:
@@ -577,7 +407,6 @@ def delete_remote_file_fs(full_remote_path: str):
         except Exception:
             pass
     return full_remote_path
-
 
 def list_local_files(base_dir: str) -> List[Tuple[str, str]]:
     base = Path(base_dir)
@@ -593,7 +422,6 @@ def list_local_files(base_dir: str) -> List[Tuple[str, str]]:
             out.append((str(p.resolve()), rel))
     return out
 
-
 def compute_md5(path: str, chunk_size: int = 8 * 1024 * 1024) -> str:
     h = hashlib.md5()
     with open(path, "rb") as f:
@@ -603,7 +431,6 @@ def compute_md5(path: str, chunk_size: int = 8 * 1024 * 1024) -> str:
                 break
             h.update(chunk)
     return h.hexdigest()
-
 
 def compute_sha256(path: str, chunk_size: int = 8 * 1024 * 1024) -> str:
     h = hashlib.sha256()
@@ -615,10 +442,8 @@ def compute_sha256(path: str, chunk_size: int = 8 * 1024 * 1024) -> str:
             h.update(chunk)
     return h.hexdigest()
 
-
 def file_sha256(s3_key: str) -> str:
     full = full_path_from_key(s3_key)
-
     def _read():
         h = hashlib.sha256()
         with storage.open(full, "rb") as stream:
@@ -627,13 +452,10 @@ def file_sha256(s3_key: str) -> str:
                     break
                 h.update(chunk)
         return h.hexdigest()
-
     return retry(_read)
-
 
 def manifest_path(s3_key: str, file_hash: Optional[str] = None) -> str:
     return f"{s3_key}.manifest.json"
-
 
 def is_already_processed(file_hash: str) -> bool:
     if os.getenv("FORCE_PROCESS", "false").lower() == "true":
@@ -657,7 +479,6 @@ def is_already_processed(file_hash: str) -> bool:
             pass
     return False
 
-
 def save_manifest(s3_key: str, manifest: dict) -> bool:
     key = manifest_path(s3_key, manifest.get("file_hash"))
     full = full_path_from_key(key)
@@ -671,7 +492,6 @@ def save_manifest(s3_key: str, manifest: dict) -> bool:
             if hasattr(f, "write"):
                 f.write(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8"))
             else:
-                # attempt to write via fallback
                 try:
                     f.write(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8"))
                 except Exception:
@@ -682,39 +502,20 @@ def save_manifest(s3_key: str, manifest: dict) -> bool:
         log("error", "save_manifest_failed", str(e), key=full)
         return False
 
-
 def get_format_module(ext: str) -> Optional[str]:
     mapping = {
-        "pdf": "pdf",
-        "pptx": "_pptx",
-        "ppt": "_pptx",
-        "html": "_html",
-        "htm": "_html",
-        "md": "md",
-        "markdown": "md",
-        "mdown": "md",
-        "txt": "txt",
-        "wav": "wav",
-        "mp3": "wav",
-        "jpg": "images",
-        "jpeg": "images",
-        "png": "images",
-        "webp": "images",
-        "tiff": "images",
-        "tif": "images",
-        "gif": "images",
-        "bmp": "images",
-        "csv": "_csv",
-        "jsonl": "jsonl",
-        "ndjson": "jsonl",
+        "pdf": "pdf", "pptx": "_pptx", "ppt": "_pptx", "html": "_html", "htm": "_html",
+        "md": "md", "markdown": "md", "mdown": "md", "txt": "txt",
+        "wav": "wav", "mp3": "wav",
+        "jpg": "images", "jpeg": "images", "png": "images", "webp": "images",
+        "tiff": "images", "tif": "images", "gif": "images", "bmp": "images",
+        "csv": "_csv", "jsonl": "jsonl", "ndjson": "jsonl",
     }
     return mapping.get(ext.lower())
-
 
 def detect_mime(key: str) -> str:
     mime, _ = mimetypes.guess_type(key)
     return mime or "application/octet-stream"
-
 
 def detect_ext_from_key(some_fs, bucket: str, key: str) -> str:
     k = urllib.parse.unquote(key.split("?", 1)[0].split("#", 1)[0])
@@ -724,46 +525,29 @@ def detect_ext_from_key(some_fs, bucket: str, key: str) -> str:
         ext = "md"
     if ext:
         return ext
-
-    # No extension on filename; inspect metadata / content-type
     try:
         full = full_path_from_key(key)
         head = storage.info(full)
-        ctype = (
-            (head.get("Content-Type") or head.get("content-type") or head.get("content_type") or "")
-            .lower()
-        )
+        ctype = ((head.get("Content-Type") or head.get("content-type") or head.get("content_type") or "")).lower()
         metadata = head.get("metadata") or head.get("meta") or head.get("Metadata") or {}
         meta_fn = metadata.get("filename") or metadata.get("originalname") or ""
         if meta_fn:
             _, mext = os.path.splitext(meta_fn)
             mext = mext.lstrip(".").lower()
-            if mext in ("markdown", "mdown"):
-                return "md"
-            if mext:
-                return mext
-        if "markdown" in ctype or "text/markdown" in ctype:
-            return "md"
-        if "text/html" in ctype:
-            return "html"
-        if ctype.startswith("text/"):
-            return "txt"
-        if "application/pdf" in ctype:
-            return "pdf"
-        if "presentation" in ctype or "powerpoint" in ctype or "officedocument.presentationml" in ctype:
-            return "pptx"
-        if "wordprocessingml" in ctype or "officedocument.wordprocessingml" in ctype:
-            return "docx"
-        if "officedocument.spreadsheetml" in ctype or "excel" in ctype:
-            return "xlsx"
-        if ctype.startswith("image/"):
-            return "jpg"
-        if ctype.startswith("audio/"):
-            return "wav"
+            if mext in ("markdown", "mdown"): return "md"
+            if mext: return mext
+        if "markdown" in ctype or "text/markdown" in ctype: return "md"
+        if "text/html" in ctype: return "html"
+        if ctype.startswith("text/"): return "txt"
+        if "application/pdf" in ctype: return "pdf"
+        if "presentation" in ctype or "powerpoint" in ctype or "officedocument.presentationml" in ctype: return "pptx"
+        if "wordprocessingml" in ctype or "officedocument.wordprocessingml" in ctype: return "docx"
+        if "officedocument.spreadsheetml" in ctype or "excel" in ctype: return "xlsx"
+        if ctype.startswith("image/"): return "jpg"
+        if ctype.startswith("audio/"): return "wav"
     except Exception:
         pass
     return ""
-
 
 def load_module_from_path(module_name: str, path: Path):
     loader_name = f"local_formats_{module_name}"
@@ -773,7 +557,6 @@ def load_module_from_path(module_name: str, path: Path):
         spec.loader.exec_module(mod)
         return mod
     raise ImportError(f"Cannot load module {module_name} from {path}")
-
 
 def _import_format_module(module_name: str):
     tried: List[str] = []
@@ -800,7 +583,6 @@ def _import_format_module(module_name: str):
             except Exception:
                 tried.append(str(p))
     raise ImportError(f"Failed to import module for format '{module_name}', tried: {', '.join(tried)}")
-
 
 def main() -> None:
     run_id = os.getenv("RUN_ID") or str(uuid.uuid4())
@@ -878,7 +660,6 @@ def main() -> None:
         except Exception as exc_outer:
             log("error", "loop_failure", str(exc_outer), key=key if "key" in locals() else None)
             continue
-
 
 if __name__ == "__main__":
     main()

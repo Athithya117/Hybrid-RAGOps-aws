@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-# csv_parser_dualmode.py
-# Dual-mode CSV parser/indexer for Azure blob storage
-# Authentication deterministic switch:
-#   AZURE_USE_MANAGED_IDENTITY=1 -> use DefaultAzureCredential (Managed Identity)
-#   AZURE_USE_MANAGED_IDENTITY=0 -> use account key / SAS / connection string with fsspec/adlfs
-#
-# If using a specific user-assigned identity, set AZURE_MANAGED_IDENTITY_CLIENT_ID (or AZURE_CLIENT_ID or UAI_RAG_RW_CLIENT_ID).
 from __future__ import annotations
 import os
 import sys
@@ -21,7 +14,6 @@ import threading
 from datetime import datetime
 from typing import Any, Dict, Iterator, Tuple, List, Optional
 
-# ---------- Simple structured logger ----------
 class LoggerShim:
     def __init__(self, name: str):
         self.name = name
@@ -73,14 +65,8 @@ class LoggerShim:
 
 log = LoggerShim("csv_parser")
 
-# ---------- Configuration (env-driven) ----------
-# Keep ENV available for diagnostics but DO NOT let it change auth mode deterministically.
-ENV = os.getenv("ENV", "STAGING").upper()  # informational only
-
-# Deterministic switch: only AZURE_USE_MANAGED_IDENTITY controls auth mode.
-USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", "").strip().lower() in ("1", "true", "yes")
-# default: False if not set (explicitness preferred)
-
+ENV = os.getenv("ENV", "STAGING").upper()
+USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower() in ("1", "true", "yes")
 AZURE_CONTAINER = os.getenv("AZURE_CONTAINER") or os.getenv("STORAGE_CONTAINER") or os.getenv("AZ_CONTAINER")
 STORAGE_RAW_PREFIX = (os.getenv("STORAGE_RAW_PREFIX") or os.getenv("S3_RAW_PREFIX", "data/raw/")).rstrip("/") + "/"
 STORAGE_CHUNKED_PREFIX = (os.getenv("STORAGE_CHUNKED_PREFIX") or os.getenv("S3_CHUNKED_PREFIX", "data/chunked/")).rstrip("/") + "/"
@@ -102,12 +88,11 @@ def _norm_prefix(p: str) -> str:
 STORAGE_RAW_PREFIX = _norm_prefix(STORAGE_RAW_PREFIX)
 STORAGE_CHUNKED_PREFIX = _norm_prefix(STORAGE_CHUNKED_PREFIX)
 
-# ---------- Optional libs (fall back gracefully) ----------
 try:
     import fsspec
     from fsspec.spec import AbstractFileSystem  # type: ignore
 except Exception:
-    fsspec = None  # type: ignore
+    fsspec = None
 
 try:
     import polars as pl
@@ -119,7 +104,6 @@ try:
 except Exception:
     tiktoken = None
 
-# Azure SDKs (only required for managed identity mode)
 DefaultAzureCredential = None
 BlobServiceClient = None
 ContainerClient = None
@@ -133,12 +117,7 @@ if USE_MANAGED_IDENTITY:
         AZURE_SDK_AVAILABLE = False
         log.error("azure_sdk_missing", "azure-identity and azure-storage-blob required for managed identity mode", error=str(e))
 
-# ---------- Storage wiring (dual-mode) ----------
 def build_storage_options() -> Dict[str, str]:
-    """
-    For key/SAS/connstring mode: return options for fsspec az filesystem.
-    If managed-identity mode is used, return empty and blob client will be used.
-    """
     if USE_MANAGED_IDENTITY:
         return {}
     opts: Dict[str, str] = {}
@@ -169,13 +148,10 @@ def build_storage_options() -> Dict[str, str]:
 
 FS_OPTS = build_storage_options()
 
-# initialize runtime storage access
 BLOB_CLIENT = None
 FS = None
 STORAGE_ROOT = ""
-
 if USE_MANAGED_IDENTITY:
-    # validate environment / SDK presence
     if not AZURE_SDK_AVAILABLE:
         sys.stderr.write("ERROR: AZURE_USE_MANAGED_IDENTITY=1 but azure-identity/azure-storage-blob is not installed.\n")
         sys.stderr.write("Install: pip install azure-identity azure-storage-blob\n")
@@ -184,15 +160,11 @@ if USE_MANAGED_IDENTITY:
     if not account_name:
         sys.stderr.write("ERROR: AZURE_STORAGE_ACCOUNT_NAME required when AZURE_USE_MANAGED_IDENTITY=1\n")
         sys.exit(2)
-
     endpoint_suffix = os.environ.get("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
     account_url = f"https://{account_name}.{endpoint_suffix}"
-
-    # allow passing a specific User Assigned Identity client id
     mi_client_id = os.getenv("AZURE_MANAGED_IDENTITY_CLIENT_ID") or os.getenv("AZURE_CLIENT_ID") or os.getenv("UAI_RAG_RW_CLIENT_ID")
     try:
         if mi_client_id:
-            # DefaultAzureCredential supports managed_identity_client_id param in recent SDKs
             CREDENTIAL = DefaultAzureCredential(managed_identity_client_id=mi_client_id)
             log.info("mi.chosen", "Using managed identity client id", client_id=mi_client_id)
         else:
@@ -205,13 +177,10 @@ if USE_MANAGED_IDENTITY:
     FS = None
     STORAGE_ROOT = f"az://{AZURE_CONTAINER.rstrip('/')}/" if AZURE_CONTAINER else ""
 else:
-    # key/sas/connstring-based path using fsspec
     if fsspec is None:
         sys.stderr.write("ERROR: AZURE_USE_MANAGED_IDENTITY=0 requires fsspec/adlfs. Install: pip install fsspec adlfs\n")
         sys.exit(2)
-    # ensure we have sufficient FS_OPTS
     if not FS_OPTS:
-        # no creds provided: fail fast with clear guidance
         sys.stderr.write("ERROR: non-managed identity mode requires AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_CONNECTION_STRING or AZURE_SAS_TOKEN (or AZURE_ANON).\n")
         sys.exit(2)
     try:
@@ -223,22 +192,21 @@ else:
     BLOB_CLIENT = None
     STORAGE_ROOT = f"az://{AZURE_CONTAINER.rstrip('/')}/" if AZURE_CONTAINER else ""
 
-# ---------- utility functions ----------
 def full_path_from_key(key: str) -> str:
     return STORAGE_ROOT + key.lstrip("/")
 
 def strip_root_from_path(full: str) -> str:
     if full.startswith(STORAGE_ROOT):
-        return full[len(STORAGE_ROOT) : ]
+        return full[len(STORAGE_ROOT):]
     proto_prefix = "az://"
     if full.startswith(proto_prefix):
-        rest = full[len(proto_prefix) : ]
+        rest = full[len(proto_prefix):]
         if rest.startswith((AZURE_CONTAINER or "") + "/"):
-            return rest[len(AZURE_CONTAINER) + 1 : ]
+            return rest[len(AZURE_CONTAINER) + 1 :]
         if rest == (AZURE_CONTAINER or ""):
             return ""
     if full.startswith((AZURE_CONTAINER or "") + "/"):
-        return full[len(AZURE_CONTAINER) + 1 : ]
+        return full[len(AZURE_CONTAINER) + 1 :]
     return full
 
 def sha256_hex_str(s: str) -> str:
@@ -275,10 +243,8 @@ def token_count_for(text: str) -> int:
                 pass
     except Exception:
         pass
-    # fallback: approximate token count by whitespace split
     return len(text.split())
 
-# ---------- Storage client abstraction (robust, dual-mode) ----------
 class AzureStorageClient:
     def __init__(self, fs_obj=None, root=None, container=None, blob_client=None):
         self.fs = fs_obj
@@ -286,7 +252,7 @@ class AzureStorageClient:
         self.container = container
         self.blob_client = blob_client
 
-    def _container_client(self) -> "ContainerClient":
+    def _container_client(self):
         if self.blob_client is None:
             raise RuntimeError("blob_client not initialized for managed-identity mode")
         return self.blob_client.get_container_client(self.container)
@@ -368,7 +334,6 @@ class AzureStorageClient:
         if self.fs is not None:
             full = full_path_from_key(Key)
             if hasattr(self.fs, "put"):
-                # some implementations provide put
                 self.fs.put(LocalFile, full)
             else:
                 with open(LocalFile, "rb") as lf:
@@ -464,7 +429,6 @@ class AzureStorageClient:
                         yield page
             return Pblob(self._container_client())
 
-# singleton client
 _storage_client = None
 _storage_lock = threading.Lock()
 
@@ -491,10 +455,6 @@ def storage_file_exists(key: str) -> bool:
         return False
 
 def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "application/octet-stream"):
-    """
-    Always upload under STORAGE_CHUNKED_PREFIX + key (callers should pass basename).
-    Performs atomic upload via tmp file then mv when possible.
-    """
     full = full_path_from_key(key)
     tmp = f"{full}.tmp.{os.getpid()}.{int(time.time())}"
     client = get_storage_client()
@@ -508,10 +468,8 @@ def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "a
                 with client.fs.open(tmp, "wb") as f:
                     f.write(d)
             else:
-                # blob client path: upload directly to final name (overwrite true)
                 client.upload_file(local_path, AZURE_CONTAINER, key)
                 return
-            # move/rename to final path for fs path
             if client.fs is not None and hasattr(client.fs, "mv"):
                 client.fs.mv(tmp, full)
             else:
@@ -529,21 +487,6 @@ def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "a
             time.sleep(PUT_BACKOFF * attempt)
     raise Exception(f"atomic upload failed for {key} after {PUT_RETRIES} attempts")
 
-# ---------- Token windowing, writer, parsing, etc. (kept as original) ----------
-# For brevity in this response I keep the token-windowing, ParquetWriter,
-# manifest and chunking logic intact; the functions below are identical
-# to your previous implementation (split_into_token_windows, ParquetWriter,
-# sanitize_payload_for_raw_manifest, filename_from_source_url, get_header_and_sample_tokens,
-# _flush_rows_chunk, _process_batch_rows, parse_file, and CLI main loop).
-#
-# ---- Insert unchanged functions here (copied from your original file) ----
-
-# Reuse the same split_into_token_windows, ParquetWriter, sanitize_payload_for_raw_manifest,
-# filename_from_source_url, get_header_and_sample_tokens, _flush_rows_chunk,
-# _process_batch_rows, parse_file, and CLI main loop that were in your original file.
-# (To keep this file compact in the answer I'm re-embedding them verbatim:)
-
-# ---------- Token windowing and chunking logic (unchanged) ----------
 def split_into_token_windows(text: str, max_tokens: int, overlap_fraction: float = 0.1) -> Iterator[Dict[str, Any]]:
     if not text:
         return
@@ -584,7 +527,6 @@ def split_into_token_windows(text: str, max_tokens: int, overlap_fraction: float
         else:
             start = new_start
 
-# ---------- Parquet writer (unchanged) ----------
 class ParquetWriter:
     def __init__(self, doc_id: str):
         self.doc_id = doc_id
@@ -644,7 +586,6 @@ class ParquetWriter:
         except Exception as e:
             log.error("pyarrow_missing", "pyarrow required for parquet writing", error=str(e))
             raise
-
         schema = pa.schema([
             pa.field("document_id", pa.string()),
             pa.field("file_name", pa.string()),
@@ -667,12 +608,10 @@ class ParquetWriter:
             pa.field("parser_version", pa.string()),
             pa.field("used_ocr", pa.bool_()),
         ])
-
         cols = {name: [] for name in [f.name for f in schema]}
         for r in self._rows:
             for name in cols:
                 cols[name].append(r.get(name) if name in r else None)
-
         table = pa.Table.from_pydict(cols, schema=schema)
         existing_md = table.schema.metadata or {}
         new_md = dict(existing_md)
@@ -683,18 +622,14 @@ class ParquetWriter:
             b"created_at": datetime.utcnow().isoformat().encode("utf-8"),
         })
         table = table.replace_schema_metadata(new_md)
-
         tmpfile = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".parquet", dir="/tmp")
         tmpfile.close()
         pq.write_table(table, tmpfile.name, compression="zstd", flavor="spark")
-
         with open(tmpfile.name, "rb") as fh:
             data = fh.read()
         sha = sha256_hex_bytes(data)
         size = os.path.getsize(tmpfile.name)
         parquet_key = out_basename + ".parquet"
-
-        # ALWAYS upload under STORAGE_CHUNKED_PREFIX
         storage_upload_file_atomic(tmpfile.name, STORAGE_CHUNKED_PREFIX + parquet_key, content_type="application/octet-stream")
         try:
             os.unlink(tmpfile.name)
@@ -702,7 +637,6 @@ class ParquetWriter:
             pass
         return len(self._rows), STORAGE_CHUNKED_PREFIX + parquet_key, sha, size
 
-# ---------- Manifest helper ----------
 def sanitize_payload_for_raw_manifest(doc_id: str, raw_key: str, chunked_key: str, rows: int, sha: str, size: int) -> Dict[str, Any]:
     return {
         "raw_key": raw_key,
@@ -729,7 +663,6 @@ def filename_from_source_url(source_url: Optional[str]) -> str:
     except Exception:
         return os.path.basename(str(source_url))
 
-# ---------- Header/sample detection (unchanged) ----------
 def get_header_and_sample_tokens(blob_key: str) -> Tuple[str, int]:
     try:
         full = full_path_from_key(blob_key)
@@ -773,7 +706,6 @@ def get_header_and_sample_tokens(blob_key: str) -> Tuple[str, int]:
     except Exception:
         return "", 32
 
-# ---------- Chunk flush and batching logic (unchanged) ----------
 def _flush_rows_chunk(writer: ParquetWriter, doc_id: str, chunk_index: int, header_text: str, rows_text: List[str], start_row_num: int, manifest_tags: List[str] = None) -> Tuple[int, int]:
     if not rows_text:
         return 0, chunk_index
@@ -860,7 +792,6 @@ def _process_batch_rows(rows_iterable, doc_id, blob_path, chunk_index, header_te
                 saved += 1
             start_row_of_current = next_row_num
             continue
-
         candidate_text = (header_text + "\n\n".join(rows_text + [row_text])) if header_text else "\n".join(rows_text + [row_text])
         candidate_tokens = token_count_for(candidate_text)
         if candidate_tokens <= TARGET_TOKENS_PER_CHUNK:
@@ -873,13 +804,11 @@ def _process_batch_rows(rows_iterable, doc_id, blob_path, chunk_index, header_te
             saved += wrote
             rows_text = [row_text]
             start_row_of_current = row_num
-
     if rows_text:
         wrote, chunk_index = _flush_rows_chunk(writer, doc_id, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags)
         saved += wrote
     return saved, chunk_index, next_row_num
 
-# ---------- Main parse_file (preserves all logic) ----------
 def parse_file(blob_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
     start_all = time.perf_counter()
     if not AZURE_CONTAINER:
@@ -890,13 +819,11 @@ def parse_file(blob_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         log.error("head_failed", "Could not HEAD blob %s: %s", blob_key, str(e))
         return {"saved_chunks": 0, "total_parse_duration_ms": 0, "skipped": True, "error": str(e)}
-
     last_modified = head_obj.get("LastModified", "")
     doc_id = manifest.get("file_hash") if isinstance(manifest, dict) and manifest.get("file_hash") else sha256_hex_str(blob_key + str(last_modified or ""))
     out_basename = f"{doc_id}"
     raw_manifest_key = blob_key + ".manifest.json"
     out_parquet_key = STORAGE_CHUNKED_PREFIX + out_basename + ".parquet"
-
     if not FORCE_OVERWRITE:
         try:
             if storage_file_exists(raw_manifest_key):
@@ -919,14 +846,12 @@ def parse_file(blob_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
                 return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
         except Exception:
             pass
-
     header_text, sample_row_tokens = get_header_and_sample_tokens(blob_key)
     header_tokens = token_count_for(header_text) if header_text else 0
     if header_tokens >= TARGET_TOKENS_PER_CHUNK:
         log.warning("header_too_large", "CSV header token count >= target chunk size. Header will not be prepended.")
         header_text = ""
         header_tokens = 0
-
     if ROWS_PER_CHUNK_OVERRIDE:
         try:
             rows_per_chunk = max(MIN_ROWS_PER_CHUNK, min(MAX_ROWS_PER_CHUNK, int(ROWS_PER_CHUNK_OVERRIDE)))
@@ -936,15 +861,12 @@ def parse_file(blob_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
         available_for_rows = max(1, TARGET_TOKENS_PER_CHUNK - header_tokens)
         estimated_rows = max(1, int(available_for_rows / max(1, sample_row_tokens)))
         rows_per_chunk = max(MIN_ROWS_PER_CHUNK, min(MAX_ROWS_PER_CHUNK, estimated_rows))
-
     log.info("sample_info", "%s sample_row_tokens=%d header_tokens=%d rows_per_chunk=%d", blob_key, sample_row_tokens, header_tokens, rows_per_chunk)
-
     saved = 0
     chunk_index = 0
     next_row_num = 1
     manifest_tags = manifest.get("tags", []) if isinstance(manifest, dict) else []
     writer = ParquetWriter(doc_id=doc_id)
-
     try:
         obj = client.get_object(Bucket=AZURE_CONTAINER, Key=blob_key)
         body = obj.get("Body")
@@ -966,7 +888,6 @@ def parse_file(blob_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
         total_ms = int((time.perf_counter() - start_all) * 1000)
         log.error("parse_failed", "Skipping malformed or unreadable CSV %s error=%s", blob_key, str(e_pd))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_pd)}
-
     try:
         if saved == 0:
             total_ms = int((time.perf_counter() - start_all) * 1000)
@@ -986,7 +907,6 @@ def parse_file(blob_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
         log.error("upload_failed", "Failed to upload chunked file for %s error=%s", blob_key, str(e_up))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
 
-# ---------- CLI mode (safe) ----------
 if __name__ == "__main__":
     log.info("startup", "CSV parser start", env=ENV, use_managed_identity=str(USE_MANAGED_IDENTITY).lower(), token_encoder=os.getenv("TOKEN_ENCODER", ENC_NAME), tiktoken_present="yes" if tiktoken is not None else "no")
     if not AZURE_CONTAINER:
