@@ -1,22 +1,17 @@
+#!/usr/bin/env python3
 """
-python3 run_indexing_cronjob.py
+run_indexing_cronjob.py
 
-Run a CronJob manually by creating a Job from it, stream logs from the Job pod,
-and clean up afterwards.
-
-Defaults:
-  --namespace indexing
-  --cronjob indexing-backup-cronjob
-
-Options:
-  --create-secrets  (for staging) create secrets in-cluster from env vars (qdrant + aws) before creating the Job
-  --timeout SECS     max seconds to wait for pod to appear / start (default 180)
-  --no-cleanup       keep Job & pods after completion for debugging
-
+- Create a one-off Job from CronJob (safe, manual run).
+- Streams logs from the job pod.
+- Automatically creates necessary secrets in-cluster from env vars if present:
+    - AZURE_STORAGE_CONNECTION_STRING -> secret/indexer-azure-creds (key: AZURE_STORAGE_CONNECTION_STRING)
+    - QDRANT_API_KEY -> secret/qdrant-api-key (key: QDRANT_API_KEY)
+- Default behavior: cleanup after done. Use --no-cleanup or --keep to retain job/pods for debugging.
 """
-
 from __future__ import annotations
 import subprocess, sys, time, argparse, os, shlex, datetime, typing
+from typing import Optional
 
 def run_cmd(cmd: typing.List[str], input_text: str | None = None, timeout: int | None = None):
     try:
@@ -34,6 +29,7 @@ def create_secret_from_env(namespace: str, secret_name: str, mapping: dict):
     """
     mapping: {ENV_VAR_NAME: secret_key_name}
     Only includes keys present in the environment.
+    Returns True if created/updated or skipped (no envs present).
     """
     literals = []
     for envvar, key in mapping.items():
@@ -41,7 +37,7 @@ def create_secret_from_env(namespace: str, secret_name: str, mapping: dict):
         if val:
             literals += ["--from-literal", f"{key}={val}"]
     if not literals:
-        print(f"[info] no env vars present for secret {secret_name}; skipping creation.")
+        # nothing to do
         return False
     cmd = ["kubectl", "create", "secret", "generic", secret_name, "-n", namespace, "--dry-run=client", "-o", "yaml"] + literals
     rc, out, err = run_cmd(cmd, timeout=20)
@@ -58,11 +54,8 @@ def create_secret_from_env(namespace: str, secret_name: str, mapping: dict):
 def safe_job_name(cronjob_name: str):
     ts = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
     base = f"{cronjob_name}-manual-{ts}"
-    # ensure RFC1123: lower, alnum, '-' and start/end alnum
     base = base.lower()
-    # collapse invalid chars (shouldn't be present but be safe)
     base = "".join(c if (c.isalnum() or c == "-") else "-" for c in base)
-    # trim to 63 chars and ensure start/end alnum
     base = base[:63].strip("-")
     if not base:
         raise SystemExit("generated job name empty (unexpected)")
@@ -76,7 +69,7 @@ def create_job_from_cronjob(namespace: str, cronjob: str, jobname: str):
     print(f"[ok] Created Job: {jobname}")
     return True
 
-def find_pod_for_job(namespace: str, jobname: str, timeout: int = 120):
+def find_pod_for_job(namespace: str, jobname: str, timeout: int = 120) -> Optional[str]:
     deadline = time.time() + timeout
     while time.time() < deadline:
         rc, out, err = run_cmd([
@@ -94,7 +87,6 @@ def pod_phase(namespace: str, pod: str):
     return out.strip() if rc == 0 else None
 
 def container_state_reason(namespace: str, pod: str, container_index: int = 0):
-    # returns state reason or full state json fragment for diagnostics
     rc, out, err = run_cmd(["kubectl","get","pod", pod, "-n", namespace, "-o", "jsonpath={.status.containerStatuses[%d].state}" % container_index])
     if rc != 0:
         return None
@@ -116,16 +108,12 @@ def wait_for_container_running(namespace: str, pod: str, timeout: int = 180):
         phase = pod_phase(namespace, pod)
         if not phase:
             time.sleep(1); continue
-        # If phase is Running, good
         if phase.lower() == "running":
-            # ensure container state.running exists
             state = container_state_reason(namespace, pod)
             if state and "running" in state.lower():
                 return True
-        # If the pod already finished/succeeded/failed, return (nothing to stream)
         if phase.lower() in ("succeeded", "failed"):
             return False
-        # If image pull backoff or err, detect via describe events quickly
         state = container_state_reason(namespace, pod)
         if state and ("imagepullbackoff" in state.lower() or "errimagepull" in state.lower() or "back-off" in state.lower()):
             return False
@@ -137,7 +125,6 @@ def stream_pod_logs(namespace: str, pod: str, container: str | None = None):
     if container:
         cmd += ["-c", container]
     print(f"[info] streaming logs: {' '.join(shlex.quote(x) for x in cmd)}")
-    # spawn and forward stdout/stderr live
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         for line in proc.stdout:
@@ -162,9 +149,9 @@ def main():
     p = argparse.ArgumentParser(description="Create one-off Job from CronJob and stream logs.")
     p.add_argument("--namespace", default=os.environ.get("NAMESPACE","indexing"))
     p.add_argument("--cronjob", default=os.environ.get("CRONJOB","indexing-backup-cronjob"))
-    p.add_argument("--create-secrets", action="store_true", help="create qdrant/aws secrets from env before running")
     p.add_argument("--timeout", type=int, default=180, help="seconds to wait for pod to appear/start")
     p.add_argument("--no-cleanup", action="store_true", help="do not delete Job/pods after completion")
+    p.add_argument("--create-secrets", action="store_true", help="(optional) create secrets from env before running - otherwise they will be auto-created if envs present")
     args = p.parse_args()
 
     if not kubectl_exists():
@@ -173,18 +160,25 @@ def main():
     ns = args.namespace
     cj = args.cronjob
 
-    if args.create_secrets:
-        # create sample secrets used by CronJob: qdrant-api-key and indexer-aws-creds
-        # only create keys that exist in env
-        create_secret_from_env(ns, "qdrant-api-key", {"QDRANT_API_KEY":"QDRANT_API_KEY"})
-        create_secret_from_env(ns, "indexer-aws-creds", {"AWS_ACCESS_KEY_ID":"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY":"AWS_SECRET_ACCESS_KEY"})
+    # Create secrets automatically if envs present (or when --create-secrets passed)
+    # Primary: AZURE_STORAGE_CONNECTION_STRING -> indexer-azure-creds
+    created_any = False
+    if os.environ.get("AZURE_STORAGE_CONNECTION_STRING"):
+        ok = create_secret_from_env(ns, "indexer-azure-creds", {"AZURE_STORAGE_CONNECTION_STRING":"AZURE_STORAGE_CONNECTION_STRING"})
+        created_any = created_any or ok
+    if os.environ.get("QDRANT_API_KEY"):
+        ok = create_secret_from_env(ns, "qdrant-api-key", {"QDRANT_API_KEY":"QDRANT_API_KEY"})
+        created_any = created_any or ok
+
+    # If user explicitly asked to create secrets, still echo done/skip
+    if args.create_secrets and not created_any:
+        print("[info] create-secrets requested but no known secret env vars present; nothing created.")
 
     jobname = safe_job_name(cj)
     try:
         create_job_from_cronjob(ns, cj, jobname)
     except Exception as e:
         print("[error] creating Job from CronJob failed:", e, file=sys.stderr)
-        # show cronjob existence diagnostic
         rc, out, err = run_cmd(["kubectl","get","cronjob", cj, "-n", ns], timeout=10)
         print("-- cronjob check --")
         if rc == 0:
@@ -193,7 +187,6 @@ def main():
             print(err or out)
         sys.exit(3)
 
-    # find pod for job
     pod = find_pod_for_job(ns, jobname, timeout=args.timeout)
     if not pod:
         print(f"[error] no pod created for job {jobname} within {args.timeout}s", file=sys.stderr)
@@ -206,7 +199,6 @@ def main():
     print(f"[ok] Created Job: {jobname}")
     print(f"[info] Pod created: {pod}")
 
-    # wait until container running (or detect failures like ImagePullBackOff)
     started = wait_for_container_running(ns, pod, timeout=args.timeout)
     if not started:
         phase = pod_phase(ns, pod)
@@ -219,12 +211,10 @@ def main():
             delete_job(ns, jobname)
         sys.exit(5)
 
-    # stream logs (container name default: indexer if present)
-    # try to detect container name
+    # stream logs (prefer container named 'indexer')
     rc, conts, err = run_cmd(["kubectl","get","pod", pod, "-n", ns, "-o", "jsonpath={.spec.containers[*].name}"])
     container_name = None
     if rc == 0 and conts.strip():
-        # prefer 'indexer' container
         names = conts.strip().split()
         if "indexer" in names:
             container_name = "indexer"
@@ -236,13 +226,14 @@ def main():
         print("\n[info] log streaming interrupted by user (Ctrl-C).")
         rc = 130
 
-    # after logs finish, show pod final status and exit code if container ended
     print("\n-- pod final describe --")
     print(describe_pod(ns, pod))
     if not args.no_cleanup:
         delete_job(ns, jobname)
+    else:
+        print(f"[info] not cleaning up Job/pods (debug mode enabled). Job: {jobname}")
+        print(f"[info] to remove later: kubectl delete job {jobname} -n {ns} --cascade=foreground")
 
-    # exit with kubectl logs return code if available
     if isinstance(rc, int) and rc != 0:
         sys.exit(rc)
     sys.exit(0)

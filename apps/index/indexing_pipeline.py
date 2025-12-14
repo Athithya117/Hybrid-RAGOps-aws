@@ -45,10 +45,15 @@ base_fmt = "%(asctime)s.%(msecs)03d %(levelname)s %(message)s"
 formatter = ColoredFormatter(fmt=base_fmt)
 handler.setFormatter(formatter)
 root = logging.getLogger()
+# remove default handlers to prevent duplicate logs
 for h in list(root.handlers):
-    root.removeHandler(h)
+    try:
+        root.removeHandler(h)
+    except Exception:
+        pass
 root.addHandler(handler)
 root.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
+# keep noisy third-party libs quieter
 logging.getLogger("botocore").setLevel(logging.WARNING)
 logging.getLogger("boto3").setLevel(logging.WARNING)
 logger = logging.getLogger("indexing_pipeline")
@@ -90,13 +95,23 @@ def run_cmd(cmd: List[str], cwd: str = ".", env: dict = None, timeout: int = Non
 def connect_or_start_local():
     logger.info("Running pipeline in local mode (no Ray).")
 
-def run_local_and_stream(script_path: Path, workdir: str, timeout: Optional[int] = None) -> int:
+def run_local_and_stream(script_path: Path, workdir: str, timeout: Optional[int] = None, extra_env: Optional[Dict[str,str]] = None) -> int:
+    """
+    Start a Python script as a subprocess and stream its stdout/stderr line-by-line.
+    stdout -> logger.info("[<script_name>] line")
+    stderr -> logger.warning("[<script_name>:err] line")
+    Returns subprocess return code.
+    """
     cmd = [sys.executable, str(script_path)]
     logger.info("Starting local script: %s (cwd=%s)", " ".join(cmd), workdir)
+    env_used = os.environ.copy()
+    if extra_env:
+        env_used.update(extra_env)
     try:
         proc = subprocess.Popen(
             cmd,
             cwd=workdir,
+            env=env_used,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -110,18 +125,28 @@ def run_local_and_stream(script_path: Path, workdir: str, timeout: Optional[int]
     out_lines: List[str] = []
     err_lines: List[str] = []
 
-    def reader(stream, collect, prefix):
+    def reader(stream, collect, is_err: bool, prefix: str):
         try:
             for line in iter(stream.readline, ""):
                 if not line:
                     break
-                collect.append(line)
-                logger.info("[%s] %s", prefix, line.rstrip())
+                # preserve raw line endings trimmed
+                text = line.rstrip("\n")
+                collect.append(text)
+                if is_err:
+                    # stderr -> warning
+                    logger.warning("[%s] %s", prefix, text)
+                else:
+                    # stdout -> info
+                    logger.info("[%s] %s", prefix, text)
         except Exception:
-            pass
+            # best-effort: don't crash the reader thread
+            logger.exception("Reader thread for %s failed", prefix)
 
-    t_out = threading.Thread(target=reader, args=(proc.stdout, out_lines, script_path.name), daemon=True)
-    t_err = threading.Thread(target=reader, args=(proc.stderr, err_lines, script_path.name + ":err"), daemon=True)
+    prefix_out = script_path.name
+    prefix_err = f"{script_path.name}:err"
+    t_out = threading.Thread(target=reader, args=(proc.stdout, out_lines, False, prefix_out), daemon=True)
+    t_err = threading.Thread(target=reader, args=(proc.stderr, err_lines, True, prefix_err), daemon=True)
     t_out.start()
     t_err.start()
     try:
@@ -131,14 +156,21 @@ def run_local_and_stream(script_path: Path, workdir: str, timeout: Optional[int]
         try:
             proc.kill()
         except Exception:
-            pass
+            logger.exception("Failed to kill timed-out process %s", script_path)
         return 124
-    t_out.join(timeout=1.0)
-    t_err.join(timeout=1.0)
+    # join readers briefly to flush logs
+    t_out.join(timeout=2.0)
+    t_err.join(timeout=2.0)
     return proc.returncode
 
 # ----- Pipeline steps -----
 def run_pre_conversions(workdir: str) -> None:
+    """
+    Run pre_conversions.py and stream its logs live.
+    - stdout lines logged at INFO
+    - stderr lines logged at WARNING
+    Fail fast on non-zero exit code.
+    """
     workdir_path = Path(workdir).resolve()
     script = workdir_path / PRE_CONVERSIONS
     if not script.exists():
@@ -157,14 +189,9 @@ def run_pre_conversions(workdir: str) -> None:
             try:
                 script.chmod(script.stat().st_mode | 0o444)
             except Exception:
-                pass
-        rc, out, err = run_cmd([sys.executable, str(script)], cwd=str(workdir_path), timeout=timeout)
-        if out:
-            for line in out.splitlines():
-                logger.info("[pre_conversions] %s", line)
-        if err:
-            for line in err.splitlines():
-                logger.warning("[pre_conversions:err] %s", line)
+                logger.debug("Failed to chmod pre_conversions.py; continuing")
+        # stream logs using the same mechanism as router/index to avoid suppression
+        rc = run_local_and_stream(script, str(workdir_path), timeout=timeout)
         if rc != 0:
             logger.error("pre_conversions script failed with rc=%s", rc)
             log_and_exit(f"pre_conversions failed (rc={rc})", rc)

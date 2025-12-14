@@ -1,4 +1,8 @@
-.PHONY: s3 delete-s3 tree clean lc push docker-login docker-build-backup docker-push-backup
+.PHONY: s3 delete-s3 tree clean lc push docker-login docker-build-backup docker-push-backup \
+	index-image frontend-image init-reranker setup-flux inspect-flux flux-status \
+	pulumi-up pulumi-destroy deploy-dense deploy-sparse deploy-reranker deploy-qdrant \
+	deploy-retriever deploy-frontend deploy-models deploy-inference-svc \
+	indexing-cronjob fix-dns
 
 push:
 	git config --global http.postBuffer 524288000
@@ -52,9 +56,10 @@ flux-status:
 	flux check && flux get kustomizations -n flux-system
 
 pulumi-up:
-	bash infra/pulumi_azure/pulumi_setup.sh --create || true
+	bash infra/pulumi_azure/run.sh --create || true
+
 pulumi-destroy:
-	bash infra/pulumi_azure/pulumi_setup.sh --delete || true
+	bash infra/pulumi_azure/run.sh --delete || true
 
 deploy-dense:
 	python3 infra/generators/dense.py --apply
@@ -75,4 +80,16 @@ deploy-frontend:
 	python3 infra/generators/frontend_auth.py --apply --confirm
 
 deploy-models: deploy-dense deploy-sparse deploy-reranker
+
 deploy-inference-svc: deploy-retriever deploy-frontend
+
+indexing-cronjob:
+	python3 infra/generators/indexing_cronjob.py --delete
+	python3 infra/generators/indexing_cronjob.py --apply
+	python3 infra/runners/run_indexing_cronjob.py
+
+fix-dns:
+	@echo "[make fix-dns] invoking utils/fix_kind_cluster_dns.sh"
+	@chmod +x utils/fix_kind_cluster_dns.sh || true
+	@utils/fix_kind_cluster_dns.sh --timeout 60
+

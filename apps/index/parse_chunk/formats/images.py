@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 import os
 import io
@@ -15,15 +16,19 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import List, Tuple, Dict, Generator, Optional, Any
 
+# ---------------- Logger shim ----------------
 class LoggerShim:
     def __init__(self, name: str):
         self.name = name
+
     def _emit(self, level: str, event: str, msg: str = "", **extra):
         out = {"ts": datetime.utcnow().isoformat() + "Z", "level": level, "event": event, "msg": msg}
         if extra:
             out.update(extra)
         print(json.dumps(out, ensure_ascii=False), flush=True)
+
     def _unpack(self, a, b, fmt_args, kwargs, default_event):
+        # Support both logger.info("event", "message") and logger.info("message %s", val)
         if b is None and not fmt_args:
             event = kwargs.pop("event", default_event)
             msg = a or ""
@@ -50,21 +55,32 @@ class LoggerShim:
                 except Exception:
                     pass
         return event, msg, kwargs
+
     def info(self, a, b=None, *fmt_args, **kwargs):
-        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "info"); self._emit("INFO", event, msg, **kw)
+        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "info")
+        self._emit("INFO", event, msg, **kw)
+
     def warning(self, a, b=None, *fmt_args, **kwargs):
-        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "warn"); self._emit("WARN", event, msg, **kw)
+        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "warn")
+        self._emit("WARN", event, msg, **kw)
+
     def warn(self, a, b=None, *fmt_args, **kwargs):
         self.warning(a, b, *fmt_args, **kwargs)
+
     def error(self, a, b=None, *fmt_args, **kwargs):
-        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "error"); self._emit("ERROR", event, msg, **kw)
+        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "error")
+        self._emit("ERROR", event, msg, **kw)
+
     def exception(self, a, b=None, *fmt_args, **kwargs):
         import traceback
         tb = traceback.format_exc()
-        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "exception"); kw.update({"tb": tb}); self._emit("ERROR", event, msg, **kw)
+        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "exception")
+        kw.update({"tb": tb})
+        self._emit("ERROR", event, msg, **kw)
 
 logger = LoggerShim("images_parser")
 
+# ---------------- config / envs ----------------
 _mi_val = os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower()
 USE_MANAGED_IDENTITY = _mi_val in ("1", "true", "yes")
 
@@ -81,7 +97,7 @@ IMAGE_DISABLE_OCR = os.getenv("IMAGE_DISABLE_OCR", "false").lower() in ("1", "tr
 IMAGE_FORCE_OCR = os.getenv("IMAGE_FORCE_OCR", "false").lower() in ("1", "true", "yes")
 IMAGE_OCR_ENGINE = os.getenv("IMAGE_OCR_ENGINE", "auto").lower()
 IMAGE_TESSERACT_LANG = os.getenv("IMAGE_TESSERACT_LANG", "eng")
-IMAGE_MIN_IMG_SIZE_BYTES = int(os.getenv("IMAGE_MIN_IMG_SIZE_BYTES", "512"))
+IMAGE_MIN_IMG_SIZE_BYTES = int(os.getenv("IMAGE_MIN_IMG_SIZE_BYTES", "3072"))
 IMAGE_RENDER_DPI = int(os.getenv("IMAGE_RENDER_DPI", "300"))
 IMAGE_UPSCALE_FACTOR = float(os.getenv("IMAGE_UPSCALE_FACTOR", "1.0"))
 IMAGE_ENABLE_WORDSEGMENT = os.getenv("IMAGE_ENABLE_WORDSEGMENT", "false").lower() in ("1", "true", "yes")
@@ -96,6 +112,7 @@ ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
 CHUNKED_SCHEMA_VERSION = os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1")
 RANGE_BYTES = int(os.getenv("IMAGE_RANGE_BYTES", "131072"))
 
+# ---------------- optional dependencies ----------------
 try:
     import fsspec  # type: ignore
     from fsspec.spec import AbstractFileSystem  # type: ignore
@@ -125,11 +142,18 @@ def build_storage_options() -> Dict[str, Any]:
     eps = os.environ.get("AZURE_ENDPOINT_SUFFIX") or "core.windows.net"
     opts: Dict[str, Any] = {}
     if acct and key:
-        opts["account_name"] = acct; opts["account_key"] = key; opts["endpoint_suffix"] = eps; return opts
+        opts["account_name"] = acct
+        opts["account_key"] = key
+        opts["endpoint_suffix"] = eps
+        return opts
     if acct and sas:
-        opts["account_name"] = acct; opts["sas_token"] = sas; opts["endpoint_suffix"] = eps; return opts
+        opts["account_name"] = acct
+        opts["sas_token"] = sas
+        opts["endpoint_suffix"] = eps
+        return opts
     if os.environ.get("AZURE_ANON"):
-        if acct: opts["account_name"] = acct
+        if acct:
+            opts["account_name"] = acct
         opts["anon"] = True
         return opts
     return opts
@@ -155,6 +179,7 @@ def _validate_auth_envs():
 
 _validate_auth_envs()
 
+# ---------------- storage client abstraction ----------------
 BLOB_CLIENT = None
 FS = None
 if USE_MANAGED_IDENTITY:
@@ -212,10 +237,12 @@ class AzureStorageClient:
         self.root = root
         self.container = container
         self.blob_client = blob_client
+
     def _container_client(self) -> "ContainerClient":
         if self.blob_client is None:
             raise RuntimeError("blob_client not initialized for managed-identity mode")
         return self.blob_client.get_container_client(self.container)
+
     def head_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -240,6 +267,7 @@ class AzureStorageClient:
                 "Metadata": getattr(props, "metadata", {}) or {},
             }
             return out
+
     def get_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -252,6 +280,7 @@ class AzureStorageClient:
             stream = blob_client.download_blob()
             data = stream.readall()
             return {"Body": io.BytesIO(data)}
+
     def put_object(self, Bucket, Key, Body, ContentType=None):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -283,6 +312,7 @@ class AzureStorageClient:
                 data = str(Body).encode("utf-8")
             blob_client.upload_blob(data, overwrite=True)
             return {"ResponseMetadata": {"HTTPStatusCode": 200}}
+
     def upload_file(self, LocalFile, Bucket, Key, ExtraArgs=None):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -302,6 +332,7 @@ class AzureStorageClient:
             blob_client = container_client.get_blob_client(Key)
             with open(LocalFile, "rb") as lf:
                 blob_client.upload_blob(lf, overwrite=True)
+
     def copy_object(self, CopySource, Bucket, Key):
         src = CopySource.get("Key")
         if self.fs is not None:
@@ -317,6 +348,7 @@ class AzureStorageClient:
             dst_blob_client = self._container_client().get_blob_client(Key)
             src_url = src_blob_client.url
             dst_blob_client.start_copy_from_url(src_url)
+
     def delete_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -334,6 +366,7 @@ class AzureStorageClient:
                 blob_client.delete_blob()
             except Exception:
                 pass
+
     def get_paginator(self, name):
         if self.fs is not None:
             class P:
@@ -395,10 +428,13 @@ def get_storage_client():
 def get_s3_client():
     return get_storage_client()
 
+# ---------------- utilities ----------------
 def sha256_hex(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
+
 def sha256_hex_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
+
 def canonicalize_text(s: str) -> str:
     if not isinstance(s, str):
         s = str(s or "")
@@ -406,6 +442,7 @@ def canonicalize_text(s: str) -> str:
     s = s.replace("\r\n", "\n").replace("\r", "\n")
     lines = [re.sub(r'[ \t]+$', '', ln) for ln in s.split("\n")]
     return "\n".join(lines).strip()
+
 def try_decode_bytes(b: bytes) -> str:
     for encoding in ("utf-8", "utf-8-sig", "latin-1"):
         try:
@@ -413,8 +450,10 @@ def try_decode_bytes(b: bytes) -> str:
         except Exception:
             continue
     return b.decode("utf-8", errors="replace")
+
 def token_count_for(text: str) -> int:
-    if not text: return 0
+    if not text:
+        return 0
     try:
         import tiktoken
         enc = getattr(tiktoken, "encoding_for_model", None)
@@ -548,10 +587,12 @@ def sanitize_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     payload["used_ocr"] = bool(payload.get("used_ocr", False))
     return payload
 
+# ---------------- Parquet writer ----------------
 class S3ParquetWriter:
     def __init__(self, doc_id: str):
         self.doc_id = doc_id
         self._rows: List[Dict[str, Any]] = []
+
     def _normalize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         fields: Dict[str, Any] = {}
         fields["document_id"] = payload.get("document_id") or ""
@@ -587,6 +628,7 @@ class S3ParquetWriter:
         fields["original_blob_key"] = payload.get("original_blob_key") or payload.get("source_blob") or ""
         fields["container"] = AZURE_CONTAINER
         return fields
+
     def write_payload(self, payload: Dict[str, Any]) -> int:
         try:
             sanitize_payload(payload)
@@ -594,6 +636,7 @@ class S3ParquetWriter:
             pass
         self._rows.append(self._normalize(payload))
         return 1
+
     def finalize_and_upload(self, out_basename: str) -> Tuple[int, str, str, int]:
         if not self._rows:
             return 0, "", "", 0
@@ -640,7 +683,7 @@ class S3ParquetWriter:
         table = table.replace_schema_metadata(new_md)
         tmpfile = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".parquet", dir="/tmp")
         tmpfile.close()
-        pq.write_table(table, tmpfile.name, compression="zstd", flavor="spark")
+        pq.write_table(table, tmpfile.name, compression="zstd")
         local_parquet_path = tmpfile.name
         with open(local_parquet_path, "rb") as fh:
             b = fh.read()
@@ -655,6 +698,7 @@ class S3ParquetWriter:
             pass
         return len(self._rows), target_key, sha, size
 
+# ---------------- helpers for OCR and chunking ----------------
 def _derive_doc_id_from_head(blob_key: str, head_obj: dict, manifest: dict) -> str:
     if isinstance(manifest, dict) and manifest.get("file_hash"):
         return manifest.get("file_hash")
@@ -677,7 +721,8 @@ def _mime_type_for_ext(ext: str) -> str:
     return mapping.get(e, "application/octet-stream")
 
 def reflow_and_clean_text(text: str) -> str:
-    if not text: return text
+    if not text:
+        return text
     text = re.sub(r'[\x00-\x1F]+', ' ', text)
     text = text.replace('\r\n', '\n').replace('\r', '\n')
     text = re.sub(r'\n{2,}', '\n\n', text)
@@ -698,7 +743,8 @@ def postprocess_ocr_text(text: str) -> str:
             if len(tok) > 8 and " " not in tok and tok.isalpha():
                 seg = segment(tok)
                 if seg and len(" ".join(seg)) < len(tok) + 5:
-                    tokens.append(" ".join(seg)); continue
+                    tokens.append(" ".join(seg))
+                    continue
             tokens.append(tok)
         return " ".join(tokens)
     except Exception:
@@ -737,7 +783,8 @@ def _create_rapidocr_engine(model_dir: Optional[str] = None):
 
 def get_image_ocr_engine():
     if IMAGE_DISABLE_OCR and not IMAGE_FORCE_OCR:
-        logger.info("IMAGE_DISABLE_OCR", "skip", reason="IMAGE_DISABLE_OCR=true and IMAGE_FORCE_OCR=false"); return "none", None
+        logger.info("IMAGE_DISABLE_OCR", "skip", reason="IMAGE_DISABLE_OCR=true and IMAGE_FORCE_OCR=false")
+        return "none", None
     choice = (IMAGE_OCR_ENGINE or "auto").lower()
     if choice == "rapidocr":
         try:
@@ -745,7 +792,8 @@ def get_image_ocr_engine():
             logger.info("rapidocr_selected", "Using RapidOCR", model_dir=os.getenv("RAPIDOCR_MODEL_DIR", "/opt/models/rapidocr"))
             return "rapidocr", eng
         except Exception as e:
-            logger.exception("rapidocr_fail", "RapidOCR import/create failed", reason=str(e)); return "none", None
+            logger.exception("rapidocr_fail", "RapidOCR import/create failed", reason=str(e))
+            return "none", None
     if choice == "tesseract":
         try:
             with without_cwd_on_syspath():
@@ -754,7 +802,8 @@ def get_image_ocr_engine():
                 logger.info("tesseract_selected", "Using Tesseract OCR")
                 return "tesseract", pytesseract
         except Exception as e:
-            logger.exception("tesseract_fail", "Tesseract import failed", reason=str(e)); return "none", None
+            logger.exception("tesseract_fail", "Tesseract import failed", reason=str(e))
+            return "none", None
     if choice == "auto":
         try:
             eng = _create_rapidocr_engine()
@@ -773,28 +822,29 @@ def get_image_ocr_engine():
                 logger.error("ocr_none", "No OCR engine available. OCR will be skipped.")
                 return "none", None
     try:
-        eng = _create_rapidocr_engine(); logger.info("rapidocr_fallback", "Fallback RapidOCR"); return "rapidocr", eng
+        eng = _create_rapidocr_engine()
+        logger.info("rapidocr_fallback", "Fallback RapidOCR")
+        return "rapidocr", eng
     except Exception as e:
-        logger.exception("rapidocr_fallback_fail", "Fallback RapidOCR failed", reason=str(e)); return "none", None
+        logger.exception("rapidocr_fallback_fail", "Fallback RapidOCR failed", reason=str(e))
+        return "none", None
 
 def run_ocr_on_pil_image(engine_name: str, engine_obj, pil_img) -> str:
     if engine_name == "rapidocr" and engine_obj is not None:
         try:
-            import numpy as np, cv2
+            import numpy as np  # optional
+            # convert PIL image to numpy RGB (OpenCV BGR expected by some RapidOCRs)
             img_arr = None
             if hasattr(pil_img, "convert"):
                 img_arr = np.array(pil_img.convert("RGB"))[:, :, ::-1].copy()
-            elif isinstance(pil_img, (bytes, bytearray)):
-                nparr = np.frombuffer(pil_img, np.uint8)
-                img_arr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             else:
                 try:
-                    import numpy as np
                     img_arr = np.asarray(pil_img)
                 except Exception:
                     img_arr = None
             if img_arr is None:
-                logger.error("rapidocr_conv", "RapidOCR input image conversion failed"); return ""
+                logger.error("rapidocr_conv", "RapidOCR input image conversion failed")
+                return ""
             res = engine_obj(img_arr)
             if isinstance(res, tuple) and len(res) >= 1:
                 ocr_result = res[0]
@@ -805,7 +855,9 @@ def run_ocr_on_pil_image(engine_name: str, engine_obj, pil_img) -> str:
                 for item in ocr_result:
                     if isinstance(item, dict) and "text" in item:
                         txt = item.get("text") or item.get("rec") or ""
-                        if txt: lines.append(str(txt)); continue
+                        if txt:
+                            lines.append(str(txt))
+                            continue
                     if isinstance(item, (list, tuple)):
                         found = False
                         for element in item:
@@ -813,34 +865,41 @@ def run_ocr_on_pil_image(engine_name: str, engine_obj, pil_img) -> str:
                                 lines.append(element.strip()); found = True; break
                             if isinstance(element, (list, tuple)) and element and isinstance(element[0], str):
                                 lines.append(element[0].strip()); found = True; break
-                        if found: continue
+                        if found:
+                            continue
                         try:
                             joined = " ".join([str(x) for x in item if x is not None])
-                            if joined.strip(): lines.append(joined.strip()); continue
+                            if joined.strip():
+                                lines.append(joined.strip()); continue
                         except Exception:
                             pass
                     try:
                         s = str(item)
-                        if s and s.strip(): lines.append(s.strip())
+                        if s and s.strip():
+                            lines.append(s.strip())
                     except Exception:
                         pass
             else:
                 try:
                     s = str(ocr_result)
-                    if s and s.strip(): lines.append(s.strip())
+                    if s and s.strip():
+                        lines.append(s.strip())
                 except Exception:
                     pass
             return "\n".join([ln for ln in lines if ln])
         except Exception:
-            logger.exception("rapidocr_exec", "RapidOCR failed to OCR image"); return ""
+            logger.exception("rapidocr_exec", "RapidOCR failed to OCR image")
+            return ""
     if engine_name == "tesseract" and engine_obj is not None:
         try:
             pytesseract = engine_obj
             return pytesseract.image_to_string(pil_img, lang=IMAGE_TESSERACT_LANG, config=TESSERACT_CONFIG)
         except Exception:
-            logger.exception("tesseract_exec", "Tesseract OCR failed to OCR image"); return ""
+            logger.exception("tesseract_exec", "Tesseract OCR failed to OCR image")
+            return ""
     return ""
 
+# ---------------- chunking helpers (SentenceChunker simplified) ----------------
 def split_long_sentence_by_words(sent_text: str, max_tokens: int, encoder: Any) -> List[str]:
     words = sent_text.split()
     pieces: List[str] = []
@@ -863,12 +922,15 @@ def split_long_sentence_by_words(sent_text: str, max_tokens: int, encoder: Any) 
                 i = 0
                 while i < len(tok_ids):
                     chunk_ids = tok_ids[i:i+max_tokens]
-                    try: pieces.append(encoder.decode(chunk_ids))
-                    except Exception: pieces.append("".join(str(x) for x in chunk_ids))
+                    try:
+                        pieces.append(encoder.decode(chunk_ids))
+                    except Exception:
+                        pieces.append("".join(str(x) for x in chunk_ids))
                     i += max_tokens
                 continue
         cur_words.append(w); cur_tok += l
-    if cur_words: pieces.append(" ".join(cur_words))
+    if cur_words:
+        pieces.append(" ".join(cur_words))
     return pieces
 
 class TokenEncoder:
@@ -889,11 +951,14 @@ class SentenceChunker:
     def __init__(self, max_tokens_per_chunk: Optional[int] = None, overlap_sentences: Optional[int] = None, token_model: str = "gpt2", nlp=None, min_tokens_per_chunk: Optional[int] = None):
         self.max_tokens_per_chunk = int(os.getenv("MAX_TOKENS_PER_CHUNK", str(MAX_TOKENS_PER_CHUNK))) if max_tokens_per_chunk is None else int(max_tokens_per_chunk)
         self.overlap_sentences = int(os.getenv("NUMBER_OF_OVERLAPPING_SENTENCES", str(NUMBER_OF_OVERLAPPING_SENTENCES))) if overlap_sentences is None else int(overlap_sentences)
-        if self.overlap_sentences < 0: raise ValueError("overlap_sentences must be >= 0")
+        if self.overlap_sentences < 0:
+            raise ValueError("overlap_sentences must be >= 0")
         self.min_tokens_per_chunk = int(os.getenv("MIN_TOKENS_PER_CHUNK", str(MIN_TOKENS_PER_CHUNK))) if min_tokens_per_chunk is None else int(min_tokens_per_chunk)
-        if self.min_tokens_per_chunk < 0: raise ValueError("min_tokens_per_chunk must be >= 0")
+        if self.min_tokens_per_chunk < 0:
+            raise ValueError("min_tokens_per_chunk must be >= 0")
         self.encoder = TokenEncoder(model_name=token_model)
         self.nlp = nlp or self._make_sentencizer()
+
     @staticmethod
     def _make_sentencizer():
         try:
@@ -906,21 +971,27 @@ class SentenceChunker:
                     from spacy.pipeline import Sentencizer as SentencizerCls
                     nlp.add_pipe("sentencizer")
                 except Exception:
-                    try: nlp.add_pipe(SentencizerCls())
-                    except Exception: raise RuntimeError("Failed to add Sentencizer")
+                    try:
+                        nlp.add_pipe(SentencizerCls())
+                    except Exception:
+                        raise RuntimeError("Failed to add Sentencizer")
                 return nlp
         except Exception:
             logger.warning("spacy_unavailable", "spaCy unavailable; falling back to regex")
             return None
+
     def _sentences_with_offsets_regex(self, text: str):
         pattern = re.compile(r'(?s).*?[\.\!\?]["\']?\s+|.+$')
         items = []; pos = 0
         for m in pattern.finditer(text):
             s = m.group(0)
-            if not s or s.strip() == "": pos = m.end(); continue
+            if not s or s.strip() == "":
+                pos = m.end(); continue
             start = pos; end = pos + len(s); items.append((s.strip(), start, end)); pos = m.end()
-        if not items and text.strip(): items = [(text.strip(), 0, len(text))]
+        if not items and text.strip():
+            items = [(text.strip(), 0, len(text))]
         return items
+
     def _sentences_with_offsets(self, text: str):
         if self.nlp is not None:
             try:
@@ -929,6 +1000,7 @@ class SentenceChunker:
             except Exception:
                 pass
         return self._sentences_with_offsets_regex(text)
+
     def chunk_document(self, text: str):
         sentences = self._sentences_with_offsets(text)
         sent_items = [{"text": s, "start_char": sc, "end_char": ec, "orig_idx": i, "is_remainder": False} for i, (s, sc, ec) in enumerate(sentences)]
@@ -940,7 +1012,8 @@ class SentenceChunker:
                 sent_text = sent_items[i]["text"]; tok_ids = self.encoder.encode(sent_text); sent_tok_len = len(tok_ids)
                 if sent_tok_len > self.max_tokens_per_chunk:
                     pieces = split_long_sentence_by_words(sent_text, self.max_tokens_per_chunk, self.encoder)
-                    if not pieces: pieces = [sent_text[:1000]]
+                    if not pieces:
+                        pieces = [sent_text[:1000]]
                     sent_items[i]["text"] = pieces[0]
                     for j, rem in enumerate(pieces[1:], 1):
                         sent_items.insert(i + j, {"text": rem, "start_char": None, "end_char": None, "orig_idx": sent_items[i]["orig_idx"], "is_remainder": True})
@@ -948,13 +1021,17 @@ class SentenceChunker:
                 if cur_token_count + sent_tok_len > self.max_tokens_per_chunk:
                     if not chunk_sent_texts:
                         prefix_tok_ids = tok_ids[: self.max_tokens_per_chunk]
-                        try: prefix_text = self.encoder.decode(prefix_tok_ids)
-                        except Exception: prefix_text = " ".join(str(x) for x in prefix_tok_ids)
+                        try:
+                            prefix_text = self.encoder.decode(prefix_tok_ids)
+                        except Exception:
+                            prefix_text = " ".join(str(x) for x in prefix_tok_ids)
                         chunk_sent_texts.append(prefix_text); cur_token_count = len(prefix_tok_ids); is_truncated_sentence = True
                         remainder_tok_ids = tok_ids[self.max_tokens_per_chunk :]
                         if remainder_tok_ids:
-                            try: remainder_text = self.encoder.decode(remainder_tok_ids)
-                            except Exception: remainder_text = " ".join(str(x) for x in remainder_tok_ids)
+                            try:
+                                remainder_text = self.encoder.decode(remainder_tok_ids)
+                            except Exception:
+                                remainder_text = " ".join(str(x) for x in remainder_tok_ids)
                             sent_items[i] = {"text": remainder_text, "start_char": None, "end_char": None, "orig_idx": sent_items[i]["orig_idx"], "is_remainder": True}
                         else:
                             i += 1
@@ -977,7 +1054,9 @@ class SentenceChunker:
                 else:
                     yield prev_chunk; prev_chunk = chunk_meta
             i = new_start; n = len(sent_items)
-        if prev_chunk is not None: yield prev_chunk
+        if prev_chunk is not None:
+            yield prev_chunk
+
     @classmethod
     def from_env(cls, **kwargs):
         max_tokens = int(os.getenv("MAX_TOKENS_PER_CHUNK", str(MAX_TOKENS_PER_CHUNK)))
@@ -986,6 +1065,7 @@ class SentenceChunker:
         token_model = os.getenv("TOKEN_ENCODER_MODEL", os.getenv("TOKEN_ENCODER", "gpt2"))
         return cls(max_tokens_per_chunk=max_tokens, overlap_sentences=overlap, token_model=token_model, nlp=None, min_tokens_per_chunk=min_tokens)
 
+# ---------------- core parse function ----------------
 def process_image_s3_object(blob_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
     client = get_storage_client()
@@ -999,7 +1079,8 @@ def process_image_s3_object(blob_key: str, manifest: dict) -> dict:
     if not FORCE_OVERWRITE:
         if storage_object_exists(raw_manifest_key):
             total_ms = int((time.perf_counter() - start_all) * 1000)
-            logger.info("skip_manifest_exists", "raw_manifest_exists", key=raw_manifest_key); return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+            logger.info("skip_manifest_exists", "raw_manifest_exists", key=raw_manifest_key)
+            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
         if storage_object_exists(STORAGE_CHUNKED_PREFIX + out_basename + ".parquet"):
             total_ms = int((time.perf_counter() - start_all) * 1000)
             logger.info("skip_parquet_exists", "parquet_exists", key=out_basename + ".parquet")
@@ -1007,75 +1088,103 @@ def process_image_s3_object(blob_key: str, manifest: dict) -> dict:
                 if not storage_object_exists(raw_manifest_key):
                     head = client.head_object(Bucket=AZURE_CONTAINER, Key=STORAGE_CHUNKED_PREFIX + out_basename + ".parquet")
                     etag = head.get("ETag", "")
-                    if isinstance(etag, str): etag = etag.strip('"')
+                    if isinstance(etag, str):
+                        etag = etag.strip('"')
                     size = head.get("ContentLength", 0)
                     raw_manifest = {"raw_key": blob_key, "doc_id": doc_id, "chunked_key": STORAGE_CHUNKED_PREFIX + out_basename + ".parquet", "rows": 0, "sha256": etag, "size_bytes": size, "schema_version": CHUNKED_SCHEMA_VERSION, "parser_version": PARSER_VERSION_IMAGE, "created_at": datetime.utcnow().isoformat() + "Z", "container": AZURE_CONTAINER}
                     client.put_object(Bucket=AZURE_CONTAINER, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
             except Exception:
                 pass
             return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
     lower = blob_key.lower()
     allowed = (".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".bmp", ".gif")
     if not any(lower.endswith(a) for a in allowed):
         total_ms = int((time.perf_counter() - start_all) * 1000)
-        logger.error("unsupported_ext", "Unsupported file extension", key=blob_key); return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": "Unsupported file extension for images parser"}
+        logger.error("unsupported_ext", "Unsupported file extension", key=blob_key)
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": "Unsupported file extension for images parser"}
+
     ext_on_disk = os.path.splitext(blob_key)[1] or ".img"
     try:
         local_img = download_blob_to_temp(blob_key, ext_on_disk)
     except Exception as e:
         total_ms = int((time.perf_counter() - start_all) * 1000)
-        logger.error("download_failed", "Could not download blob", key=blob_key, error=str(e)); return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+        logger.error("download_failed", "Could not download blob", key=blob_key, error=str(e))
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
     if isinstance(manifest, dict) and manifest.get("file_hash"):
         doc_id = manifest.get("file_hash"); out_basename = f"{doc_id}"
+
     if not FORCE_OVERWRITE and storage_object_exists(STORAGE_CHUNKED_PREFIX + out_basename + ".parquet"):
-        try: os.unlink(local_img)
-        except Exception: pass
+        try:
+            os.unlink(local_img)
+        except Exception:
+            pass
         total_ms = int((time.perf_counter() - start_all) * 1000)
-        logger.info("skip_parquet_post_download", "parquet_exists_post_download", key=out_basename + ".parquet"); return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+        logger.info("skip_parquet_post_download", "parquet_exists_post_download", key=out_basename + ".parquet")
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
     img_ocr_name, img_ocr_obj = get_image_ocr_engine()
     try:
         chunker = SentenceChunker.from_env()
     except Exception as e:
-        try: os.unlink(local_img)
-        except Exception: pass
+        try:
+            os.unlink(local_img)
+        except Exception:
+            pass
         total_ms = int((time.perf_counter() - start_all) * 1000)
-        logger.exception("chunker_init_failed", "Failed to initialise SentenceChunker"); return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+        logger.exception("chunker_init_failed", "Failed to initialise SentenceChunker")
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
     try:
         from PIL import Image as PILImage
     except Exception as e:
-        try: os.unlink(local_img)
-        except Exception: pass
+        try:
+            os.unlink(local_img)
+        except Exception:
+            pass
         total_ms = int((time.perf_counter() - start_all) * 1000)
-        logger.exception("pillow_missing", "Pillow required (pip install pillow)"); return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+        logger.exception("pillow_missing", "Pillow required (pip install pillow)")
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
     try:
         writer = S3ParquetWriter(doc_id=doc_id)
         saved = 0
         try:
             im = PILImage.open(local_img)
         except Exception as e:
-            try: os.unlink(local_img)
-            except Exception: pass
+            try:
+                os.unlink(local_img)
+            except Exception:
+                pass
             total_ms = int((time.perf_counter() - start_all) * 1000)
-            logger.exception("open_failed", "PIL failed to open image", key=blob_key); return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+            logger.exception("open_failed", "PIL failed to open image", key=blob_key)
+            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
         n_frames = getattr(im, "n_frames", 1)
         for frame_idx in range(n_frames):
             frame_start = time.perf_counter()
             try:
-                if n_frames > 1: im.seek(frame_idx)
+                if n_frames > 1:
+                    im.seek(frame_idx)
                 frame = im.convert("RGB")
             except Exception:
                 frame = im.convert("RGB")
-            try:
-                import numpy as np, cv2  # optional
-            except Exception:
-                pass
-            buf = io.BytesIO(); frame.save(buf, format="PNG"); img_bytes = buf.getvalue()
-            used_ocr = False; ocr_text = ""
+
+            buf = io.BytesIO()
+            frame.save(buf, format="PNG")
+            img_bytes = buf.getvalue()
+
+            used_ocr = False
+            ocr_text = ""
             if img_bytes and len(img_bytes) >= IMAGE_MIN_IMG_SIZE_BYTES and img_ocr_name != "none":
                 ocr_text = run_ocr_on_pil_image(img_ocr_name, img_ocr_obj, frame)
                 if ocr_text and ocr_text.strip():
-                    used_ocr = True; ocr_text = postprocess_ocr_text(ocr_text)
+                    used_ocr = True
+                    ocr_text = postprocess_ocr_text(ocr_text)
+
             source_url = f"az://{AZURE_CONTAINER}/{blob_key}"
+
             if not ocr_text:
                 chunk_id = f"{doc_id}_f{frame_idx+1}_0"
                 payload = {
@@ -1101,7 +1210,9 @@ def process_image_s3_object(blob_key: str, manifest: dict) -> dict:
                 }
                 sanitize_payload(payload)
                 writer.write_payload(payload); saved += 1
-                logger.info("buffer_empty_frame", "Buffered empty frame chunk", chunk=chunk_id); continue
+                logger.info("buffer_empty_frame", "Buffered empty frame chunk", chunk=chunk_id)
+                continue
+
             for idx, chunk in enumerate(chunker.chunk_document(ocr_text)):
                 chunk_id = f"{doc_id}_f{frame_idx+1}_{idx}"
                 payload = {
@@ -1127,16 +1238,25 @@ def process_image_s3_object(blob_key: str, manifest: dict) -> dict:
                 }
                 sanitize_payload(payload)
                 writer.write_payload(payload); saved += 1
+
             frame_ms = int((time.perf_counter() - frame_start) * 1000)
             logger.info("frame_processed", "Processed frame", frame=frame_idx+1, total_frames=n_frames, frame_ms=frame_ms, chunks_so_far=saved)
+
         if saved == 0:
-            try: os.unlink(local_img)
-            except Exception: pass
+            try:
+                os.unlink(local_img)
+            except Exception:
+                pass
             total_ms = int((time.perf_counter() - start_all) * 1000)
-            logger.info("no_chunks", "No chunks produced", key=blob_key); return {"saved_chunks": 0, "total_parse_duration_ms": total_ms}
+            logger.info("no_chunks", "No chunks produced", key=blob_key)
+            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms}
+
         count, uploaded_key, sha, size = writer.finalize_and_upload(out_basename)
-        try: os.unlink(local_img)
-        except Exception: pass
+        try:
+            os.unlink(local_img)
+        except Exception:
+            pass
+
         raw_manifest = {
             "raw_key": blob_key,
             "doc_id": doc_id,
@@ -1154,14 +1274,17 @@ def process_image_s3_object(blob_key: str, manifest: dict) -> dict:
             client.put_object(Bucket=AZURE_CONTAINER, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
         except Exception:
             logger.warning("manifest_write_failed", "Failed to write raw manifest", key=blob_key)
+
         total_ms = int((time.perf_counter() - start_all) * 1000)
         logger.info("write_complete", "Wrote chunks", count=count, raw=blob_key, chunked=uploaded_key, duration_ms=total_ms)
         return {"saved_chunks": count, "total_parse_duration_ms": total_ms, "skipped": False}
     except Exception as e:
         try:
             if 'local_img' in locals():
-                try: os.unlink(local_img)
-                except Exception: pass
+                try:
+                    os.unlink(local_img)
+                except Exception:
+                    pass
         except Exception:
             pass
         total_ms = int((time.perf_counter() - start_all) * 1000)

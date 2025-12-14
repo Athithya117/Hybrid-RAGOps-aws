@@ -19,7 +19,7 @@ spec:
           restartPolicy: Never
           containers:
           - name: indexer
-            image: athithya5354/indexing_pipeline_cpu:v7
+            image: athithya5354/indexing_pipeline_cpu:v8
             imagePullPolicy: IfNotPresent
             command:
             - /bin/sh
@@ -35,9 +35,9 @@ spec:
             - name: AZURE_ENDPOINT_SUFFIX
               value: core.windows.net
             - name: AZURE_LOCATION
-              value: ''
+              value: centralindia
             - name: AZURE_RESOURCE_GROUP_NAME
-              value: ''
+              value: rg-rag-prod
             - name: AZURE_SAS_TOKEN
               value: ''
             - name: AZURE_SECRET_NAME
@@ -45,11 +45,14 @@ spec:
             - name: AZURE_STORAGE_ACCOUNT_KEY
               value: ''
             - name: AZURE_STORAGE_ACCOUNT_NAME
-              value: ''
+              value: storeragprod42
             - name: AZURE_STORAGE_API_VERSION
               value: '2025-04-01'
             - name: AZURE_STORAGE_CONNECTION_STRING
-              value: ''
+              valueFrom:
+                secretKeyRef:
+                  name: indexer-azure-creds
+                  key: AZURE_STORAGE_CONNECTION_STRING
             - name: AZURE_SUBSCRIPTION_ID
               value: b1e221f4-74ef-4e62-9bca-fb70aef41930
             - name: AZURE_TENANT_ID
@@ -59,33 +62,23 @@ spec:
             - name: BATCH_SIZE
               value: '16'
             - name: CSV_TARGET_TOKENS_PER_CHUNK
-              value: '600'
+              value: '400'
             - name: DENSE_DIM
               value: '384'
             - name: DENSE_URL
               value: http://dense-svc.models.svc.cluster.local:8200
             - name: ENV
-              value: ''
+              value: STAGING
             - name: EXTRA_SECRET_NAME
               value: indexer-extra-secrets
             - name: HTTP_TIMEOUT
               value: '60'
-            - name: IMAGE_MIN_IMG_SIZE_BYTES
-              value: '3072'
-            - name: IMAGE_OCR_ENGINE
-              value: rapidocr
-            - name: IMAGE_RENDER_DPI
-              value: '600'
-            - name: IMAGE_TESSERACT_LANG
-              value: eng
-            - name: IMAGE_UPSCALE_FACTOR
-              value: '2.0'
             - name: INDEXING_PIPELINE_CPU_IMAGE_REPO
               value: athithya5354/indexing_pipeline_cpu
             - name: INDEXING_PIPELINE_CPU_IMAGE_TAG
-              value: v7
+              value: v8
             - name: JSONL_TARGET_TOKENS_PER_CHUNK
-              value: '600'
+              value: '400'
             - name: LOG_LEVEL
               value: INFO
             - name: MANIFESTS_DIR
@@ -96,8 +89,6 @@ spec:
               value: '100'
             - name: NAMESPACE
               value: indexing
-            - name: NUMBER_OF_OVERLAPPING_SENTENCES
-              value: '2'
             - name: OVERWRITE_ALL_AUDIO_FILES
               value: 'true'
             - name: OVERWRITE_DOC_DOCX_TO_PDF
@@ -106,22 +97,6 @@ spec:
               value: 'true'
             - name: OVERWRITE_SPREADSHEETS_WITH_CSV
               value: 'true'
-            - name: PDF_DISABLE_OCR
-              value: 'false'
-            - name: PDF_FORCE_OCR
-              value: 'false'
-            - name: PDF_MIN_IMG_SIZE_BYTES
-              value: '3072'
-            - name: PDF_OCR_ENGINE
-              value: rapidocr
-            - name: PDF_OCR_RENDER_DPI
-              value: '400'
-            - name: PDF_TESSERACT_LANG
-              value: eng
-            - name: PPTX_OCR_ENGINE
-              value: rapidocr
-            - name: PPTX_SLIDES_PER_CHUNK
-              value: '4'
             - name: PYTHONUNBUFFERED
               value: '1'
             - name: QDRANT_API_KEY
@@ -129,14 +104,6 @@ spec:
                 secretKeyRef:
                   name: qdrant-api-key
                   key: QDRANT_API_KEY
-            - name: QDRANT_HNSW_EF_CONSTRUCT
-              value: '128'
-            - name: QDRANT_HNSW_FULL_SCAN_THRESHOLD
-              value: '10000'
-            - name: QDRANT_HNSW_M
-              value: '32'
-            - name: QDRANT_ONDISK
-              value: 'TRUE'
             - name: QDRANT_SECRET_NAME
               value: qdrant-api-key
             - name: QDRANT_URL
@@ -151,8 +118,6 @@ spec:
               value: '8'
             - name: SPARSE_URL
               value: http://sparse-svc.models.svc.cluster.local:8201
-            - name: TESSERACT_CONFIG
-              value: --oem 1 --psm 6
             - name: UAI_RAG_RO_CLIENT_ID
               value: ''
             - name: UAI_RAG_RO_NAME
@@ -176,4 +141,4 @@ spec:
               limits:
                 cpu: '4'
                 memory: 2Gi
-      backoffLimit: 1
+      backoffLimit: 2

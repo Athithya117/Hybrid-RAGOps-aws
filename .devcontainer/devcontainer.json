@@ -1,13 +1,30 @@
 {
   "name": "RAG8s",
-  "build": { 
-    "dockerfile": "Dockerfile", 
-    "context": "." 
+
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
   },
-  "forwardPorts": [3000, 3001, 8000, 8001, 8080, 50051, 8005, 7000, 7001, 7002, 7003 ],
+
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+
   "remoteUser": "root",
+
+  "forwardPorts": [
+    3000,
+    3001,
+    8000,
+    8001,
+    8080,
+    50051,
+    8005,
+    7000,
+    7001,
+    7002,
+    7003
+  ],
+
   "runArgs": [
     "--privileged",
     "--network=host",
@@ -17,12 +34,15 @@
     "/var/run/docker.sock:/var/run/docker.sock",
     "--shm-size=10g"
   ],
+
   "containerEnv": {
     "DOCKER_GID": "999",
     "DOCKER_PROXY_HOST": "",
     "DOCKER_PROXY_PORT": ""
   },
+
   "postCreateCommand": "bash /workspace/scripts/bootstrap.sh && bash /workspace/scripts/lc.sh",
+
   "customizations": {
     "vscode": {
       "extensions": [
@@ -30,14 +50,33 @@
         "ms-azuretools.vscode-docker",
         "ms-python.debugpy",
         "ms-python.python",
-        "redhat.vscode-yaml",
         "ms-python.vscode-pylance",
+        "redhat.vscode-yaml",
         "tomoki1207.vscode-pdf"
       ],
+
       "settings": {
+        // ---------- FILE / EDITOR BEHAVIOR ----------
         "files.autoSave": "afterDelay",
         "files.autoSaveDelay": 1000,
+
+        // ---------- PREVENT AUTO SHRINK / HIDDEN CODE ----------
+        "editor.folding": false,
+        "editor.foldingStrategy": "indentation",
+        "editor.showFoldingControls": "never",
+
+        // ---------- DISABLE STICKY / CONTEXT SCROLL ----------
+        "editor.stickyScroll.enabled": false,
+        "editor.scrollBeyondLastLine": true,
+        "editor.scrollbar.vertical": "visible",
+
+        // ---------- LARGE FILE SAFETY ----------
+        "editor.largeFileOptimizations": false,
+
+        // ---------- TERMINAL ----------
         "terminal.integrated.scrollback": 2500,
+
+        // ---------- UI ----------
         "workbench.colorTheme": "Default Dark Modern",
         "workbench.preferredDarkColorTheme": "Default Dark Modern"
       }

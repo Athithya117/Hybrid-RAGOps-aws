@@ -57,21 +57,30 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 
 ```sh
 
-export AWS_ACCESS_KEY_ID=""                           
-export AWS_SECRET_ACCESS_KEY=""                       
 
 
-export AWS_REGION="ap-south-1"                        # AWS region for infra and S3; change when your AWS resources are in another region (e.g., us-east-1)
-export S3_BUCKET="e2e-rag-system-42"                  # Global S3 bucket name used for data/backups; must be globally unique — change per environment or tenant
+
 export PULUMI_S3_BUCKET="rag-pulumi-state31"         
 export PULUMI_CONFIG_PASSPHRASE="mypassword"
 
 
 
+AZURE_STORAGE_ACCOUNT_NAME = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "")
+AZURE_STORAGE_ACCOUNT_KEY = os.getenv("AZURE_STORAGE_ACCOUNT_KEY", "")
+AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+AZURE_SAS_TOKEN = os.getenv("AZURE_SAS_TOKEN", "")
+AZURE_CONTAINER = os.getenv("AZURE_CONTAINER", "e2e-rag-system-42")
+AZURE_RAW_
+AZURE_CHUNKED_PREFIX = os.getenv("AZURE_CHUNKED_PREFIX", "data/chunked/")
+AZURE_ENDPOINT_SUFFIX = os.getenv("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
+AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID") or os.getenv("UAI_RAG_RW_CLIENT_ID") or None
+
+
+
 export PLATFORMS="linux/amd64,linux/arm64"      # Multi arch default; set only amd64 for x86 EC2 (C5/C6/M5/M6/R5/R6) or only arm64 for Graviton (C7g/M7g/R7g)
 
-export S3_RAW_PREFIX="data/raw/"                      # Prefix where raw/unprocessed files are uploaded; change to isolate different ingestion sources
-export S3_CHUNKED_PREFIX="data/chunked/"              # Prefix where chunked/processed outputs are written; change to separate processed datasets
+
+
 export OVERWRITE_DOC_DOCX_TO_PDF="true"               # If true, remove originals when converting (.doc/.docx) -> .pdf; set false to keep originals
 export OVERWRITE_ALL_AUDIO_FILES="true"               # If true, remove originals when converting (.mp3,.aac/etc) -> (16k wav); false to keep originals
 export OVERWRITE_SPREADSHEETS_WITH_CSV="true"         # If true, remove originals when converting (.xls/.xlsx/.ods/etc) to .csv ;false to keep originals
@@ -87,12 +96,12 @@ export TESSERACT_CONFIG="--oem 1 --psm 6"             # (if tess) Tesseract runt
 export PDF_FORCE_OCR="false"                          # true to force OCR even when PDF has text layer (useful for noisy text), false to preserve native text
 export PDF_OCR_RENDER_DPI="400"                       # DPI used when rendering PDF pages for OCR; increase for very small text, reduce for speed
 export PDF_MIN_IMG_SIZE_BYTES="3072"                  # Skip OCR for images below this size; lower to include smaller images, increase to ignore artifacts
-export IMAGE_OCR_ENGINE="rapidocr"                    # 'tesseract' or 'rapidocr' for standalone images; choose based on accuracy/speed tradeoff
+export IMAGE_OCR_ENGINE="tesseract"                   # 'tesseract' or 'rapidocr' for standalone images; choose based on accuracy/speed tradeoff
 export IMAGE_MIN_IMG_SIZE_BYTES="3072"                # Skip OCR for images smaller than this; reduce to process thumbnails, increase to avoid noise
 export IMAGE_RENDER_DPI="600"                         # DPI when rendering images for OCR; increase for tiny text, lower for better throughput
 export IMAGE_UPSCALE_FACTOR="2.0"                     # Upscale small images before OCR; increase for very small/blurred text, decrease for performance
-export CSV_TARGET_TOKENS_PER_CHUNK="600"              # Token budget for CSV chunking (including header); increase for wide tables, decrease to split more
-export JSONL_TARGET_TOKENS_PER_CHUNK="600"            # Token budget for JSONL chunking; similar guidance as CSV
+export CSV_TARGET_TOKENS_PER_CHUNK="400"              # Token budget for CSV chunking (including header); increase for wide tables, decrease to split more
+export JSONL_TARGET_TOKENS_PER_CHUNK="400"            # Token budget for JSONL chunking; similar guidance as CSV
 export PPTX_SLIDES_PER_CHUNK="4"                      # Slides grouped per chunk; increase when slides are short, decrease when slides have lots of text
 export PPTX_OCR_ENGINE="rapidocr"                     # OCR engine for PPTX-rendered images; same selection guidance as other OCR engine vars
 export PYTHONUNBUFFERED="1"                           # Forces Python stdout/stderr unbuffered so container logs are immediate; keep set in containers
@@ -121,7 +130,7 @@ export INDEXING_BACKUP_CRONJOB_CPU_LIMIT="4"          # CPU limit for the CronJo
 export INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST="1Gi"   # Memory request for CronJob; set based on worst-case memory used by indexing
 export INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT="2Gi"     # Memory limit for CronJob; must be >= request to avoid eviction
 export INDEXING_PIPELINE_CPU_IMAGE_REPO="athithya5354/indexing_pipeline_cpu"  # Use the prebuilt docker image or build your own by running `make index-image`
-export INDEXING_PIPELINE_CPU_IMAGE_TAG="amd64-arm64-v7" # Set a consistent tag name for clarity. You may change if building your own image
+export INDEXING_PIPELINE_CPU_IMAGE_TAG="v8" # Set a consistent tag name for clarity. You may change if building your own image
 
 
 
@@ -174,7 +183,12 @@ export EMBEDDER_CPU_LIMIT="4"                    # Hard CPU cap; increase if bat
 export EMBEDDER_MEM_REQUEST="2Gi"                # Guaranteed RAM; raise when not using the default models
 export EMBEDDER_MEM_LIMIT="4Gi"                  # Hard RAM cap; increase if OOM occurs during ONNX graph load or large batch runs
 
-
+export AZURE_STORAGE_CONNECTION_STRING="$(
+  az storage account show-connection-string \
+    -g "$AZURE_RESOURCE_GROUP_NAME" \
+    -n "$AZURE_STORAGE_ACCOUNT_NAME" \
+    --query connectionString -o tsv
+)"
 
 export QDRANT_URL="http://localhost:6333"          # Qdrant HTTP endpoint. Change to remote host when using managed Qdrant.
 export COLLECTION_NAME="rag_hybrid_collection"     # Qdrant collection name. Change per dataset/environment.

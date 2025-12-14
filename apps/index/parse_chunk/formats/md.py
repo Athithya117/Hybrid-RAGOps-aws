@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-md_parser_dualmode.py
+md.py
 
-Dual-mode markdown -> parquet parser for Azure blob storage.
+Markdown -> chunked parquet parser compatible with router.py.
 
-Authentication selection is DETERMINISTIC and solely driven by:
-  AZURE_USE_MANAGED_IDENTITY=1 (or USE_MANAGED_IDENTITY=1) -> Managed Identity mode
-  otherwise -> key/SAS/connection-string mode (fsspec/adlfs)
-
-Fail-fast on missing prerequisites and required env vars.
+Design:
+ - Dual-mode storage: managed identity (azure sdk) or fsspec+adlfs (connection string / account key / SAS).
+ - Fail-fast validation of required envs for the chosen mode.
+ - Exposes parse_file(s3_key: str, manifest: dict) -> dict with 'saved_chunks' and timing info.
+ - Writes chunked parquet via pyarrow (if available) and uploads atomically.
 """
+
 from __future__ import annotations
 import os
 import sys
@@ -20,6 +21,7 @@ import tempfile
 import re
 import unicodedata
 import threading
+import traceback
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
@@ -58,17 +60,16 @@ class LoggerShim:
     def error(self, a, b=None, *fmt_args, **kwargs):
         event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "error"); self._emit("error", event, msg, **kw)
     def exception(self, a, b=None, *fmt_args, **kwargs):
-        import traceback
         tb = traceback.format_exc()
         event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "exception"); kw.update({"tb": tb}); self._emit("error", event, msg, **kw)
 
 log = LoggerShim("md_parser")
 
-# ---------- deterministic runtime switch: USE_MANAGED_IDENTITY only ----------
+# ---------- deterministic runtime switch ----------
 _USE_MI_RAW = os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower()
 USE_MANAGED_IDENTITY = _USE_MI_RAW in ("1", "true", "yes")
 
-# ---------- runtime config (Azure-only) ----------
+# ---------- runtime config ----------
 AZURE_CONTAINER = (os.getenv("AZURE_CONTAINER") or os.getenv("STORAGE_CONTAINER") or os.getenv("AZ_CONTAINER") or "").strip()
 if not AZURE_CONTAINER:
     sys.stderr.write("ERROR: AZURE_CONTAINER (or STORAGE_CONTAINER / AZ_CONTAINER) environment variable must be set\n")
@@ -76,21 +77,31 @@ if not AZURE_CONTAINER:
 
 STORAGE_RAW_PREFIX = (os.getenv("STORAGE_RAW_PREFIX") or os.getenv("AZURE_RAW_PREFIX") or "data/raw/").rstrip("/") + "/"
 STORAGE_CHUNKED_PREFIX = (os.getenv("STORAGE_CHUNKED_PREFIX") or os.getenv("AZURE_CHUNKED_PREFIX") or "data/chunked/").rstrip("/") + "/"
-MAX_TOKENS_PER_CHUNK = int(os.getenv("MAX_TOKENS_PER_CHUNK", "512"))
-MIN_TOKENS_PER_CHUNK = int(os.getenv("MIN_TOKENS_PER_CHUNK", "100"))
+
+# numeric envs: validate and fallback
+def _int_env(name: str, default: int) -> int:
+    v = os.getenv(name, "")
+    try:
+        return int(v) if v != "" else default
+    except Exception:
+        return default
+
+MAX_TOKENS_PER_CHUNK = _int_env("MAX_TOKENS_PER_CHUNK", 512)
+MIN_TOKENS_PER_CHUNK = _int_env("MIN_TOKENS_PER_CHUNK", 100)
 DEFAULT_OVERLAP = max(1, int(MAX_TOKENS_PER_CHUNK * 0.1))
-OVERLAP_TOKENS = int(os.getenv("OVERLAP_TOKENS", str(DEFAULT_OVERLAP)))
+OVERLAP_TOKENS = _int_env("OVERLAP_TOKENS", DEFAULT_OVERLAP)
 if OVERLAP_TOKENS >= MAX_TOKENS_PER_CHUNK:
     OVERLAP_TOKENS = max(1, MAX_TOKENS_PER_CHUNK - 1)
+
 ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
 PARSER_VERSION = os.getenv("PARSER_VERSION_MD", "markdown-it-py-v1")
 FORCE_OVERWRITE = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
 SAVE_SNAPSHOT = os.getenv("SAVE_SNAPSHOT", "false").lower() == "true"
-PUT_RETRIES = int(os.getenv("PUT_RETRIES", "3"))
+PUT_RETRIES = _int_env("PUT_RETRIES", 3)
 PUT_BACKOFF = float(os.getenv("PUT_BACKOFF", "0.3"))
 CHUNKED_SCHEMA_VERSION = os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1")
 
-# ---------- dependency checks (fail-fast with clear instructions) ----------
+# ---------- dependency checks ----------
 FSSPEC_AVAILABLE = False
 ADLFS_AVAILABLE = False
 try:
@@ -119,12 +130,13 @@ try:
     from markdown_it import MarkdownIt  # type: ignore
 except Exception:
     MarkdownIt = None
+
 try:
-    import tiktoken
+    import tiktoken  # type: ignore
 except Exception:
     tiktoken = None
 
-# ---------- storage wiring (dual-mode) ----------
+# ---------- storage wiring ----------
 def build_storage_options() -> Dict[str, str]:
     if USE_MANAGED_IDENTITY:
         return {}
@@ -167,11 +179,11 @@ def _prevalidate_auth_envs_or_exit():
             sys.exit(2)
         account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.environ.get("AZURE_ACCOUNT_NAME")
         if not account_name:
-            sys.stderr.write("ERROR: AZURE_STORAGE_ACCOUNT_NAME (or AZURE_ACCOUNT_NAME) required for managed identity mode.\n")
+            sys.stderr.write("ERROR: AZURE_STORAGE_ACCOUNT_NAME required for managed identity mode.\n")
             sys.exit(2)
     else:
         if not FSSPEC_AVAILABLE or not ADLFS_AVAILABLE:
-            sys.stderr.write("ERROR: key/SAS/connection-string mode requires fsspec + adlfs.\n")
+            sys.stderr.write("ERROR: non-managed identity mode requires fsspec + adlfs.\n")
             sys.stderr.write("Install with: pip install fsspec adlfs\n")
             sys.exit(2)
         acct = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.environ.get("AZURE_ACCOUNT_NAME")
@@ -194,7 +206,6 @@ if USE_MANAGED_IDENTITY:
     except Exception as e:
         sys.stderr.write(f"ERROR: Failed to init BlobServiceClient (managed identity): {e}\n")
         sys.exit(2)
-    # Validate access to container (fail-fast)
     try:
         container_client = BLOB_CLIENT.get_container_client(AZURE_CONTAINER)
         container_client.get_container_properties()
@@ -208,9 +219,7 @@ else:
     except Exception as e:
         sys.stderr.write(f"ERROR: Failed to initialize fsspec az filesystem: {e}\n")
         sys.exit(2)
-    # Validate access to container (fail-fast)
     try:
-        # adlfs accepts "az://container/" style paths for ls/info
         try:
             _ = FS.ls(STORAGE_ROOT)  # type: ignore
         except Exception:
@@ -220,7 +229,7 @@ else:
         sys.stderr.write(f"ERROR: fsspec could not access container {AZURE_CONTAINER}: {e}\n")
         sys.exit(2)
 
-# ---------- helper functions ----------
+# ---------- helpers ----------
 def full_path_from_key(key: str) -> str:
     return STORAGE_ROOT + key.lstrip("/")
 
@@ -257,7 +266,7 @@ def try_decode_bytes(b: bytes) -> str:
             continue
     return b.decode("utf-8", errors="replace")
 
-# ---------- token encoder & md parser factories ----------
+# ---------- encoder & md parser factories ----------
 _tiktoken_enc = None
 _md_parser = None
 
@@ -324,9 +333,9 @@ class AzureStorageClient:
             info = self.fs.info(full)  # type: ignore
             out = {}
             out["ContentLength"] = int(info.get("size", 0))
-            etag = info.get("etag") or info.get("ETag") or info.get("eTag") or ""
+            etag = info.get("etag") or info.get("ETag") or ""
             out["ETag"] = etag
-            lm = info.get("Last-Modified") or info.get("last_modified") or info.get("LastModified") or ""
+            lm = info.get("Last-Modified") or info.get("last_modified") or ""
             out["LastModified"] = lm
             metadata = info.get("metadata") or info.get("meta") or {}
             out["Metadata"] = metadata
@@ -534,6 +543,10 @@ def _is_rootish(h: Any) -> bool:
     except Exception:
         return False
 
+# many helpers below are identical to the previous router-style implementation
+# to keep the parser self-contained we include build_header_sections, merge_small_sections,
+# split_long_line_into_char_windows, split_section_by_tokens_lines implementations.
+
 def build_header_sections(raw_text: str) -> List[Dict[str, Any]]:
     lines = raw_text.splitlines(keepends=True)
     mdp = get_md_parser()
@@ -638,7 +651,8 @@ def merge_small_sections(sections: List[Dict[str, Any]], merge_threshold: int, m
                 cnt = line_token_cache[abs_idx]
             else:
                 try:
-                    cnt = len(get_encoder().encode(l)) if get_encoder() else len(l.split())
+                    enc = get_encoder()
+                    cnt = len(enc.encode(l)) if enc else len(l.split())
                 except Exception:
                     cnt = len(l.split())
                 line_token_cache[abs_idx] = cnt
@@ -674,7 +688,8 @@ def merge_small_sections(sections: List[Dict[str, Any]], merge_threshold: int, m
                     cnt = line_token_cache[abs_idx]
                 else:
                     try:
-                        cnt = len(get_encoder().encode(l)) if get_encoder() else len(l.split())
+                        enc = get_encoder()
+                        cnt = len(enc.encode(l)) if enc else len(l.split())
                     except Exception:
                         cnt = len(l.split())
                     line_token_cache[abs_idx] = cnt
@@ -696,7 +711,7 @@ def merge_small_sections(sections: List[Dict[str, Any]], merge_threshold: int, m
 
 def split_long_line_into_char_windows(line: str, max_tokens: int, overlap_tokens: int) -> List[Dict[str, Any]]:
     pieces = []
-    approx_char_per_token = max(1, len(line) // max(1, token_count_for(line)))
+    approx_char_per_token = max(1, len(line) // max(1, token_count_for(line))) if token_count_for(line) > 0 else 1
     window_chars = max(200, approx_char_per_token * max_tokens)
     step_chars = max(1, window_chars - approx_char_per_token * overlap_tokens)
     start = 0
@@ -722,7 +737,8 @@ def split_section_by_tokens_lines(section: Dict[str, Any], overlap_tokens: int, 
             token_counts.append(line_token_cache[abs_idx])
         else:
             try:
-                cnt = len(get_encoder().encode(l)) if get_encoder() else len(l.split())
+                enc = get_encoder()
+                cnt = len(enc.encode(l)) if enc else len(l.split())
             except Exception:
                 cnt = len(l.split())
             line_token_cache[abs_idx] = cnt
@@ -927,7 +943,7 @@ def sanitize_payload(payload: Dict[str, Any]) -> None:
     payload["parser_version"] = payload.get("parser_version") or PARSER_VERSION
     payload["used_ocr"] = bool(payload.get("used_ocr", False))
 
-# ---------- public API for router compatibility (preserves original parse_file semantics) ----------
+# ---------- public API for router compatibility ----------
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
     client = get_storage_client_singleton()
@@ -1045,7 +1061,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     log.info("buffered_subchunk", "Buffered subchunk", chunk_id=payload["chunk_id"], lines=f"{start_line_sub}-{end_line_sub}")
     except Exception:
         total_ms = int((time.perf_counter() - start_all) * 1000)
-        log.exception("buffering_failed", "Error while buffering chunks for %s", s3_key)
+        log.exception("buffering_failed", "Error while buffering chunks for %s", key=s3_key)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": "buffering_failed"}
     try:
         if saved == 0:
@@ -1080,27 +1096,31 @@ if __name__ == "__main__":
     _ensure_cli_env_or_exit()
     client = get_storage_client_singleton()
     paginator = client.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=AZURE_CONTAINER, Prefix=STORAGE_RAW_PREFIX):
-        for obj in page.get("Contents", []):
-            key = obj["Key"]
-            if not (key.lower().endswith(".md") or key.lower().endswith(".markdown")):
-                continue
-            log.info("cli_route", "routing parse_file", key=key)
-            manifest_key = key + ".manifest.json"
-            try:
-                mf_obj = client.get_object(Bucket=AZURE_CONTAINER, Key=manifest_key)
-                body = mf_obj.get("Body", b"")
-                if isinstance(body, (bytes, bytearray)):
-                    manifest = json.loads(body.decode("utf-8"))
-                else:
-                    try:
-                        manifest = json.loads(body.read())
-                    except Exception:
-                        manifest = {}
-            except Exception:
-                manifest = {}
-            try:
-                result = parse_file(key, manifest)
-                log.info("cli_result", "Result", key=key, result=result)
-            except Exception:
-                log.exception("cli_parse_failed", "Failed to parse", key=key)
+    try:
+        for page in paginator.paginate(Bucket=AZURE_CONTAINER, Prefix=STORAGE_RAW_PREFIX):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if not (key.lower().endswith(".md") or key.lower().endswith(".markdown")):
+                    continue
+                log.info("cli_route", "routing parse_file", key=key)
+                manifest_key = key + ".manifest.json"
+                try:
+                    mf_obj = client.get_object(Bucket=AZURE_CONTAINER, Key=manifest_key)
+                    body = mf_obj.get("Body", b"")
+                    if isinstance(body, (bytes, bytearray)):
+                        manifest = json.loads(body.decode("utf-8"))
+                    else:
+                        try:
+                            manifest = json.loads(body.read())
+                        except Exception:
+                            manifest = {}
+                except Exception:
+                    manifest = {}
+                try:
+                    result = parse_file(key, manifest)
+                    log.info("cli_result", "Result", key=key, result=result)
+                except Exception:
+                    log.exception("cli_parse_failed", "Failed to parse", key=key)
+    except Exception:
+        log.exception("cli_loop_failed", "CLI pagination loop failed")
+    sys.exit(0)

@@ -16,6 +16,11 @@ PROM_HELM_REPO="${PROM_HELM_REPO:-prometheus-community}"
 PROM_HELM_CHART="${PROM_HELM_CHART:-kube-prometheus-stack}"
 PROM_HELM_CHART_VERSION="${PROM_HELM_CHART_VERSION:-79.5.0}"
 
+# SYSCTL TARGET VALUES (tweak here if needed)
+INOTIFY_WATCHES="${INOTIFY_WATCHES:-524288}"
+INOTIFY_INSTANCES="${INOTIFY_INSTANCES:-1024}"
+FILE_MAX="${FILE_MAX:-2097152}"
+
 mkdir -p "${LOCAL_BIN}"
 export PATH="${LOCAL_BIN}:$PATH"
 
@@ -25,6 +30,7 @@ command_exists(){ command -v "$1" >/dev/null 2>&1; }
 if ! command_exists curl; then echo "curl required" >&2; exit 1; fi
 if ! command_exists docker; then echo "docker required" >&2; exit 1; fi
 if ! docker info >/dev/null 2>&1; then echo "docker daemon not running or inaccessible" >&2; exit 1; fi
+if ! command_exists sudo; then echo "sudo required" >&2; exit 1; fi
 
 OS=$(uname | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
@@ -223,27 +229,55 @@ if [ "${INSTALL_MONITORING}" = "true" ]; then
     --namespace monitoring --create-namespace --wait --version "${PROM_HELM_CHART_VERSION}" >/dev/null 2>&1 || true
 fi
 
-# Host sysctls helpful for inotify-heavy workloads and file handles
-sudo sysctl -w fs.inotify.max_user_watches=524288
-sudo sysctl -w fs.inotify.max_user_instances=1024
-sudo sysctl -w fs.file-max=2097152
-# persist across reboot (optional)
-if ! grep -q '^fs.inotify.max_user_watches=524288' /etc/sysctl.conf 2>/dev/null; then
-  echo "fs.inotify.max_user_watches=524288" | sudo tee -a /etc/sysctl.conf >/dev/null
-fi
-if ! grep -q '^fs.inotify.max_user_instances=1024' /etc/sysctl.conf 2>/dev/null; then
-  echo "fs.inotify.max_user_instances=1024" | sudo tee -a /etc/sysctl.conf >/dev/null
-fi
-if ! grep -q '^fs.file-max=2097152' /etc/sysctl.conf 2>/dev/null; then
-  echo "fs.file-max=2097152" | sudo tee -a /etc/sysctl.conf >/dev/null
-fi
+# --------------------------
+# Host sysctls (persistent)
+# --------------------------
+echo "[INFO] Setting host kernel limits persistently under /etc/sysctl.d/99-k8s-fd.conf (requires sudo)"
+SYSCTL_FILE="/etc/sysctl.d/99-k8s-fd.conf"
+TMP="$(mktemp)"
+cat > "${TMP}" <<EOF
+# increased inotify + file handle limits for indexing workloads (managed by create_kind_cluster.sh)
+fs.inotify.max_user_watches=${INOTIFY_WATCHES}
+fs.inotify.max_user_instances=${INOTIFY_INSTANCES}
+fs.file-max=${FILE_MAX}
+EOF
 
-echo "[+] Updating sysctls inside kind nodes..."
-for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
-  echo "  - patching $node"
-  docker exec "$node" sysctl -w fs.inotify.max_user_watches=524288 || true
-  docker exec "$node" sysctl -w fs.inotify.max_user_instances=1024 || true
-  docker exec "$node" sysctl -w fs.file-max=2097152 || true
+# Only overwrite if different (idempotent)
+if ! sudo sh -c "cmp -s ${TMP} ${SYSCTL_FILE} >/dev/null 2>&1"; then
+  sudo install -m 0644 "${TMP}" "${SYSCTL_FILE}"
+  echo "[INFO] wrote ${SYSCTL_FILE}"
+else
+  echo "[INFO] ${SYSCTL_FILE} already up-to-date"
+fi
+rm -f "${TMP}"
+
+# apply immediately
+echo "[INFO] Applying kernel settings (sudo sysctl --system)"
+sudo sysctl --system >/dev/null 2>&1 || {
+  echo "[WARN] 'sysctl --system' failed or produced warnings; attempting direct sysctl -w"
+  sudo sysctl -w fs.inotify.max_user_watches="${INOTIFY_WATCHES}" || true
+  sudo sysctl -w fs.inotify.max_user_instances="${INOTIFY_INSTANCES}" || true
+  sudo sysctl -w fs.file-max="${FILE_MAX}" || true
+}
+
+echo "[+] Updating sysctls inside kind nodes (best-effort)"
+for node in $(kind get nodes --name "${CLUSTER_NAME}" 2>/dev/null || true); do
+  echo "  - patching ${node}"
+  # write a sysctl.d fragment inside the node (idempotent overwrite)
+  docker exec "${node}" sh -c "cat > /etc/sysctl.d/99-kind-fd.conf <<'EOFD'
+# increased inotify + file handle limits for indexing workloads (added by host script)
+fs.inotify.max_user_watches=${INOTIFY_WATCHES}
+fs.inotify.max_user_instances=${INOTIFY_INSTANCES}
+fs.file-max=${FILE_MAX}
+EOFD" || echo "    [WARN] could not write /etc/sysctl.d/99-kind-fd.conf in ${node}"
+
+  # apply via sysctl -w (works even if sysctl --system not available in container)
+  docker exec "${node}" sysctl -w fs.inotify.max_user_watches="${INOTIFY_WATCHES}" >/dev/null 2>&1 || true
+  docker exec "${node}" sysctl -w fs.inotify.max_user_instances="${INOTIFY_INSTANCES}" >/dev/null 2>&1 || true
+  docker exec "${node}" sysctl -w fs.file-max="${FILE_MAX}" >/dev/null 2>&1 || true
+
+  # also try running sysctl --system inside node (if present)
+  docker exec "${node}" sh -c "if command -v sysctl >/dev/null 2>&1 && command -v run-parts >/dev/null 2>&1; then sysctl --system >/dev/null 2>&1 || true; fi" || true
 done
 echo "[+] Sysctl patching complete."
 
@@ -252,6 +286,7 @@ kubectl -n kube-system wait --for=condition=Available deployment/coredns --timeo
 kubectl -n kube-system wait --for=condition=Ready pods -l k8s-app=kube-proxy --timeout=120s || true
 kubectl -n kube-system wait --for=condition=Ready pods -l k8s-app=kindnet --timeout=120s || true
 
+CLUSTER_NAME="${CLUSTER_NAME:-rag8s-local}"
 echo "[INFO] Preloading images safely (post-bootstrap)..."
 for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
   echo "  → Loading into ${node}"
@@ -270,7 +305,7 @@ for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
     docker.io/athithya5354/reranker:amd64-arm64-v1 \
     docker.io/athithya5354/retrieval:amd64-arm64-v2 \
     docker.io/athithya5354/athithya5354/frontend-and-auth:v5 \
-    docker.io/athithya5354/indexing_pipeline_cpu:v12
+    docker.io/athithya5354/indexing_pipeline_cpu:v8
   do
     echo "    pulling $IMAGE..."
     docker exec "$node" ctr -n k8s.io images pull "$IMAGE" || {
@@ -285,4 +320,3 @@ echo "kind cluster ${CLUSTER_NAME} created (1 control-plane + 2 workers). Contex
 kubectl get nodes -o wide
 
 exit 0
-

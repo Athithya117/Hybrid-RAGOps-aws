@@ -11,18 +11,20 @@ import unicodedata
 import re
 import tempfile
 import importlib
+import traceback
 from datetime import datetime
 from contextlib import contextmanager
-from typing import List, Tuple, Dict, Generator, Optional, Any
+from typing import List, Tuple, Dict, Optional, Any
 
-# --- logger ---
+# logger
 logger = logging.getLogger("pdf_parser")
-logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
+LOG_LEVEL_NAME = os.getenv("LOG_LEVEL", "INFO").upper()
+logger.setLevel(getattr(logging, LOG_LEVEL_NAME, logging.INFO))
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 logger.handlers[:] = [handler]
 
-# --- environment defaults (read-only at import; validated at runtime) ---
+# env / defaults
 AZURE_CONTAINER = os.getenv("AZURE_CONTAINER")
 RAW_PREFIX = os.getenv("STORAGE_RAW_PREFIX", os.getenv("RAW_PREFIX", "data/raw/")).rstrip("/") + "/"
 CHUNKED_PREFIX = os.getenv("STORAGE_CHUNKED_PREFIX", os.getenv("CHUNKED_PREFIX", "data/chunked/")).rstrip("/") + "/"
@@ -32,108 +34,21 @@ PDF_FORCE_OCR = os.getenv("PDF_FORCE_OCR", "false").lower() == "true"
 PDF_OCR_ENGINE = os.getenv("PDF_OCR_ENGINE", "auto").lower()
 PDF_OCR_STRICT = os.getenv("PDF_OCR_STRICT", "false").lower() == "true"
 PDF_TESSERACT_LANG = os.getenv("PDF_TESSERACT_LANG", "eng")
-PDF_OCR_RENDER_DPI = int(os.getenv("PDF_OCR_RENDER_DPI", "300"))
-PDF_MIN_IMG_SIZE_BYTES = int(os.getenv("PDF_MIN_IMG_SIZE_BYTES", "3072"))
-MAX_TOKENS_PER_CHUNK = int(os.getenv("MAX_TOKENS_PER_CHUNK", "512"))
-MIN_TOKENS_PER_CHUNK = int(os.getenv("MIN_TOKENS_PER_CHUNK", "100"))
-NUMBER_OF_OVERLAPPING_SENTENCES = int(os.getenv("NUMBER_OF_OVERLAPPING_SENTENCES", "2"))
+PDF_OCR_RENDER_DPI = int(os.getenv("PDF_OCR_RENDER_DPI", "300") or 300)
+PDF_MIN_IMG_SIZE_BYTES = int(os.getenv("PDF_MIN_IMG_SIZE_BYTES", "3072") or 3072)
+MAX_TOKENS_PER_CHUNK = int(os.getenv("MAX_TOKENS_PER_CHUNK", "512") or 512)
+MIN_TOKENS_PER_CHUNK = int(os.getenv("MIN_TOKENS_PER_CHUNK", "100") or 100)
+NUMBER_OF_OVERLAPPING_SENTENCES = int(os.getenv("NUMBER_OF_OVERLAPPING_SENTENCES", "2") or 2)
 PARSER_VERSION_PDF = os.getenv("PARSER_VERSION_PDF", "pdf-v1")
-PUT_RETRIES = int(os.getenv("PUT_RETRIES", "3"))
-PUT_BACKOFF = float(os.getenv("PUT_BACKOFF", "0.3"))
+PUT_RETRIES = int(os.getenv("PUT_RETRIES", "3") or 3)
+PUT_BACKOFF = float(os.getenv("PUT_BACKOFF", "0.3") or 0.3)
 ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
 
-# --- lazy clients / caches ---
+# lazy clients
 _blob_service_client = None
 _container_client = None
 
-# ------------------ Azure auth helpers ------------------
-def use_managed_identity() -> bool:
-    return os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower() in ("1", "true", "yes")
-
-def get_blob_service_client():
-    global _blob_service_client, _container_client
-    if _blob_service_client is not None and _container_client is not None:
-        return _blob_service_client, _container_client
-
-    try:
-        from azure.storage.blob import BlobServiceClient, ContentSettings  # type: ignore
-    except Exception as e:
-        logger.exception("azure.storage.blob package required (pip install azure-storage-blob): %s", e)
-        raise SystemExit(2)
-
-    endpoint_suffix = os.getenv("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
-    conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "").strip()
-    account = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "").strip()
-    sas = os.getenv("AZURE_SAS_TOKEN", "").strip()
-
-    if use_managed_identity():
-        try:
-            from azure.identity import DefaultAzureCredential  # type: ignore
-        except Exception as e:
-            logger.exception("azure.identity required for managed identity mode (pip install azure-identity): %s", e)
-            raise SystemExit(2)
-
-        if not account:
-            logger.error("AZURE_STORAGE_ACCOUNT_NAME is required when AZURE_USE_MANAGED_IDENTITY=true")
-            raise SystemExit(2)
-
-        account_url = f"https://{account}.{endpoint_suffix}"
-        try:
-            # If user provided a UAI client id, pass to DefaultAzureCredential
-            mi_client_id = os.getenv("UAI_RAG_RW_CLIENT_ID") or os.getenv("AZURE_MANAGED_IDENTITY_CLIENT_ID") or None
-            if mi_client_id:
-                cred = DefaultAzureCredential(managed_identity_client_id=mi_client_id)
-            else:
-                cred = DefaultAzureCredential()
-            _blob_service_client = BlobServiceClient(account_url=account_url, credential=cred)
-            _container_client = _blob_service_client.get_container_client(AZURE_CONTAINER)
-            # smoke-check: attempt to get container properties (may fail in restricted networks; warn)
-            try:
-                _container_client.get_container_properties()
-            except Exception as e:
-                logger.warning("managed identity client created, but container smoke-check failed (may be OK in restricted env): %s", e)
-            logger.info("Initialized BlobServiceClient (managed identity) for account=%s", account)
-            return _blob_service_client, _container_client
-        except Exception as e:
-            logger.exception("Failed creating BlobServiceClient with managed identity: %s", e)
-            raise SystemExit(2)
-
-    # non-MI mode: prefer connection string, then account + sas
-    if conn_str:
-        try:
-            _blob_service_client = BlobServiceClient.from_connection_string(conn_str)
-            _container_client = _blob_service_client.get_container_client(AZURE_CONTAINER)
-            # smoke-check
-            try:
-                _container_client.get_container_properties()
-            except Exception:
-                pass
-            logger.info("Initialized BlobServiceClient (connection string)")
-            return _blob_service_client, _container_client
-        except Exception as e:
-            logger.exception("Failed to init client from connection string: %s", e)
-            raise SystemExit(2)
-
-    if account and sas:
-        try:
-            token = sas if sas.startswith("?") else ("?" + sas)
-            account_url = f"https://{account}.{endpoint_suffix}"
-            _blob_service_client = BlobServiceClient(account_url=account_url + token)
-            _container_client = _blob_service_client.get_container_client(AZURE_CONTAINER)
-            try:
-                _container_client.get_container_properties()
-            except Exception:
-                pass
-            logger.info("Initialized BlobServiceClient (account + SAS)")
-            return _blob_service_client, _container_client
-        except Exception as e:
-            logger.exception("Failed to init client from SAS token: %s", e)
-            raise SystemExit(2)
-
-    logger.error("Non-managed-identity mode requires AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_ACCOUNT_NAME + AZURE_SAS_TOKEN")
-    raise SystemExit(2)
-
-# --- small helpers ---
+# ---------------- utilities ----------------
 def sha256_hex_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
@@ -165,25 +80,94 @@ def try_decode_bytes(b: bytes) -> str:
             continue
     return b.decode("utf-8", errors="replace")
 
-def token_count_for(text: str) -> int:
-    if not text:
-        return 0
+# ---------------- sys.path safety ----------------
+@contextmanager
+def without_cwd_on_syspath():
+    saved = list(sys.path)
     try:
-        import tiktoken as _tiktoken  # lazy
-        try:
-            enc = _tiktoken.get_encoding(ENC_NAME)
-        except Exception:
-            try:
-                enc = _tiktoken.encoding_for_model("gpt2")
-            except Exception:
-                enc = None
-        if enc is not None:
-            return len(enc.encode(text))
-    except Exception:
-        pass
-    return len(text.split())
+        cwd = os.getcwd()
+        sys.path = [p for p in sys.path if p not in ("", cwd)]
+        yield
+    finally:
+        sys.path[:] = saved
 
-# --- Azure blob helpers (replacing S3) ---
+# ---------------- azure blob helpers ----------------
+def use_managed_identity() -> bool:
+    return os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower() in ("1", "true", "yes")
+
+def get_blob_service_client():
+    global _blob_service_client, _container_client
+    if _blob_service_client is not None and _container_client is not None:
+        return _blob_service_client, _container_client
+
+    try:
+        from azure.storage.blob import BlobServiceClient  # type: ignore
+    except Exception as e:
+        logger.debug("azure.storage.blob import failed: %s", e)
+        raise RuntimeError("azure.storage.blob is required") from e
+
+    endpoint_suffix = os.getenv("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
+    conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "").strip()
+    account = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "").strip()
+    sas = os.getenv("AZURE_SAS_TOKEN", "").strip()
+
+    if use_managed_identity():
+        try:
+            from azure.identity import DefaultAzureCredential  # type: ignore
+        except Exception as e:
+            logger.debug("azure.identity import failed: %s", e)
+            raise RuntimeError("azure.identity is required for managed identity mode") from e
+
+        if not account:
+            raise RuntimeError("AZURE_STORAGE_ACCOUNT_NAME required for managed identity mode")
+        account_url = f"https://{account}.{endpoint_suffix}"
+        mi_client_id = os.getenv("UAI_RAG_RW_CLIENT_ID") or os.getenv("AZURE_MANAGED_IDENTITY_CLIENT_ID") or None
+        try:
+            cred = DefaultAzureCredential(managed_identity_client_id=mi_client_id) if mi_client_id else DefaultAzureCredential()
+            _blob_service_client = BlobServiceClient(account_url=account_url, credential=cred)
+            _container_client = _blob_service_client.get_container_client(AZURE_CONTAINER)
+            try:
+                _container_client.get_container_properties()
+            except Exception:
+                logger.debug("Managed identity container props check failed (maybe restricted network)")
+            logger.info("Initialized BlobServiceClient (managed identity) for account=%s", account)
+            return _blob_service_client, _container_client
+        except Exception as e:
+            logger.exception("Failed to create BlobServiceClient with managed identity: %s", e)
+            raise
+
+    if conn_str:
+        try:
+            _blob_service_client = BlobServiceClient.from_connection_string(conn_str)
+            _container_client = _blob_service_client.get_container_client(AZURE_CONTAINER)
+            try:
+                _container_client.get_container_properties()
+            except Exception:
+                logger.debug("Connection-string container props check failed (maybe restricted network)")
+            logger.info("Initialized BlobServiceClient (connection string)")
+            return _blob_service_client, _container_client
+        except Exception as e:
+            logger.exception("Failed to init client from connection string: %s", e)
+            raise
+
+    if account and sas:
+        try:
+            token = sas if sas.startswith("?") else ("?" + sas)
+            account_url = f"https://{account}.{endpoint_suffix}"
+            _blob_service_client = BlobServiceClient(account_url=account_url + token)
+            _container_client = _blob_service_client.get_container_client(AZURE_CONTAINER)
+            try:
+                _container_client.get_container_properties()
+            except Exception:
+                logger.debug("SAS container props check failed")
+            logger.info("Initialized BlobServiceClient (account + SAS)")
+            return _blob_service_client, _container_client
+        except Exception as e:
+            logger.exception("Failed to init client from SAS token: %s", e)
+            raise
+
+    raise RuntimeError("Azure storage credentials not provided (connection string or account+SAS or managed identity)")
+
 def blob_exists(key: str) -> bool:
     _, container_client = get_blob_service_client()
     bc = container_client.get_blob_client(key)
@@ -199,19 +183,28 @@ def head_blob(key: str) -> Dict[str, Any]:
     try:
         props = bc.get_blob_properties()
         md = props.metadata or {}
+        ctype = ""
+        try:
+            if getattr(props, "content_settings", None) is not None:
+                ctype = getattr(props.content_settings, "content_type", "") or ""
+            else:
+                ctype = getattr(props, "content_type", "") or ""
+        except Exception:
+            ctype = getattr(props, "content_type", "") or ""
         return {
             "ETag": getattr(props, "etag", "") or "",
-            "ContentLength": getattr(props, "size", 0) or getattr(props, "content_length", 0),
+            "ContentLength": int(getattr(props, "size", 0) or getattr(props, "content_length", 0) or 0),
             "LastModified": getattr(props, "last_modified", "") or "",
             "metadata": md,
-            "content_type": getattr(props, "content_settings", None).content_type if getattr(props, "content_settings", None) else getattr(props, "content_type", "")
+            "content_type": ctype,
         }
     except Exception:
         return {}
 
-def download_blob_to_temp(key: str) -> str:
+def download_blob_to_temp(s3_key: str) -> str:
+    # download azure blob to a temp file and return path
     _, container_client = get_blob_service_client()
-    blob_client = container_client.get_blob_client(key)
+    blob_client = container_client.get_blob_client(s3_key)
     tmpdir = os.getenv("TMPDIR") or None
     tf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", dir=tmpdir)
     try:
@@ -219,7 +212,7 @@ def download_blob_to_temp(key: str) -> str:
         data = stream.readall()
         with open(tf.name, "wb") as fh:
             fh.write(data)
-    except Exception as e:
+    except Exception:
         try:
             os.unlink(tf.name)
         except Exception:
@@ -232,9 +225,9 @@ def azure_upload_file_atomic(local_path: str, container: str, key: str, content_
     blob_client = container_client.get_blob_client(key)
     try:
         from azure.storage.blob import ContentSettings  # type: ignore
+        cs = ContentSettings(content_type=content_type)
     except Exception:
-        ContentSettings = None
-    cs = ContentSettings(content_type=content_type) if ContentSettings is not None else None
+        cs = None
     for attempt in range(1, PUT_RETRIES + 1):
         try:
             with open(local_path, "rb") as data:
@@ -258,153 +251,7 @@ def azure_put_object_from_bytes(container: str, key: str, payload_bytes: bytes, 
     except Exception:
         blob_client.upload_blob(payload_bytes, overwrite=True)
 
-# --- sanitize for vector target ---
-def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
-    for k in list(payload.keys()):
-        v = payload.get(k)
-        if k == "tags":
-            if v is None:
-                payload[k] = []
-            elif isinstance(v, (list, tuple)):
-                payload[k] = [str(x) for x in v]
-            else:
-                payload[k] = [str(v)]
-            continue
-        if v is None:
-            payload.pop(k, None)
-            continue
-        if isinstance(v, (list, tuple, dict)):
-            try:
-                payload[k] = json.dumps(v)
-            except Exception:
-                payload[k] = str(v)
-            continue
-        if not isinstance(v, (str, int, float, bool)):
-            payload[k] = str(v)
-
-# --- parquet writer (unchanged behavior) ---
-class S3ParquetWriter:
-    def __init__(self, doc_id: str):
-        self.doc_id = doc_id
-        self._rows: List[Dict[str, Any]] = []
-
-    def _normalize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        fields: Dict[str, Any] = {}
-        fields["document_id"] = payload.get("document_id") or ""
-        fields["file_name"] = payload.get("file_name") or ""
-        fields["chunk_id"] = payload.get("chunk_id") or ""
-        fields["chunk_type"] = payload.get("chunk_type") or ""
-        fields["text"] = payload.get("text") or ""
-        try:
-            fields["token_count"] = int(payload.get("token_count") or 0)
-        except Exception:
-            fields["token_count"] = 0
-        fields["figures"] = json.dumps(payload.get("figures") if payload.get("figures") is not None else [], ensure_ascii=False)
-        fields["tags"] = json.dumps(payload.get("tags") if payload.get("tags") is not None else [], ensure_ascii=False)
-        fields["layout_tags"] = json.dumps(payload.get("layout_tags") if payload.get("layout_tags") is not None else [], ensure_ascii=False)
-        fields["heading_path"] = json.dumps(payload.get("heading_path") if payload.get("heading_path") is not None else [], ensure_ascii=False)
-        fields["headings"] = json.dumps(payload.get("headings") if payload.get("headings") is not None else [], ensure_ascii=False)
-        fields["file_type"] = payload.get("file_type") or ""
-        fields["source_url"] = payload.get("source_url") or ""
-        page_num = payload.get("page_number")
-        fields["page_number"] = int(page_num) if page_num is not None else None
-        lr = payload.get("line_range") or []
-        if isinstance(lr, (list, tuple)) and len(lr) >= 2:
-            try:
-                fields["line_start"] = int(lr[0])
-                fields["line_end"] = int(lr[1])
-            except Exception:
-                fields["line_start"] = None
-                fields["line_end"] = None
-        else:
-            fields["line_start"] = None
-            fields["line_end"] = None
-        fields["timestamp"] = payload.get("timestamp") or ""
-        fields["parser_version"] = payload.get("parser_version") or PARSER_VERSION_PDF
-        fields["used_ocr"] = bool(payload.get("used_ocr", False))
-        return fields
-
-    def write_payload(self, payload: Dict[str, Any]) -> int:
-        self._rows.append(self._normalize(payload))
-        return 1
-
-    def finalize_and_upload(self, out_basename: str) -> Tuple[int, str, str, int]:
-        if not self._rows:
-            return 0, "", "", 0
-
-        try:
-            import pyarrow as pa
-            import pyarrow.parquet as pq
-        except Exception as e:
-            logger.exception("pyarrow is required to write parquet: %s", e)
-            raise RuntimeError("pyarrow is required to write parquet") from e
-
-        schema = pa.schema([
-            pa.field("document_id", pa.string()),
-            pa.field("file_name", pa.string()),
-            pa.field("chunk_id", pa.string()),
-            pa.field("chunk_type", pa.string()),
-            pa.field("text", pa.string()),
-            pa.field("token_count", pa.int64()),
-            pa.field("figures", pa.string()),
-            pa.field("tags", pa.string()),
-            pa.field("layout_tags", pa.string()),
-            pa.field("heading_path", pa.string()),
-            pa.field("headings", pa.string()),
-            pa.field("file_type", pa.string()),
-            pa.field("source_url", pa.string()),
-            pa.field("page_number", pa.int64()),
-            pa.field("line_start", pa.int64()),
-            pa.field("line_end", pa.int64()),
-            pa.field("timestamp", pa.string()),
-            pa.field("parser_version", pa.string()),
-            pa.field("used_ocr", pa.bool_())
-        ])
-
-        cols = {name: [] for name in [f.name for f in schema]}
-        for r in self._rows:
-            for name in cols:
-                cols[name].append(r.get(name) if name in r else None)
-
-        table = pa.Table.from_pydict(cols, schema=schema)
-        existing_md = table.schema.metadata or {}
-        new_md = dict(existing_md)
-        new_md.update({
-            b"schema_version": os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1").encode("utf-8"),
-            b"parser_version": PARSER_VERSION_PDF.encode("utf-8"),
-            b"producer": b"pdf_parser",
-            b"created_at": datetime.utcnow().isoformat().encode("utf-8")
-        })
-        table = table.replace_schema_metadata(new_md)
-
-        tmpfile = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".parquet", dir="/tmp")
-        tmpfile.close()
-        pq.write_table(table, tmpfile.name, compression="zstd", flavor="spark")
-        local_parquet_path = tmpfile.name
-        with open(local_parquet_path, "rb") as fh:
-            b = fh.read()
-        sha = sha256_hex_bytes(b)
-        size = os.path.getsize(local_parquet_path)
-        parquet_key = out_basename + ".parquet"
-        azure_upload_file_atomic(local_parquet_path, AZURE_CONTAINER, CHUNKED_PREFIX + parquet_key, content_type="application/octet-stream")
-        try:
-            os.unlink(local_parquet_path)
-        except Exception:
-            pass
-        return len(self._rows), CHUNKED_PREFIX + parquet_key, sha, size
-
-# --- small sys.path helper for local imports ---
-@contextmanager
-def without_cwd_on_syspath():
-    saved = list(sys.path)
-    try:
-        cwd = os.getcwd()
-        sys.path = [p for p in sys.path if p not in ("", cwd)]
-        yield
-    finally:
-        sys.path[:] = saved
-
-# --- encoder / chunker (unchanged) ---
+# ---------------- token encoder / chunker ----------------
 class TokenEncoder:
     def __init__(self, model_name: str = "gpt2"):
         self.model_name = model_name
@@ -458,21 +305,10 @@ def split_long_sentence_by_words(sent_text: str, max_tokens: int, encoder: Token
     return pieces
 
 class SentenceChunker:
-    def __init__(
-        self,
-        max_tokens_per_chunk: Optional[int] = None,
-        overlap_sentences: Optional[int] = None,
-        token_model: str = "gpt2",
-        nlp=None,
-        min_tokens_per_chunk: Optional[int] = None,
-    ):
-        self.max_tokens_per_chunk = int(os.getenv("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK)) if max_tokens_per_chunk is None else int(max_tokens_per_chunk)
-        self.overlap_sentences = int(os.getenv("NUMBER_OF_OVERLAPPING_SENTENCES", NUMBER_OF_OVERLAPPING_SENTENCES)) if overlap_sentences is None else int(overlap_sentences)
-        if self.overlap_sentences < 0:
-            raise ValueError("overlap_sentences must be >= 0")
-        self.min_tokens_per_chunk = int(os.getenv("MIN_TOKENS_PER_CHUNK", MIN_TOKENS_PER_CHUNK)) if min_tokens_per_chunk is None else int(min_tokens_per_chunk)
-        if self.min_tokens_per_chunk < 0:
-            raise ValueError("min_tokens_per_chunk must be >= 0")
+    def __init__(self, max_tokens_per_chunk: int, overlap_sentences: int, token_model: str = "gpt2", nlp=None, min_tokens_per_chunk: int = 100):
+        self.max_tokens_per_chunk = max_tokens_per_chunk
+        self.overlap_sentences = overlap_sentences
+        self.min_tokens_per_chunk = min_tokens_per_chunk
         self.encoder = TokenEncoder(model_name=token_model)
         self.nlp = nlp or self._make_sentencizer()
 
@@ -561,7 +397,7 @@ class SentenceChunker:
                         chunk_sent_texts.append(prefix_text)
                         cur_token_count = len(prefix_tok_ids)
                         is_truncated_sentence = True
-                        remainder_tok_ids = tok_ids[self.max_tokens_per_chunk :]
+                        remainder_tok_ids = tok_ids[self.max_tokens_per_chunk : ]
                         if remainder_tok_ids:
                             try:
                                 remainder_text = self.encoder.decode(remainder_tok_ids)
@@ -599,14 +435,124 @@ class SentenceChunker:
             yield prev_chunk
 
     @classmethod
-    def from_env(cls, **kwargs):
-        max_tokens = int(os.getenv("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK))
-        overlap = int(os.getenv("NUMBER_OF_OVERLAPPING_SENTENCES", NUMBER_OF_OVERLAPPING_SENTENCES))
-        min_tokens = int(os.getenv("MIN_TOKENS_PER_CHUNK", MIN_TOKENS_PER_CHUNK))
+    def from_env(cls):
+        max_tokens = int(os.getenv("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK) or MAX_TOKENS_PER_CHUNK)
+        overlap = int(os.getenv("NUMBER_OF_OVERLAPPING_SENTENCES", NUMBER_OF_OVERLAPPING_SENTENCES) or NUMBER_OF_OVERLAPPING_SENTENCES)
+        min_tokens = int(os.getenv("MIN_TOKENS_PER_CHUNK", MIN_TOKENS_PER_CHUNK) or MIN_TOKENS_PER_CHUNK)
         token_model = os.getenv("TOKEN_ENCODER_MODEL", os.getenv("TOKEN_ENCODER", "gpt2"))
         return cls(max_tokens_per_chunk=max_tokens, overlap_sentences=overlap, token_model=token_model, nlp=None, min_tokens_per_chunk=min_tokens)
 
-# --- pdf and ocr helpers (unchanged) ---
+# ---------------- parquet writer ----------------
+class S3ParquetWriter:
+    def __init__(self, doc_id: str):
+        self.doc_id = doc_id
+        self._rows: List[Dict[str, Any]] = []
+
+    def _normalize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        fields: Dict[str, Any] = {}
+        fields["document_id"] = payload.get("document_id") or ""
+        fields["file_name"] = payload.get("file_name") or ""
+        fields["chunk_id"] = payload.get("chunk_id") or ""
+        fields["chunk_type"] = payload.get("chunk_type") or ""
+        fields["text"] = payload.get("text") or ""
+        try:
+            fields["token_count"] = int(payload.get("token_count") or 0)
+        except Exception:
+            fields["token_count"] = 0
+        fields["figures"] = json.dumps(payload.get("figures") if payload.get("figures") is not None else [], ensure_ascii=False)
+        fields["tags"] = json.dumps(payload.get("tags") if payload.get("tags") is not None else [], ensure_ascii=False)
+        fields["layout_tags"] = json.dumps(payload.get("layout_tags") if payload.get("layout_tags") is not None else [], ensure_ascii=False)
+        fields["heading_path"] = json.dumps(payload.get("heading_path") if payload.get("heading_path") is not None else [], ensure_ascii=False)
+        fields["headings"] = json.dumps(payload.get("headings") if payload.get("headings") is not None else [], ensure_ascii=False)
+        fields["file_type"] = payload.get("file_type") or ""
+        fields["source_url"] = payload.get("source_url") or ""
+        page_num = payload.get("page_number")
+        fields["page_number"] = int(page_num) if page_num is not None else None
+        lr = payload.get("line_range") or []
+        if isinstance(lr, (list, tuple)) and len(lr) >= 2:
+            try:
+                fields["line_start"] = int(lr[0])
+                fields["line_end"] = int(lr[1])
+            except Exception:
+                fields["line_start"] = None
+                fields["line_end"] = None
+        else:
+            fields["line_start"] = None
+            fields["line_end"] = None
+        fields["timestamp"] = payload.get("timestamp") or ""
+        fields["parser_version"] = payload.get("parser_version") or PARSER_VERSION_PDF
+        fields["used_ocr"] = bool(payload.get("used_ocr", False))
+        return fields
+
+    def write_payload(self, payload: Dict[str, Any]) -> int:
+        self._rows.append(self._normalize(payload))
+        return 1
+
+    def finalize_and_upload(self, out_basename: str) -> Tuple[int, str, str, int]:
+        if not self._rows:
+            return 0, "", "", 0
+        try:
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+        except Exception as e:
+            logger.exception("pyarrow is required to write parquet: %s", e)
+            raise RuntimeError("pyarrow is required to write parquet") from e
+
+        schema = pa.schema([
+            pa.field("document_id", pa.string()),
+            pa.field("file_name", pa.string()),
+            pa.field("chunk_id", pa.string()),
+            pa.field("chunk_type", pa.string()),
+            pa.field("text", pa.string()),
+            pa.field("token_count", pa.int64()),
+            pa.field("figures", pa.string()),
+            pa.field("tags", pa.string()),
+            pa.field("layout_tags", pa.string()),
+            pa.field("heading_path", pa.string()),
+            pa.field("headings", pa.string()),
+            pa.field("file_type", pa.string()),
+            pa.field("source_url", pa.string()),
+            pa.field("page_number", pa.int64()),
+            pa.field("line_start", pa.int64()),
+            pa.field("line_end", pa.int64()),
+            pa.field("timestamp", pa.string()),
+            pa.field("parser_version", pa.string()),
+            pa.field("used_ocr", pa.bool_())
+        ])
+
+        cols = {name: [] for name in [f.name for f in schema]}
+        for r in self._rows:
+            for name in cols:
+                cols[name].append(r.get(name) if name in r else None)
+
+        table = pa.Table.from_pydict(cols, schema=schema)
+        existing_md = table.schema.metadata or {}
+        new_md = dict(existing_md)
+        new_md.update({
+            b"schema_version": os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1").encode("utf-8"),
+            b"parser_version": PARSER_VERSION_PDF.encode("utf-8"),
+            b"producer": b"pdf_parser",
+            b"created_at": datetime.utcnow().isoformat().encode("utf-8")
+        })
+        table = table.replace_schema_metadata(new_md)
+
+        tmpfile = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".parquet", dir=tempfile.gettempdir())
+        tmpfile.close()
+        pq.write_table(table, tmpfile.name, compression="zstd", flavor="spark")
+        local_parquet_path = tmpfile.name
+        with open(local_parquet_path, "rb") as fh:
+            b = fh.read()
+        sha = sha256_hex_bytes(b)
+        size = os.path.getsize(local_parquet_path)
+        parquet_key = out_basename + ".parquet"
+        azure_upload_file_atomic(local_parquet_path, AZURE_CONTAINER, CHUNKED_PREFIX + parquet_key, content_type="application/octet-stream")
+        try:
+            os.unlink(local_parquet_path)
+        except Exception:
+            pass
+        return len(self._rows), CHUNKED_PREFIX + parquet_key, sha, size
+
+# ---------------- ocr / pdf helpers ----------------
 def import_fitz_local():
     with without_cwd_on_syspath():
         try:
@@ -706,7 +652,7 @@ def run_ocr_on_pil_image(engine_name: str, engine_obj, pil_img) -> str:
             return ""
     return ""
 
-def _create_rapidocr_engine(model_dir: str | None = None):
+def _create_rapidocr_engine(model_dir: Optional[str] = None):
     models_path = model_dir or os.getenv("RAPIDOCR_MODEL_DIR", "/opt/models/rapidocr")
     tried = []
     last_exc = None
@@ -772,7 +718,7 @@ def get_pdf_image_ocr_engine():
             logger.error("No OCR engine available. OCR will be skipped.")
             return "none", None
 
-# --- geometry / layout helpers (unchanged) ---
+# ---------------- layout helpers ----------------
 def rect_area(rect: Tuple[float, float, float, float]) -> float:
     x0, y0, x1, y1 = rect
     return max(0.0, x1 - x0) * max(0.0, y1 - y0)
@@ -928,56 +874,7 @@ def extract_page_clean_and_figures(pdf_path: str, pageno: int, overlap_threshold
     plumb.close(); doc.close()
     return clean_text, figures_texts
 
-def download_blob_to_temp(s3_key: str) -> str:
-    tf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", dir=(os.getenv("TMPDIR") or None))
-    try:
-        return download_blob_to_temp_func(s3_key)
-    except Exception:
-        try:
-            os.unlink(tf.name)
-        except Exception:
-            pass
-        raise
-
-def download_blob_to_temp_func(s3_key: str) -> str:
-    return download_blob_to_temp_actual(s3_key)
-
-def download_blob_to_temp_actual(s3_key: str) -> str:
-    return download_blob_to_temp(s3_key) if False else _download_blob_to_temp_impl(s3_key)
-
-def _download_blob_to_temp_impl(s3_key: str) -> str:
-    return download_blob_to_temp_impl(s3_key)
-
-def download_blob_to_temp_impl(s3_key: str) -> str:
-    return download_blob_to_temp_real(s3_key)
-
-def download_blob_to_temp_real(s3_key: str) -> str:
-    return download_blob_to_temp_real_impl(s3_key)
-
-def download_blob_to_temp_real_impl(s3_key: str) -> str:
-    return download_blob_to_temp_inner(s3_key)
-
-def download_blob_to_temp_inner(s3_key: str) -> str:
-    # direct implementation (use download_blob_to_temp defined earlier)
-    return download_blob_to_temp_core(s3_key)
-
-def download_blob_to_temp_core(s3_key: str) -> str:
-    tf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", dir=(os.getenv("TMPDIR") or None))
-    try:
-        _, container_client = get_blob_service_client()
-        blob_client = container_client.get_blob_client(s3_key)
-        stream = blob_client.download_blob()
-        data = stream.readall()
-        with open(tf.name, "wb") as fh:
-            fh.write(data)
-    except Exception:
-        try:
-            os.unlink(tf.name)
-        except Exception:
-            pass
-        raise
-    return tf.name
-
+# ---------------- manifest helper ----------------
 def _now_iso_z() -> str:
     sd = os.getenv("SOURCE_DATE_EPOCH")
     if sd:
@@ -1006,7 +903,30 @@ def _derive_doc_id_from_head(s3_key: str, head_obj: dict, manifest: dict) -> str
 def sanitize_payload_for_raw_manifest(doc_id: str, raw_key: str, chunked_key: str, rows: int, sha: str, size: int) -> Dict[str, Any]:
     return {"raw_key": raw_key, "doc_id": doc_id, "chunked_key": chunked_key, "rows": rows, "sha256": sha, "size_bytes": size, "schema_version": os.getenv("CHUNKED_SCHEMA_VERSION","chunked_v1"), "parser_version": PARSER_VERSION_PDF, "created_at": datetime.utcnow().isoformat() + "Z"}
 
-# --- core processing (modified to use Azure) ---
+def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
+    for k in list(payload.keys()):
+        v = payload.get(k)
+        if k == "tags":
+            if v is None:
+                payload[k] = []
+            elif isinstance(v, (list, tuple)):
+                payload[k] = [str(x) for x in v]
+            else:
+                payload[k] = [str(v)]
+            continue
+        if v is None:
+            payload.pop(k, None)
+            continue
+        if isinstance(v, (list, tuple, dict)):
+            try:
+                payload[k] = json.dumps(v)
+            except Exception:
+                payload[k] = str(v)
+            continue
+        if not isinstance(v, (str, int, float, bool)):
+            payload[k] = str(v)
+
+# ---------------- core processing ----------------
 def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
     if not AZURE_CONTAINER:
@@ -1016,7 +936,6 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": msg}
 
     try:
-        # ensure blob client available
         get_blob_service_client()
     except Exception as e:
         total_ms = int((time.perf_counter() - start_all) * 1000)
@@ -1024,17 +943,14 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
 
     try:
-        head_obj = {}
+        head_obj = head_blob(s3_key) or {}
         try:
-            head_obj = head_blob(s3_key) or {}
-        except Exception:
-            head_obj = {}
-        try:
-            local_pdf = download_blob_to_temp_core(s3_key)
+            local_pdf = download_blob_to_temp(s3_key)
         except Exception as e:
             total_ms = int((time.perf_counter() - start_all) * 1000)
             logger.error("Could not download blob %s: %s", s3_key, e)
             return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
         try:
             if isinstance(manifest, dict) and manifest.get("file_hash"):
                 doc_id = manifest.get("file_hash")
@@ -1042,6 +958,7 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
                 doc_id = local_file_sha256(local_pdf)
             out_basename = f"{doc_id}"
             raw_manifest_key = s3_key + ".manifest.json"
+
             if not FORCE_OVERWRITE:
                 if blob_exists(raw_manifest_key):
                     total_ms = int((time.perf_counter() - start_all) * 1000)
@@ -1070,6 +987,7 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
                     except Exception:
                         pass
                     return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+
             img_ocr_name, img_ocr_obj = get_pdf_image_ocr_engine()
             try:
                 chunker = SentenceChunker.from_env()
@@ -1081,13 +999,19 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
                     pass
                 total_ms = int((time.perf_counter() - start_all) * 1000)
                 return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+
             fitz = import_fitz_local()
             doc = fitz.open(local_pdf)
             writer = S3ParquetWriter(doc_id=doc_id)
             saved = 0
             for pageno in range(len(doc)):
                 page_start = time.perf_counter()
-                clean_text, figures_texts = extract_page_clean_and_figures(local_pdf, pageno, overlap_threshold=0.25, image_ocr_engine_name=img_ocr_name, image_ocr_engine_obj=img_ocr_obj)
+                try:
+                    clean_text, figures_texts = extract_page_clean_and_figures(local_pdf, pageno, overlap_threshold=0.25, image_ocr_engine_name=img_ocr_name, image_ocr_engine_obj=img_ocr_obj)
+                except Exception as e:
+                    logger.exception("Page extraction failed for %s page %d: %s", s3_key, pageno + 1, e)
+                    clean_text, figures_texts = "", []
+
                 used_ocr = bool(figures_texts)
                 if not clean_text:
                     chunk_id = f"{doc_id}_p{pageno+1}_0"
@@ -1097,6 +1021,7 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
                     saved += 1
                     logger.info("Buffered empty page chunk %s", chunk_id)
                     continue
+
                 for idx, chunk in enumerate(chunker.chunk_document(clean_text)):
                     chunk_id = f"{doc_id}_p{pageno+1}_{idx}"
                     payload = {"document_id": doc_id, "file_name": os.path.basename(s3_key), "chunk_id": chunk_id, "chunk_type": "pdf_page_chunk", "text": chunk["text"], "token_count": int(chunk["token_count"]), "embedding": None, "figures": figures_texts or [], "file_type": "application/pdf", "source_url": f"az://{AZURE_CONTAINER}/{s3_key}", "page_number": pageno+1, "timestamp": _now_iso_z(), "parser_version": PARSER_VERSION_PDF, "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [], "layout_tags": [], "used_ocr": used_ocr, "heading_path": [], "headings": [], "line_range": None, "layout_bbox": None}
@@ -1105,6 +1030,7 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
                     saved += 1
                 page_ms = int((time.perf_counter() - page_start) * 1000)
                 logger.info("Processed page %d (%d ms) chunks so far %d", pageno+1, page_ms, saved)
+
             if saved == 0:
                 try:
                     os.unlink(local_pdf)
@@ -1113,6 +1039,7 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
                 total_ms = int((time.perf_counter() - start_all) * 1000)
                 logger.info("No chunks produced for %s", s3_key)
                 return {"saved_chunks": 0, "total_parse_duration_ms": total_ms}
+
             count, uploaded_key, sha, size = writer.finalize_and_upload(out_basename)
             try:
                 os.unlink(local_pdf)
@@ -1139,6 +1066,7 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
         logger.exception("Unexpected error in process_pdf_s3_object: %s", e)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
 
+# ---------------- parse_file API (entrypoint used by router.py) ----------------
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start = time.perf_counter()
     try:
@@ -1149,10 +1077,15 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": msg}
         return process_pdf_s3_object(s3_key, manifest or {})
     except Exception as e:
+        tb = traceback.format_exc()
         total_ms = int((time.perf_counter() - start) * 1000)
         logger.exception("parse_file error for %s: %s", s3_key, e)
-        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
+        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e), "traceback": tb}
 
+# local debug
 if __name__ == "__main__":
-    engine_name, engine_obj = get_pdf_image_ocr_engine()
-    logger.info("Engine result: %s %s", engine_name, "object_loaded" if engine_obj else "none")
+    try:
+        eng_name, eng_obj = get_pdf_image_ocr_engine()
+        logger.info("Engine result: %s %s", eng_name, "object_loaded" if eng_obj else "none")
+    except Exception:
+        logger.exception("Engine probe failed")
