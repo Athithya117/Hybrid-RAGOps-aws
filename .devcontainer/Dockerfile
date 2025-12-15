@@ -36,32 +36,12 @@ WORKDIR /workspace
 # Note: This ensures that every time the container is rebuilt,
 # buildx + qemu emulation are preconfigured for multi-arch builds.
 
-
-RUN apt-get update; \
-    apt-get install -y ca-certificates curl gnupg lsb-release; \
-    rm -f /etc/apt/sources.list.d/azure-cli.*; \
-    rm -rf /etc/apt/keyrings/microsoft.gpg /usr/share/keyrings/microsoft.gpg ~/.azure; \
-    mkdir -p /etc/apt/keyrings; \
-    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
-      | gpg --dearmor > /etc/apt/keyrings/microsoft.gpg; \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] \
-https://packages.microsoft.com/repos/azure-cli/ jammy main" \
-      > /etc/apt/sources.list.d/azure-cli.list; \
-    apt-get update; \
-    apt-get install -y azure-cli=2.61.0-1~jammy --allow-downgrades; \
-    apt-mark hold azure-cli; \
-    az version
-
-RUN sudo bash -c 'cat <<EOF >/etc/sysctl.d/99-rag-inotify.conf
+RUN sudo tee /etc/sysctl.d/99-rag-inotify.conf >/dev/null <<'EOF'
 fs.inotify.max_user_watches=1048576
 fs.inotify.max_user_instances=4096
 fs.file-max=2097152
-EOF' && sudo bash -c 'cat <<EOF >/etc/sysctl.d/99-rag-inotify.conf
-fs.inotify.max_user_watches=1048576
-fs.inotify.max_user_instances=4096
-fs.file-max=2097152
-EOF' && sudo sysctl --system
-
+EOF
+RUN sudo sysctl --system || true
 
 
 

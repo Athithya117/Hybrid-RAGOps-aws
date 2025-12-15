@@ -21,7 +21,6 @@ WAIT_PULUMI_RETRIES=6
 WAIT_PULUMI_DELAY=2
 TS() { date --iso-8601=seconds; }
 printf '%s %s\n' "$(TS)" "bootstrap start"
-
 if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
   TARGET_RC="$(getent passwd "${SUDO_USER}" | cut -d: -f6)/.bashrc"
 else

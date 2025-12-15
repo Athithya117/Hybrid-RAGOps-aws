@@ -10,7 +10,7 @@
 # Notes:
 # - Requires `kubectl` in PATH and cluster access.
 # - Will not attempt node-level sysctl changes; it only patches CoreDNS ConfigMap and restarts.
-set -euo pipefail
+
 
 TIMEOUT=60
 

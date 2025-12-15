@@ -1,0 +1,75 @@
+replicaCount: 2
+image:
+  repository: qdrant/qdrant
+  tag: v1.16.0
+  pullPolicy: IfNotPresent
+service:
+  type: ClusterIP
+p2p:
+  port: 6335
+cluster:
+  enabled: true
+  peers:
+  - http://qdrant-0.qdrant-headless:6335
+  - http://qdrant-1.qdrant-headless:6335
+snapshots:
+  enabled: false
+  s3:
+    bucket: ''
+    endpoint: ''
+    region: ''
+    prefix: ''
+extraEnv:
+- name: AZURE_STORAGE_CONNECTION_STRING
+  valueFrom:
+    secretKeyRef:
+      name: qdrant-backup-azure
+      key: AZURE_STORAGE_CONNECTION_STRING
+- name: AZURE_STORAGE_ACCOUNT_NAME
+  valueFrom:
+    secretKeyRef:
+      name: qdrant-backup-azure
+      key: AZURE_STORAGE_ACCOUNT_NAME
+- name: AZURE_STORAGE_ACCOUNT_KEY
+  valueFrom:
+    secretKeyRef:
+      name: qdrant-backup-azure
+      key: AZURE_STORAGE_ACCOUNT_KEY
+- name: QDRANT__SERVICE__API_KEY
+  valueFrom:
+    secretKeyRef:
+      name: qdrant-service-creds
+      key: QDRANT__SERVICE__API_KEY
+resources:
+  requests:
+    cpu: '2'
+    memory: 2Gi
+  limits:
+    cpu: '2'
+    memory: 2Gi
+tolerations: []
+persistence:
+  enabled: false
+extraVolumes:
+- name: qdrant-storage
+  hostPath:
+    path: /mnt/nvme/qdrant
+    type: DirectoryOrCreate
+- name: qdrant-snapshots
+  hostPath:
+    path: /mnt/nvme/qdrant/snapshots
+    type: DirectoryOrCreate
+extraVolumeMounts:
+- name: qdrant-storage
+  mountPath: /qdrant/storage
+- name: qdrant-snapshots
+  mountPath: /qdrant/snapshots
+config:
+  params:
+    shard_number: 1
+    replication_factor: 2
+    write_consistency_factor: 1
+  log_level: INFO
+  storage:
+    storage_path: /qdrant/storage
+    snapshots_path: /qdrant/snapshots

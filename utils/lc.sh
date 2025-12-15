@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
 IFS=$'\n\t'
 
 CLUSTER_NAME="${CLUSTER_NAME:-rag8s-local}"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bootstrap_ops.sh — Minimal Azure Ops workstation bootstrap (AKS + Pulumi)
-set -euo pipefail
+
 IFS=$'\n\t'
 
 # ---- Version pins (edit intentionally) ----
@@ -137,6 +137,11 @@ pip install --no-cache-dir \
   azure-core==1.30.2 \
   azure-identity==1.16.0 \
   azure-mgmt-core==1.4.0 \
-  azure-mgmt-storage==21.2.1
+  azure-mgmt-storage==21.2.1 \
+  PyYAML==6.0.3 \
+  typing==3.7.4.3 \
+  azure-storage-blob==12.27.1
+
+clear
 
 log "Bootstrap completed (Azure-only). Open a new shell if needed."

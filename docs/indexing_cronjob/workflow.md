@@ -37,7 +37,7 @@ apps/index/
 * Pipeline stages:
 
   1. **Pre-conversions**: normalize raw blobs (docs → PDF, sheets → CSV, audio → WAV), safely move/dedupe blobs, quarantine failures.
-  2. **Routing & parsing**: select per-format parser, chunk content, write **parquet chunks + raw manifest** atomically.
+  2. **Routing & parsing**: select per-format parser, chunk content, write **parquet+zstd compressed chunks + .manifest.json** atomically.
   3. **Indexing**: load chunks, normalize schema, dedupe against Qdrant, embed (dense/sparse), upsert points with retries.
 * **Idempotent by design**: existing manifests, chunk files, and Qdrant point IDs prevent reprocessing unless forced.
 
@@ -65,7 +65,6 @@ apps/index/
 * PDFs (incl. doc/docx via conversion), text/markdown, HTML/URLs, CSV/sheets, audio, images (OCR).
 * Chunking tailored per format (pages, rows, token windows, audio segments).
 
----
 
 #### Fault tolerance & safety
 

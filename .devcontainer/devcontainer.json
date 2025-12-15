@@ -41,7 +41,7 @@
     "DOCKER_PROXY_PORT": ""
   },
 
-  "postCreateCommand": "bash /workspace/scripts/bootstrap.sh && bash /workspace/scripts/lc.sh",
+  "postCreateCommand": "bash /workspace/utils/bootstrap.sh && bash /workspace/utils/lc.sh",
 
   "customizations": {
     "vscode": {

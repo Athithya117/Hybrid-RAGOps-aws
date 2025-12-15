@@ -57,40 +57,24 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 
 ```sh
 
+export ENV="STAGING" # STAGING or PROD; controls credential expectations and safety checks  
+export PLATFORMS="linux/amd64,linux/arm64" # Multi-arch default; use amd64 for x86_64 AKS nodepools (Dv5/Ev5/Fv2/Lsv3), arm64 for ARM-based AKS (Ampere Altra)
+export AZURE_SUBSCRIPTION_ID="" # Azure subscription hosting AKS, storage, and all RAG platform resources
 
 
+export AZURE_RESOURCE_GROUP_NAME="rg-rag-prod"        # Resource group containing AKS cluster, managed disks, and storage account
+export AZURE_LOCATION="centralindia"                  # Azure region for AKS, storage, and compute; must match resource deployment region
+export AZURE_STORAGE_ACCOUNT_NAME="storeragprod42"    # Azure Storage Account backing Blob containers for backups and data
+export AZURE_CONTAINER="rag-data-prod"                # Default Azure Blob container for application and platform data
 
-export PULUMI_S3_BUCKET="rag-pulumi-state31"         
-export PULUMI_CONFIG_PASSPHRASE="mypassword"
-
-
-
-AZURE_STORAGE_ACCOUNT_NAME = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "")
-AZURE_STORAGE_ACCOUNT_KEY = os.getenv("AZURE_STORAGE_ACCOUNT_KEY", "")
-AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
-AZURE_SAS_TOKEN = os.getenv("AZURE_SAS_TOKEN", "")
-AZURE_CONTAINER = os.getenv("AZURE_CONTAINER", "e2e-rag-system-42")
-AZURE_RAW_
-AZURE_CHUNKED_PREFIX = os.getenv("AZURE_CHUNKED_PREFIX", "data/chunked/")
-AZURE_ENDPOINT_SUFFIX = os.getenv("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
-AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID") or os.getenv("UAI_RAG_RW_CLIENT_ID") or None
-
-
-
-export PLATFORMS="linux/amd64,linux/arm64"      # Multi arch default; set only amd64 for x86 EC2 (C5/C6/M5/M6/R5/R6) or only arm64 for Graviton (C7g/M7g/R7g)
-
-export AZURE_SUBSCRIPTION_ID="b1e221f4-74ef-4e62-9bca-fb70aef41930"
-export AZURE_RESOURCE_GROUP_NAME="rg-rag-prod"
-export AZURE_LOCATION="centralindia"
-export AZURE_STORAGE_ACCOUNT_NAME="storeragprod42"
-export AZURE_CONTAINER="rag-data-prod"
 export OVERWRITE_DOC_DOCX_TO_PDF="true"               # If true, remove originals when converting (.doc/.docx) -> .pdf; set false to keep originals
 export OVERWRITE_ALL_AUDIO_FILES="true"               # If true, remove originals when converting (.mp3,.aac/etc) -> (16k wav); false to keep originals
 export OVERWRITE_SPREADSHEETS_WITH_CSV="true"         # If true, remove originals when converting (.xls/.xlsx/.ods/etc) to .csv ;false to keep originals
 export OVERWRITE_PPT_WITH_PPTS="true"                 # If true, remove orignals when converting .ppt -> .pptx;false to keep originals
+
 export MAX_TOKENS_PER_CHUNK="320"                     # Cummulatively append text sentences of .pdf, .html, .mp3, .png ,etc as a chunk till this token limit  
 export MIN_TOKENS_PER_CHUNK="100"                     # Minimum tokens; if chunk < this, append to previous chunk — adjust to avoid tiny fragments
-export NUMBER_OF_OVERLAPPING_SENTENCES="2"            # Sentence overlap between adjacent chunks to improve recall; increase for precision at cost of redundancy
+export NUMBER_OF_OVERLAPPING_SENTENCES="2"            # Sentence overlap between adjacent chunks to improve recall; increase for precision 
 export PDF_DISABLE_OCR="false"                        # true to skip OCR (fast but miss scanned text); false to enable OCR for scanned/embedded text
 export PDF_OCR_ENGINE="rapidocr"                      # 'tesseract' or 'rapidocr' — choose rapidocr for higher accuracy, tesseract for lightweight/multilingual
 export PDF_TESSERACT_LANG="eng"                       # (if tess)Language code for tesseract; change only if using tesseract and target language differs
@@ -133,33 +117,13 @@ export INDEXING_BACKUP_CRONJOB_CPU_LIMIT="4"          # CPU limit for the CronJo
 export INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST="1Gi"   # Memory request for CronJob; set based on worst-case memory used by indexing
 export INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT="2Gi"     # Memory limit for CronJob; must be >= request to avoid eviction
 export INDEXING_PIPELINE_CPU_IMAGE_REPO="athithya5354/indexing_pipeline_cpu"  # Use the prebuilt docker image or build your own by running `make index-image`
-export INDEXING_PIPELINE_CPU_IMAGE_TAG="v11" # Set a consistent tag name for clarity. You may change if building your own image
+export INDEXING_PIPELINE_CPU_IMAGE_TAG="v12" # Set a consistent tag name for clarity. You may change if building your own image
 # optional env if UAI unavailable in local kind cluster
 export AZURE_STORAGE_CONNECTION_STRING="$(python3 infra/base_infra/get_storage_conn_string.py)"
+export PER_POD="true" # When true, perform per-pod Qdrant backup/restore using individual pod port-forwards; when false, operate via cluster/service endpoint
+export BACKUP_ID="" # Optional explicit backup identifier to restore; leave empty to auto-select the latest backup manifest under the Azure prefix
 
-# in prod AKS UAI instead of azure storage connection string
-export UAI_RAG_RW_NAME="uai-rag-rw"
-export UAI_RAG_RO_NAME="uai-rag-ro"
-export AZURE_ENDPOINT_SUFFIX="core.windows.net"
-export UAI_RAG_RW_CLIENT_ID="6a687dad-cd44-4fcf-99b5-b596cd2e3c77"
-export UAI_RAG_RW_PRINCIPAL_ID="fc1c8a7e-51a4-4fa6-96cb-dc907115fe08"
-export UAI_RAG_RO_CLIENT_ID="f9ebe40e-e89a-4241-aba8-3006fc7d44c9"
-export UAI_RAG_RO_PRINCIPAL_ID="4d310060-cd1f-4b95-9c2a-2f5101bfde10"
 
-export FORCE_CPU="1"                             # Forces CPU inference; set 0 only if GPU-enabled embedder image exists and nodes have GPUs
-export EMBEDDER_READY_TIMEOUT="600"              # Max seconds to wait for model load; increase for very large ONNX models or slow disks
-export EMBEDDER_REPLICAS="1"                     # Number of embedder pods; increase only when handling high concurrent embedding traffic
-export EMBEDDER_CPU_REQUEST="2"                  # Guaranteed CPU for the embedder; raise to smooth latency under load
-export EMBEDDER_CPU_LIMIT="4"                    # Hard CPU cap; increase if batching + concurrency cause throttling
-export EMBEDDER_MEM_REQUEST="2Gi"                # Guaranteed RAM; raise when not using the default models
-export EMBEDDER_MEM_LIMIT="4Gi"                  # Hard RAM cap; increase if OOM occurs during ONNX graph load or large batch runs
-
-export AZURE_STORAGE_CONNECTION_STRING="$(
-  az storage account show-connection-string \
-    -g "$AZURE_RESOURCE_GROUP_NAME" \
-    -n "$AZURE_STORAGE_ACCOUNT_NAME" \
-    --query connectionString -o tsv
-)"
 
 export QDRANT_URL="http://localhost:6333"          # Qdrant HTTP endpoint. Change to remote host when using managed Qdrant.
 export COLLECTION_NAME="rag_hybrid_collection"     # Qdrant collection name. Change per dataset/environment.
@@ -188,7 +152,6 @@ export QDRANT_HNSW_M="32"                          # HNSW M parameter (graph con
 export QDRANT_ONDISK="FALSE"                       # TRUE lowers RAM (on-disk store) at cost of speed.
 export HTTP_TIMEOUT="30.0"                         # HTTP timeout for external requests (seconds).
 export LOGLEVEL="INFO"                             # Logging verbosity (DEBUG|INFO|WARNING|ERROR).
-
 
 ```
 
