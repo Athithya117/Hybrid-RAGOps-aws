@@ -1,20 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-HTML parser using trafilatura (if available) with safe fallbacks.
-
-Exposes:
-  parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]
-
-Behavior:
- - Loads HTML either from container object content or fetches remote URL (if the file contains a URL).
- - Uses trafilatura when available; otherwise uses a naive HTML->text fallback.
- - Splits text into token windows using available encoder (tiktoken preferred), falls back to whitespace tokenization.
- - Writes chunked parquet using pyarrow (if available). If pyarrow missing, returns saved_chunks=0 and records error.
- - Writes a raw manifest next to chunked file.
- - Avoids raising uncontrolled exceptions; returns an error manifest/result for router to persist.
-"""
-
 from __future__ import annotations
 import os
 import sys
@@ -31,7 +15,6 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Iterator, Tuple
 import traceback
 
-# ---------- Lightweight structured logger shim ----------
 class LoggerShim:
     def __init__(self, name: str):
         self.name = name
@@ -74,7 +57,6 @@ class LoggerShim:
 
 log = LoggerShim("html_trafilatura")
 
-# ---------- Config (defensive parsing of envs) ----------
 _MI_RAW = os.getenv("USE_MANAGED_IDENTITY")
 if _MI_RAW is None:
     _MI_RAW = os.getenv("AZURE_USE_MANAGED_IDENTITY", "")
@@ -83,7 +65,6 @@ USE_MANAGED_IDENTITY = str(_MI_RAW).strip().lower() in ("1", "true", "yes")
 AZURE_CONTAINER = os.getenv("AZURE_CONTAINER") or os.getenv("STORAGE_CONTAINER") or os.getenv("AZ_CONTAINER")
 if not AZURE_CONTAINER:
     log.error("startup_missing_container", "AZURE_CONTAINER (or STORAGE_CONTAINER / AZ_CONTAINER) must be set")
-    # fail fast so router can pick up and route to fallback if needed
     raise SystemExit(2)
 
 STORAGE_RAW_PREFIX = (os.getenv("STORAGE_RAW_PREFIX") or os.getenv("S3_RAW_PREFIX") or "data/raw/").rstrip("/") + "/"
@@ -96,7 +77,6 @@ REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "15") or 15)
 FETCH_RETRIES = int(os.getenv("FETCH_RETRIES", "3") or 3)
 FETCH_BACKOFF = float(os.getenv("FETCH_BACKOFF", "0.5") or 0.5)
 
-# safe numeric defaults
 try:
     MAX_TOKENS_PER_CHUNK = int(os.getenv("MAX_TOKENS_PER_CHUNK", "512"))
 except Exception:
@@ -119,7 +99,6 @@ try:
 except Exception:
     PUT_BACKOFF = 0.3
 
-# ---------- optional deps placeholders ----------
 _requests = None
 _trafilatura = None
 _tiktoken = None
@@ -131,27 +110,24 @@ _spacy = None
 _Sentencizer = None
 _NLP_SENTENCIZER = None
 
-# fsspec optional
 try:
     import fsspec
     from fsspec.spec import AbstractFileSystem
 except Exception:
     fsspec = None
-    AbstractFileSystem = object  # type: ignore
+    AbstractFileSystem = object
 
-# azure sdk detection
 AZURE_SDK_AVAILABLE = False
 DefaultAzureCredential = None
 BlobServiceClient = None
 ContainerClient = None
 try:
-    from azure.identity import DefaultAzureCredential  # type: ignore
-    from azure.storage.blob import BlobServiceClient, ContainerClient  # type: ignore
+    from azure.identity import DefaultAzureCredential
+    from azure.storage.blob import BlobServiceClient, ContainerClient
     AZURE_SDK_AVAILABLE = True
 except Exception:
     AZURE_SDK_AVAILABLE = False
 
-# ---------- utility helpers ----------
 def retry_call(fn, retries: int = 3, backoff_base: float = 0.5, allowed_exceptions: tuple = (Exception,)):
     attempt = 0
     last = None
@@ -195,8 +171,6 @@ def build_fs_opts() -> Dict[str, Any]:
     return opts
 
 def validate_runtime_envs():
-    # Ensure we can read from storage either by AZ connection string + azure SDK
-    # or via fsspec+adlfs modes
     if USE_MANAGED_IDENTITY:
         if not AZURE_SDK_AVAILABLE:
             log.error("azure_sdk_missing", "USE_MANAGED_IDENTITY=1 but azure-identity / azure-storage-blob packages are not available.")
@@ -212,14 +186,13 @@ def validate_runtime_envs():
             return
         if fsspec is not None and opts:
             return
-        # if neither available, still allow because router may mount secret via other mechanism
         if conn:
             return
         log.warning("env_missing", "non-managed mode: AZURE_STORAGE_CONNECTION_STRING or fsspec+adlfs credentials required (will attempt to proceed and let storage client decide).")
 
 validate_runtime_envs()
 
-STORAGE_ROOT = f"az://{AZURE_CONTAINER.rstrip('/')}/"
+STORAGE_ROOT = f"az://{AZURE_CONTAINER.rstrip()}/"
 
 def full_path_from_key(key: str) -> str:
     return STORAGE_ROOT + key.lstrip("/")
@@ -238,19 +211,16 @@ def strip_root_from_path(full: str) -> str:
         return full[len(AZURE_CONTAINER) + 1:]
     return full
 
-# ---------- Azure / fs client wrapper ----------
 class AzureStorageClient:
     def __init__(self, fs_obj: Optional[AbstractFileSystem], root: str, container: str, blob_service_client=None):
         self.fs = fs_obj
         self.root = root
         self.container = container
         self.blob_service_client = blob_service_client
-
     def _container_client(self):
         if self.blob_service_client is None:
             raise RuntimeError("blob_service_client not initialized")
         return self.blob_service_client.get_container_client(self.container)
-
     def head_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -275,7 +245,6 @@ class AzureStorageClient:
                 "Metadata": getattr(props, "metadata", {}) or {},
             }
             return out
-
     def get_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -288,7 +257,6 @@ class AzureStorageClient:
             stream = retry_call(lambda: blob_client.download_blob(), retries=3, backoff_base=0.5)
             data = stream.readall()
             return {"Body": BytesIO(data)}
-
     def put_object(self, Bucket, Key, Body, ContentType=None):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -320,7 +288,6 @@ class AzureStorageClient:
                 data = str(Body).encode("utf-8")
             retry_call(lambda: blob_client.upload_blob(data, overwrite=True), retries=3, backoff_base=0.5)
             return {"ResponseMetadata": {"HTTPStatusCode": 200}}
-
     def upload_file(self, LocalFile, Bucket, Key, ExtraArgs=None):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -338,7 +305,6 @@ class AzureStorageClient:
             with open(LocalFile, "rb") as lf:
                 retry_call(lambda: blob_client.upload_blob(lf, overwrite=True), retries=3, backoff_base=0.5)
             return
-
     def delete_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -356,7 +322,6 @@ class AzureStorageClient:
                 retry_call(lambda: blob_client.delete_blob(), retries=3, backoff_base=0.5)
             except Exception:
                 pass
-
     def exists(self, full_path: str) -> bool:
         try:
             if self.fs is not None:
@@ -374,7 +339,6 @@ class AzureStorageClient:
                         return False
         except Exception:
             return False
-
     def get_paginator(self, name):
         if self.fs is not None:
             class P:
@@ -471,7 +435,6 @@ def get_storage_client_singleton():
                         _storage_client = AzureStorageClient(fs, STORAGE_ROOT, AZURE_CONTAINER, blob_service_client=None)
     return _storage_client
 
-# ---------- small helpers ----------
 def sha256_hex_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 def sha256_hex_str(s: str) -> str:
@@ -484,7 +447,6 @@ def canonicalize_text(s: Any) -> str:
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
-# ---------- optional deps loader ----------
 def _ensure_optional_deps():
     global _requests, _trafilatura, _tiktoken, _ENCODER, _ENCODER_ENCODE, _ENCODER_DECODE, _ENCODER_BACKEND, _spacy, _Sentencizer, _NLP_SENTENCIZER
     if _requests is None:
@@ -573,7 +535,6 @@ def trafilatura_extract_markdown(html_text: str) -> Tuple[Optional[str], Dict[st
         parsed = {}
     return md, parsed
 
-# ---------- sentence splitting & token windows ----------
 def _make_sentencizer():
     global _NLP_SENTENCIZER
     if _NLP_SENTENCIZER is not None:
@@ -702,7 +663,6 @@ def split_into_token_windows(text: str, max_tokens: int = MAX_TOKENS_PER_CHUNK, 
     for w in windows:
         yield w
 
-# ---------- storage helpers ----------
 def storage_object_exists(key: str) -> bool:
     full = full_path_from_key(key)
     client = get_storage_client_singleton()
@@ -748,7 +708,29 @@ def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "a
             time.sleep(PUT_BACKOFF * attempt)
     raise Exception(f"atomic upload failed for {key} after {PUT_RETRIES} attempts")
 
-# ---------- Parquet writer (uses pyarrow) ----------
+def derive_html_semantic_region(token_start: int, token_end: int, document_total_tokens: int) -> str:
+    try:
+        if document_total_tokens is None:
+            return "unknown"
+        dt = int(document_total_tokens)
+        if dt <= 0:
+            return "unknown"
+        ts = int(token_start) if token_start is not None else 0
+        if ts < 0:
+            return "unknown"
+        ratio = float(ts) / float(dt)
+        if ratio < 0.10:
+            return "intro"
+        if ratio < 0.30:
+            return "early"
+        if ratio < 0.70:
+            return "middle"
+        if ratio < 0.90:
+            return "late"
+        return "footer"
+    except Exception:
+        return "unknown"
+
 class ParquetWriter:
     def __init__(self, doc_id: str):
         self.doc_id = doc_id; self._rows: List[Dict[str, Any]] = []
@@ -781,6 +763,11 @@ class ParquetWriter:
                 fields["token_start"] = 0; fields["token_end"] = 0
         except Exception:
             fields["token_start"] = 0; fields["token_end"] = 0
+        try:
+            fields["document_total_tokens"] = int(payload.get("document_total_tokens") or 0)
+        except Exception:
+            fields["document_total_tokens"] = 0
+        fields["semantic_region"] = payload.get("semantic_region") or "unknown"
         fields["timestamp"] = payload.get("timestamp") or ""
         fields["parser_version"] = payload.get("parser_version") or PARSER_VERSION
         fields["used_ocr"] = bool(payload.get("used_ocr", False))
@@ -819,6 +806,8 @@ class ParquetWriter:
             pa.field("source_url", pa.string()),
             pa.field("token_start", pa.int64()),
             pa.field("token_end", pa.int64()),
+            pa.field("document_total_tokens", pa.int64()),
+            pa.field("semantic_region", pa.string()),
             pa.field("timestamp", pa.string()),
             pa.field("parser_version", pa.string()),
             pa.field("used_ocr", pa.bool_()),
@@ -863,12 +852,7 @@ def _derive_file_name_from_source(source: Optional[str], raw_key: str) -> str:
             pass
     return os.path.basename(raw_key)
 
-# ---------- parse_file (public) ----------
 def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Entrypoint used by router.py
-    Always returns dict with at least 'saved_chunks' integer.
-    """
     start_all = time.perf_counter()
     if not AZURE_CONTAINER:
         return {"saved_chunks": 0, "total_parse_duration_ms": 0, "error": "AZURE_CONTAINER not configured"}
@@ -889,7 +873,6 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
         doc_id = sha256_hex_str(s3_key + str(last_modified or ""))
     out_basename = f"{doc_id}"
     raw_manifest_key = s3_key + ".manifest.json"
-    # skip behavior
     try:
         if not FORCE_OVERWRITE and storage_object_exists(raw_manifest_key):
             total_ms = int((time.perf_counter() - start_all) * 1000)
@@ -898,7 +881,6 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
         if not FORCE_OVERWRITE and storage_object_exists(STORAGE_CHUNKED_PREFIX + out_basename + ".parquet"):
             total_ms = int((time.perf_counter() - start_all) * 1000)
             log.info("skip_parquet_exists", "parquet_exists", key=out_basename + ".parquet")
-            # ensure raw manifest exists
             try:
                 if not storage_object_exists(raw_manifest_key):
                     head2 = client.head_object(Bucket=AZURE_CONTAINER, Key=STORAGE_CHUNKED_PREFIX + out_basename + ".parquet")
@@ -911,7 +893,6 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
             return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
     except Exception:
         pass
-    # get object
     try:
         obj = client.get_object(Bucket=AZURE_CONTAINER, Key=s3_key)
     except Exception as e:
@@ -935,12 +916,10 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
             html_text = raw_text; source_url = source_path
     else:
         html_text = raw_text; source_url = source_path
-    # snapshot (best-effort)
     try:
         _ = upload_snapshot_to_azure(html_text, doc_id)
     except Exception:
         pass
-    # extraction
     t0 = time.perf_counter()
     md, parsed = trafilatura_extract_markdown(html_text)
     extract_duration_ms = int((time.perf_counter() - t0) * 1000)
@@ -954,8 +933,8 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
     try:
         token_ct = len(enc_encode(canonical_full)) if canonical_full else 0
     except Exception:
-        # defensive fallback
         token_ct = len(canonical_full.split()) if canonical_full else 0
+    document_total_tokens = int(token_ct)
     saved = 0; writer = ParquetWriter(doc_id=doc_id); file_name = _derive_file_name_from_source(source_url, s3_key)
     try:
         windows = list(split_into_token_windows(canonical_full))
@@ -983,7 +962,9 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
                 "used_ocr": False,
                 "heading_path": [],
                 "headings": [title] if title else [],
-                "line_range": None
+                "line_range": None,
+                "document_total_tokens": document_total_tokens,
+                "semantic_region": derive_html_semantic_region(0, token_ct, document_total_tokens)
             }
             writer.write_payload(payload)
             saved += 1
@@ -1017,7 +998,9 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
                     "used_ocr": False,
                     "heading_path": [],
                     "headings": [title] if title else [],
-                    "line_range": None
+                    "line_range": None,
+                    "document_total_tokens": document_total_tokens,
+                    "semantic_region": derive_html_semantic_region(token_range[0], token_range[1], document_total_tokens)
                 }
                 writer.write_payload(payload)
                 saved += 1
@@ -1025,7 +1008,6 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
         total_ms = int((time.perf_counter() - start_all) * 1000)
         log.exception("buffering_failed", "Error while buffering chunks for key=%s", s3_key)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
-    # finalize/upload parquet and manifest
     try:
         if saved == 0:
             total_ms = int((time.perf_counter() - start_all) * 1000)
@@ -1045,7 +1027,6 @@ def parse_file(s3_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
         log.error("upload_failed", "Failed to upload chunked file for key=%s error=%s", s3_key, str(e_up))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
 
-# ---------- CLI helper (optional) ----------
 if __name__ == "__main__":
     try:
         _ensure_optional_deps()

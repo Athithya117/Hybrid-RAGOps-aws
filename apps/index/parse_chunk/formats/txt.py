@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-# txt_parser_dualmode.py
-# Deterministic dual-mode TXT parser:
-# - Use Managed Identity only when AZURE_USE_MANAGED_IDENTITY (or USE_MANAGED_IDENTITY) is "1"/"true"/"yes".
-# - Otherwise use key/SAS/connection-string mode via fsspec/adlfs.
 from __future__ import annotations
 import importlib
 import os
@@ -19,22 +15,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Generator, Tuple
 
-# ---------- lightweight imports (graceful) ----------
-# fsspec/adlfs (for non-managed identity)
 try:
     import fsspec
     from fsspec.spec import AbstractFileSystem  # type: ignore
 except Exception:
-    fsspec = None  # type: ignore
+    fsspec = None
 
-# optional token encoder
 _tiktoken = None
 try:
     import tiktoken as _tiktoken  # type: ignore
 except Exception:
     _tiktoken = None
 
-# optional pyarrow
 try:
     import pyarrow as pa  # type: ignore
     import pyarrow.parquet as pq  # type: ignore
@@ -42,17 +34,14 @@ except Exception:
     pa = None
     pq = None
 
-# ---------- logger ----------
 class LoggerShim:
     def __init__(self, name: str):
         self.name = name
-
     def _emit(self, level: str, event: str, msg: str = "", **extra):
         o = {"ts": datetime.utcnow().isoformat() + "Z", "level": level, "event": event, "msg": msg}
         if extra:
             o.update(extra)
         print(json.dumps(o, ensure_ascii=False), flush=True)
-
     def _unpack(self, a, b, fmt_args, kwargs, default_event):
         if b is None:
             event = kwargs.pop("event", default_event)
@@ -69,40 +58,27 @@ class LoggerShim:
                 except Exception:
                     pass
         return event, msg, kwargs
-
     def info(self, a, b=None, *fmt_args, **kwargs):
-        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "info")
-        self._emit("info", event, msg, **kw)
-
+        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "info"); self._emit("info", event, msg, **kw)
     def warning(self, a, b=None, *fmt_args, **kwargs):
-        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "warn")
-        self._emit("warn", event, msg, **kw)
-
+        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "warn"); self._emit("warn", event, msg, **kw)
     def warn(self, a, b=None, *fmt_args, **kwargs):
         self.warning(a, b, *fmt_args, **kwargs)
-
     def error(self, a, b=None, *fmt_args, **kwargs):
-        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "error")
-        self._emit("error", event, msg, **kw)
-
+        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "error"); self._emit("error", event, msg, **kw)
     def exception(self, a, b=None, *fmt_args, **kwargs):
         import traceback
         tb = traceback.format_exc()
-        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "exception")
-        kw.update({"tb": tb})
-        self._emit("error", event, msg, **kw)
+        event, msg, kw = self._unpack(a, b, fmt_args, kwargs, "exception"); kw.update({"tb": tb}); self._emit("error", event, msg, **kw)
 
 log = LoggerShim("txt_parser")
 
-# ---------- deterministic identity switch (ONLY this!) ----------
 USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower() in ("1", "true", "yes")
 
-# ---------- config ----------
 STORAGE_PROTOCOL = "az"
 AZURE_CONTAINER = os.getenv("AZURE_CONTAINER") or os.getenv("STORAGE_CONTAINER") or os.getenv("AZ_CONTAINER")
 if not AZURE_CONTAINER:
-    log.error("startup_missing_container", "AZURE_CONTAINER (or STORAGE_CONTAINER) must be set")
-    sys.exit(1)
+    log.error("startup_missing_container", "AZURE_CONTAINER (or STORAGE_CONTAINER) must be set"); sys.exit(1)
 
 STORAGE_RAW_PREFIX = (os.getenv("STORAGE_RAW_PREFIX") or "data/raw/").rstrip("/") + "/"
 STORAGE_CHUNKED_PREFIX = (os.getenv("STORAGE_CHUNKED_PREFIX") or "data/chunked/").rstrip("/") + "/"
@@ -120,40 +96,31 @@ def _norm_prefix(p: str) -> str:
 STORAGE_RAW_PREFIX = _norm_prefix(STORAGE_RAW_PREFIX)
 STORAGE_CHUNKED_PREFIX = _norm_prefix(STORAGE_CHUNKED_PREFIX)
 
-# ---------- helper: pre-validate required envs and deps ----------
 def validate_runtime():
     missing = []
-    # container already validated
     if USE_MANAGED_IDENTITY:
         acct = os.getenv("AZURE_STORAGE_ACCOUNT_NAME") or os.getenv("AZURE_ACCOUNT_NAME")
         if not acct:
             missing.append("AZURE_STORAGE_ACCOUNT_NAME")
-        # pyarrow is optional; warn if missing
         if not pa or not pq:
             log.warning("dep_missing", "pyarrow not installed (writing parquet will fail). Install: pip install pyarrow")
-        # Azure SDK required for MI
         try:
             importlib.import_module("azure.identity")
             importlib.import_module("azure.storage.blob")
         except Exception as e:
-            log.error("dep_missing", "azure.identity / azure.storage.blob required for managed identity mode", error=str(e))
-            sys.exit(2)
+            log.error("dep_missing", "azure.identity / azure.storage.blob required for managed identity mode", error=str(e)); sys.exit(2)
     else:
-        # non-managed: either connection string via azure sdk OR fsspec/adlfs with account+key/SAS
         conn = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
         acct = os.getenv("AZURE_STORAGE_ACCOUNT_NAME") or os.getenv("AZURE_ACCOUNT_NAME")
         key = os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
         sas = os.getenv("AZURE_SAS_TOKEN")
-        # If connection string present and azure SDK installed, that's fine.
         if conn:
             try:
                 importlib.import_module("azure.storage.blob")
             except Exception:
-                # if azure SDK missing but fsspec present and account/key or sas present then ok
                 if fsspec is None and not (acct and (key or sas)):
                     missing.append("azure-storage-blob or fsspec+adlfs and credentials")
         else:
-            # no conn string: need account + (key or sas) and fsspec
             if not acct:
                 missing.append("AZURE_STORAGE_ACCOUNT_NAME")
             if not (key or sas):
@@ -161,33 +128,23 @@ def validate_runtime():
             if fsspec is None:
                 missing.append("fsspec/adlfs (pip install fsspec adlfs)")
     if missing:
-        log.error("env_missing", "Missing required environment variables or deps for selected auth mode", missing=missing, use_managed_identity=str(USE_MANAGED_IDENTITY))
-        sys.exit(2)
+        log.error("env_missing", "Missing required environment variables or deps for selected auth mode", missing=missing, use_managed_identity=str(USE_MANAGED_IDENTITY)); sys.exit(2)
 
-# validate early
 validate_runtime()
 
-# ---------- storage options builder ----------
 def build_storage_options() -> Dict[str, str]:
     opts: Dict[str, str] = {}
     conn = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
     if conn:
-        opts["connection_string"] = conn
-        return opts
+        opts["connection_string"] = conn; return opts
     acct = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.environ.get("AZURE_ACCOUNT_NAME")
     key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY") or os.environ.get("AZURE_ACCOUNT_KEY")
     sas = os.environ.get("AZURE_SAS_TOKEN")
     eps = os.environ.get("AZURE_ENDPOINT_SUFFIX") or "core.windows.net"
     if acct and key:
-        opts["account_name"] = acct
-        opts["account_key"] = key
-        opts["endpoint_suffix"] = eps
-        return opts
+        opts["account_name"] = acct; opts["account_key"] = key; opts["endpoint_suffix"] = eps; return opts
     if acct and sas:
-        opts["account_name"] = acct
-        opts["sas_token"] = sas
-        opts["endpoint_suffix"] = eps
-        return opts
+        opts["account_name"] = acct; opts["sas_token"] = sas; opts["endpoint_suffix"] = eps; return opts
     if os.environ.get("AZURE_ANON"):
         if acct:
             opts["account_name"] = acct
@@ -198,7 +155,6 @@ def build_storage_options() -> Dict[str, str]:
 FS_OPTS = build_storage_options()
 STORAGE_ROOT = f"az://{AZURE_CONTAINER.rstrip('/')}/"
 
-# ---------- runtime initialization: robust dual-mode ----------
 BLOB_CLIENT = None
 FS = None
 
@@ -207,13 +163,11 @@ if USE_MANAGED_IDENTITY:
         from azure.identity import DefaultAzureCredential  # type: ignore
         from azure.storage.blob import BlobServiceClient  # type: ignore
     except Exception as e:
-        log.error("azure_import", "Failed to import azure sdk despite earlier validation", error=str(e))
-        sys.exit(2)
+        log.error("azure_import", "Failed to import azure sdk despite earlier validation", error=str(e)); sys.exit(2)
     account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME") or os.getenv("AZURE_ACCOUNT_NAME")
     endpoint_suffix = os.getenv("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
     account_url = f"https://{account_name}.{endpoint_suffix}"
     try:
-        # use user-assigned client id when provided, else default
         uai_client = os.getenv("UAI_RAG_RW_CLIENT_ID") or os.getenv("AZURE_CLIENT_ID")
         if uai_client:
             CREDENTIAL = DefaultAzureCredential(managed_identity_client_id=uai_client)
@@ -222,40 +176,30 @@ if USE_MANAGED_IDENTITY:
         BLOB_CLIENT = BlobServiceClient(account_url=account_url, credential=CREDENTIAL)
         log.info("client_init", "Initialized BlobServiceClient (managed identity)", account=account_name)
     except Exception as e:
-        log.error("blobclient_init", "Failed to create BlobServiceClient (managed identity)", error=str(e))
-        sys.exit(2)
+        log.error("blobclient_init", "Failed to create BlobServiceClient (managed identity)", error=str(e)); sys.exit(2)
 else:
-    # Prefer Azure SDK connection string when present and azure.storage.blob available
     conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
     azure_sdk_available = False
     try:
-        importlib.import_module("azure.storage.blob")
-        azure_sdk_available = True
+        importlib.import_module("azure.storage.blob"); azure_sdk_available = True
     except Exception:
         azure_sdk_available = False
-
     if conn_str and azure_sdk_available:
         try:
             from azure.storage.blob import BlobServiceClient  # type: ignore
             BLOB_CLIENT = BlobServiceClient.from_connection_string(conn_str)
             log.info("client_init", "Initialized BlobServiceClient (connection string)")
         except Exception as e:
-            log.warning("connstr_failed", "BlobServiceClient.from_connection_string failed, will attempt fsspec fallback", error=str(e))
-            BLOB_CLIENT = None
-
+            log.warning("connstr_failed", "BlobServiceClient.from_connection_string failed, will attempt fsspec fallback", error=str(e)); BLOB_CLIENT = None
     if BLOB_CLIENT is None:
-        # fsspec fallback (adlfs)
         if fsspec is None:
-            log.error("fsspec_missing", "fsspec/adlfs required for key/SAS mode fallback (pip install fsspec adlfs)")
-            sys.exit(2)
+            log.error("fsspec_missing", "fsspec/adlfs required for key/SAS mode fallback (pip install fsspec adlfs)"); sys.exit(2)
         try:
             FS = fsspec.filesystem("az", **FS_OPTS)  # type: ignore
             log.info("fs.init", "Initialized fsspec az filesystem", opts_keys=list(FS_OPTS.keys()))
         except Exception as e:
-            log.error("fsspec_init_failed", "failed to init fsspec az filesystem", error=str(e))
-            sys.exit(2)
+            log.error("fsspec_init_failed", "failed to init fsspec az filesystem", error=str(e)); sys.exit(2)
 
-# ---------- helpers ----------
 def full_path_from_key(key: str) -> str:
     return STORAGE_ROOT + key.lstrip("/")
 
@@ -317,19 +261,16 @@ def token_count_for(text: str) -> int:
         pass
     return len(text.split())
 
-# ---------- Storage client (dual-mode) ----------
 class AzureStorageClient:
     def __init__(self, fs_obj=None, root=None, container=None, blob_client=None):
         self.fs = fs_obj
         self.root = root
         self.container = container
         self.blob_client = blob_client
-
     def _container_client(self):
         if self.blob_client is None:
             raise RuntimeError("blob_client not initialized for managed-identity or azure-sdk mode")
         return self.blob_client.get_container_client(self.container)
-
     def head_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -354,7 +295,6 @@ class AzureStorageClient:
                 "Metadata": getattr(props, "metadata", {}) or {},
             }
             return out
-
     def get_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -367,7 +307,6 @@ class AzureStorageClient:
             stream = blob_client.download_blob()
             data = stream.readall()
             return {"Body": io.BytesIO(data)}
-
     def put_object(self, Bucket, Key, Body, ContentType=None):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -402,7 +341,6 @@ class AzureStorageClient:
                 data = str(Body).encode("utf-8")
             blob_client.upload_blob(data, overwrite=True)
             return {"ResponseMetadata": {"HTTPStatusCode": 200}}
-
     def upload_file(self, LocalFile, Bucket, Key, ExtraArgs=None):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -419,7 +357,6 @@ class AzureStorageClient:
             blob_client = container_client.get_blob_client(Key)
             with open(LocalFile, "rb") as lf:
                 blob_client.upload_blob(lf, overwrite=True)
-
     def copy_object(self, CopySource, Bucket, Key):
         src = CopySource.get("Key")
         if self.fs is not None:
@@ -435,7 +372,6 @@ class AzureStorageClient:
             dst_blob_client = self._container_client().get_blob_client(Key)
             src_url = src_blob_client.url
             dst_blob_client.start_copy_from_url(src_url)
-
     def delete_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -453,13 +389,11 @@ class AzureStorageClient:
                 blob_client.delete_blob()
             except Exception:
                 pass
-
     def get_paginator(self, name):
         if self.fs is not None:
             class P:
                 def __init__(self, fs, root):
-                    self.fs = fs
-                    self.root = root
+                    self.fs = fs; self.root = root
                 def paginate(self, Bucket, Prefix, PaginationConfig=None):
                     base = (Prefix.rstrip("/")) + "/"
                     root_path = self.root + base
@@ -481,8 +415,7 @@ class AzureStorageClient:
                         rel = strip_root_from_path(f)
                         page["Contents"].append({"Key": rel})
                         if len(page["Contents"]) >= 1000:
-                            yield page
-                            page = {"Contents": []}
+                            yield page; page = {"Contents": []}
                     if page["Contents"]:
                         yield page
             return P(self.fs, self.root)
@@ -496,13 +429,11 @@ class AzureStorageClient:
                     for b in blobs:
                         page["Contents"].append({"Key": b.name})
                         if len(page["Contents"]) >= 1000:
-                            yield page
-                            page = {"Contents": []}
+                            yield page; page = {"Contents": []}
                     if page["Contents"]:
                         yield page
             return Pblob(self._container_client())
 
-# ---------- singleton storage client ----------
 _storage_single = None
 _storage_lock2 = threading.Lock()
 
@@ -525,13 +456,9 @@ def storage_exists(key: str) -> bool:
     except Exception:
         return False
 
-# ---------- TokenEncoder and SentenceChunker ----------
 class TokenEncoder:
     def __init__(self, model_name: str = "gpt2", enc_name: Optional[str] = None):
-        self.model_name = model_name
-        self.enc_name = enc_name or ENC_NAME
-        self.backend = "whitespace"
-        self._enc = None
+        self.model_name = model_name; self.enc_name = enc_name or ENC_NAME; self.backend = "whitespace"; self._enc = None
         try:
             if _tiktoken is None:
                 raise RuntimeError("tiktoken not installed")
@@ -566,7 +493,6 @@ class SentenceChunker:
         self.encoder = TokenEncoder(model_name=token_model, enc_name=os.getenv("TOKEN_ENCODER", ENC_NAME))
         self.nlp = self._make_sentencizer()
         log.info("chunker_init", "sentence chunker initialized", max_tokens=self.max_tokens_per_chunk, min_tokens=self.min_tokens_per_chunk, overlap=self.overlap_sentences, token_backend=getattr(self.encoder, "backend", "unknown"))
-
     def _make_sentencizer(self):
         try:
             import spacy  # type: ignore
@@ -582,11 +508,9 @@ class SentenceChunker:
             return nlp
         except Exception:
             return None
-
     def _sentences_with_offsets_spacy(self, text: str):
         doc = self.nlp(text)
         return [(sent.text.strip(), int(sent.start_char), int(sent.end_char)) for sent in doc.sents if sent.text.strip()]
-
     def _sentences_with_offsets_regex(self, text: str):
         pattern = re.compile(r'(?s).*?[\.\!\?]["\']?\s+|.+$')
         items = []
@@ -594,16 +518,11 @@ class SentenceChunker:
         for m in pattern.finditer(text):
             s = m.group(0)
             if not s or s.strip() == "":
-                pos = m.end()
-                continue
-            start = pos
-            end = pos + len(s)
-            items.append((s.strip(), start, end))
-            pos = m.end()
+                pos = m.end(); continue
+            start = pos; end = pos + len(s); items.append((s.strip(), start, end)); pos = m.end()
         if not items and text.strip():
             items = [(text.strip(), 0, len(text))]
         return items
-
     def _sentences_with_offsets(self, text: str):
         if self.nlp is not None:
             try:
@@ -611,20 +530,14 @@ class SentenceChunker:
             except Exception:
                 pass
         return self._sentences_with_offsets_regex(text)
-
     def chunk_document(self, text: str) -> Generator[Dict, None, None]:
         sentences = self._sentences_with_offsets(text)
         sent_items = [{"text": s, "start_char": sc, "end_char": ec, "orig_idx": i, "is_remainder": False} for i, (s, sc, ec) in enumerate(sentences)]
-        i = 0
-        n = len(sent_items)
-        prev_chunk = None
+        i = 0; n = len(sent_items); prev_chunk = None
         while i < n:
-            cur_token_count = 0
-            chunk_sent_texts = []
-            chunk_start_idx = i
+            cur_token_count = 0; chunk_sent_texts = []; chunk_start_idx = i
             chunk_start_char = sent_items[i]["start_char"] if i < n else None
-            chunk_end_char = None
-            is_truncated_sentence = False
+            chunk_end_char = None; is_truncated_sentence = False
             while i < n:
                 sent_text = sent_items[i]["text"]
                 tok_ids = self.encoder.encode(sent_text)
@@ -636,9 +549,7 @@ class SentenceChunker:
                             prefix_text = self.encoder.decode(prefix_tok_ids)
                         except Exception:
                             prefix_text = " ".join(str(x) for x in prefix_tok_ids)
-                        chunk_sent_texts.append(prefix_text)
-                        cur_token_count = len(prefix_tok_ids)
-                        is_truncated_sentence = True
+                        chunk_sent_texts.append(prefix_text); cur_token_count = len(prefix_tok_ids); is_truncated_sentence = True
                         remainder_tok_ids = tok_ids[self.max_tokens_per_chunk:]
                         if remainder_tok_ids:
                             try:
@@ -652,13 +563,9 @@ class SentenceChunker:
                     else:
                         break
                 else:
-                    chunk_sent_texts.append(sent_text)
-                    cur_token_count += sent_tok_len
-                    chunk_end_char = sent_items[i]["end_char"]
-                    i += 1
+                    chunk_sent_texts.append(sent_text); cur_token_count += sent_tok_len; chunk_end_char = sent_items[i]["end_char"]; i += 1
             if not chunk_sent_texts:
-                i += 1
-                continue
+                i += 1; continue
             chunk_text = " ".join(chunk_sent_texts).strip()
             chunk_meta = {"text": chunk_text, "token_count": cur_token_count, "start_sentence_idx": chunk_start_idx, "end_sentence_idx": i, "start_char": chunk_start_char, "end_char": chunk_end_char, "is_truncated_sentence": is_truncated_sentence}
             new_start = max(chunk_start_idx + 1, chunk_meta["end_sentence_idx"] - self.overlap_sentences)
@@ -672,10 +579,8 @@ class SentenceChunker:
                     prev_chunk["end_char"] = chunk_meta["end_char"]
                     prev_chunk["is_truncated_sentence"] = prev_chunk["is_truncated_sentence"] or chunk_meta["is_truncated_sentence"]
                 else:
-                    yield prev_chunk
-                    prev_chunk = chunk_meta
-            i = new_start
-            n = len(sent_items)
+                    yield prev_chunk; prev_chunk = chunk_meta
+            i = new_start; n = len(sent_items)
         if prev_chunk is not None:
             yield prev_chunk
 
@@ -685,19 +590,15 @@ def _charpos_to_line_range(start_char: Optional[int], end_char: Optional[int], l
     cum = [0]
     for ln in lines:
         cum.append(cum[-1] + len(ln))
-    start_line = 1
-    end_line = len(lines)
+    start_line = 1; end_line = len(lines)
     for i in range(len(cum) - 1):
         if cum[i] <= start_char < cum[i + 1]:
-            start_line = i + 1
-            break
+            start_line = i + 1; break
     for j in range(len(cum) - 1, -1, -1):
         if j == 0:
-            end_line = 1
-            break
+            end_line = 1; break
         if cum[j - 1] <= max(0, end_char - 1) < cum[j]:
-            end_line = j
-            break
+            end_line = j; break
     return start_line, end_line
 
 def _derive_doc_id_from_head(blob_key: str, head_obj: dict, manifest: dict) -> str:
@@ -716,14 +617,9 @@ def _derive_doc_id_from_head(blob_key: str, head_obj: dict, manifest: dict) -> s
         return base
     return sha256_hex_str(blob_key)
 
-# ---------- Parquet writer (unchanged except uses storage_upload_file_atomic) ----------
 class ParquetWriter:
     def __init__(self, doc_id: str, source_url: str, content_type: str = "application/octet-stream"):
-        self.doc_id = doc_id
-        self.source_url = source_url
-        self.content_type = content_type
-        self._rows: List[Dict[str, Any]] = []
-
+        self.doc_id = doc_id; self.source_url = source_url; self.content_type = content_type; self._rows: List[Dict[str, Any]] = []
     def _normalize_for_parquet(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         fields: Dict[str, Any] = {}
         fields["document_id"] = payload.get("document_id") or ""
@@ -750,21 +646,15 @@ class ParquetWriter:
         lr = payload.get("line_range") or []
         if isinstance(lr, (list, tuple)) and len(lr) >= 2:
             try:
-                fields["line_start"] = int(lr[0])
-                fields["line_end"] = int(lr[1])
+                fields["line_start"] = int(lr[0]); fields["line_end"] = int(lr[1])
             except Exception:
-                fields["line_start"] = 1
-                fields["line_end"] = 1
+                fields["line_start"] = 1; fields["line_end"] = 1
         else:
-            fields["line_start"] = 1
-            fields["line_end"] = 1
+            fields["line_start"] = 1; fields["line_end"] = 1
+        fields["semantic_region"] = payload.get("semantic_region") or ""
         return fields
-
     def write_payload(self, payload: Dict[str, Any]) -> int:
-        normalized = self._normalize_for_parquet(payload)
-        self._rows.append(normalized)
-        return 1
-
+        normalized = self._normalize_for_parquet(payload); self._rows.append(normalized); return 1
     def finalize_and_upload(self, out_basename: str) -> Tuple[int, str]:
         if not self._rows:
             return 0, ""
@@ -791,6 +681,7 @@ class ParquetWriter:
                 pa.field("used_ocr", pa.bool_()),
                 pa.field("line_start", pa.int64()),
                 pa.field("line_end", pa.int64()),
+                pa.field("semantic_region", pa.string()),
             ]
         )
         cols: Dict[str, List[Any]] = {name: [] for name in [f.name for f in schema]}
@@ -822,7 +713,6 @@ class ParquetWriter:
             pass
         return len(self._rows), dest_key
 
-# ---------- storage helpers (dual-mode) ----------
 def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "application/octet-stream"):
     full = full_path_from_key(key)
     tmp = f"{full}.tmp.{os.getpid()}.{int(time.time())}"
@@ -853,8 +743,7 @@ def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "a
                 client.upload_file(local_path, AZURE_CONTAINER, key)
                 return
         except Exception as e:
-            log.warning("upload_retry", "attempt=%d key=%s error=%s", attempt, key, str(e))
-            time.sleep(PUT_BACKOFF * attempt)
+            log.warning("upload_retry", "attempt=%d key=%s error=%s", attempt, key, str(e)); time.sleep(PUT_BACKOFF * attempt)
     raise Exception(f"atomic upload failed for {key} after {PUT_RETRIES} attempts")
 
 def sanitize_payload_for_raw_manifest(doc_id: str, raw_key: str, chunked_key: str, rows: int, sha: str, size: int) -> Dict[str, Any]:
@@ -906,7 +795,55 @@ def detect_ext_from_key(key: str) -> str:
         pass
     return ""
 
-# ---------- main parse_file for txt (preserves logic) ----------
+_storage_single = None
+_storage_lock2 = threading.Lock()
+
+def get_storage_client_singleton():
+    global _storage_single
+    if _storage_single is None:
+        with _storage_lock2:
+            if _storage_single is None:
+                if USE_MANAGED_IDENTITY or (BLOB_CLIENT is not None and not FS):
+                    _storage_single = AzureStorageClient(fs_obj=None, root=STORAGE_ROOT, container=AZURE_CONTAINER, blob_client=BLOB_CLIENT)
+                else:
+                    _storage_single = AzureStorageClient(fs_obj=FS, root=STORAGE_ROOT, container=AZURE_CONTAINER, blob_client=None)
+    return _storage_single
+
+def storage_exists(key: str) -> bool:
+    client = get_storage_client_singleton()
+    try:
+        client.head_object(Bucket=AZURE_CONTAINER, Key=key)
+        return True
+    except Exception:
+        return False
+
+def compute_semantic_region(start_line: Optional[int], end_line: Optional[int], total_lines: int) -> str:
+    try:
+        if total_lines <= 0:
+            return "middle"
+        if start_line is None or end_line is None:
+            return "middle"
+        start = max(1, int(start_line)); end = max(1, int(end_line))
+        mid = (start + end) // 2
+        ratio = mid / float(total_lines)
+        if total_lines < 20:
+            if ratio <= 0.30:
+                return "intro"
+            if ratio <= 0.70:
+                return "middle"
+            return "footer"
+        if ratio <= 0.10:
+            return "intro"
+        if ratio <= 0.30:
+            return "early"
+        if ratio <= 0.70:
+            return "middle"
+        if ratio <= 0.90:
+            return "late"
+        return "footer"
+    except Exception:
+        return "middle"
+
 def parse_file(blob_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
     client = get_storage_client_singleton()
@@ -916,23 +853,18 @@ def parse_file(blob_key: str, manifest: dict) -> dict:
         head_obj = {}
     doc_id = _derive_doc_id_from_head(blob_key, head_obj or {}, manifest or {})
     out_basename = f"{doc_id}"
-    out_parquet_key = f"{out_basename}.parquet"
+    out_parquet_key = f"{doc_id}.parquet"
     raw_manifest_key = blob_key + ".manifest.json"
-
     if not FORCE_OVERWRITE:
         try:
             if storage_exists(raw_manifest_key):
-                total_ms = int((time.perf_counter() - start_all) * 1000)
-                log.info("skip_manifest_exists", "raw_manifest_exists", key=raw_manifest_key)
-                return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
+                total_ms = int((time.perf_counter() - start_all) * 1000); log.info("skip_manifest_exists", "raw_manifest_exists", key=raw_manifest_key); return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
             if storage_exists(STORAGE_CHUNKED_PREFIX + out_parquet_key):
-                total_ms = int((time.perf_counter() - start_all) * 1000)
-                log.info("skip_parquet_exists", "parquet_exists", key=out_parquet_key)
+                total_ms = int((time.perf_counter() - start_all) * 1000); log.info("skip_parquet_exists", "parquet_exists", key=out_parquet_key)
                 try:
                     if not storage_exists(raw_manifest_key):
                         head = client.head_object(Bucket=AZURE_CONTAINER, Key=STORAGE_CHUNKED_PREFIX + out_parquet_key)
-                        etag = head.get("ETag", "")
-                        etag = etag.strip('"') if isinstance(etag, str) else etag
+                        etag = head.get("ETag", ""); etag = etag.strip('"') if isinstance(etag, str) else etag
                         size = head.get("ContentLength", 0)
                         raw_manifest = sanitize_payload_for_raw_manifest(doc_id, blob_key, STORAGE_CHUNKED_PREFIX + out_parquet_key, 0, etag, size)
                         client.put_object(Bucket=AZURE_CONTAINER, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
@@ -941,40 +873,31 @@ def parse_file(blob_key: str, manifest: dict) -> dict:
                 return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
         except Exception:
             pass
-
     try:
         obj = client.get_object(Bucket=AZURE_CONTAINER, Key=blob_key)
     except Exception as e:
-        total_ms = int((time.perf_counter() - start_all) * 1000)
-        log.error("read_object_failed", "Could not read object %s: %s", blob_key, str(e))
-        return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
-
+        total_ms = int((time.perf_counter() - start_all) * 1000); log.error("read_object_failed", "Could not read object %s: %s", blob_key, str(e)); return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
     raw_body = obj["Body"].read()
     raw_text = try_decode_bytes(raw_body)
-
     if isinstance(manifest, dict) and manifest.get("file_hash"):
-        doc_id = manifest.get("file_hash")
-        out_parquet_key = f"{doc_id}.parquet"
-
+        doc_id = manifest.get("file_hash"); out_parquet_key = f"{doc_id}.parquet"
     if not FORCE_OVERWRITE:
         if storage_exists(STORAGE_CHUNKED_PREFIX + out_parquet_key):
-            total_ms = int((time.perf_counter() - start_all) * 1000)
-            log.info("skip_parquet_post_download", "parquet_exists", key=out_parquet_key)
+            total_ms = int((time.perf_counter() - start_all) * 1000); log.info("skip_parquet_post_download", "parquet_exists", key=out_parquet_key)
             try:
                 if not storage_exists(raw_manifest_key):
                     head = client.head_object(Bucket=AZURE_CONTAINER, Key=STORAGE_CHUNKED_PREFIX + out_parquet_key)
-                    etag = head.get("ETag", "")
-                    etag = etag.strip('"') if isinstance(etag, str) else etag
+                    etag = head.get("ETag", ""); etag = etag.strip('"') if isinstance(etag, str) else etag
                     size = head.get("ContentLength", 0)
                     raw_manifest = sanitize_payload_for_raw_manifest(doc_id, blob_key, STORAGE_CHUNKED_PREFIX + out_parquet_key, 0, etag, size)
                     client.put_object(Bucket=AZURE_CONTAINER, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
             except Exception:
                 pass
             return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
-
     source_url = f"az://{AZURE_CONTAINER}/{blob_key}"
     canonical_full = canonicalize_text(raw_text)
     lines = [ln + ("\n" if not ln.endswith("\n") else "") for ln in canonical_full.split("\n")]
+    total_lines = max(1, len(lines))
     max_tokens = int(os.getenv("MAX_TOKENS_PER_CHUNK", "512"))
     min_tokens = int(os.getenv("MIN_TOKENS_PER_CHUNK", "100"))
     overlap_sentences = int(os.getenv("NUMBER_OF_OVERLAPPING_SENTENCES", "2"))
@@ -983,11 +906,11 @@ def parse_file(blob_key: str, manifest: dict) -> dict:
     chunk_index = 1
     writer = ParquetWriter(doc_id=doc_id, source_url=source_url)
     file_name = os.path.basename(blob_key)
-
     try:
         if full_token_count <= max_tokens:
-            chunk_id = f"{doc_id}_{chunk_index}"
-            chunk_index += 1
+            chunk_id = f"{doc_id}_{chunk_index}"; chunk_index += 1
+            start_line = 1; end_line = len(lines)
+            semantic_region = compute_semantic_region(start_line, end_line, total_lines)
             payload = {
                 "document_id": doc_id or "",
                 "file_name": file_name,
@@ -1012,6 +935,7 @@ def parse_file(blob_key: str, manifest: dict) -> dict:
                 "heading_path": [],
                 "headings": [],
                 "line_range": [1, len(lines)],
+                "semantic_region": semantic_region,
             }
             writer.write_payload(payload)
             log.info("buffer_single_chunk", "buffered single chunk", chunk_id=payload["chunk_id"])
@@ -1021,11 +945,10 @@ def parse_file(blob_key: str, manifest: dict) -> dict:
             for sub in chunker.chunk_document(canonical_full):
                 chunk_text = sub.get("text", "")
                 token_ct = sub.get("token_count", 0)
-                schar = sub.get("start_char")
-                echar = sub.get("end_char")
+                schar = sub.get("start_char"); echar = sub.get("end_char")
                 start_line, end_line = _charpos_to_line_range(schar, echar, lines)
-                chunk_id = f"{doc_id}_{chunk_index}"
-                chunk_index += 1
+                semantic_region = compute_semantic_region(start_line, end_line, total_lines)
+                chunk_id = f"{doc_id}_{chunk_index}"; chunk_index += 1
                 payload = {
                     "document_id": doc_id or "",
                     "file_name": file_name,
@@ -1050,26 +973,23 @@ def parse_file(blob_key: str, manifest: dict) -> dict:
                     "heading_path": [],
                     "headings": [],
                     "line_range": [int(start_line), int(end_line)],
+                    "semantic_region": semantic_region,
                 }
                 writer.write_payload(payload)
-                log.info("buffer_subchunk", "buffered subchunk", chunk_id=payload["chunk_id"], lines=f"{start_line}-{end_line}")
+                log.info("buffer_subchunk", "buffered subchunk", chunk_id=payload["chunk_id"], lines=f"{start_line}-{end_line}", semantic_region=semantic_region)
                 saved += 1
     except Exception as e:
         total_ms = int((time.perf_counter() - start_all) * 1000)
         log.exception("buffering_failed", "Error while buffering chunks", key=blob_key)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
-
     try:
         if saved == 0:
-            total_ms = int((time.perf_counter() - start_all) * 1000)
-            log.info("no_chunks", "No chunks produced", key=blob_key)
-            return {"saved_chunks": 0, "total_parse_duration_ms": total_ms}
+            total_ms = int((time.perf_counter() - start_all) * 1000); log.info("no_chunks", "No chunks produced", key=blob_key); return {"saved_chunks": 0, "total_parse_duration_ms": total_ms}
         count, uploaded_key = writer.finalize_and_upload(doc_id)
         total_ms = int((time.perf_counter() - start_all) * 1000)
         try:
             head = client.head_object(Bucket=AZURE_CONTAINER, Key=uploaded_key)
-            etag = head.get("ETag", "")
-            etag = etag.strip('"') if isinstance(etag, str) else etag
+            etag = head.get("ETag", ""); etag = etag.strip('"') if isinstance(etag, str) else etag
             size = head.get("ContentLength", 0)
             raw_manifest = sanitize_payload_for_raw_manifest(doc_id, blob_key, uploaded_key, count, etag, size)
             client.put_object(Bucket=AZURE_CONTAINER, Key=raw_manifest_key, Body=json.dumps(raw_manifest).encode("utf-8"), ContentType="application/json")
@@ -1082,7 +1002,6 @@ def parse_file(blob_key: str, manifest: dict) -> dict:
         log.error("upload_failed", "Failed to upload chunked file", key=blob_key, error=str(e_up))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
 
-# ---------- CLI loop ----------
 if __name__ == "__main__":
     log.info("startup", "txt parser start", use_managed_identity=str(USE_MANAGED_IDENTITY).lower(), token_encoder=os.getenv("TOKEN_ENCODER", ENC_NAME), tiktoken_present="yes" if _tiktoken is not None else "no")
     client = get_storage_client_singleton()

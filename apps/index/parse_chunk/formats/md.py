@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-"""
-md.py
-
-Markdown -> chunked parquet parser compatible with router.py.
-
-Design:
- - Dual-mode storage: managed identity (azure sdk) or fsspec+adlfs (connection string / account key / SAS).
- - Fail-fast validation of required envs for the chosen mode.
- - Exposes parse_file(s3_key: str, manifest: dict) -> dict with 'saved_chunks' and timing info.
- - Writes chunked parquet via pyarrow (if available) and uploads atomically.
-"""
-
 from __future__ import annotations
 import os
 import sys
@@ -26,7 +14,6 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 
-# ---------- structured logger ----------
 class LoggerShim:
     def __init__(self, name: str):
         self.name = name
@@ -65,11 +52,9 @@ class LoggerShim:
 
 log = LoggerShim("md_parser")
 
-# ---------- deterministic runtime switch ----------
 _USE_MI_RAW = os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower()
 USE_MANAGED_IDENTITY = _USE_MI_RAW in ("1", "true", "yes")
 
-# ---------- runtime config ----------
 AZURE_CONTAINER = (os.getenv("AZURE_CONTAINER") or os.getenv("STORAGE_CONTAINER") or os.getenv("AZ_CONTAINER") or "").strip()
 if not AZURE_CONTAINER:
     sys.stderr.write("ERROR: AZURE_CONTAINER (or STORAGE_CONTAINER / AZ_CONTAINER) environment variable must be set\n")
@@ -78,7 +63,6 @@ if not AZURE_CONTAINER:
 STORAGE_RAW_PREFIX = (os.getenv("STORAGE_RAW_PREFIX") or os.getenv("AZURE_RAW_PREFIX") or "data/raw/").rstrip("/") + "/"
 STORAGE_CHUNKED_PREFIX = (os.getenv("STORAGE_CHUNKED_PREFIX") or os.getenv("AZURE_CHUNKED_PREFIX") or "data/chunked/").rstrip("/") + "/"
 
-# numeric envs: validate and fallback
 def _int_env(name: str, default: int) -> int:
     v = os.getenv(name, "")
     try:
@@ -101,7 +85,6 @@ PUT_RETRIES = _int_env("PUT_RETRIES", 3)
 PUT_BACKOFF = float(os.getenv("PUT_BACKOFF", "0.3"))
 CHUNKED_SCHEMA_VERSION = os.getenv("CHUNKED_SCHEMA_VERSION", "chunked_v1")
 
-# ---------- dependency checks ----------
 FSSPEC_AVAILABLE = False
 ADLFS_AVAILABLE = False
 try:
@@ -136,7 +119,6 @@ try:
 except Exception:
     tiktoken = None
 
-# ---------- storage wiring ----------
 def build_storage_options() -> Dict[str, str]:
     if USE_MANAGED_IDENTITY:
         return {}
@@ -229,7 +211,6 @@ else:
         sys.stderr.write(f"ERROR: fsspec could not access container {AZURE_CONTAINER}: {e}\n")
         sys.exit(2)
 
-# ---------- helpers ----------
 def full_path_from_key(key: str) -> str:
     return STORAGE_ROOT + key.lstrip("/")
 
@@ -266,7 +247,6 @@ def try_decode_bytes(b: bytes) -> str:
             continue
     return b.decode("utf-8", errors="replace")
 
-# ---------- encoder & md parser factories ----------
 _tiktoken_enc = None
 _md_parser = None
 
@@ -314,19 +294,16 @@ def token_count_for(text: str) -> int:
             pass
     return len(text.split())
 
-# ---------- Storage client (dual-mode) ----------
 class AzureStorageClient:
     def __init__(self, fs_obj=None, root=None, container=None, blob_client=None):
         self.fs = fs_obj
         self.root = root
         self.container = container
         self.blob_client = blob_client
-
     def _container_client(self):
         if self.blob_client is None:
             raise RuntimeError("blob_client not initialized for managed-identity mode")
         return self.blob_client.get_container_client(self.container)
-
     def head_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -351,7 +328,6 @@ class AzureStorageClient:
                 "Metadata": getattr(props, "metadata", {}) or {},
             }
             return out
-
     def get_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -364,7 +340,6 @@ class AzureStorageClient:
             stream = blob_client.download_blob()
             data = stream.readall()
             return {"Body": data}
-
     def put_object(self, Bucket, Key, Body, ContentType=None):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -403,7 +378,6 @@ class AzureStorageClient:
                 data = str(Body).encode("utf-8")
             blob_client.upload_blob(data, overwrite=True)
             return {"ResponseMetadata": {"HTTPStatusCode": 200}}
-
     def upload_file(self, LocalFile, Bucket, Key, ExtraArgs=None):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -420,7 +394,6 @@ class AzureStorageClient:
             blob_client = container_client.get_blob_client(Key)
             with open(LocalFile, "rb") as lf:
                 blob_client.upload_blob(lf, overwrite=True)
-
     def copy_object(self, CopySource, Bucket, Key):
         src = CopySource.get("Key")
         if self.fs is not None:
@@ -436,7 +409,6 @@ class AzureStorageClient:
             dst_blob_client = self._container_client().get_blob_client(Key)
             src_url = src_blob_client.url
             dst_blob_client.start_copy_from_url(src_url)
-
     def delete_object(self, Bucket, Key):
         if self.fs is not None:
             full = full_path_from_key(Key)
@@ -454,7 +426,6 @@ class AzureStorageClient:
                 blob_client.delete_blob()
             except Exception:
                 pass
-
     def get_paginator(self, name):
         if self.fs is not None:
             class P:
@@ -500,7 +471,6 @@ class AzureStorageClient:
                         yield page
             return Pblob(self._container_client())
 
-# ---------- singleton client ----------
 _storage_client: Optional[AzureStorageClient] = None
 _storage_lock = threading.Lock()
 def get_storage_client_singleton():
@@ -522,7 +492,6 @@ def storage_blob_exists(key: str) -> bool:
     except Exception:
         return False
 
-# ---------- core utilities ----------
 def retry(func, retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
     for attempt in range(retries):
         try:
@@ -534,7 +503,6 @@ def retry(func, retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
             time.sleep(delay)
             delay *= backoff
 
-# ---------- chunking / parsing helpers (kept as original) ----------
 def _is_rootish(h: Any) -> bool:
     if h is None:
         return True
@@ -542,10 +510,6 @@ def _is_rootish(h: Any) -> bool:
         return str(h).strip().lower() in ("", "root")
     except Exception:
         return False
-
-# many helpers below are identical to the previous router-style implementation
-# to keep the parser self-contained we include build_header_sections, merge_small_sections,
-# split_long_line_into_char_windows, split_section_by_tokens_lines implementations.
 
 def build_header_sections(raw_text: str) -> List[Dict[str, Any]]:
     lines = raw_text.splitlines(keepends=True)
@@ -789,7 +753,6 @@ def split_section_by_tokens_lines(section: Dict[str, Any], overlap_tokens: int, 
         ptr = next_ptr
     return chunks
 
-# ---------- Parquet writer ----------
 class ParquetWriter:
     def __init__(self, doc_id: str):
         self.doc_id = doc_id; self._rows: List[Dict[str, Any]] = []
@@ -826,6 +789,8 @@ class ParquetWriter:
         fields["timestamp"] = payload.get("timestamp") or ""
         fields["parser_version"] = payload.get("parser_version") or PARSER_VERSION
         fields["used_ocr"] = bool(payload.get("used_ocr", False))
+        # new semantic_region field (nullable string)
+        fields["semantic_region"] = payload.get("semantic_region") or ""
         return fields
     def write_payload(self, payload: Dict[str, Any]) -> int:
         self._rows.append(self._normalize(payload)); return 1
@@ -844,7 +809,8 @@ class ParquetWriter:
             pa.field("figures", pa.string()), pa.field("tags", pa.string()), pa.field("layout_tags", pa.string()),
             pa.field("heading_path", pa.string()), pa.field("headings", pa.string()), pa.field("file_type", pa.string()),
             pa.field("source_url", pa.string()), pa.field("line_start", pa.int64()), pa.field("line_end", pa.int64()),
-            pa.field("timestamp", pa.string()), pa.field("parser_version", pa.string()), pa.field("used_ocr", pa.bool_())
+            pa.field("timestamp", pa.string()), pa.field("parser_version", pa.string()), pa.field("used_ocr", pa.bool_()),
+            pa.field("semantic_region", pa.string())
         ])
         cols: Dict[str, List[Any]] = {name: [] for name in [f.name for f in schema]}
         for r in self._rows:
@@ -868,7 +834,6 @@ class ParquetWriter:
         except Exception: pass
         return len(self._rows), STORAGE_CHUNKED_PREFIX + parquet_key, sha, size
 
-# ---------- storage_upload_file_atomic (dual-mode) ----------
 def storage_upload_file_atomic(local_path: str, key: str, content_type: str = "application/octet-stream"):
     client = get_storage_client_singleton()
     if client.fs is not None:
@@ -943,7 +908,21 @@ def sanitize_payload(payload: Dict[str, Any]) -> None:
     payload["parser_version"] = payload.get("parser_version") or PARSER_VERSION
     payload["used_ocr"] = bool(payload.get("used_ocr", False))
 
-# ---------- public API for router compatibility ----------
+def semantic_region_for_md(line_start:int, line_end:int, total_lines:int)->str:
+    if total_lines <= 0:
+        return "middle"
+    mid = (float(line_start) + float(line_end)) / 2.0
+    ratio = mid / float(total_lines)
+    if ratio <= 0.10:
+        return "intro"
+    if ratio <= 0.30:
+        return "early"
+    if ratio <= 0.80:
+        return "middle"
+    if ratio <= 0.95:
+        return "late"
+    return "footer"
+
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
     client = get_storage_client_singleton()
@@ -1016,6 +995,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             pass
     canonical_full = canonicalize_text(raw_text)
     sections = build_header_sections(canonical_full)
+    total_lines = len(canonical_full.splitlines())
     line_token_cache: Dict[int, int] = {}
     merged_sections = merge_small_sections(sections, MIN_TOKENS_PER_CHUNK, MAX_TOKENS_PER_CHUNK, line_token_cache)
     saved = 0; chunk_index = 1
@@ -1044,6 +1024,8 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
             if sec_token_count <= MAX_TOKENS_PER_CHUNK:
                 chunk_id = f"{doc_id}_{chunk_index}"; chunk_index += 1
                 payload = {"document_id": doc_id or "", "file_name": file_name, "chunk_id": chunk_id or "", "chunk_type": "md_section", "text": canonicalize_text(sec_text) or "", "token_count": int(sec_token_count or 0), "figures": [], "embedding": None, "file_type": "text/markdown", "source_url": source_url, "timestamp": datetime.utcnow().isoformat() + "Z", "parser_version": PARSER_VERSION or "", "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [], "layout_tags": [], "used_ocr": False, "heading_path": heading_path or [], "headings": headings or [], "line_range": [int(start_line_1b), int(end_line_1b)] if (start_line_1b and end_line_1b is not None) else [1, 1]}
+                # add semantic_region using line ranges and total_lines
+                payload["semantic_region"] = semantic_region_for_md(int(payload["line_range"][0]), int(payload["line_range"][1]), total_lines)
                 sanitize_payload(payload)
                 writer.write_payload(payload)
                 saved += 1
@@ -1055,6 +1037,7 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
                     chunk_id = f"{doc_id}_{chunk_index}"; chunk_index += 1
                     start_line_sub = sline + 1; end_line_sub = eline
                     payload = {"document_id": doc_id or "", "file_name": file_name, "chunk_id": chunk_id or "", "chunk_type": "md_subchunk", "text": canonicalize_text(chunk_text) or "", "token_count": token_ct, "figures": [], "embedding": None, "file_type": "text/markdown", "source_url": source_url, "timestamp": datetime.utcnow().isoformat() + "Z", "parser_version": PARSER_VERSION or "", "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [], "layout_tags": [], "used_ocr": False, "heading_path": heading_path or [], "headings": headings or [], "line_range": [int(start_line_sub), int(end_line_sub)] if (start_line_sub and end_line_sub is not None) else [1, 1]}
+                    payload["semantic_region"] = semantic_region_for_md(int(payload["line_range"][0]), int(payload["line_range"][1]), total_lines)
                     sanitize_payload(payload)
                     writer.write_payload(payload)
                     saved += 1
@@ -1082,7 +1065,6 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         log.error("upload_failed", "Failed to upload chunked file", key=s3_key, error=str(e_up))
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e_up)}
 
-# ---------- CLI mode ----------
 def _ensure_cli_env_or_exit():
     missing = []
     if not AZURE_CONTAINER:

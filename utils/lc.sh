@@ -287,32 +287,26 @@ kubectl -n kube-system wait --for=condition=Ready pods -l k8s-app=kube-proxy --t
 kubectl -n kube-system wait --for=condition=Ready pods -l k8s-app=kindnet --timeout=120s || true
 
 CLUSTER_NAME="${CLUSTER_NAME:-rag8s-local}"
-echo "[INFO] Preloading images safely (post-bootstrap)..."
+
 for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
   echo "  → Loading into ${node}"
-
-  # ensure containerd is ready
   docker exec "$node" bash -c 'ctr version >/dev/null 2>&1' || {
     echo "    [WARN] containerd not ready on $node — skipping"
     continue
   }
-
-  # preload images (safe retries)
   for IMAGE in \
     docker.io/qdrant/qdrant:v1.16.0 \
     docker.io/athithya5354/dense:amd64-arm64-v1 \
     docker.io/athithya5354/sparse:amd64-arm64-v2 \
     docker.io/athithya5354/reranker:amd64-arm64-v1 \
     docker.io/athithya5354/retrieval:amd64-arm64-v2 \
-    docker.io/athithya5354/athithya5354/frontend-and-auth:v5 \
-    docker.io/athithya5354/indexing_pipeline_cpu:v8
+    docker.io/athithya5354/frontend-and-auth:v5 \
+    docker.io/athithya5354/indexing_pipeline_cpu:v12
   do
-    echo "    pulling $IMAGE..."
-    docker exec "$node" ctr -n k8s.io images pull "$IMAGE" || {
-      echo "    [WARN] failed pulling $IMAGE on $node"
-    }
+    docker exec "$node" ctr -n k8s.io images pull "$IMAGE" || true
   done
 done
+
 
 echo "[INFO] Safe preload complete."
 

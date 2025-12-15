@@ -10,6 +10,9 @@ spec:
   failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
+      backoffLimit: 2
+      parallelism: 3
+      completions: 1
       template:
         metadata:
           labels:
@@ -19,7 +22,7 @@ spec:
           restartPolicy: Never
           containers:
           - name: indexer
-            image: athithya5354/indexing_pipeline_cpu:v8
+            image: athithya5354/indexing_pipeline_cpu:v11
             imagePullPolicy: IfNotPresent
             command:
             - /bin/sh
@@ -68,7 +71,7 @@ spec:
             - name: DENSE_URL
               value: http://dense-svc.models.svc.cluster.local:8200
             - name: ENV
-              value: STAGING
+              value: ''
             - name: EXTRA_SECRET_NAME
               value: indexer-extra-secrets
             - name: HTTP_TIMEOUT
@@ -76,7 +79,7 @@ spec:
             - name: INDEXING_PIPELINE_CPU_IMAGE_REPO
               value: athithya5354/indexing_pipeline_cpu
             - name: INDEXING_PIPELINE_CPU_IMAGE_TAG
-              value: v8
+              value: v11
             - name: JSONL_TARGET_TOKENS_PER_CHUNK
               value: '400'
             - name: LOG_LEVEL
@@ -141,4 +144,3 @@ spec:
               limits:
                 cpu: '4'
                 memory: 2Gi
-      backoffLimit: 2

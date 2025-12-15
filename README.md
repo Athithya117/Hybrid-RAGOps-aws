@@ -79,8 +79,11 @@ AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID") or os.getenv("UAI_RAG_RW_CLIENT_I
 
 export PLATFORMS="linux/amd64,linux/arm64"      # Multi arch default; set only amd64 for x86 EC2 (C5/C6/M5/M6/R5/R6) or only arm64 for Graviton (C7g/M7g/R7g)
 
-
-
+export AZURE_SUBSCRIPTION_ID="b1e221f4-74ef-4e62-9bca-fb70aef41930"
+export AZURE_RESOURCE_GROUP_NAME="rg-rag-prod"
+export AZURE_LOCATION="centralindia"
+export AZURE_STORAGE_ACCOUNT_NAME="storeragprod42"
+export AZURE_CONTAINER="rag-data-prod"
 export OVERWRITE_DOC_DOCX_TO_PDF="true"               # If true, remove originals when converting (.doc/.docx) -> .pdf; set false to keep originals
 export OVERWRITE_ALL_AUDIO_FILES="true"               # If true, remove originals when converting (.mp3,.aac/etc) -> (16k wav); false to keep originals
 export OVERWRITE_SPREADSHEETS_WITH_CSV="true"         # If true, remove originals when converting (.xls/.xlsx/.ods/etc) to .csv ;false to keep originals
@@ -130,50 +133,18 @@ export INDEXING_BACKUP_CRONJOB_CPU_LIMIT="4"          # CPU limit for the CronJo
 export INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST="1Gi"   # Memory request for CronJob; set based on worst-case memory used by indexing
 export INDEXING_BACKUP_CRONJOB_MEMORY_LIMIT="2Gi"     # Memory limit for CronJob; must be >= request to avoid eviction
 export INDEXING_PIPELINE_CPU_IMAGE_REPO="athithya5354/indexing_pipeline_cpu"  # Use the prebuilt docker image or build your own by running `make index-image`
-export INDEXING_PIPELINE_CPU_IMAGE_TAG="v8" # Set a consistent tag name for clarity. You may change if building your own image
+export INDEXING_PIPELINE_CPU_IMAGE_TAG="v11" # Set a consistent tag name for clarity. You may change if building your own image
+# optional env if UAI unavailable in local kind cluster
+export AZURE_STORAGE_CONNECTION_STRING="$(python3 infra/base_infra/get_storage_conn_string.py)"
 
-
-
-export AWS_REGION="${AWS_REGION:-ap-south-1}"
-
-export PULUMI_S3_BUCKET="${PULUMI_S3_BUCKET:-e2e-rag-42}"
-export S3_BUCKET="${S3_BUCKET:-${PULUMI_S3_BUCKET}}"
-export S3_PREFIX="${S3_PREFIX:-pulumi/}"
-export PULUMI_STATE_BUCKET="${PULUMI_STATE_BUCKET:-${PULUMI_S3_BUCKET}}"
-export PULUMI_STATE_PREFIX="${PULUMI_STATE_PREFIX:-${S3_PREFIX}}"
-export DDB_TABLE="${DDB_TABLE:-pulumi-state-locks}"
-
-export PULUMI_STACK="${PULUMI_STACK:-prod}"
-export STACK="${STACK:-${PULUMI_STACK}}"
-export PULUMI_CONFIG_PASSPHRASE="${PULUMI_CONFIG_PASSPHRASE:-password}"
-
-export ENABLE_PULUMI_AUTOINIT="${ENABLE_PULUMI_AUTOINIT:-true}"
-export PIP_BREAK_SYSTEM_PACKAGES_FLAG="${PIP_BREAK_SYSTEM_PACKAGES_FLAG:---no-input}"
-export PULUMI_LOGIN_URL="${PULUMI_LOGIN_URL:-s3://${S3_BUCKET}/${S3_PREFIX}}"
-export PULUMI_PYTHON_CMD="${PULUMI_PYTHON_CMD:-${VENV_DIR}/bin/python}"
-
-# ---- Minimal-Cost Defaults Below ----
-export AVOID_DOMAIN="${AVOID_DOMAIN:-true}"
-export MULTI_AZ_DEPLOYMENT="${MULTI_AZ_DEPLOYMENT:-true}"
-export AZ_COUNT="${AZ_COUNT:-3}"
-export VPC_CIDR="${VPC_CIDR:-10.0.0.0/16}"
-export PUBLIC_SUBNET_CIDRS="${PUBLIC_SUBNET_CIDRS:-}"
-export PRIVATE_SUBNET_CIDRS="${PRIVATE_SUBNET_CIDRS:-}"
-
-# >>> COST MINIMAL DEFAULTS <<<
-export NO_NAT="${NO_NAT:-true}"                         # ✔ No NAT Gateways (major cost saving)
-export NAT_SINGLE="${NAT_SINGLE:-false}"                # irrelevant when NO_NAT=true
-export CREATE_VPC_ENDPOINTS="${CREATE_VPC_ENDPOINTS:-true}"  
-export CREATE_VPC_ENDPOINT_SERVICES="${CREATE_VPC_ENDPOINT_SERVICES:-s3,ecr.api,ecr.dkr,ssm,sts}"
-
-export ENABLE_FLOW_LOGS="${ENABLE_FLOW_LOGS:-false}"    # ✔ avoid CloudWatch ingestion charges
-export FLOW_LOG_DEST="${FLOW_LOG_DEST:-cloudwatch}"
-export FLOW_LOG_S3_BUCKET="${FLOW_LOG_S3_BUCKET:-}"
-
-export TAG_PREFIX="${TAG_PREFIX:-pulumi}"
-
-
-
+# in prod AKS UAI instead of azure storage connection string
+export UAI_RAG_RW_NAME="uai-rag-rw"
+export UAI_RAG_RO_NAME="uai-rag-ro"
+export AZURE_ENDPOINT_SUFFIX="core.windows.net"
+export UAI_RAG_RW_CLIENT_ID="6a687dad-cd44-4fcf-99b5-b596cd2e3c77"
+export UAI_RAG_RW_PRINCIPAL_ID="fc1c8a7e-51a4-4fa6-96cb-dc907115fe08"
+export UAI_RAG_RO_CLIENT_ID="f9ebe40e-e89a-4241-aba8-3006fc7d44c9"
+export UAI_RAG_RO_PRINCIPAL_ID="4d310060-cd1f-4b95-9c2a-2f5101bfde10"
 
 export FORCE_CPU="1"                             # Forces CPU inference; set 0 only if GPU-enabled embedder image exists and nodes have GPUs
 export EMBEDDER_READY_TIMEOUT="600"              # Max seconds to wait for model load; increase for very large ONNX models or slow disks

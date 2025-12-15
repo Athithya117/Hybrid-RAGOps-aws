@@ -212,12 +212,5 @@ for cmd in aws kubectl eksctl argocd helm pulumi k3d git python3 pip3; do
 done
 
 
-mkdir -p samples && cd samples && \
-wget -O sample.doc   "https://filesamples.com/samples/document/doc/sample1.doc" && \
-wget -O sample.xls   "https://filesamples.com/samples/document/xls/sample1.xls" && \
-wget -O sample.xlsx  "https://filesamples.com/samples/document/xlsx/sample1.xlsx" && \
-wget -O sample.mp3   "https://download.samplelib.com/mp3/sample-3s.mp3"
-
-
 clear
 printf '%s %s\n' "$(TS)" "Bootstrap completed. Open a new terminal or run: source \"${TARGET_RC}\""

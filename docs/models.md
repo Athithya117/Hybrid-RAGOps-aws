@@ -17,7 +17,7 @@ Each component has a distinct role, deployment mode, and cost/performance tradeo
 | **Dense Embeddings** | BGE-small | Self-hosted CPU/GPU | Cheap, fast, ideal for batch indexing + queries. |
 | **Sparse Embeddings** | miniCOIL | Self-hosted CPU/GPU | Complements dense embedding; improves recall. |
 | **Reranker** | MiniLM cross-encoder | Self-hosted CPU/GPU | Best ranking accuracy for minimal cost. |
-| **LLM** | Groq models | Managed | Highest performance and reliability, no GPU ops. |
+| **LLM** | Groq models | Managed LPU | Highest performance and reliability, no GPU ops. |
 
 ---
 
@@ -110,7 +110,7 @@ This also reduces prompt size and improves LLM output correctness.
 
 ---
 
-# Why This Setup
+## This setup ensures
 
 ### Cost efficiency
 - Embedding and reranking are CPU-friendly and cheap to self-host.

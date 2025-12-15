@@ -16,7 +16,6 @@ from datetime import datetime
 from contextlib import contextmanager
 from typing import List, Tuple, Dict, Optional, Any
 
-# logger
 logger = logging.getLogger("pdf_parser")
 LOG_LEVEL_NAME = os.getenv("LOG_LEVEL", "INFO").upper()
 logger.setLevel(getattr(logging, LOG_LEVEL_NAME, logging.INFO))
@@ -24,7 +23,6 @@ handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 logger.handlers[:] = [handler]
 
-# env / defaults
 AZURE_CONTAINER = os.getenv("AZURE_CONTAINER")
 RAW_PREFIX = os.getenv("STORAGE_RAW_PREFIX", os.getenv("RAW_PREFIX", "data/raw/")).rstrip("/") + "/"
 CHUNKED_PREFIX = os.getenv("STORAGE_CHUNKED_PREFIX", os.getenv("CHUNKED_PREFIX", "data/chunked/")).rstrip("/") + "/"
@@ -44,17 +42,13 @@ PUT_RETRIES = int(os.getenv("PUT_RETRIES", "3") or 3)
 PUT_BACKOFF = float(os.getenv("PUT_BACKOFF", "0.3") or 0.3)
 ENC_NAME = os.getenv("TOKEN_ENCODER", "cl100k_base")
 
-# lazy clients
 _blob_service_client = None
 _container_client = None
 
-# ---------------- utilities ----------------
 def sha256_hex_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
-
 def sha256_hex_str(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()
-
 def local_file_sha256(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -63,7 +57,6 @@ def local_file_sha256(path: str) -> str:
                 break
             h.update(chunk)
     return h.hexdigest()
-
 def canonicalize_text(s: str) -> str:
     if not isinstance(s, str):
         s = str(s or "")
@@ -71,7 +64,6 @@ def canonicalize_text(s: str) -> str:
     s = s.replace("\r\n", "\n").replace("\r", "\n")
     lines = [re.sub(r"[ \t]+$", "", ln) for ln in s.split("\n")]
     return "\n".join(lines).strip()
-
 def try_decode_bytes(b: bytes) -> str:
     for encoding in ("utf-8", "utf-8-sig", "latin-1"):
         try:
@@ -80,7 +72,6 @@ def try_decode_bytes(b: bytes) -> str:
             continue
     return b.decode("utf-8", errors="replace")
 
-# ---------------- sys.path safety ----------------
 @contextmanager
 def without_cwd_on_syspath():
     saved = list(sys.path)
@@ -91,7 +82,6 @@ def without_cwd_on_syspath():
     finally:
         sys.path[:] = saved
 
-# ---------------- azure blob helpers ----------------
 def use_managed_identity() -> bool:
     return os.getenv("AZURE_USE_MANAGED_IDENTITY", os.getenv("USE_MANAGED_IDENTITY", "")).strip().lower() in ("1", "true", "yes")
 
@@ -99,25 +89,21 @@ def get_blob_service_client():
     global _blob_service_client, _container_client
     if _blob_service_client is not None and _container_client is not None:
         return _blob_service_client, _container_client
-
     try:
         from azure.storage.blob import BlobServiceClient  # type: ignore
     except Exception as e:
         logger.debug("azure.storage.blob import failed: %s", e)
         raise RuntimeError("azure.storage.blob is required") from e
-
     endpoint_suffix = os.getenv("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
     conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "").strip()
     account = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "").strip()
     sas = os.getenv("AZURE_SAS_TOKEN", "").strip()
-
     if use_managed_identity():
         try:
             from azure.identity import DefaultAzureCredential  # type: ignore
         except Exception as e:
             logger.debug("azure.identity import failed: %s", e)
             raise RuntimeError("azure.identity is required for managed identity mode") from e
-
         if not account:
             raise RuntimeError("AZURE_STORAGE_ACCOUNT_NAME required for managed identity mode")
         account_url = f"https://{account}.{endpoint_suffix}"
@@ -135,7 +121,6 @@ def get_blob_service_client():
         except Exception as e:
             logger.exception("Failed to create BlobServiceClient with managed identity: %s", e)
             raise
-
     if conn_str:
         try:
             _blob_service_client = BlobServiceClient.from_connection_string(conn_str)
@@ -149,7 +134,6 @@ def get_blob_service_client():
         except Exception as e:
             logger.exception("Failed to init client from connection string: %s", e)
             raise
-
     if account and sas:
         try:
             token = sas if sas.startswith("?") else ("?" + sas)
@@ -165,7 +149,6 @@ def get_blob_service_client():
         except Exception as e:
             logger.exception("Failed to init client from SAS token: %s", e)
             raise
-
     raise RuntimeError("Azure storage credentials not provided (connection string or account+SAS or managed identity)")
 
 def blob_exists(key: str) -> bool:
@@ -202,7 +185,6 @@ def head_blob(key: str) -> Dict[str, Any]:
         return {}
 
 def download_blob_to_temp(s3_key: str) -> str:
-    # download azure blob to a temp file and return path
     _, container_client = get_blob_service_client()
     blob_client = container_client.get_blob_client(s3_key)
     tmpdir = os.getenv("TMPDIR") or None
@@ -251,7 +233,6 @@ def azure_put_object_from_bytes(container: str, key: str, payload_bytes: bytes, 
     except Exception:
         blob_client.upload_blob(payload_bytes, overwrite=True)
 
-# ---------------- token encoder / chunker ----------------
 class TokenEncoder:
     def __init__(self, model_name: str = "gpt2"):
         self.model_name = model_name
@@ -311,7 +292,6 @@ class SentenceChunker:
         self.min_tokens_per_chunk = min_tokens_per_chunk
         self.encoder = TokenEncoder(model_name=token_model)
         self.nlp = nlp or self._make_sentencizer()
-
     @staticmethod
     def _make_sentencizer():
         try:
@@ -333,7 +313,6 @@ class SentenceChunker:
         except Exception:
             logger.warning("spaCy not available; falling back to regex-based splitter")
             return None
-
     def _sentences_with_offsets_regex(self, text: str):
         pattern = re.compile(r"(?s).*?[\.\!\?][\"']?\s+|.+$")
         items = []
@@ -350,7 +329,6 @@ class SentenceChunker:
         if not items and text.strip():
             items = [(text.strip(), 0, len(text))]
         return items
-
     def _sentences_with_offsets(self, text: str):
         if self.nlp is not None:
             try:
@@ -359,7 +337,6 @@ class SentenceChunker:
             except Exception:
                 pass
         return self._sentences_with_offsets_regex(text)
-
     def chunk_document(self, text: str):
         sentences = self._sentences_with_offsets(text)
         sent_items = [{"text": s, "start_char": sc, "end_char": ec, "orig_idx": i, "is_remainder": False} for i, (s, sc, ec) in enumerate(sentences)]
@@ -433,7 +410,6 @@ class SentenceChunker:
             n = len(sent_items)
         if prev_chunk is not None:
             yield prev_chunk
-
     @classmethod
     def from_env(cls):
         max_tokens = int(os.getenv("MAX_TOKENS_PER_CHUNK", MAX_TOKENS_PER_CHUNK) or MAX_TOKENS_PER_CHUNK)
@@ -442,12 +418,10 @@ class SentenceChunker:
         token_model = os.getenv("TOKEN_ENCODER_MODEL", os.getenv("TOKEN_ENCODER", "gpt2"))
         return cls(max_tokens_per_chunk=max_tokens, overlap_sentences=overlap, token_model=token_model, nlp=None, min_tokens_per_chunk=min_tokens)
 
-# ---------------- parquet writer ----------------
 class S3ParquetWriter:
     def __init__(self, doc_id: str):
         self.doc_id = doc_id
         self._rows: List[Dict[str, Any]] = []
-
     def _normalize(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         fields: Dict[str, Any] = {}
         fields["document_id"] = payload.get("document_id") or ""
@@ -482,12 +456,11 @@ class S3ParquetWriter:
         fields["timestamp"] = payload.get("timestamp") or ""
         fields["parser_version"] = payload.get("parser_version") or PARSER_VERSION_PDF
         fields["used_ocr"] = bool(payload.get("used_ocr", False))
+        fields["semantic_region"] = payload.get("semantic_region") or ""
         return fields
-
     def write_payload(self, payload: Dict[str, Any]) -> int:
         self._rows.append(self._normalize(payload))
         return 1
-
     def finalize_and_upload(self, out_basename: str) -> Tuple[int, str, str, int]:
         if not self._rows:
             return 0, "", "", 0
@@ -497,7 +470,6 @@ class S3ParquetWriter:
         except Exception as e:
             logger.exception("pyarrow is required to write parquet: %s", e)
             raise RuntimeError("pyarrow is required to write parquet") from e
-
         schema = pa.schema([
             pa.field("document_id", pa.string()),
             pa.field("file_name", pa.string()),
@@ -517,14 +489,13 @@ class S3ParquetWriter:
             pa.field("line_end", pa.int64()),
             pa.field("timestamp", pa.string()),
             pa.field("parser_version", pa.string()),
-            pa.field("used_ocr", pa.bool_())
+            pa.field("used_ocr", pa.bool_()),
+            pa.field("semantic_region", pa.string())
         ])
-
         cols = {name: [] for name in [f.name for f in schema]}
         for r in self._rows:
             for name in cols:
                 cols[name].append(r.get(name) if name in r else None)
-
         table = pa.Table.from_pydict(cols, schema=schema)
         existing_md = table.schema.metadata or {}
         new_md = dict(existing_md)
@@ -535,7 +506,6 @@ class S3ParquetWriter:
             b"created_at": datetime.utcnow().isoformat().encode("utf-8")
         })
         table = table.replace_schema_metadata(new_md)
-
         tmpfile = tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".parquet", dir=tempfile.gettempdir())
         tmpfile.close()
         pq.write_table(table, tmpfile.name, compression="zstd", flavor="spark")
@@ -552,7 +522,6 @@ class S3ParquetWriter:
             pass
         return len(self._rows), CHUNKED_PREFIX + parquet_key, sha, size
 
-# ---------------- ocr / pdf helpers ----------------
 def import_fitz_local():
     with without_cwd_on_syspath():
         try:
@@ -718,17 +687,14 @@ def get_pdf_image_ocr_engine():
             logger.error("No OCR engine available. OCR will be skipped.")
             return "none", None
 
-# ---------------- layout helpers ----------------
 def rect_area(rect: Tuple[float, float, float, float]) -> float:
     x0, y0, x1, y1 = rect
     return max(0.0, x1 - x0) * max(0.0, y1 - y0)
-
 def intersection_area(a: Tuple[float, float, float, float], b: Tuple[float, float, float, float]) -> float:
     x0 = max(a[0], b[0]); y0 = max(a[1], b[1]); x1 = min(a[2], b[2]); y1 = min(a[3], b[3])
     if x1 <= x0 or y1 <= y0:
         return 0.0
     return (x1 - x0) * (y1 - y0)
-
 def overlap_fraction(a: Tuple[float, float, float, float], b: Tuple[float, float, float, float]) -> float:
     a_area = rect_area(a)
     if a_area == 0:
@@ -874,7 +840,6 @@ def extract_page_clean_and_figures(pdf_path: str, pageno: int, overlap_threshold
     plumb.close(); doc.close()
     return clean_text, figures_texts
 
-# ---------------- manifest helper ----------------
 def _now_iso_z() -> str:
     sd = os.getenv("SOURCE_DATE_EPOCH")
     if sd:
@@ -926,7 +891,28 @@ def sanitize_payload_for_weaviate(payload: Dict[str, Any]) -> None:
         if not isinstance(v, (str, int, float, bool)):
             payload[k] = str(v)
 
-# ---------------- core processing ----------------
+def compute_pdf_semantic_region(cumulative_tokens_before: int, chunk_token_count: int, total_tokens: int, page_number: int, total_pages: int) -> str:
+    if total_tokens <= 0:
+        if page_number == 1:
+            return "intro"
+        if page_number == total_pages:
+            return "footer"
+        return "middle"
+    midpoint = (cumulative_tokens_before + (chunk_token_count / 2.0)) / float(total_tokens)
+    if page_number == 1 and midpoint < 0.15:
+        return "intro"
+    if page_number == total_pages and midpoint > 0.85:
+        return "footer"
+    if midpoint < 0.10:
+        return "intro"
+    if midpoint < 0.30:
+        return "early"
+    if midpoint < 0.75:
+        return "middle"
+    if midpoint < 0.95:
+        return "late"
+    return "footer"
+
 def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
     start_all = time.perf_counter()
     if not AZURE_CONTAINER:
@@ -934,14 +920,12 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
         msg = "AZURE_CONTAINER environment variable not set"
         logger.error(msg)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": msg}
-
     try:
         get_blob_service_client()
     except Exception as e:
         total_ms = int((time.perf_counter() - start_all) * 1000)
         logger.exception("Failed to create BlobService client: %s", e)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
-
     try:
         head_obj = head_blob(s3_key) or {}
         try:
@@ -950,7 +934,6 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
             total_ms = int((time.perf_counter() - start_all) * 1000)
             logger.error("Could not download blob %s: %s", s3_key, e)
             return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
-
         try:
             if isinstance(manifest, dict) and manifest.get("file_hash"):
                 doc_id = manifest.get("file_hash")
@@ -958,7 +941,6 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
                 doc_id = local_file_sha256(local_pdf)
             out_basename = f"{doc_id}"
             raw_manifest_key = s3_key + ".manifest.json"
-
             if not FORCE_OVERWRITE:
                 if blob_exists(raw_manifest_key):
                     total_ms = int((time.perf_counter() - start_all) * 1000)
@@ -987,7 +969,6 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
                     except Exception:
                         pass
                     return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
-
             img_ocr_name, img_ocr_obj = get_pdf_image_ocr_engine()
             try:
                 chunker = SentenceChunker.from_env()
@@ -999,38 +980,52 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
                     pass
                 total_ms = int((time.perf_counter() - start_all) * 1000)
                 return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
-
             fitz = import_fitz_local()
             doc = fitz.open(local_pdf)
             writer = S3ParquetWriter(doc_id=doc_id)
             saved = 0
-            for pageno in range(len(doc)):
-                page_start = time.perf_counter()
+            total_pages = len(doc)
+            page_infos: List[Dict[str, Any]] = []
+            for pageno in range(total_pages):
                 try:
                     clean_text, figures_texts = extract_page_clean_and_figures(local_pdf, pageno, overlap_threshold=0.25, image_ocr_engine_name=img_ocr_name, image_ocr_engine_obj=img_ocr_obj)
                 except Exception as e:
                     logger.exception("Page extraction failed for %s page %d: %s", s3_key, pageno + 1, e)
                     clean_text, figures_texts = "", []
-
                 used_ocr = bool(figures_texts)
+                try:
+                    page_tok_ct = len(chunker.encoder.encode(canonicalize_text(clean_text))) if clean_text else 0
+                except Exception:
+                    page_tok_ct = len(canonicalize_text(clean_text).split()) if clean_text else 0
+                page_infos.append({"clean_text": clean_text, "figures_texts": figures_texts, "used_ocr": used_ocr, "page_token_count": page_tok_ct})
+            total_document_tokens = sum(p.get("page_token_count", 0) for p in page_infos)
+            cumulative_tokens = 0
+            for pageno in range(total_pages):
+                page_start = time.perf_counter()
+                info = page_infos[pageno]
+                clean_text = info.get("clean_text", "") or ""
+                figures_texts = info.get("figures_texts", []) or []
+                used_ocr = bool(info.get("used_ocr", False))
                 if not clean_text:
                     chunk_id = f"{doc_id}_p{pageno+1}_0"
-                    payload = {"document_id": doc_id, "file_name": os.path.basename(s3_key), "chunk_id": chunk_id, "chunk_type": "pdf_page_chunk", "text": "", "token_count": 0, "embedding": None, "figures": figures_texts or [], "file_type": "application/pdf", "source_url": f"az://{AZURE_CONTAINER}/{s3_key}", "page_number": pageno+1, "timestamp": _now_iso_z(), "parser_version": PARSER_VERSION_PDF, "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [], "layout_tags": [], "used_ocr": used_ocr, "heading_path": [], "headings": [], "line_range": None, "layout_bbox": None}
+                    region = compute_pdf_semantic_region(cumulative_tokens, 0, total_document_tokens, pageno+1, total_pages)
+                    payload = {"document_id": doc_id, "file_name": os.path.basename(s3_key), "chunk_id": chunk_id, "chunk_type": "pdf_page_chunk", "text": "", "token_count": 0, "embedding": None, "figures": figures_texts or [], "file_type": "application/pdf", "source_url": f"az://{AZURE_CONTAINER}/{s3_key}", "page_number": pageno+1, "timestamp": _now_iso_z(), "parser_version": PARSER_VERSION_PDF, "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [], "layout_tags": [], "used_ocr": used_ocr, "heading_path": [], "headings": [], "line_range": None, "layout_bbox": None, "semantic_region": region}
                     sanitize_payload_for_weaviate(payload)
                     writer.write_payload(payload)
                     saved += 1
                     logger.info("Buffered empty page chunk %s", chunk_id)
                     continue
-
                 for idx, chunk in enumerate(chunker.chunk_document(clean_text)):
                     chunk_id = f"{doc_id}_p{pageno+1}_{idx}"
-                    payload = {"document_id": doc_id, "file_name": os.path.basename(s3_key), "chunk_id": chunk_id, "chunk_type": "pdf_page_chunk", "text": chunk["text"], "token_count": int(chunk["token_count"]), "embedding": None, "figures": figures_texts or [], "file_type": "application/pdf", "source_url": f"az://{AZURE_CONTAINER}/{s3_key}", "page_number": pageno+1, "timestamp": _now_iso_z(), "parser_version": PARSER_VERSION_PDF, "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [], "layout_tags": [], "used_ocr": used_ocr, "heading_path": [], "headings": [], "line_range": None, "layout_bbox": None}
+                    chunk_token_count = int(chunk.get("token_count", 0))
+                    region = compute_pdf_semantic_region(cumulative_tokens, chunk_token_count, total_document_tokens, pageno+1, total_pages)
+                    payload = {"document_id": doc_id, "file_name": os.path.basename(s3_key), "chunk_id": chunk_id, "chunk_type": "pdf_page_chunk", "text": chunk["text"], "token_count": int(chunk["token_count"]), "embedding": None, "figures": figures_texts or [], "file_type": "application/pdf", "source_url": f"az://{AZURE_CONTAINER}/{s3_key}", "page_number": pageno+1, "timestamp": _now_iso_z(), "parser_version": PARSER_VERSION_PDF, "tags": manifest.get("tags", []) if isinstance(manifest, dict) else [], "layout_tags": [], "used_ocr": used_ocr, "heading_path": [], "headings": [], "line_range": None, "layout_bbox": None, "semantic_region": region}
                     sanitize_payload_for_weaviate(payload)
                     writer.write_payload(payload)
                     saved += 1
+                    cumulative_tokens += chunk_token_count
                 page_ms = int((time.perf_counter() - page_start) * 1000)
                 logger.info("Processed page %d (%d ms) chunks so far %d", pageno+1, page_ms, saved)
-
             if saved == 0:
                 try:
                     os.unlink(local_pdf)
@@ -1039,7 +1034,6 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
                 total_ms = int((time.perf_counter() - start_all) * 1000)
                 logger.info("No chunks produced for %s", s3_key)
                 return {"saved_chunks": 0, "total_parse_duration_ms": total_ms}
-
             count, uploaded_key, sha, size = writer.finalize_and_upload(out_basename)
             try:
                 os.unlink(local_pdf)
@@ -1066,7 +1060,6 @@ def process_pdf_s3_object(s3_key: str, manifest: dict) -> dict:
         logger.exception("Unexpected error in process_pdf_s3_object: %s", e)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e)}
 
-# ---------------- parse_file API (entrypoint used by router.py) ----------------
 def parse_file(s3_key: str, manifest: dict) -> dict:
     start = time.perf_counter()
     try:
@@ -1082,7 +1075,6 @@ def parse_file(s3_key: str, manifest: dict) -> dict:
         logger.exception("parse_file error for %s: %s", s3_key, e)
         return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True, "error": str(e), "traceback": tb}
 
-# local debug
 if __name__ == "__main__":
     try:
         eng_name, eng_obj = get_pdf_image_ocr_engine()

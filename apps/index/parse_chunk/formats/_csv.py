@@ -202,11 +202,11 @@ def strip_root_from_path(full: str) -> str:
     if full.startswith(proto_prefix):
         rest = full[len(proto_prefix):]
         if rest.startswith((AZURE_CONTAINER or "") + "/"):
-            return rest[len(AZURE_CONTAINER) + 1 :]
+            return rest[len(AZURE_CONTAINER) + 1 : ]
         if rest == (AZURE_CONTAINER or ""):
             return ""
     if full.startswith((AZURE_CONTAINER or "") + "/"):
-        return full[len(AZURE_CONTAINER) + 1 :]
+        return full[len(AZURE_CONTAINER) + 1 : ]
     return full
 
 def sha256_hex_str(s: str) -> str:
@@ -527,6 +527,110 @@ def split_into_token_windows(text: str, max_tokens: int, overlap_fraction: float
         else:
             start = new_start
 
+# ---------- NEW: semantic_region helper (CSV positional) ----------
+def csv_positional_region(row_range: Optional[List[int]], total_rows: Optional[int]) -> str:
+    """
+    Deterministic mapping of row_range -> semantic region.
+    Uses chunk midpoint relative to total_rows.
+
+    Bands:
+      intro  : 0%  - 5%
+      early  : 5%  - 25%
+      middle : 25% - 75%
+      late   : 75% - 95%
+      footer : 95% - 100%
+    """
+    if not row_range or total_rows is None or total_rows <= 0:
+        return "middle"
+    try:
+        rs = float(row_range[0])
+        re = float(row_range[1])
+        mid = (rs + re) / 2.0
+        frac = mid / float(total_rows)
+    except Exception:
+        return "middle"
+    if frac <= 0.05:
+        return "intro"
+    if frac <= 0.25:
+        return "early"
+    if frac <= 0.75:
+        return "middle"
+    if frac <= 0.95:
+        return "late"
+    return "footer"
+
+def count_data_rows(blob_key: str) -> int:
+    """
+    Count data rows (excluding header) efficiently.
+    Works with fsspec (FS) or Azure SDK managed identity (BLOB_CLIENT).
+    This is a streaming count; handles large files without loading whole file to memory.
+    Returns number of data rows (lines after first non-empty header line).
+    """
+    client = get_storage_client()
+    full = full_path_from_key(blob_key)
+    # fsspec path
+    if FS is not None:
+        try:
+            with FS.open(full, "rb") as fh:
+                # read and skip header line
+                first = fh.readline()
+                if not first:
+                    return 0
+                count = 0
+                for raw in fh:
+                    if raw.strip():
+                        count += 1
+                return count
+        except Exception as e:
+            log.warning("count_rows_fs_failed", "fsspec counting failed, falling back", error=str(e))
+            # fall through to try blob client if available
+    # managed identity / azure sdk path
+    if BLOB_CLIENT is not None:
+        try:
+            container_client = BLOB_CLIENT.get_container_client(AZURE_CONTAINER)
+            blob_client = container_client.get_blob_client(blob_key)
+            stream = blob_client.download_blob()
+            rem = b""
+            header_skipped = False
+            count = 0
+            for chunk in stream.chunks():
+                if not chunk:
+                    continue
+                data = rem + chunk
+                parts = data.split(b"\n")
+                rem = parts.pop()
+                for i, p in enumerate(parts):
+                    if not header_skipped:
+                        header_skipped = True
+                        continue
+                    if p.strip():
+                        count += 1
+            # remaining tail
+            if rem:
+                if not header_skipped:
+                    # only header present; no data rows
+                    pass
+                else:
+                    if rem.strip():
+                        count += 1
+            return count
+        except Exception as e:
+            log.warning("count_rows_blob_failed", "azure blob counting failed", error=str(e))
+            # fallback below
+    # last-resort fallback: try reading via storage client get_object (reads whole body)
+    try:
+        obj = client.get_object(Bucket=AZURE_CONTAINER, Key=blob_key)
+        body = obj.get("Body")
+        data = body.read()
+        text = data.decode("utf-8", errors="replace")
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        if not lines:
+            return 0
+        # consider first non-empty line as header
+        return max(0, len(lines) - 1)
+    except Exception:
+        return 0
+
 class ParquetWriter:
     def __init__(self, doc_id: str):
         self.doc_id = doc_id
@@ -571,6 +675,8 @@ class ParquetWriter:
         out["timestamp"] = payload.get("timestamp") or ""
         out["parser_version"] = payload.get("parser_version") or PARSER_VERSION
         out["used_ocr"] = bool(payload.get("used_ocr", False))
+        # semantic_region field (string) - optional presence
+        out["semantic_region"] = payload.get("semantic_region") or ""
         return out
 
     def write_payload(self, payload: Dict[str, Any]) -> int:
@@ -607,6 +713,7 @@ class ParquetWriter:
             pa.field("timestamp", pa.string()),
             pa.field("parser_version", pa.string()),
             pa.field("used_ocr", pa.bool_()),
+            pa.field("semantic_region", pa.string()),
         ])
         cols = {name: [] for name in [f.name for f in schema]}
         for r in self._rows:
@@ -706,7 +813,7 @@ def get_header_and_sample_tokens(blob_key: str) -> Tuple[str, int]:
     except Exception:
         return "", 32
 
-def _flush_rows_chunk(writer: ParquetWriter, doc_id: str, chunk_index: int, header_text: str, rows_text: List[str], start_row_num: int, manifest_tags: List[str] = None) -> Tuple[int, int]:
+def _flush_rows_chunk(writer: ParquetWriter, doc_id: str, chunk_index: int, header_text: str, rows_text: List[str], start_row_num: int, manifest_tags: List[str] = None, total_rows: Optional[int] = None) -> Tuple[int, int]:
     if not rows_text:
         return 0, chunk_index
     chunk_index += 1
@@ -716,6 +823,8 @@ def _flush_rows_chunk(writer: ParquetWriter, doc_id: str, chunk_index: int, head
     end_row_num = start_row_num + len(rows_text) - 1
     src = writer._rows[0].get("source_url") if writer._rows else ""
     source_url = src if src else f"az://{AZURE_CONTAINER}/"
+    row_range = [int(start_row_num), int(end_row_num)]
+    semantic = csv_positional_region(row_range, total_rows)
     payload = {
         "document_id": doc_id or "",
         "chunk_id": chunk_id or "",
@@ -737,12 +846,13 @@ def _flush_rows_chunk(writer: ParquetWriter, doc_id: str, chunk_index: int, head
         "heading_path": [],
         "headings": [],
         "line_range": None,
+        "semantic_region": semantic,
     }
     writer.write_payload(payload)
     log.info("buffer_row_group", "Buffered CSV row_group chunk %s", payload.get("chunk_id"))
     return 1, chunk_index
 
-def _process_batch_rows(rows_iterable, doc_id, blob_path, chunk_index, header_text, next_row_num, writer: ParquetWriter, manifest_tags: List[str] = None):
+def _process_batch_rows(rows_iterable, doc_id, blob_path, chunk_index, header_text, next_row_num, writer: ParquetWriter, manifest_tags: List[str] = None, total_rows: Optional[int] = None):
     saved = 0
     rows_text: List[str] = []
     start_row_of_current = next_row_num
@@ -756,7 +866,7 @@ def _process_batch_rows(rows_iterable, doc_id, blob_path, chunk_index, header_te
         row_tokens = token_count_for(row_text)
         if row_tokens > TARGET_TOKENS_PER_CHUNK:
             if rows_text:
-                wrote, chunk_index = _flush_rows_chunk(writer, doc_id, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags)
+                wrote, chunk_index = _flush_rows_chunk(writer, doc_id, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags, total_rows=total_rows)
                 saved += wrote
                 rows_text = []
             windows = list(split_into_token_windows(row_text, TARGET_TOKENS_PER_CHUNK, overlap_fraction=0.1))
@@ -765,6 +875,8 @@ def _process_batch_rows(rows_iterable, doc_id, blob_path, chunk_index, header_te
                 chunk_id = f"{doc_id}_{chunk_index}"
                 candidate_text = header_text + "\n" + w["text"] if header_text and (token_count_for(header_text) + w["token_count"] <= TARGET_TOKENS_PER_CHUNK) else w["text"]
                 token_ct = token_count_for(candidate_text)
+                row_range = [int(row_num), int(row_num)]
+                semantic = csv_positional_region(row_range, total_rows)
                 payload = {
                     "document_id": doc_id or "",
                     "chunk_id": chunk_id or "",
@@ -786,6 +898,7 @@ def _process_batch_rows(rows_iterable, doc_id, blob_path, chunk_index, header_te
                     "heading_path": [],
                     "headings": [],
                     "line_range": None,
+                    "semantic_region": semantic,
                 }
                 writer.write_payload(payload)
                 log.info("buffer_token_window", "Buffered CSV token_window %s", payload.get("chunk_id"))
@@ -800,12 +913,12 @@ def _process_batch_rows(rows_iterable, doc_id, blob_path, chunk_index, header_te
             rows_text.append(row_text)
             continue
         else:
-            wrote, chunk_index = _flush_rows_chunk(writer, doc_id, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags)
+            wrote, chunk_index = _flush_rows_chunk(writer, doc_id, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags, total_rows=total_rows)
             saved += wrote
             rows_text = [row_text]
             start_row_of_current = row_num
     if rows_text:
-        wrote, chunk_index = _flush_rows_chunk(writer, doc_id, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags)
+        wrote, chunk_index = _flush_rows_chunk(writer, doc_id, chunk_index, header_text, rows_text, start_row_of_current, manifest_tags, total_rows=total_rows)
         saved += wrote
     return saved, chunk_index, next_row_num
 
@@ -862,6 +975,16 @@ def parse_file(blob_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
         estimated_rows = max(1, int(available_for_rows / max(1, sample_row_tokens)))
         rows_per_chunk = max(MIN_ROWS_PER_CHUNK, min(MAX_ROWS_PER_CHUNK, estimated_rows))
     log.info("sample_info", "%s sample_row_tokens=%d header_tokens=%d rows_per_chunk=%d", blob_key, sample_row_tokens, header_tokens, rows_per_chunk)
+
+    # ---------- NEW: compute total_rows for semantic_region classification ----------
+    total_rows = None
+    try:
+        total_rows = count_data_rows(blob_key)
+        log.info("total_rows_counted", "Counted data rows", blob=blob_key, total_rows=total_rows)
+    except Exception as e:
+        log.warning("total_rows_count_failed", "Could not count total rows; semantic_region will default to 'middle'", error=str(e))
+        total_rows = None
+
     saved = 0
     chunk_index = 0
     next_row_num = 1
@@ -877,12 +1000,12 @@ def parse_file(blob_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
             buffer.append(row)
             if len(buffer) >= rows_per_chunk:
                 indexed_iter = ((i, r) for i, r in enumerate(buffer))
-                saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, blob_key, chunk_index, header_text, next_row_num, writer, manifest_tags)
+                saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, blob_key, chunk_index, header_text, next_row_num, writer, manifest_tags, total_rows=total_rows)
                 saved += saved_chunk
                 buffer = []
         if buffer:
             indexed_iter = ((i, r) for i, r in enumerate(buffer))
-            saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, blob_key, chunk_index, header_text, next_row_num, writer, manifest_tags)
+            saved_chunk, chunk_index, next_row_num = _process_batch_rows(indexed_iter, doc_id, blob_key, chunk_index, header_text, next_row_num, writer, manifest_tags, total_rows=total_rows)
             saved += saved_chunk
     except Exception as e_pd:
         total_ms = int((time.perf_counter() - start_all) * 1000)

@@ -3,8 +3,6 @@
 FROM ubuntu:22.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 ENV VENV_PATH=/opt/venv
-ENV MODEL_HOME=/opt/models
-ENV RAPIDOCR_MODEL_DIR=/opt/models/rapidocr
 ENV PYTHONUNBUFFERED=1
 
 # build / compile deps needed for python wheels and model utilities
@@ -68,33 +66,22 @@ FROM ubuntu:22.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV VENV_PATH=/opt/venv
+ENV TMP_ROOT=/tmp/preconv
+ENV DESIRED_NOFILE=262144
+ENV MAX_PARALLEL_CONVERTS=2
+ENV FDS_PER_CONVERT=60
 
-# runtime packages required for conversion tools and OCR
+# runtime packages required for conversion tools and OCR and prlimit (util-linux)
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
       ca-certificates wget curl gnupg2 dirmngr lsb-release \
       software-properties-common \
-      fonts-dejavu-core tini unzip jq; \
-    \
-    # Add LibreOffice PPA for latest deb packages (works well inside containers)
-    add-apt-repository ppa:libreoffice/ppa -y; \
-    apt-get update; \
-    \
-    # Install runtime conversion tools (kept --no-install-recommends for non-LibreOffice deps to reduce image size)
-    apt-get install -y --no-install-recommends \
-      libmagic1 poppler-utils ffmpeg sox \
-      libsndfile1 \
+      fonts-dejavu-core tini unzip jq util-linux \
+      libmagic1 poppler-utils ffmpeg sox libsndfile1 \
       libgl1 libgl1-mesa-dri libglib2.0-0 libsm6 libxrender1 libxext6 \
-      tesseract-ocr \
-      default-jre-headless; \
-    \
-    # Install full LibreOffice from PPA (ensure writer/pdf filters present). Do NOT use --no-install-recommends here to not drop filters.
-    apt-get install -y \
-      libreoffice libreoffice-writer libreoffice-common libreoffice-core \
+      tesseract-ocr default-jre-headless libreoffice libreoffice-writer libreoffice-common libreoffice-core \
       fonts-dejavu fonts-liberation; \
-    \
-    # Clean up apt cache
     rm -rf /var/lib/apt/lists/*
 
 # copy venv and app code from builder
@@ -102,65 +89,59 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /indexing_pipeline /indexing_pipeline
 
 # Ensure python pre-conversions script is present (user-provided)
-# if you have a different location, change COPY accordingly
-# Ensure it's readable/executable by runtime user
 RUN if [ -f /indexing_pipeline/pre_conversions.py ]; then chmod +x /indexing_pipeline/pre_conversions.py || true; fi
 
-# environment defaults (Azure-first)
-ENV OVERWRITE_ALL_AUDIO_FILES=${OVERWRITE_ALL_AUDIO_FILES:-false}
-ENV OVERWRITE_OTHER_TO_PDF=${OVERWRITE_OTHER_TO_PDF:-true}
-ENV OVERWRITE_SPREADSHEETS_WITH_CSV=${OVERWRITE_SPREADSHEETS_WITH_CSV:-false}
-ENV MODEL_HOST_PATH=/app/models
-ENV PORT=8000
-ENV HEALTH_PATH=/health
+# create tmp dir and set permissive perms for tmp dirs (randomized tmpdirs will live under TMP_ROOT)
+RUN mkdir -p ${TMP_ROOT} && chown root:root ${TMP_ROOT} && chmod 1777 ${TMP_ROOT}
 
-# Azure storage envs (defaults left empty for safety)
-ENV STORAGE_PROTOCOL=${STORAGE_PROTOCOL:-az}
-ENV AZURE_STORAGE_ACCOUNT_NAME=${AZURE_STORAGE_ACCOUNT_NAME:-}
-ENV AZURE_STORAGE_ACCOUNT_KEY=${AZURE_STORAGE_ACCOUNT_KEY:-}
-ENV AZURE_CONTAINER=${AZURE_CONTAINER:-rag-data-prod}
-ENV AZURE_CHUNKED_PREFIX=${AZURE_CHUNKED_PREFIX:-data/chunked/}
-ENV AZURE_ENDPOINT_SUFFIX=${AZURE_ENDPOINT_SUFFIX:-core.windows.net}
-ENV BACKUP_AZ_CONTAINER=${BACKUP_AZ_CONTAINER:-backups}
+# minimal runtime env defaults (kept conservative)
+ENV OVERWRITE_ALL_AUDIO_FILES=false
+ENV OVERWRITE_OTHER_TO_PDF=true
+ENV OVERWRITE_SPREADSHEETS_WITH_CSV=false
+ENV STORAGE_PROTOCOL=az
+ENV AZURE_CONTAINER=rag-data-prod
+ENV AZURE_CHUNKED_PREFIX=data/chunked/
+ENV AZURE_ENDPOINT_SUFFIX=core.windows.net
 ENV USE_MANAGED_IDENTITY=0
-
-# pipeline / chunking config
 ENV CHUNK_FORMAT=json
 ENV MAX_TOKENS_PER_CHUNK=400
 ENV MIN_TOKENS_PER_CHUNK=100
 ENV NUMBER_OF_OVERLAPPING_SENTENCES=2
-ENV PDF_DISABLE_OCR=false
-ENV PDF_OCR_ENGINE=tesseract
-ENV PDF_TESSERACT_LANG=eng
-ENV PDF_FORCE_OCR=false
-ENV PDF_OCR_RENDER_DPI=400
-ENV PDF_MIN_IMG_SIZE_BYTES=3072
-ENV IMAGE_OCR_ENGINE=tesseract
-ENV IMAGE_TESSERACT_LANG=eng
-ENV TESSERACT_CMD=/usr/bin/tesseract
-ENV TESSERACT_CONFIG="--oem 1 --psm 6"
-ENV IMAGE_MIN_IMG_SIZE_BYTES=3072
-ENV IMAGE_RENDER_DPI=600
-ENV IMAGE_UPSCALE_FACTOR=2.0
-ENV IMAGE_ENABLE_WORDSEGMENT=false
 ENV TOKEN_ENCODER=cl100k_base
-ENV TOKEN_ENCODER_MODEL=cl100k_base
-ENV FORCE_PROCESS=false
-ENV FORCE_OVERWRITE=false
-ENV MODEL_HOME=/opt/models
-ENV HF_HOME=/opt/models/hf
-ENV HF_HUB_CACHE=/opt/models/hf/hub
-ENV HF_ASSETS_CACHE=/opt/models/hf/assets
-ENV RAPIDOCR_MODEL_DIR=/opt/models/rapidocr
-ENV WORKSPACE_MODELS=/indexing_pipeline/models
-ENV FW_MODEL_PATH=/indexing_pipeline/models/faster_whisper/faster-whisper-base
-ENV FW_MODEL_BIN=/indexing_pipeline/models/faster_whisper/faster-whisper-base/model.bin
 
+# PATH and pythonpath
 ENV PATH=${VENV_PATH}/bin:$PATH
 ENV PYTHONPATH=/indexing_pipeline
 
 WORKDIR /indexing_pipeline
-EXPOSE 8000
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["/opt/venv/bin/python", "indexing_pipeline.py"]
+# create a small entrypoint wrapper which sets prlimit/ulimit (best-effort) and then execs the pipeline via tini
+COPY <<'ENTRY' /usr/local/bin/entrypoint.sh
+#!/bin/sh
+set -eux
+# read desired values from env (allow docker run --env to override)
+DESIRED=${DESIRED_NOFILE:-262144}
+# attempt to set RLIMIT_NOFILE via prlimit (requires util-linux)
+if command -v prlimit >/dev/null 2>&1; then
+  # prlimit will set soft:hard for the current process and children via --pid $$ is not portable; use exec -- to affect executed process
+  echo "attempting prlimit --nofile=${DESIRED}:${DESIRED}"
+  prlimit --nofile=$DESIRED:$DESIRED -- "$SHELL" -c 'exec "$@"' -- /bin/true || true
+fi
+# also try shell builtin ulimit (affects this shell)
+ulimit -n ${DESIRED} || true
+# log current limits for visibility
+echo "current open file limit: $(ulimit -n 2>/dev/null || echo unknown)"
+# run the pre-conversions/indexing pipeline using tini to reap zombies
+exec /usr/bin/tini -- /opt/venv/bin/python indexing_pipeline.py
+ENTRY
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Healthcheck (optional)
+HEALTHCHECK --interval=60s --timeout=3s --start-period=10s --retries=3 CMD [ "/opt/venv/bin/python", "-c", "import sys; sys.exit(0)" ]
+
+# Run as entrypoint (keeps tini as PID 1 and runs our wrapper)
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD []
+
+# Expose default port (indexing pipeline not network server by default but kept for parity)
+EXPOSE 8000

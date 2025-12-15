@@ -166,7 +166,7 @@ def build_storage_options() -> Dict[str, Any]:
         opts["connection_string"] = conn
         return opts
     acct = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") or os.environ.get("AZURE_ACCOUNT_NAME")
-    key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY") or os.environ.get("AZURE_ACCOUNT_KEY")
+    key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY") or os.getenv("AZURE_ACCOUNT_KEY")
     sas = os.environ.get("AZURE_SAS_TOKEN")
     eps = os.environ.get("AZURE_ENDPOINT_SUFFIX") or "core.windows.net"
     if acct and key:
@@ -686,6 +686,8 @@ class ParquetWriter:
         fields["timestamp"] = payload.get("timestamp") or ""
         fields["parser_version"] = payload.get("parser_version") or PARSER_VERSION
         fields["used_ocr"] = bool(payload.get("used_ocr", False))
+        # semantic_region may be present; ensure it's string
+        fields["semantic_region"] = payload.get("semantic_region") or ""
         return fields
 
     def write_payload(self, payload: Dict[str, Any]) -> int:
@@ -720,7 +722,8 @@ class ParquetWriter:
             pa.field("token_end", pa.int64()),
             pa.field("timestamp", pa.string()),
             pa.field("parser_version", pa.string()),
-            pa.field("used_ocr", pa.bool_())
+            pa.field("used_ocr", pa.bool_()),
+            pa.field("semantic_region", pa.string())
         ])
         cols: Dict[str, List[Any]] = {name: [] for name in [f.name for f in schema]}
         for r in self._rows:
@@ -787,7 +790,94 @@ def sanitize_payload(payload: Dict[str, Any]) -> None:
     payload["file_type"] = payload.get("file_type") or ""
     if not payload.get("timestamp"):
         payload["timestamp"] = datetime.utcnow().isoformat() + "Z"
+    # ensure semantic_region exists
+    if "semantic_region" not in payload:
+        payload["semantic_region"] = ""
 
+# ---------- semantic_region logic ----------
+# Module-level total rows (set per-parse_file run)
+TOTAL_ROWS: Optional[int] = None
+
+def semantic_region_for_jsonl(row_start: int, row_end: int, total_rows: int) -> str:
+    """
+    Deterministic mapping from row range -> semantic region.
+    Uses mid-point of the row_range relative to total_rows.
+    Boundaries (percentiles):
+      intro  : <= 5%
+      early  : <= 25%
+      middle : <= 75%
+      late   : <= 95%
+      footer : else
+    """
+    if total_rows is None:
+        return "middle"
+    try:
+        total = int(total_rows)
+    except Exception:
+        return "middle"
+    if total <= 0:
+        return "middle"
+    try:
+        mid = (int(row_start) + int(row_end)) / 2.0
+    except Exception:
+        mid = float(row_start)
+    ratio = float(mid) / float(total)
+    if ratio <= 0.05:
+        return "intro"
+    if ratio <= 0.25:
+        return "early"
+    if ratio <= 0.75:
+        return "middle"
+    if ratio <= 0.95:
+        return "late"
+    return "footer"
+
+def count_lines_in_blob(blob_key: str, chunk_size: int = 64 * 1024) -> int:
+    """
+    Stream the blob and count newline characters to compute total rows.
+    Works for both fsspec and azure blob clients.
+    """
+    client = get_storage_client_singleton()
+    count = 0
+    try:
+        obj = client.get_object(Bucket=AZURE_CONTAINER, Key=blob_key)
+        body = obj.get("Body")
+        if hasattr(body, "read"):
+            while True:
+                chunk = body.read(chunk_size)
+                if not chunk:
+                    break
+                if isinstance(chunk, str):
+                    count += chunk.count("\n")
+                else:
+                    count += chunk.count(b"\n")
+        elif hasattr(body, "iter_lines"):
+            for _ in body.iter_lines(chunk_size=chunk_size, keepends=True):
+                count += 1
+        else:
+            # fallback: read all
+            b = body.read()
+            if isinstance(b, bytes):
+                count = b.count(b"\n")
+            else:
+                count = str(b).count("\n")
+    except Exception:
+        # best-effort: return 0 so semantic_region defaults to middle
+        return 0
+    # if last line doesn't end with newline, add 1 if there is content
+    if count == 0:
+        try:
+            obj2 = client.get_object(Bucket=AZURE_CONTAINER, Key=blob_key)
+            body2 = obj2.get("Body")
+            content = body2.read(1)
+            if content:
+                return 1
+            return 0
+        except Exception:
+            return count
+    return count if count > 0 else 0
+
+# ---------- flush / process helpers (updated to set semantic_region) ----------
 def _flush_rows_chunk(writer: ParquetWriter, doc_id: str, chunk_index: int, header_text: str, rows_text: List[str], start_row_num: int, manifest_tags: List[str] = None) -> Tuple[int, int]:
     if not rows_text:
         return 0, chunk_index
@@ -819,6 +909,12 @@ def _flush_rows_chunk(writer: ParquetWriter, doc_id: str, chunk_index: int, head
         "heading_path": [],
         "headings": []
     }
+    # semantic_region derived from module TOTAL_ROWS
+    try:
+        global TOTAL_ROWS
+        payload["semantic_region"] = semantic_region_for_jsonl(payload["row_range"][0], payload["row_range"][1], TOTAL_ROWS or 0)
+    except Exception:
+        payload["semantic_region"] = ""
     sanitize_payload(payload)
     writer.write_payload(payload)
     log.info("buffered_chunk", "Buffered chunk", chunk_id=payload["chunk_id"])
@@ -871,6 +967,11 @@ def _process_batch_rows(rows_iterable, doc_id, source_path, chunk_index, header_
                     "heading_path": [],
                     "headings": []
                 }
+                try:
+                    global TOTAL_ROWS
+                    payload["semantic_region"] = semantic_region_for_jsonl(payload["row_range"][0], payload["row_range"][1], TOTAL_ROWS or 0)
+                except Exception:
+                    payload["semantic_region"] = ""
                 sanitize_payload(payload)
                 writer.write_payload(payload)
                 log.info("buffered_token_window", "Buffered token window", chunk_id=payload["chunk_id"])
@@ -970,6 +1071,15 @@ def parse_file(blob_key: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
             return {"saved_chunks": 0, "total_parse_duration_ms": total_ms, "skipped": True}
     except Exception:
         pass
+
+    # compute total rows for semantic_region mapping (best-effort, streaming)
+    global TOTAL_ROWS
+    try:
+        TOTAL_ROWS = count_lines_in_blob(blob_key)
+        if TOTAL_ROWS is None:
+            TOTAL_ROWS = 0
+    except Exception:
+        TOTAL_ROWS = 0
 
     header_text, sample_row_tokens = get_header_and_sample_tokens(blob_key)
     header_tokens = token_count_for(header_text) if header_text else 0

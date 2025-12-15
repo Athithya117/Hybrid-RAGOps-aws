@@ -165,6 +165,8 @@ def ui_fields_from_payload(payload: Dict[str, Any], prefer_snippet_len: int = 30
             ordered.append(("layout_tags", p.get("layout_tags")))
         if p.get("figures"):
             ordered.append(("figures", p.get("figures")))
+        if p.get("semantic_region"):
+            ordered.append(("semantic_region", p.get("semantic_region")))
     elif detected == "pptx":
         if p.get("slide_range"):
             ordered.append(("slide_range", p.get("slide_range")))
@@ -180,11 +182,38 @@ def ui_fields_from_payload(payload: Dict[str, Any], prefer_snippet_len: int = 30
             ordered.append(("row_range", p.get("row_range")))
         if p.get("headings"):
             ordered.append(("headings", p.get("headings")))
+        if p.get("semantic_region"):
+            ordered.append(("semantic_region", p.get("semantic_region")))
     elif detected == "image":
         if p.get("layout_bbox"):
             ordered.append(("layout_bbox", p.get("layout_bbox")))
         if p.get("used_ocr") is not None:
             ordered.append(("used_ocr", bool(p.get("used_ocr"))))
+    elif detected == "html":
+        if p.get("headings"):
+            ordered.append(("headings", p.get("headings")))
+        if p.get("line_range"):
+            ordered.append(("line_range", p.get("line_range")))
+        if p.get("token_range"):
+            ordered.append(("token_range", p.get("token_range")))
+        if p.get("semantic_region"):
+            ordered.append(("semantic_region", p.get("semantic_region")))
+    elif detected in ("md", "txt"):
+        if p.get("headings"):
+            ordered.append(("headings", p.get("headings")))
+        if p.get("line_range"):
+            ordered.append(("line_range", p.get("line_range")))
+        if p.get("token_range"):
+            ordered.append(("token_range", p.get("token_range")))
+        if p.get("semantic_region"):
+            ordered.append(("semantic_region", p.get("semantic_region")))
+    elif detected == "jsonl":
+        if p.get("token_range"):
+            ordered.append(("token_range", p.get("token_range")))
+        if p.get("line_range"):
+            ordered.append(("line_range", p.get("line_range")))
+        if p.get("semantic_region"):
+            ordered.append(("semantic_region", p.get("semantic_region")))
     else:
         if p.get("headings"):
             ordered.append(("headings", p.get("headings")))
@@ -192,6 +221,8 @@ def ui_fields_from_payload(payload: Dict[str, Any], prefer_snippet_len: int = 30
             ordered.append(("line_range", p.get("line_range")))
         if p.get("token_range"):
             ordered.append(("token_range", p.get("token_range")))
+        if p.get("semantic_region"):
+            ordered.append(("semantic_region", p.get("semantic_region")))
 
     if p.get("tags"):
         ordered.append(("tags", p.get("tags")))

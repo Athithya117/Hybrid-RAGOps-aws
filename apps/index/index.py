@@ -398,6 +398,12 @@ def normalize_chunk(chunk: Dict[str, Any]) -> Dict[str, Any]:
     c["row_range"] = _to_optional_list_of_ints(c.get("row_range"))
     c["line_range"] = _to_optional_list_of_ints(c.get("line_range"))
     c["token_range"] = _to_optional_list_of_ints(c.get("token_range"))
+    # -- semantic_region normalization (safe, optional)
+    if "semantic_region" in c and c.get("semantic_region") is not None:
+        try:
+            c["semantic_region"] = str(c.get("semantic_region"))
+        except Exception:
+            c["semantic_region"] = None
     c["slide_range"] = _parse_list_like(c.get("slide_range")) or None
     c["audio_range"] = _to_optional_audio_range(c.get("audio_range"))
     c["page_number"] = _to_optional_int(c.get("page_number"))
@@ -454,7 +460,7 @@ def create_collection_sparse_only(client, name):
 
 FULL_PAYLOAD_KEYS = [
     "document_id", "file_name", "chunk_id", "chunk_type", "text", "token_count", "source_url", "timestamp",
-    "parser_version", "page_number", "row_range", "line_range", "token_range", "audio_range", "slide_range",
+    "parser_version", "page_number", "row_range", "line_range", "token_range", "semantic_region", "audio_range", "slide_range",
     "headings", "heading_path", "tags", "layout_tags", "figures", "file_type", "used_ocr", "layout"
 ]
 
@@ -802,6 +808,7 @@ def load_chunks_from_azure(account_name: Optional[str], account_key: Optional[st
                             "row_range": _safe_json_load(row.get("row_range")) or None,
                             "token_range": _safe_json_load(row.get("token_range")) or None,
                             "slide_range": _safe_json_load(row.get("slide_range")) or None,
+                            "semantic_region": row.get("semantic_region") if "semantic_region" in row else None
                         }
                         norm = normalize_chunk(chunk)
                         chunks.append(norm)
