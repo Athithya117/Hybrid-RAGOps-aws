@@ -110,9 +110,7 @@ def load_config() -> Dict[str, Any]:
 
     # endpoints / service discovery
     cfg["QDRANT_URL"] = os.getenv("QDRANT_URL", "http://qdrant.inference.svc.cluster.local:6333")
-    cfg["QDRANT_API_KEY"] = os.getenv("QDRANT_API_KEY", "")
     cfg["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY", "")
-    cfg["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "")
     cfg["COLLECTION_NAME"] = os.getenv("COLLECTION_NAME", "default_rag_collection1")
     cfg["DENSE_URL"] = os.getenv("DENSE_URL", "http://dense.inference.svc.cluster.local:8200")
     cfg["SPARSE_URL"] = os.getenv("SPARSE_URL", "http://sparse.inference.svc.cluster.local:8201")
@@ -208,15 +206,10 @@ def render_deployment(cfg: Dict[str, Any]) -> str:
         {"name": "AZURE_USE_MANAGED_IDENTITY", "value": str(cfg["AZURE_USE_MANAGED_IDENTITY"]).lower()},
     ]
 
-    # Sensitive keys referenced via secretKeyRef only if present in memory
-    if "QDRANT_API_KEY" in cfg["SECRET_VALUES"]:
-        env_list.append({"name": "QDRANT_API_KEY", "valueFrom": {"secretKeyRef": {"name": f"{cfg['SERVICE_NAME']}-secret", "key": "qdrant_api_key"}}})
     if "AZURE_STORAGE_ACCOUNT_KEY" in cfg["SECRET_VALUES"]:
         env_list.append({"name": "AZURE_STORAGE_ACCOUNT_KEY", "valueFrom": {"secretKeyRef": {"name": f"{cfg['SERVICE_NAME']}-secret", "key": "azure_storage_account_key"}}})
     if "GROQ_API_KEY" in cfg["SECRET_VALUES"]:
         env_list.append({"name": "GROQ_API_KEY", "valueFrom": {"secretKeyRef": {"name": f"{cfg['SERVICE_NAME']}-secret", "key": "groq_api_key"}}})
-    if "OPENAI_API_KEY" in cfg["SECRET_VALUES"]:
-        env_list.append({"name": "OPENAI_API_KEY", "valueFrom": {"secretKeyRef": {"name": f"{cfg['SERVICE_NAME']}-secret", "key": "openai_api_key"}}})
 
     container = {
         "name": cfg["SERVICE_NAME"],

@@ -108,10 +108,10 @@ export QDRANT_ONDISK="TRUE"                         # TRUE/1/YES => enable on-di
 export INDEXING_CRONJOB_TIMEZONE="Asia/Kolkata"     # or "Etc/UTC", "Europe/Berlin", "America/New_York" or https://cronjob.live/docs/cron-timezones
 export CRON_SCHEDULE="0 */6 * * *"                   # Runs at minute 0 every 6 hours; or adjust fields to alter minute/hour/day
 export CRONJOB_CONCURRENCY="Allow"                    # ConcurrencyPolicy (Allow/Forbid/Replace); choose per desired parallel execution behavior
-export CRONJOB_BACKOFF_LIMIT="2"                      # Number of retries for failed Jobs; increase for transient failure tolerance
-export CRONJOB_PARALLELISM="2"                        # Max parallel pods for a single Job; increase only for partitioned workloads
-export CRONJOB_COMPLETIONS="1"                         # Number of successful completions required; default uses parallelism if unset
-export CRONJOB_DEBUG_KEEP_POD="false"                 # If true, pods sleep after work to allow debugging; set true only for dev/debug
+export CRONJOB_BACKOFF_LIMIT="1"                      # Number of retries for failed Jobs; increase for transient failure tolerance
+export CRONJOB_PARALLELISM="3"                        # Max parallel pods for a single Job; increase only for partitioned workloads
+export CRONJOB_COMPLETIONS="3"                         # Number of successful completions required; default uses parallelism if unset
+export CRONJOB_DEBUG_KEEP_POD="true"                 # If true, pods sleep after work to allow debugging; set true only for dev/debug
 export INDEXING_BACKUP_CRONJOB_CPU_REQUEST="2"     # CPU request for the CronJob container; raise for CPU-heavy workloads
 export INDEXING_BACKUP_CRONJOB_CPU_LIMIT="4"          # CPU limit for the CronJob container; set to cap CPU usage
 export INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST="1Gi"   # Memory request for CronJob; set based on worst-case memory used by indexing
@@ -125,9 +125,18 @@ export BACKUP_ID="" # Optional explicit backup identifier to restore; leave empt
 
 
 
-export QDRANT_URL="http://localhost:6333"          # Qdrant HTTP endpoint. Change to remote host when using managed Qdrant.
+
+export AZURE_SUBSCRIPTION_ID=$AZURE_SUBSCRIPTION_ID
+export AZURE_RESOURCE_GROUP_NAME="rg-rag-prod"
+export AZURE_LOCATION="centralindia"
+export AZURE_STORAGE_ACCOUNT_NAME="storeragprod42"
+export AZURE_CONTAINER="rag-data-prod"
+export PULUMI_AZ_CONTAINER="pulumi-state"
+export BACKUP_AZ_CONTAINER="qdrant-backups"
+export AZURE_DELETE_ACCOUNT="0"
+
+
 export COLLECTION_NAME="rag_hybrid_collection"     # Qdrant collection name. Change per dataset/environment.
-export DATA_DIR="/workspace/data/chunked"          # Local fallback directory containing chunked JSON files.
 export DENSE_MODEL_NAME="BAAI/bge-small-en-v1.5"   # or https://qdrant.github.io/fastembed/examples/Supported_Models/
 export DENSE_DIM="384"                             # Dense embedding dim (must match model); used to create collection.
 export SPARSE_MODEL_NAME="prithivida/Splade_PP_en_v1" # Splade++ embedder for lexical matching

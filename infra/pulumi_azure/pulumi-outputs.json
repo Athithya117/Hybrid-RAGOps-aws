@@ -3,7 +3,9 @@
   "appgw_subnet_id": "/subscriptions/b1e221f4-74ef-4e62-9bca-fb70aef41930/resourceGroups/rg-rag-prod/providers/Microsoft.Network/virtualNetworks/rag-vnet-staging/subnets/snet-appgw",
   "blob_container_id": "/subscriptions/b1e221f4-74ef-4e62-9bca-fb70aef41930/resourceGroups/rg-rag-prod/providers/Microsoft.Storage/storageAccounts/storeragprod42/blobServices/default/containers/rag-data-prod",
   "blob_container_name": "rag-data-prod",
+  "rag_api_client_id": "6888bcb6-6c36-4ddc-98b7-901d3e59b83e",
   "rag_notes": {
+    "api_imported": true,
     "oidc_mode": "azuread",
     "spa_imported": true
   },

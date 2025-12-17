@@ -114,34 +114,3 @@ ENV PATH=${VENV_PATH}/bin:$PATH
 ENV PYTHONPATH=/indexing_pipeline
 
 WORKDIR /indexing_pipeline
-
-# create a small entrypoint wrapper which sets prlimit/ulimit (best-effort) and then execs the pipeline via tini
-COPY <<'ENTRY' /usr/local/bin/entrypoint.sh
-#!/bin/sh
-set -eux
-# read desired values from env (allow docker run --env to override)
-DESIRED=${DESIRED_NOFILE:-262144}
-# attempt to set RLIMIT_NOFILE via prlimit (requires util-linux)
-if command -v prlimit >/dev/null 2>&1; then
-  # prlimit will set soft:hard for the current process and children via --pid $$ is not portable; use exec -- to affect executed process
-  echo "attempting prlimit --nofile=${DESIRED}:${DESIRED}"
-  prlimit --nofile=$DESIRED:$DESIRED -- "$SHELL" -c 'exec "$@"' -- /bin/true || true
-fi
-# also try shell builtin ulimit (affects this shell)
-ulimit -n ${DESIRED} || true
-# log current limits for visibility
-echo "current open file limit: $(ulimit -n 2>/dev/null || echo unknown)"
-# run the pre-conversions/indexing pipeline using tini to reap zombies
-exec /usr/bin/tini -- /opt/venv/bin/python indexing_pipeline.py
-ENTRY
-RUN chmod +x /usr/local/bin/entrypoint.sh
-
-# Healthcheck (optional)
-HEALTHCHECK --interval=60s --timeout=3s --start-period=10s --retries=3 CMD [ "/opt/venv/bin/python", "-c", "import sys; sys.exit(0)" ]
-
-# Run as entrypoint (keeps tini as PID 1 and runs our wrapper)
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD []
-
-# Expose default port (indexing pipeline not network server by default but kept for parity)
-EXPOSE 8000

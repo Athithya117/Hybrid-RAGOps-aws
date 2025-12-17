@@ -1,5 +1,5 @@
 {
-  "generated_at": "2025-12-13T04:23:51.466634Z",
+  "generated_at": "2025-12-17T01:03:25.375556Z",
   "image": "athithya5354/reranker:amd64-arm64-v1",
   "namespace": "models",
   "replicas": 1,
@@ -9,6 +9,5 @@
     "deployment": "infra/manifests/reranker/02-deployment.yaml",
     "service": "infra/manifests/reranker/03-service.yaml",
     "hpa": "infra/manifests/reranker/04-hpa.yaml"
-  },
-  "secrets_applied": false
+  }
 }

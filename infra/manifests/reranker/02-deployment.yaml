@@ -35,8 +35,6 @@ spec:
           value: STAGING
         - name: RERANKER_LOGLEVEL
           value: INFO
-        - name: SECRET_PROVIDER
-          value: reranker-secrets
         livenessProbe:
           httpGet:
             path: /health
@@ -67,6 +65,3 @@ spec:
           limits:
             cpu: 1000m
             memory: 1Gi
-        envFrom:
-        - secretRef:
-            name: reranker-secrets

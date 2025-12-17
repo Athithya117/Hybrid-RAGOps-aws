@@ -10,7 +10,7 @@ spec:
   failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
-      backoffLimit: 2
+      backoffLimit: 1
       parallelism: 3
       completions: 1
       template:
@@ -22,12 +22,21 @@ spec:
           restartPolicy: Never
           containers:
           - name: indexer
-            image: athithya5354/indexing_pipeline_cpu:v11
+            image: athithya5354/indexing_pipeline_cpu:v12
             imagePullPolicy: IfNotPresent
             command:
             - /bin/sh
             - -c
-            - /opt/venv/bin/python /indexing_pipeline/indexing_pipeline.py
+            args:
+            - 'set -e
+
+              DESIRED="${DESIRED_NOFILE:-262144}"
+
+              ulimit -n "$DESIRED" 2>/dev/null || true
+
+              echo "nofile limit: $(ulimit -n 2>/dev/null || echo unknown)"
+
+              exec /opt/venv/bin/python indexing_pipeline.py'
             env:
             - name: AZURE_CHUNKED_PREFIX
               value: data/chunked/
@@ -50,7 +59,7 @@ spec:
             - name: AZURE_STORAGE_ACCOUNT_NAME
               value: storeragprod42
             - name: AZURE_STORAGE_API_VERSION
-              value: '2025-04-01'
+              value: ''
             - name: AZURE_STORAGE_CONNECTION_STRING
               valueFrom:
                 secretKeyRef:
@@ -60,8 +69,6 @@ spec:
               value: b1e221f4-74ef-4e62-9bca-fb70aef41930
             - name: AZURE_TENANT_ID
               value: b8a65a11-9d1c-4d48-b9f6-dabfc67f2e4b
-            - name: AZURE_USE_MANAGED_IDENTITY
-              value: '0'
             - name: BATCH_SIZE
               value: '16'
             - name: CSV_TARGET_TOKENS_PER_CHUNK
@@ -79,7 +86,7 @@ spec:
             - name: INDEXING_PIPELINE_CPU_IMAGE_REPO
               value: athithya5354/indexing_pipeline_cpu
             - name: INDEXING_PIPELINE_CPU_IMAGE_TAG
-              value: v11
+              value: v12
             - name: JSONL_TARGET_TOKENS_PER_CHUNK
               value: '400'
             - name: LOG_LEVEL

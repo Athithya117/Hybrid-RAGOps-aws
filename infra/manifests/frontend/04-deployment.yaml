@@ -31,13 +31,17 @@ spec:
             memory: 512Mi
         livenessProbe:
           httpGet:
-            path: /orchestrator/health
+            path: /health
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /orchestrator/health
+            path: /health
             port: 8000
           initialDelaySeconds: 3
           periodSeconds: 5
+          timeoutSeconds: 1
+          failureThreshold: 3

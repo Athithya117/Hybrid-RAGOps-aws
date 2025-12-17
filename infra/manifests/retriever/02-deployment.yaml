@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: retrieval-deployment
+  namespace: inference
+  labels: &id001
+    app.kubernetes.io/name: retrieval
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/managed-by: retriever-generator
+    app.kubernetes.io/instance: retrieval
+    env: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: retrieval
+  template:
+    metadata:
+      labels: *id001
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8001'
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: retrieval-sa
+      containers:
+      - name: retrieval
+        image: athithya5354/retrieval:amd64-arm64-v2
+        ports:
+        - containerPort: 8001
+        env:
+        - name: QDRANT_URL
+          value: http://qdrant.inference.svc.cluster.local:6333
+        - name: COLLECTION_NAME
+          value: default_rag_collection1
+        - name: DENSE_URL
+          value: http://dense.inference.svc.cluster.local:8200
+        - name: SPARSE_URL
+          value: http://sparse.inference.svc.cluster.local:8201
+        - name: RERANKER_URL
+          value: http://reranker.inference.svc.cluster.local:8202
+        - name: DENSE_DIM
+          value: '384'
+        - name: HTTP_TIMEOUT
+          value: '10.0'
+        - name: SPARSE_BATCH_FALLBACK
+          value: '8'
+        - name: LLM_MODEL
+          value: llama-3.1-8b-instant
+        - name: LLM_MAX_TOKENS
+          value: '512'
+        - name: LLM_TEMPERATURE
+          value: '0.0'
+        - name: ENV
+          value: STAGING
+        - name: LOG_LEVEL
+          value: INFO
+        - name: AZURE_STORAGE_ACCOUNT_NAME
+          value: storeragprod42
+        - name: AZURE_ENDPOINT_SUFFIX
+          value: core.windows.net
+        - name: AZURE_USE_MANAGED_IDENTITY
+          value: 'false'
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8001
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: 8001
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 60
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi

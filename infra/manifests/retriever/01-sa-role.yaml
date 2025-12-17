@@ -1,14 +1,14 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: frontend-sa
+  name: retrieval-sa
   namespace: inference
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: frontend-role
+  name: retrieval-role
   namespace: inference
 rules:
 - apiGroups:
@@ -33,13 +33,13 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: frontend-rb
+  name: retrieval-rb
   namespace: inference
 subjects:
 - kind: ServiceAccount
-  name: frontend-sa
+  name: retrieval-sa
   namespace: inference
 roleRef:
   kind: Role
-  name: frontend-role
+  name: retrieval-role
   apiGroup: rbac.authorization.k8s.io

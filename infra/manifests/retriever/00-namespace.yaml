@@ -3,4 +3,4 @@ kind: Namespace
 metadata:
   name: inference
   labels:
-    app: frontend
+    app.kubernetes.io/managed-by: retriever-generator

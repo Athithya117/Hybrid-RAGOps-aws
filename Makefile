@@ -75,10 +75,13 @@ deploy-models: deploy-dense deploy-sparse deploy-reranker
 
 deploy-inference-svc: deploy-retriever deploy-frontend
 
-indexing-cronjob:
+run-indexing-cronjob:
+	@echo "[make fix-dns] invoking utils/fix_kind_cluster_dns.sh"
+	@chmod +x utils/fix_kind_cluster_dns.sh || true
+	@utils/fix_kind_cluster_dns.sh --timeout 60
 	python3 infra/generators/indexing_cronjob.py --delete
 	python3 infra/generators/indexing_cronjob.py --apply
-	python3 infra/runners/run_indexing_cronjob.py
+	python3 infra/runners/run_indexing_cronjob.py --wait-for-running --wait-running-timeout 120
 
 fix-dns:
 	@echo "[make fix-dns] invoking utils/fix_kind_cluster_dns.sh"
