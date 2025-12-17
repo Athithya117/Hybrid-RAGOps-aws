@@ -1,11 +1,11 @@
 {
   "release": "qdrant",
   "namespace": "qdrant",
-  "replicas": 2,
+  "replicas": 1,
   "values_file": "infra/manifests/qdrant/values.yaml",
   "chart_version": "1.16.0",
   "image": "qdrant/qdrant:v1.16.0",
   "vendor_chart_dir": "infra/archive/qdrant-helm-chart/qdrant",
-  "generated_at": "2025-12-15T11:27:16.243172Z",
+  "generated_at": "2025-12-17T08:09:00.844869Z",
   "secrets_created": true
 }

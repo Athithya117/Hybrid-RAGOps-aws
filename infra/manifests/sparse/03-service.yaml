@@ -5,9 +5,7 @@ metadata:
   namespace: models
   labels:
     app.kubernetes.io/name: sparse
-    app.kubernetes.io/component: embedder
     app.kubernetes.io/managed-by: gen_sparse
-    app.kubernetes.io/instance: sparse
     env: staging
 spec:
   type: ClusterIP

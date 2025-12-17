@@ -1,15 +1,3 @@
-#!/usr/bin/env python3
-"""
-gen_reranker.py
-
-Deterministic generator for Reranker Kubernetes manifests.
-Writes manifests to infra/manifests/reranker/
-
-Usage:
-  python gen_reranker.py --generate
-  python gen_reranker.py --apply
-  python gen_reranker.py --delete
-"""
 from pathlib import Path
 import os
 import sys
@@ -22,9 +10,11 @@ import hashlib
 import uuid
 import datetime
 import logging
+from typing import Dict, Tuple, Optional
 
 # -------------------- logging --------------------
-logging.basicConfig(level=os.environ.get("GEN_RERANKER_LOGLEVEL", "INFO"))
+LOGLEVEL = os.environ.get("GEN_RERANKER_LOGLEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, LOGLEVEL, logging.INFO), format="%(levelname)s: %(message)s")
 log = logging.getLogger("gen_reranker")
 
 # -------------------- helpers --------------------
@@ -36,16 +26,20 @@ def atomic_write(path: Path, content: str):
     tmp.write_text(content)
     tmp.replace(path)
 
-def run_cmd(cmd, capture=True, check=False, timeout=None, input_bytes=None):
+def run_cmd(cmd: list, input_bytes: Optional[bytes] = None, timeout: Optional[int] = None) -> Tuple[int, str, str]:
+    """
+    Minimal wrapper for deterministic subprocess runs.
+    Returns (returncode, stdout, stderr) with stdout/stderr as strings.
+    """
     try:
-        proc = subprocess.run(cmd, input=input_bytes, capture_output=capture, text=True, check=check, timeout=timeout)
-        return proc.returncode, proc.stdout or "", proc.stderr or ""
-    except subprocess.CalledProcessError as e:
-        return e.returncode, e.stdout or "", e.stderr or ""
+        proc = subprocess.run(cmd, input=input_bytes, capture_output=True, check=False, timeout=timeout)
+        stdout = proc.stdout.decode() if proc.stdout else ""
+        stderr = proc.stderr.decode() if proc.stderr else ""
+        return proc.returncode, stdout, stderr
     except subprocess.TimeoutExpired as e:
-        return 124, getattr(e, "stdout", "") or "", getattr(e, "stderr", "") or f"timeout after {timeout}s"
+        return 124, getattr(e, "stdout", b"").decode() if getattr(e, "stdout", None) else "", f"timeout after {timeout}s"
 
-def canonical_inputs_hash(cfg: dict):
+def canonical_inputs_hash(cfg: dict) -> str:
     serial = {}
     for k in sorted(cfg.keys()):
         if k == "INPUTS_HASH_PATH":
@@ -59,22 +53,34 @@ def canonical_inputs_hash(cfg: dict):
     j = json.dumps(serial, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(j.encode("utf-8")).hexdigest()
 
-def kubectl_apply_yaml(yaml_str: str, dry_run=False):
+def kubectl_apply_yaml(yaml_str: str, timeout: int = 120) -> Dict:
+    """
+    Apply YAML to cluster using `kubectl apply -f -`.
+    YAML is passed on stdin (so secrets are not written to disk).
+    """
     kubectl = shutil.which("kubectl")
     if not kubectl:
         return {"applied": False, "error": "kubectl-not-found"}
-    cmd = [kubectl, "apply"]
-    if dry_run:
-        cmd += ["--dry-run=client", "-f", "-"]
+    cmd = [kubectl, "apply", "-f", "-"]
+    rc, stdout, stderr = run_cmd(cmd, input_bytes=yaml_str.encode("utf-8"), timeout=timeout)
+    if rc == 0:
+        return {"applied": True, "stdout": stdout}
     else:
-        cmd += ["-f", "-"]
-    try:
-        proc = subprocess.run(cmd, input=yaml_str.encode("utf-8"), capture_output=True, check=True, timeout=120)
-        return {"applied": True, "stdout": proc.stdout.decode() if proc.stdout else ""}
-    except subprocess.CalledProcessError as e:
-        return {"applied": False, "stderr": e.stderr.decode() if e.stderr else str(e)}
-    except subprocess.TimeoutExpired as e:
-        return {"applied": False, "stderr": f"timeout: {e}"}
+        return {"applied": False, "stderr": stderr or f"exit={rc}"}
+
+def kubectl_delete_yaml(yaml_str: str, timeout: int = 120) -> Dict:
+    """
+    Delete YAML resources via `kubectl delete -f - --ignore-not-found`.
+    """
+    kubectl = shutil.which("kubectl")
+    if not kubectl:
+        return {"deleted": False, "error": "kubectl-not-found"}
+    cmd = [kubectl, "delete", "-f", "-", "--ignore-not-found"]
+    rc, stdout, stderr = run_cmd(cmd, input_bytes=yaml_str.encode("utf-8"), timeout=timeout)
+    if rc == 0:
+        return {"deleted": True, "stdout": stdout}
+    else:
+        return {"deleted": False, "stderr": stderr or f"exit={rc}"}
 
 # -------------------- config loader (RERANKER_*) --------------------
 def load_config():
@@ -142,9 +148,13 @@ def load_config():
         "hpa": cfg["MANIFESTS_DIR"] / "04-hpa.yaml",
     }
     cfg["UUID_SHORT"] = str(uuid.uuid4())[:8]
+    # secret handling
+    cfg["SECRET_NAME"] = os.environ.get("RERANKER_SECRET_NAME", f"{cfg['SERVICE_NAME']}-secrets")
+    cfg["SECRET_PREFIX"] = os.environ.get("RERANKER_SECRET_PREFIX", "RERANKER_SECRET_")
+    cfg["SECRETS_JSON_ENV"] = os.environ.get("RERANKER_SECRETS_JSON", "")
     return cfg
 
-# -------------------- YAML renderers --------------------
+# -------------------- YAML renderers (non-secret) --------------------
 def render_namespace(cfg):
     ns = {
         "apiVersion": "v1",
@@ -187,6 +197,8 @@ def render_deployment(cfg):
             {"name": "RERANKER_PORT", "value": str(cfg["CONTAINER_PORT"])},
             {"name": "ENV", "value": cfg["ENV"]},
             {"name": "RERANKER_LOGLEVEL", "value": cfg["LOGLEVEL"]},
+            # NOTE: secrets will be mounted via envFrom in deployment referencing the secret object name
+            {"name": "SECRET_PROVIDER", "value": cfg["SECRET_NAME"]},
         ],
         "livenessProbe": {
             "httpGet": {"path": "/health", "port": cfg["CONTAINER_PORT"]},
@@ -214,6 +226,9 @@ def render_deployment(cfg):
         },
     }
 
+    # mount secrets as envFrom so secret keys become env vars at runtime
+    container["envFrom"] = [{"secretRef": {"name": cfg["SECRET_NAME"]}}]
+
     if cfg["ENABLE_GPU"]:
         try:
             gcount = int(cfg["GPU_COUNT"])
@@ -239,7 +254,8 @@ def render_deployment(cfg):
     }
 
     if cfg["ENABLE_GPU"] and cfg["GPU_NODE_SELECTOR"]:
-        pod_spec["spec"]["template"]["spec"]["nodeSelector"] = {k: v for k, v in [cfg["GPU_NODE_SELECTOR"].split("=", 1)]} if "=" in cfg["GPU_NODE_SELECTOR"] else {cfg["GPU_NODE_SELECTOR"]: "true"}
+        key, val = (cfg["GPU_NODE_SELECTOR"].split("=", 1) + ["true"])[:2]
+        pod_spec["spec"]["template"]["spec"]["nodeSelector"] = {key: val}
 
     pod_spec["spec"]["template"]["metadata"].setdefault("annotations", {})
     pod_spec["spec"]["template"]["metadata"]["annotations"].update({
@@ -279,6 +295,76 @@ def render_hpa(cfg):
     }
     return yaml.safe_dump(hpa, sort_keys=False)
 
+# -------------------- secret handling (ENV only; never write to disk) --------------------
+def collect_secrets_from_env(cfg) -> Dict[str, str]:
+    """
+    Collect secrets from environment without persisting them.
+    Rules:
+      - Any env var starting with cfg['SECRET_PREFIX'] (default RERANKER_SECRET_) becomes a key.
+        e.g. RERANKER_SECRET_GROQ_API_KEY -> key GROQ_API_KEY
+      - RERANKER_SECRETS_JSON with JSON object is merged in (overrides prefix vars on same key).
+    """
+    prefix = cfg["SECRET_PREFIX"]
+    secrets: Dict[str, str] = {}
+
+    # prefix-based secrets
+    for k, v in os.environ.items():
+        if k.startswith(prefix) and len(k) > len(prefix):
+            key = k[len(prefix):]
+            if v is not None and v != "":
+                secrets[key] = v
+
+    # json-based secrets (optional)
+    sj = cfg.get("SECRETS_JSON_ENV", "") or os.environ.get("RERANKER_SECRETS_JSON", "")
+    if sj:
+        try:
+            parsed = json.loads(sj)
+            if isinstance(parsed, dict):
+                for kk, vv in parsed.items():
+                    if vv is None:
+                        continue
+                    # treat only primitive values as strings
+                    if not isinstance(vv, (str, int, float, bool)):
+                        vv = json.dumps(vv, separators=(",", ":"))
+                    secrets[str(kk)] = str(vv)
+            else:
+                log.warning("RERANKER_SECRETS_JSON is not an object; ignoring it.")
+        except json.JSONDecodeError:
+            log.warning("RERANKER_SECRETS_JSON failed to parse as JSON; ignoring it.")
+
+    return secrets
+
+def build_secret_manifest(name: str, data: Dict[str, str], namespace: str, labels: Dict[str, str], secret_type: str = "Opaque") -> str:
+    """
+    Construct a secret manifest using stringData (plaintext). The manifest is returned as YAML string.
+    Note: We intentionally use stringData so we avoid base64 encoding and still do not write to disk.
+    """
+    obj = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": name, "namespace": namespace, "labels": labels},
+        "type": secret_type,
+        "stringData": data,
+    }
+    return yaml.safe_dump(obj, sort_keys=False)
+
+def apply_secret_to_cluster(cfg, secret_name: str, data: Dict[str, str]) -> bool:
+    """
+    Apply secret manifest to cluster (stringData). Returns True on success.
+    """
+    if not data:
+        log.info("No secret data found; skipping secret '%s'.", secret_name)
+        return True
+
+    # DO NOT LOG secret values. Only log safe metadata.
+    yaml_str = build_secret_manifest(secret_name, data, cfg["NAMESPACE"], cfg["LABELS"])
+    res = kubectl_apply_yaml(yaml_str)
+    if not res.get("applied", False):
+        log.error("Failed to apply secret '%s': %s", secret_name, res.get("stderr") or res.get("error"))
+        return False
+    log.info("Applied secret '%s' to namespace '%s' (keys: %d)", secret_name, cfg["NAMESPACE"], len(data))
+    return True
+
 # -------------------- generate / apply / delete --------------------
 def generate_manifests(cfg, dry_run=False, verbose=False):
     ensure_dir(cfg["MANIFESTS_DIR"])
@@ -304,34 +390,66 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
     cfg["INPUTS_HASH_PATH"].write_text(inputs_hash)
     log.info("Wrote manifests to %s", str(cfg["MANIFESTS_DIR"]))
     if verbose:
-        log.info("Namespace:\n%s", ns_yaml.splitlines()[:20])
+        log.info("Namespace (head):\n%s", ns_yaml.splitlines()[:20])
         log.info("Deployment (head):\n%s", deploy_yaml.splitlines()[:60])
 
 def apply_to_cluster(cfg, dry_run=False, verbose=False):
+    """
+    Apply sequence:
+      1. Generate non-secret manifests locally (namespace, sa_role, deployment, service, hpa).
+      2. Apply namespace manifest immediately (idempotent).
+      3. Apply secrets directly (stringData over stdin) -- namespace must exist.
+      4. Apply remaining non-secret manifests to cluster.
+    """
     kubectl = shutil.which("kubectl")
     if not kubectl:
         log.error("kubectl not found in PATH; cannot apply")
         sys.exit(2)
+
+    # 1. generate files locally (non-secret)
     generate_manifests(cfg, dry_run=dry_run, verbose=verbose)
     if dry_run:
         log.info("Dry-run: skipping kubectl apply")
         return
-    files = [cfg["FILES"]["namespace"], cfg["FILES"]["sa_role"], cfg["FILES"]["deployment"], cfg["FILES"]["service"]]
+
+    # 2. apply namespace (must exist before secrets)
+    ns_yaml = cfg["FILES"]["namespace"].read_text()
+    res_ns = kubectl_apply_yaml(ns_yaml)
+    if not res_ns.get("applied", False):
+        log.error("Failed to apply namespace: %s", res_ns.get("stderr") or res_ns.get("error"))
+        sys.exit(3)
+    log.info("Namespace '%s' ensured.", cfg["NAMESPACE"])
+
+    # 3. secrets from env (never persisted)
+    secrets = collect_secrets_from_env(cfg)
+    if secrets:
+        # possible to have many keys; group them under single secret object
+        ok = apply_secret_to_cluster(cfg, cfg["SECRET_NAME"], secrets)
+        if not ok:
+            log.error("Failed to apply secrets to cluster.")
+            sys.exit(4)
+    else:
+        log.info("No secrets found in environment (prefix: %s or JSON).", cfg["SECRET_PREFIX"])
+
+    # 4. apply other manifests together
+    files = [cfg["FILES"]["sa_role"], cfg["FILES"]["deployment"], cfg["FILES"]["service"]]
     if cfg["HPA_ENABLED"]:
         files.append(cfg["FILES"]["hpa"])
     combined = ""
     for p in files:
         combined += f"---\n# source: {p.name}\n" + p.read_text() + "\n"
-    res = kubectl_apply_yaml(combined, dry_run=False)
+    res = kubectl_apply_yaml(combined)
     if not res.get("applied", False):
-        log.error("kubectl apply failed: %s", res.get("stderr") or res.get("error"))
-        sys.exit(2)
+        log.error("kubectl apply failed for non-secret manifests: %s", res.get("stderr") or res.get("error"))
+        sys.exit(5)
+
     summary = {
         "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
         "image": cfg["IMAGE"],
         "namespace": cfg["NAMESPACE"],
         "replicas": cfg["REPLICAS"],
         "files": {k: str(v) for k, v in cfg["FILES"].items()},
+        "secrets_applied": bool(secrets),
     }
     atomic_write(cfg["MANIFESTS_DIR"] / "last_deploy_summary.json", json.dumps(summary, indent=2))
     log.info("Applied manifests to cluster and wrote deploy summary")
@@ -340,9 +458,12 @@ def delete_manifests(cfg):
     if cfg["MANIFESTS_DIR"].exists():
         for p in sorted(cfg["MANIFESTS_DIR"].glob("*")):
             try:
-                p.unlink()
-            except IsADirectoryError:
-                shutil.rmtree(p)
+                if p.is_file():
+                    p.unlink()
+                else:
+                    shutil.rmtree(p)
+            except Exception as e:
+                log.debug("Failed to remove %s: %s", p, e)
         try:
             cfg["INPUTS_HASH_PATH"].unlink()
         except FileNotFoundError:
@@ -351,13 +472,55 @@ def delete_manifests(cfg):
     else:
         log.info("Manifests dir not present: %s", str(cfg["MANIFESTS_DIR"]))
 
+def delete_from_cluster(cfg):
+    """
+    Helper to delete the generated resources from cluster including the secret object.
+    This is destructive. Use with care.
+    """
+    kubectl = shutil.which("kubectl")
+    if not kubectl:
+        log.error("kubectl not found in PATH; cannot delete")
+        sys.exit(2)
+
+    # delete non-secret manifests (ignore not-found)
+    files = [cfg["FILES"]["sa_role"], cfg["FILES"]["deployment"], cfg["FILES"]["service"]]
+    if cfg["HPA_ENABLED"]:
+        files.append(cfg["FILES"]["hpa"])
+    combined = ""
+    for p in files:
+        if p.exists():
+            combined += f"---\n# source: {p.name}\n" + p.read_text() + "\n"
+    if combined:
+        res = kubectl_delete_yaml(combined)
+        if not res.get("deleted", False):
+            log.warning("kubectl delete returned: %s", res.get("stderr") or res.get("error"))
+        else:
+            log.info("Deleted non-secret resources from cluster (if existed).")
+
+    # delete secret
+    # build a minimal manifest for the secret (delete by name)
+    secret_manifest = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": cfg["SECRET_NAME"], "namespace": cfg["NAMESPACE"]},
+    }
+    res = kubectl_delete_yaml(yaml.safe_dump(secret_manifest, sort_keys=False))
+    if not res.get("deleted", False):
+        log.warning("Secret delete returned: %s", res.get("stderr") or res.get("error"))
+    else:
+        log.info("Deleted secret '%s' (if it existed).", cfg["SECRET_NAME"])
+
+    # optionally delete namespace? not doing by default to avoid accidental broad deletes
+    log.info("Cluster delete sequence finished (did not delete namespace).")
+
 # -------------------- CLI --------------------
 def parse_args():
     p = argparse.ArgumentParser(description="Generate/apply Reranker Kubernetes manifests.")
     grp = p.add_mutually_exclusive_group(required=True)
     grp.add_argument("--generate", action="store_true", help="Generate manifests to MANIFESTS_DIR.")
     grp.add_argument("--apply", action="store_true", help="Generate manifests and apply to cluster (requires kubectl).")
-    grp.add_argument("--delete", action="store_true", help="Delete generated manifests.")
+    grp.add_argument("--delete", action="store_true", help="Delete generated manifests (local files).")
+    p.add_argument("--delete-cluster", action="store_true", help="When used with --delete, also delete resources from the cluster (including secret).")
     p.add_argument("--dry-run", action="store_true", help="Render and validate but do not write or apply.")
     p.add_argument("--verbose", action="store_true", help="Print extra debug info.")
     return p.parse_args()
@@ -365,17 +528,22 @@ def parse_args():
 def main():
     args = parse_args()
     cfg = load_config()
+
     if args.delete:
+        if args.delete_cluster:
+            delete_from_cluster(cfg)
         delete_manifests(cfg)
         return
+
     if args.generate:
         generate_manifests(cfg, dry_run=args.dry_run, verbose=args.verbose)
         return
+
     if args.apply:
-        generate_manifests(cfg, dry_run=args.dry_run, verbose=args.verbose)
-        if args.dry_run:
-            log.info("Dry-run mode: skipping kubectl apply.")
-            return
+        # ensure kubectl accessibility early
+        if not shutil.which("kubectl"):
+            log.error("kubectl not found in PATH. Please install/configure kubectl before applying.")
+            sys.exit(2)
         apply_to_cluster(cfg, dry_run=args.dry_run, verbose=args.verbose)
         return
 

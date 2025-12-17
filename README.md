@@ -93,8 +93,6 @@ export PPTX_SLIDES_PER_CHUNK="4"                      # Slides grouped per chunk
 export PPTX_OCR_ENGINE="rapidocr"                     # OCR engine for PPTX-rendered images; same selection guidance as other OCR engine vars
 export PYTHONUNBUFFERED="1"                           # Forces Python stdout/stderr unbuffered so container logs are immediate; keep set in containers
 
-
-export QDRANT_API_KEY="mypassword"                  # Qdrant auth key (sensitive); supply via k8s Secret when Qdrant requires auth
 export COLLECTION_NAME="default_rag_collection1"    # Qdrant collection name; change per environment/dataset to avoid collisions
 export DENSE_DIM="384"                              # Expected dense vector dimensionality; MUST match the model served at DENSE_URL
 export BATCH_SIZE="16"                              # Number of chunks sent per embedding batch; increase for throughput, decrease for memory/latency
@@ -109,8 +107,8 @@ export INDEXING_CRONJOB_TIMEZONE="Asia/Kolkata"     # or "Etc/UTC", "Europe/Berl
 export CRON_SCHEDULE="0 */6 * * *"                   # Runs at minute 0 every 6 hours; or adjust fields to alter minute/hour/day
 export CRONJOB_CONCURRENCY="Allow"                    # ConcurrencyPolicy (Allow/Forbid/Replace); choose per desired parallel execution behavior
 export CRONJOB_BACKOFF_LIMIT="1"                      # Number of retries for failed Jobs; increase for transient failure tolerance
-export CRONJOB_PARALLELISM="3"                        # Max parallel pods for a single Job; increase only for partitioned workloads
-export CRONJOB_COMPLETIONS="3"                         # Number of successful completions required; default uses parallelism if unset
+export CRONJOB_PARALLELISM="1"                        # Max parallel pods for a single Job; increase only for partitioned workloads
+export CRONJOB_COMPLETIONS="1"                         # Number of successful completions required; default uses parallelism if unset
 export CRONJOB_DEBUG_KEEP_POD="true"                 # If true, pods sleep after work to allow debugging; set true only for dev/debug
 export INDEXING_BACKUP_CRONJOB_CPU_REQUEST="2"     # CPU request for the CronJob container; raise for CPU-heavy workloads
 export INDEXING_BACKUP_CRONJOB_CPU_LIMIT="4"          # CPU limit for the CronJob container; set to cap CPU usage

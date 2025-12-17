@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """
-Query helpers (stable) — UI-field selection, Azure presign, and small utilities.
+Query helpers (Azure-only) — UI-field selection, Azure presign, and small utilities.
 
-Dual-mode presign + storage support:
- - STAGING: uses AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_CONNECTION_STRING or AZURE_SAS_TOKEN
- - PROD:    uses DefaultAzureCredential to create a user-delegation SAS (requires RBAC)
+Notes:
+ - This file is Azure-only; S3/boto3 removed.
+ - The UI field builder does NOT produce a 'snippet' key. Full text can be obtained
+   via _full_text_from_payload(payload) and will be added to UI meta_items as ("content", <full-text>)
+   by the caller (query.py) when required.
+ - presign_azure_blob_blocking(path, expires=3600, inline=True) returns an Azure SAS URL.
 """
 from __future__ import annotations
 import os
@@ -27,7 +30,7 @@ try:
 except Exception:
     DefaultAzureCredential = None  # type: ignore
 
-# env knobs
+# env knobs (Azure-focused)
 ENV = os.getenv("ENV", "STAGING").upper()
 AZURE_USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", "").strip().lower() in ("1", "true", "yes")
 if ENV == "PROD":
@@ -104,39 +107,40 @@ def _strip_html(content: str) -> str:
         return re.sub(r'\s+', ' ', content or "").strip()
 
 
-def _snippet_from_payload(payload: Dict[str, Any], max_len: int = 300) -> str:
-    txt = ""
-    if payload.get("content"):
-        txt = str(payload.get("content") or "")
-    elif payload.get("text"):
-        txt = str(payload.get("text") or "")
-    elif payload.get("html"):
-        txt = _strip_html(str(payload.get("html") or ""))
-    else:
-        h = payload.get("headings") or payload.get("heading_path") or payload.get("title") or ""
-        if isinstance(h, (list, tuple)) and h:
-            txt = " - ".join([str(x) for x in h[:3]])
-        else:
-            txt = str(h or "")
-    txt = re.sub(r'\s+', ' ', (txt or "")).strip()
-    if not txt:
+def _full_text_from_payload(payload: Dict[str, Any]) -> str:
+    """
+    Return the full textual content for a chunk, with minimal processing (preserve content).
+    This intentionally does NOT truncate.
+    Order of preference: content -> text -> html (stripped) -> headings/title.
+    """
+    if not isinstance(payload, dict):
         return ""
-    if len(txt) <= max_len:
-        return txt
-    m = re.search(r'^(.{200,300}?[\.!\?])( |\Z)', txt)
-    if m:
-        return m.group(1).strip()
-    return txt[:max_len].rstrip() + "…"
+    if payload.get("content"):
+        return str(payload.get("content") or "")
+    if payload.get("text"):
+        return str(payload.get("text") or "")
+    if payload.get("html"):
+        return _strip_html(str(payload.get("html") or ""))
+    # fallback to headings/title concatenation
+    h = payload.get("headings") or payload.get("heading_path") or payload.get("title") or ""
+    if isinstance(h, (list, tuple)):
+        return " - ".join([str(x) for x in h])
+    return str(h or "")
 
 
-def ui_fields_from_payload(payload: Dict[str, Any], prefer_snippet_len: int = 300) -> List[Tuple[str, Any]]:
+def ui_fields_from_payload(payload: Dict[str, Any], prefer_snippet_len: Optional[int] = None) -> List[Tuple[str, Any]]:
+    """
+    Build ordered UI fields from a payload.
+    IMPORTANT: This function DOES NOT add a 'snippet' field. Callers that want the full text
+    should call _full_text_from_payload(payload) and insert ("content", <full_text>) if needed.
+    """
     p = payload or {}
     file_name = p.get("file_name") or (p.get("source_url") or "").split("/")[-1] or None
     source_url = p.get("source_url") or p.get("s3_path") or p.get("raw_key") or None
     file_type = p.get("file_type") or None
     chunk_type = p.get("chunk_type") or None
     detected = _detect_type(file_type, source_url, file_name, chunk_type)
-    snippet = _snippet_from_payload(p, max_len=prefer_snippet_len)
+
     ordered: List[Tuple[str, Any]] = []
 
     if source_url:
@@ -147,14 +151,13 @@ def ui_fields_from_payload(payload: Dict[str, Any], prefer_snippet_len: int = 30
         ordered.append(("chunk_id", p.get("chunk_id")))
     if p.get("chunk_index") is not None:
         ordered.append(("chunk_index", p.get("chunk_index")))
-    if snippet:
-        ordered.append(("snippet", snippet))
     if p.get("token_count") is not None:
         try:
             ordered.append(("token_count", int(p.get("token_count"))))
         except Exception:
             ordered.append(("token_count", p.get("token_count")))
 
+    # additional fields by detected type
     if detected == "pdf":
         if p.get("page_number") is not None:
             ordered.append(("page_number", int(p.get("page_number"))))
@@ -194,8 +197,6 @@ def ui_fields_from_payload(payload: Dict[str, Any], prefer_snippet_len: int = 30
             ordered.append(("headings", p.get("headings")))
         if p.get("line_range"):
             ordered.append(("line_range", p.get("line_range")))
-        if p.get("token_range"):
-            ordered.append(("token_range", p.get("token_range")))
         if p.get("semantic_region"):
             ordered.append(("semantic_region", p.get("semantic_region")))
     elif detected in ("md", "txt"):
@@ -203,13 +204,9 @@ def ui_fields_from_payload(payload: Dict[str, Any], prefer_snippet_len: int = 30
             ordered.append(("headings", p.get("headings")))
         if p.get("line_range"):
             ordered.append(("line_range", p.get("line_range")))
-        if p.get("token_range"):
-            ordered.append(("token_range", p.get("token_range")))
         if p.get("semantic_region"):
             ordered.append(("semantic_region", p.get("semantic_region")))
     elif detected == "jsonl":
-        if p.get("token_range"):
-            ordered.append(("token_range", p.get("token_range")))
         if p.get("line_range"):
             ordered.append(("line_range", p.get("line_range")))
         if p.get("semantic_region"):
@@ -219,14 +216,13 @@ def ui_fields_from_payload(payload: Dict[str, Any], prefer_snippet_len: int = 30
             ordered.append(("headings", p.get("headings")))
         if p.get("line_range"):
             ordered.append(("line_range", p.get("line_range")))
-        if p.get("token_range"):
-            ordered.append(("token_range", p.get("token_range")))
         if p.get("semantic_region"):
             ordered.append(("semantic_region", p.get("semantic_region")))
 
     if p.get("tags"):
         ordered.append(("tags", p.get("tags")))
 
+    # optional verbose fields
     if os.getenv("UI_VERBOSE", "false").lower() in ("1", "true", "yes"):
         if p.get("parser_version"):
             ordered.append(("parser_version", p.get("parser_version")))
@@ -241,7 +237,9 @@ def ui_fields_from_payload(payload: Dict[str, Any], prefer_snippet_len: int = 30
     return out
 
 
-# --------- Presign helper (blocking) ----------
+# -----------------------
+# Azure path parsing & presign (blocking)
+# -----------------------
 def _parse_az_path(path: str) -> Tuple[str, str, str]:
     if not path:
         raise ValueError("empty path")
@@ -278,12 +276,12 @@ def _parse_az_path(path: str) -> Tuple[str, str, str]:
 
 def presign_azure_blob_blocking(path: str, expires: int = 3600, inline: bool = True) -> str:
     """
-    Generate a read-only SAS URL for the blob at `path`.
-    Dual-mode:
-      - If AZURE_STORAGE_ACCOUNT_KEY or AZURE_STORAGE_CONNECTION_STRING present and not using managed identity -> account-key style SAS
-      - Else if AZURE_SAS_TOKEN present -> append token to URL
-      - Else if AZURE_USE_MANAGED_IDENTITY or ENV=PROD -> create user-delegation SAS using DefaultAzureCredential
-    Returns full URL with SAS query.
+    Generate a read-only SAS URL for the blob at `path` (Azure-only).
+    Modes:
+      - If AZURE_SAS_TOKEN configured -> append token to resource URL.
+      - If AZURE_STORAGE_ACCOUNT_KEY present and not using managed identity -> account-key SAS via generate_blob_sas.
+      - Else use DefaultAzureCredential to obtain a user-delegation SAS (requires RBAC).
+    This tries both keyword and positional get_user_delegation_key signatures for SDK compatibility.
     """
     if generate_blob_sas is None:
         raise RuntimeError("azure.storage.blob not installed; install azure-storage-blob")
@@ -304,7 +302,7 @@ def presign_azure_blob_blocking(path: str, expires: int = 3600, inline: bool = T
         token = AZURE_SAS_TOKEN if AZURE_SAS_TOKEN.startswith("?") else ("?" + AZURE_SAS_TOKEN)
         return f"{endpoint}/{container}/{quote_plus(blob)}{token}"
 
-    # Account key or connection string -> account-level SAS
+    # Account key -> account-level SAS
     if AZURE_STORAGE_ACCOUNT_KEY and not AZURE_USE_MANAGED_IDENTITY:
         sas = generate_blob_sas(
             account_name=account,
@@ -319,17 +317,14 @@ def presign_azure_blob_blocking(path: str, expires: int = 3600, inline: bool = T
         )
         return f"{endpoint}/{container}/{quote_plus(blob)}?{sas}"
 
+    # Connection string -> try client (if present)
     if AZURE_STORAGE_CONNECTION_STRING and not AZURE_USE_MANAGED_IDENTITY:
-        # try parsing connection string path: easier to create BlobServiceClient and then user delegation if needed,
-        # but for connection string we can also create account SAS — keep behavior consistent and create user-delegation if needed.
         try:
             bsc = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
-            # connection-string path -> try create user delegation key using provided credentials (if possible)
-        except Exception:
-            # fallback: return resource url with no SAS (not recommended)
-            raise RuntimeError("Failed to initialize BlobServiceClient from AZURE_STORAGE_CONNECTION_STRING")
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize BlobServiceClient from AZURE_STORAGE_CONNECTION_STRING: {e}")
 
-    # If we reach here, prefer user-delegation SAS via DefaultAzureCredential
+    # User-delegation SAS via DefaultAzureCredential
     if DefaultAzureCredential is None or BlobServiceClient is None:
         raise RuntimeError("azure.identity or azure.storage.blob missing for user-delegation SAS")
 
@@ -339,8 +334,12 @@ def presign_azure_blob_blocking(path: str, expires: int = 3600, inline: bool = T
     except Exception as e:
         raise RuntimeError(f"Failed to create BlobServiceClient with DefaultAzureCredential: {e}")
 
+    # SDK signature compatibility: try keyword args first, fall back to positional
     try:
-        udk = bsc.get_user_delegation_key(key_start=start, key_expiry=expiry)
+        try:
+            udk = bsc.get_user_delegation_key(key_start_time=start, key_expiry_time=expiry)
+        except TypeError:
+            udk = bsc.get_user_delegation_key(start, expiry)
     except Exception as e:
         raise RuntimeError(f"Failed to obtain user delegation key (ensure RBAC and time propagation): {e}")
 

@@ -1,35 +1,37 @@
 import os
-import sys
 import pulumi
 import core_network
 import auth
-_required = ("aks_subnet_id", "vnet_id", "resource_group_name", "storage_account_name", "blob_container_name")
+_stack = pulumi.get_stack()
 _outs = core_network.outputs()
+_required = ("aks_subnet_id", "vnet_id", "resource_group_name", "storage_account_name", "blob_container_name")
 _missing = [k for k in _required if not _outs.get(k)]
 if _missing:
     pulumi.log.error("core_network missing required outputs: " + ",".join(_missing))
     raise SystemExit(1)
 pulumi.log.info("[__main__] core_network validated; exports available")
-env = os.environ
-use_b2c = env.get("USE_B2C", "false").lower() in ("1","true","yes")
-spa_existing = env.get("SPA_EXISTING_CLIENT_ID") or None
-api_existing = env.get("API_EXISTING_CLIENT_ID") or None
-create_api_secret = env.get("CREATE_API_CLIENT_SECRET", "false").lower() in ("1","true","yes")
-spa_redirects_raw = env.get("SPA_REDIRECT_URIS") or ""
-spa_redirects = [u.strip() for u in spa_redirects_raw.split(",") if u.strip()]
-args = auth.AuthArgs(prefix=env.get("RESOURCE_NAME_PREFIX","rag"),
-                     create_spa=(spa_existing is None),
-                     spa_redirect_uris=spa_redirects,
-                     spa_existing_client_id=spa_existing,
-                     create_api=(api_existing is None),
-                     api_existing_client_id=api_existing,
-                     create_api_client_secret=create_api_secret,
-                     owners=None,
-                     tenant_id=env.get("AZURE_TENANT_ID"),
-                     use_b2c=use_b2c,
-                     b2c_tenant=env.get("B2C_TENANT"),
-                     b2c_policy=env.get("B2C_POLICY"))
+env = {k: os.getenv(k) for k in ("AUTH_MODE","USE_B2C","SPA_EXISTING_CLIENT_ID","API_EXISTING_CLIENT_ID","CREATE_API_CLIENT_SECRET","SPA_REDIRECT_URIS","B2C_TENANT","B2C_POLICY","RESOURCE_NAME_PREFIX")}
+auth_mode = (env.get("AUTH_MODE") or "").strip().lower()
+if not auth_mode:
+    if os.getenv("USE_B2C","").lower() in ("1","true","yes"):
+        auth_mode = "external-id"
+    else:
+        auth_mode = "azuread"
+if auth_mode not in ("azuread","import","external-id"):
+    pulumi.log.error("AUTH_MODE must be one of: azuread, import, external-id")
+    raise SystemExit(1)
 try:
+    args = {
+        "prefix": (env.get("RESOURCE_NAME_PREFIX") or "rag").strip(),
+        "auth_mode": auth_mode,
+        "spa_existing_client_id": (env.get("SPA_EXISTING_CLIENT_ID") or "").strip() or None,
+        "api_existing_client_id": (env.get("API_EXISTING_CLIENT_ID") or "").strip() or None,
+        "create_api_client_secret": (os.getenv("CREATE_API_CLIENT_SECRET","false").lower() in ("1","true","yes")),
+        "spa_redirect_uris": [u.strip() for u in ((os.getenv("SPA_REDIRECT_URIS") or "").split(",")) if u.strip()],
+        "b2c_tenant": (os.getenv("B2C_TENANT") or "").strip() or None,
+        "b2c_policy": (os.getenv("B2C_POLICY") or "").strip() or None,
+        "tenant_id": os.getenv("AZURE_TENANT_ID") or None
+    }
     auth_component = auth.AuthComponent("auth", args)
     pulumi.log.info("[__main__] auth component instantiated; exports available")
 except Exception as e:

@@ -1,4 +1,4 @@
-replicaCount: 2
+replicaCount: 1
 image:
   repository: qdrant/qdrant
   tag: v1.16.0
@@ -11,7 +11,6 @@ cluster:
   enabled: true
   peers:
   - http://qdrant-0.qdrant-headless:6335
-  - http://qdrant-1.qdrant-headless:6335
 snapshots:
   enabled: false
   s3:
@@ -42,10 +41,10 @@ extraEnv:
       key: QDRANT__SERVICE__API_KEY
 resources:
   requests:
-    cpu: '2'
+    cpu: '1'
     memory: 2Gi
   limits:
-    cpu: '2'
+    cpu: '1'
     memory: 2Gi
 tolerations: []
 persistence:
@@ -67,7 +66,7 @@ extraVolumeMounts:
 config:
   params:
     shard_number: 1
-    replication_factor: 2
+    replication_factor: 1
     write_consistency_factor: 1
   log_level: INFO
   storage:

@@ -21,7 +21,7 @@ def load_config():
     cfg["QDRANT_NAMESPACE"] = os.environ.get("QDRANT_NAMESPACE", "qdrant")
     cfg["QDRANT_IMAGE"] = os.environ.get("QDRANT_IMAGE", "qdrant/qdrant:v1.16.0")
     cfg["CHART_VERSION"] = os.environ.get("CHART_VERSION", "1.16.0")
-    cfg["QDRANT_REPLICAS"] = int(os.environ.get("QDRANT_REPLICAS", "2" if env == "STAGING" else "3"))
+    cfg["QDRANT_REPLICAS"] = int(os.environ.get("QDRANT_REPLICAS", "1"))
     cfg["QDRANT_CPU"] = os.environ.get("QDRANT_CPU", "1" if env == "STAGING" else "4")
     cfg["QDRANT_MEMORY"] = os.environ.get("QDRANT_MEMORY", "2Gi" if env == "STAGING" else "16Gi")
     cfg["QDRANT_STORAGE"] = os.environ.get("QDRANT_STORAGE", "emptyDir")
@@ -31,9 +31,6 @@ def load_config():
     cfg["BACKUP_AZURE_CONTAINER"] = os.environ.get("BACKUP_AZ_CONTAINER", "")
     cfg["BACKUP_AZURE_PREFIX"] = os.environ.get("BACKUP_AZURE_PREFIX", "qdrant/backups")
     cfg["AZURE_STORAGE_CONNECTION_STRING"] = os.environ.get("AZURE_STORAGE_CONNECTION_STRING", "")
-    cfg["AZURE_STORAGE_ACCOUNT_NAME"] = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME", "")
-    cfg["AZURE_STORAGE_ACCOUNT_KEY"] = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY", "")
-    cfg["QDRANT__SERVICE__API_KEY"] = os.environ.get("QDRANT__SERVICE__API_KEY", "mypassword")
     cfg["APPLY_STAGING_SECRETS"] = os.environ.get("APPLY_STAGING_SECRETS", "true").lower() in ("1", "true", "yes")
     cfg["TIMEOUT_SECONDS"] = int(os.environ.get("TIMEOUT_SECONDS", "600"))
     cfg["INPUTS_HASH_PATH"] = cfg["MANIFESTS_DIR"] / ".inputs_hash"
@@ -53,7 +50,7 @@ def load_config():
     cfg["SECRET_BACKUP_NAME"] = os.environ.get("SECRET_BACKUP_NAME", "qdrant-backup-azure")
     cfg["SECRET_SERVICE_NAME"] = os.environ.get("SECRET_SERVICE_NAME", "qdrant-service-creds")
     return cfg
-SENSITIVE_KEYS = {"AZURE_STORAGE_CONNECTION_STRING", "AZURE_STORAGE_ACCOUNT_KEY", "QDRANT__SERVICE__API_KEY"}
+
 def canonical_inputs_hash(cfg):
     serial = {}
     for k in sorted(cfg.keys()):

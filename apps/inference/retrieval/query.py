@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Main retrieval service (FastAPI) — uses query_helpers.py for UI/meta extraction and presign.
-This file contains the essential request/response logic, lifespan, clients, and metrics.
-"""
+Main retrieval service (FastAPI) — Azure SAS presign and UI helpers.
 
+Presign endpoint is robust and backwards-compatible:
+ - Accepts JSON bodies with either "path" or "s3_path".
+ - Returns {"url": "..."} on success.
+ - Returns HTTP errors with string 'detail' (no nested objects) to avoid frontend "[object Object]".
+"""
 from __future__ import annotations
 import os
 import sys
@@ -14,17 +17,17 @@ import traceback
 import asyncio
 import time
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 import numpy as np
 import httpx
 from qdrant_client import QdrantClient
 from qdrant_client.models import Prefetch, FusionQuery, Fusion, SparseVector
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response, Request
 from pydantic import BaseModel, Field, conint
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
-# local helper (presign + ui field utils)
+# local helper (Azure presign + ui field utils)
 import query_helpers as helpers
 
 # -----------------------
@@ -63,18 +66,13 @@ LLM_SYSTEM_PROMPT = os.getenv(
 )
 
 MAX_PROMPT_TOKENS = int(os.getenv("MAX_PROMPT_TOKENS", "6000"))
-MAX_CHUNKS_TO_LLM = int(os.getenv("MAX_CHUNKS_TO_LLM", "2"))
+MAX_CHUNKS_TO_LLM = int(os.getenv("MAX_CHUNKS_TO_LLM", "5"))
 
 # ENV + managed identity detection (consistent with helpers)
 ENV = os.getenv("ENV", "STAGING").upper()
 AZURE_USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", "").strip().lower() in ("1", "true", "yes")
 if ENV == "PROD":
     AZURE_USE_MANAGED_IDENTITY = True
-
-# Azure env for presign (helpers will read)
-AZURE_STORAGE_ACCOUNT_NAME = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "")
-AZURE_STORAGE_ACCOUNT_KEY = os.getenv("AZURE_STORAGE_ACCOUNT_KEY", "")
-AZURE_ENDPOINT_SUFFIX = os.getenv("AZURE_ENDPOINT_SUFFIX", "core.windows.net")
 
 # -----------------------
 # Metrics
@@ -112,7 +110,7 @@ sparse_client: Optional["AsyncSparseClient"] = None
 reranker_client: Optional["AsyncRerankerClient"] = None
 qdrant_client: Optional[QdrantClient] = None
 
-# helper alias
+# alias
 ui_helpers = helpers
 
 # -----------------------
@@ -318,28 +316,41 @@ class AsyncRerankerClient:
 # Helpers: UI + prompt assembly
 # -----------------------
 def _sanitize_chunk_for_llm(payload: Dict[str, Any], index: int) -> Dict[str, Any]:
-    ui_fields = ui_helpers.ui_fields_from_payload(payload, prefer_snippet_len=400)
-    d = dict(ui_fields)
+    # LLM should receive the full text; obtain via helper (no UI 'snippet' used)
+    full_text = ui_helpers._full_text_from_payload(payload)
     heading = None
+    fields = ui_helpers.ui_fields_from_payload(payload, prefer_snippet_len=None)
+    d = dict(fields)
     if isinstance(d.get("headings"), (list, tuple)) and d.get("headings"):
         heading = d.get("headings")[0]
-    content = d.get("snippet") or ""
+    content = full_text or ""
     return {"index": index, "heading": heading, "content": content}
 
 def _ordered_meta_items_from_payload(payload: Dict[str, Any]) -> List[Tuple[str, Any]]:
-    return ui_helpers.ui_fields_from_payload(payload, prefer_snippet_len=300)
+    # returns list of (k, v) from helpers (helpers does NOT include snippet)
+    return ui_helpers.ui_fields_from_payload(payload, prefer_snippet_len=None)
 
 def build_numbered_prompt_and_ui_chunks(results: List[Dict[str, Any]], query: str):
-    llm_blocks = []
-    llm_lines = []
-    ui_chunks = []
+    """
+    Build prompt_body, llm_lines, ui_chunks.
+    UI meta_items will NOT include 'snippet'; full text is added only as ("content", <full_text>).
+    """
+    llm_blocks: List[str] = []
+    llm_lines: List[str] = []
+    ui_chunks: List[Dict[str, Any]] = []
     for idx, r in enumerate(results, start=1):
         payload = r.get("payload") or {}
-        fields = _ordered_meta_items_from_payload(payload)
+        fields = _ordered_meta_items_from_payload(payload)  # helpers returns ordered fields WITHOUT 'snippet'
+        full_text = ui_helpers._full_text_from_payload(payload)
+        # ensure 'content' exists for frontend collapsible block
+        existing_keys = {k for k, _ in fields}
+        if full_text and "content" not in existing_keys:
+            fields = list(fields) + [("content", full_text)]
         ui_chunk = {k: v for k, v in fields}
         ui_chunk["index"] = idx
         ui_chunk["meta_items"] = fields
         ui_chunks.append(ui_chunk)
+
         llm_chunk = _sanitize_chunk_for_llm(payload, index=idx)
         block_lines = [f"[{idx}]"]
         if llm_chunk.get("heading"):
@@ -434,7 +445,6 @@ async def hybrid_query(client, collection_name, query_text, sparse_client, dense
         try:
             prefetch_arg = [Prefetch(query=q_dense, using="dense", limit=prefetch_k)] if q_dense is not None else None
             q_start = time.time()
-            # using to_thread for sync qdrant client call
             fused = await asyncio.to_thread(lambda: client.query_points(collection_name=collection_name, prefetch=prefetch_arg, query=FusionQuery(fusion=Fusion.RRF), limit=top_k, with_payload=True, with_vectors=False))
             q_elapsed = max(time.time() - q_start, 1e-6)
             QDRANT_QUERY_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(q_elapsed)
@@ -484,7 +494,7 @@ async def hybrid_query(client, collection_name, query_text, sparse_client, dense
     return dedup
 
 # -----------------------
-# Pydantic models & API
+# Pydantic models & API (only generate uses Pydantic model)
 # -----------------------
 class GenerateRequest(BaseModel):
     query: str = Field(..., min_length=1)
@@ -496,14 +506,6 @@ class GenerateRequest(BaseModel):
 class GenerateResponse(BaseModel):
     answer: str
     chunks: Optional[List[Dict[str, Any]]] = None
-
-class PresignRequest(BaseModel):
-    s3_path: str
-    expires: Optional[conint(ge=60, le=86400)] = 3600
-    inline: Optional[bool] = True
-
-class PresignResponse(BaseModel):
-    url: str
 
 # -----------------------
 # Lifespan
@@ -603,11 +605,15 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
                     for idx, r in enumerate(docs_for_llm, start=1):
                         payload = r.get("payload") or {}
                         fields = _ordered_meta_items_from_payload(payload)
+                        full_text = ui_helpers._full_text_from_payload(payload)
+                        # ensure 'content' is present (UI collapsible)
+                        existing_keys = {k for k, _ in fields}
+                        if full_text and "content" not in existing_keys:
+                            fields = list(fields) + [("content", full_text)]
                         meta_items = [{"k": k, "v": v} for k, v in fields]
                         src = dict(fields).get("source_url")
                         ui_chunks.append({"index": idx, "meta_items": meta_items, "source_url": src})
                     return GenerateResponse(answer=msg, chunks=[{"index": c["index"], "meta_items": c["meta_items"], "source_url": c["source_url"]} for c in ui_chunks])
-                # build UI + llm lines using helper
                 prompt_body, llm_lines, ui_chunks = build_numbered_prompt_and_ui_chunks(docs_for_llm, req.query)
                 if API_KEY:
                     answer_text = await _call_llm_via_http(LLM_SYSTEM_PROMPT, "\n\n".join(llm_lines) + f"\n\nQ: {req.query}\nA:", model=LLM_MODEL, max_tokens=req.max_tokens or LLM_MAX_TOKENS, temperature=LLM_TEMPERATURE)
@@ -738,23 +744,51 @@ def _validate_and_filter_citations(ans: str, valid_indexes: List[int]) -> str:
 async def api_generate(req: GenerateRequest):
     return await generate_handler(req)
 
-@app.post("/presign", response_model=PresignResponse)
-async def api_presign(req: PresignRequest):
+@app.post("/presign")
+async def api_presign(request: Request):
+    """
+    Robust presign endpoint.
+    Accepts JSON body with either:
+      - {"path": "...", "expires": 3600, "inline": true}
+      - {"s3_path": "...", "expires": 3600, "inline": true}  (legacy)
+    Returns JSON {"url": "<sas-url>"} on success.
+    Errors return HTTPException with string detail (no nested objects).
+    """
     PRESIGN_COUNT.labels(service=SERVICE_NAME, env=ENV).inc()
     start = time.time()
     try:
-        path = req.s3_path
-        # use helpers.presign_azure_blob_blocking in a thread to avoid blocking
-        url = await asyncio.to_thread(helpers.presign_azure_blob_blocking, path, int(req.expires), bool(req.inline))
-        return PresignResponse(url=url)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        slog("error", "presign.runtime.failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-        slog("error", "presign.failed", error=str(e))
-        raise HTTPException(status_code=500, detail="presign failed")
+        try:
+            payload = await request.json()
+            if not isinstance(payload, dict):
+                raise ValueError("invalid json body")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"invalid json body: {e}")
+
+        # backward-compatible key names
+        path = payload.get("path") or payload.get("s3_path") or payload.get("az_path") or None
+        if not path:
+            raise HTTPException(status_code=400, detail="missing 'path' or 's3_path' in request body")
+
+        try:
+            expires = int(payload.get("expires", 3600))
+        except Exception:
+            expires = 3600
+        inline = bool(payload.get("inline", True))
+
+        # run blocking presign in thread
+        try:
+            url = await asyncio.to_thread(helpers.presign_azure_blob_blocking, path, int(expires), bool(inline))
+            return {"url": url}
+        except ValueError as e:
+            # validation errors from helper -> 400
+            raise HTTPException(status_code=400, detail=str(e))
+        except RuntimeError as e:
+            slog("error", "presign.runtime.failed", error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
+        except Exception as e:
+            slog("error", "presign.failed", error=str(e), stack=_escape_stack(e))
+            # return a clear string detail to avoid "[object Object]" in JS
+            raise HTTPException(status_code=500, detail=f"presign failed: {e}")
     finally:
         elapsed = max(time.time() - start, 1e-6)
         try:
@@ -802,4 +836,3 @@ if __name__ == "__main__":
         port=int(os.getenv("PORT", "8001")),
         log_level=os.getenv("LOG_LEVEL", "info").lower(),
     )
-

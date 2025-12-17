@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 # apps/inference/frontend/test_and_push_frontend_auth.sh
-#
 # Build image, run minimal smoke tests (health + auth endpoint), optionally push.
-#
-# Minimal & deterministic: sets required envs so the app starts without failing discovery.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_CONTEXT_DIR="${SCRIPT_DIR}"
-IMAGE_TAG="${IMAGE_TAG:-v5}"
+IMAGE_TAG="${IMAGE_TAG:-v3}"
 DOCKER_USERNAME="${DOCKER_USERNAME:-}"
 DOCKER_PASSWORD="${DOCKER_PASSWORD:-}"
 IMAGE_NAME="${IMAGE_NAME:-${DOCKER_USERNAME:+${DOCKER_USERNAME}/}frontend-and-auth:${IMAGE_TAG}}"
@@ -47,36 +44,25 @@ wait_for_http() {
   done
 }
 
-###############################################
-#              BUILD IMAGE
-###############################################
 log "Building local image ${IMAGE_NAME}"
 docker build -t "${IMAGE_NAME}" "${BUILD_CONTEXT_DIR}" \
   || { err "docker build failed"; exit 4; }
 
 cleanup_container
 
-###############################################
-#               RUN CONTAINER
-###############################################
 log "Starting frontend container ${CONTAINER_NAME}"
 
-# Provide minimal envs required by frontend_and_auth.py to start successfully.
-# Note: OIDC_JWKS_URI is set to a stable public JWKS endpoint to avoid discovery-time failures.
+# Required envs:
+# - SUPABASE_URL (cloud project URL)
+# - SUPABASE_KEY (anon key is fine for local testing)
 docker run --name "${CONTAINER_NAME}" \
   -d -p "${HOST_PORT}:${CONTAINER_PORT}" \
-  -e AUTH_MODE="external-id" \
-  -e OIDC_AUDIENCE="test-aud" \
-  -e SPA_CLIENT_ID="test-spa" \
+  -e SUPABASE_URL="${SUPABASE_URL:-https://hplfbdfqomkrsglvsgeb.supabase.co}" \
+  -e SUPABASE_KEY="${SUPABASE_KEY:-your-anon-key-here}" \
   -e QUERY_URL="http://127.0.0.1:9999" \
   -e FRONTEND_URL="http://127.0.0.1:${HOST_PORT}" \
-  -e OIDC_ISSUER="https://accounts.google.com" \
-  -e OIDC_JWKS_URI="https://www.googleapis.com/oauth2/v3/certs" \
   "${IMAGE_NAME}" >/dev/null
 
-###############################################
-#         WAIT FOR FRONTEND TO START
-###############################################
 HEALTH_URL="http://127.0.0.1:${HOST_PORT}/health"
 
 log "Waiting for frontend /health on ${HEALTH_URL}"
@@ -87,9 +73,6 @@ if ! wait_for_http "${HEALTH_URL}" "${WAIT_TIMEOUT}"; then
   exit 5
 fi
 
-###############################################
-#            BASIC SMOKE TESTS
-###############################################
 log "GET /health"
 curl -fsS "${HEALTH_URL}" || {
   err "Health endpoint failed"
@@ -108,9 +91,6 @@ fi
 docker rm -f "${CONTAINER_NAME}" >/dev/null || true
 log "Local smoke tests passed."
 
-###############################################
-#              OPTIONAL PUSH
-###############################################
 if [ -z "${DOCKER_USERNAME}" ]; then
   log "DOCKER_USERNAME not set — skipping push."
   exit 0
