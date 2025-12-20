@@ -6,7 +6,7 @@ metadata:
   labels: &id001
     app.kubernetes.io/name: frontend
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels: *id001
   template:
@@ -16,12 +16,14 @@ spec:
       serviceAccountName: frontend-sa
       containers:
       - name: frontend
-        image: athithya5354/frontend-and-auth:v5
+        image: athithya5354/frontend-and-auth:v9
         ports:
         - containerPort: 8000
         envFrom:
         - configMapRef:
             name: frontend-config
+        - secretRef:
+            name: frontend-secret
         resources:
           requests:
             cpu: 100m
@@ -31,17 +33,15 @@ spec:
             memory: 512Mi
         livenessProbe:
           httpGet:
-            path: /health
+            path: /orchestrator/health
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 10
-          timeoutSeconds: 2
-          failureThreshold: 3
+          timeoutSeconds: 1
         readinessProbe:
           httpGet:
-            path: /health
+            path: /orchestrator/health
             port: 8000
           initialDelaySeconds: 3
           periodSeconds: 5
           timeoutSeconds: 1
-          failureThreshold: 3

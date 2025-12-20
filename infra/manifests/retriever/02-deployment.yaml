@@ -61,6 +61,11 @@ spec:
           value: core.windows.net
         - name: AZURE_USE_MANAGED_IDENTITY
           value: 'false'
+        - name: GROQ_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: retrieval-secret
+              key: groq_api_key
         livenessProbe:
           httpGet:
             path: /healthz

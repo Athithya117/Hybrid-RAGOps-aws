@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 IFS=$'\n\t'
+
+export AZURE_RESOURCE_GROUP_NAME="rg-rag-prod"
+export AZURE_LOCATION="centralindia"
+export AZURE_STORAGE_ACCOUNT_NAME="storeragprod42"
+export AZURE_CONTAINER="rag-data-prod"
+export PULUMI_AZ_CONTAINER="pulumi-state"
+export FLOW_LOG_CONTAINER="flow-logs"
+export BACKUP_AZ_CONTAINER="backups"
+export AZURE_DELETE_ACCOUNT="0"
+export FORCE_DELETE="1"
 export AZ_CLI_BIN="${AZ_CLI_BIN:-az}"
 export PULUMI_BIN="${PULUMI_BIN:-pulumi}"
 export PYTHON_BIN="${PYTHON_BIN:-python3}"
@@ -12,13 +22,26 @@ export PULUMI_STATE_CONTAINER="${PULUMI_STATE_CONTAINER:-pulumi-state}"
 export PULUMI_STORAGE_ACCOUNT_NAME="${PULUMI_STORAGE_ACCOUNT_NAME:-pulumistate${ENV:-staging}01}"
 export FORCE="${FORCE:-0}"
 export ENV="${ENV:-staging}"
-export AZURE_LOCATION="${AZURE_LOCATION:-centralindia}"
 export ARM_USE_AZURE_CLI="${ARM_USE_AZURE_CLI:-true}"
 export ARM_SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID:-${AZURE_SUBSCRIPTION_ID:-}}"
 export ARM_TENANT_ID="${ARM_TENANT_ID:-${AZURE_TENANT_ID:-}}"
 export AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID:?AZURE_SUBSCRIPTION_ID must already be exported}"
 export AZURE_TENANT_ID="${AZURE_TENANT_ID:?AZURE_TENANT_ID must already be exported}"
-export AZURE_RESOURCE_GROUP_NAME="${AZURE_RESOURCE_GROUP_NAME:?AZURE_RESOURCE_GROUP_NAME must already be exported}"
+
+
+export RESOURCE_NAME_PREFIX=rag
+export AZURE_LOCATION=eastus
+export VNET_CIDR=10.1.0.0/16
+export AKS_SUBNET_PREFIX=10.1.1.0/24
+export APPGW_SUBNET_PREFIX=10.1.2.0/24
+export CREATE_NAT=false
+export FRONTEND_HOSTNAME="ui.athithya.site"
+
+export CLOUDFLARE_CREATE_K8S="true"
+export CLOUDFLARE_IMAGE="cloudflare/cloudflared:2025.11.1"
+export CLOUDFLARE_TUNNEL_REPLICAS="2"
+
+
 log(){ printf '[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"; }
 die(){ echo "ERROR: $*" >&2; exit 1; }
 require_cmd(){ command -v "$1" >/dev/null 2>&1 || die "required command '$1' not found"; }

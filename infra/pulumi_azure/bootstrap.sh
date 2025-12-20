@@ -25,6 +25,8 @@ IFS=$'\n\t'
 : "${PULUMI_STATE_CONTAINER:=pulumi-state}"
 : "${PULUMI_BACKEND_SKU:=Standard_LRS}"
 
+
+
 # Logging helpers
 log(){ printf '[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"; }
 die(){ echo "ERROR: $*" >&2; exit 1; }

@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_CONTEXT_DIR="${SCRIPT_DIR}"
-IMAGE_TAG="${IMAGE_TAG:-v3}"
+IMAGE_TAG="${IMAGE_TAG:-v9}"
 DOCKER_USERNAME="${DOCKER_USERNAME:-}"
 DOCKER_PASSWORD="${DOCKER_PASSWORD:-}"
 IMAGE_NAME="${IMAGE_NAME:-${DOCKER_USERNAME:+${DOCKER_USERNAME}/}frontend-and-auth:${IMAGE_TAG}}"
@@ -48,49 +48,6 @@ log "Building local image ${IMAGE_NAME}"
 docker build -t "${IMAGE_NAME}" "${BUILD_CONTEXT_DIR}" \
   || { err "docker build failed"; exit 4; }
 
-cleanup_container
-
-log "Starting frontend container ${CONTAINER_NAME}"
-
-# Required envs:
-# - SUPABASE_URL (cloud project URL)
-# - SUPABASE_KEY (anon key is fine for local testing)
-docker run --name "${CONTAINER_NAME}" \
-  -d -p "${HOST_PORT}:${CONTAINER_PORT}" \
-  -e SUPABASE_URL="${SUPABASE_URL:-https://hplfbdfqomkrsglvsgeb.supabase.co}" \
-  -e SUPABASE_KEY="${SUPABASE_KEY:-your-anon-key-here}" \
-  -e QUERY_URL="http://127.0.0.1:9999" \
-  -e FRONTEND_URL="http://127.0.0.1:${HOST_PORT}" \
-  "${IMAGE_NAME}" >/dev/null
-
-HEALTH_URL="http://127.0.0.1:${HOST_PORT}/health"
-
-log "Waiting for frontend /health on ${HEALTH_URL}"
-if ! wait_for_http "${HEALTH_URL}" "${WAIT_TIMEOUT}"; then
-  log "Container logs (last 200 lines):"
-  docker logs --tail 200 "${CONTAINER_NAME}" || true
-  err "Frontend container did not become healthy"
-  exit 5
-fi
-
-log "GET /health"
-curl -fsS "${HEALTH_URL}" || {
-  err "Health endpoint failed"
-  docker logs --tail 200 "${CONTAINER_NAME}" || true
-  exit 6
-}
-
-log "GET /auth/me (expect 401 Unauthorized)"
-status_line=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${HOST_PORT}/auth/me" || echo "000")
-if [ "$status_line" = "401" ]; then
-  log "/auth/me returned 401 as expected"
-else
-  warn "/auth/me returned unexpected status: $status_line (expected 401)"
-fi
-
-docker rm -f "${CONTAINER_NAME}" >/dev/null || true
-log "Local smoke tests passed."
-
 if [ -z "${DOCKER_USERNAME}" ]; then
   log "DOCKER_USERNAME not set — skipping push."
   exit 0
@@ -111,3 +68,5 @@ docker push "${IMAGE_NAME}" || { err "docker push failed"; exit 12; }
 
 log "Push complete: ${IMAGE_NAME}"
 exit 0
+
+

@@ -5,7 +5,6 @@
 # portable command that works in kind and AKS without rebuilding images.
 
 from __future__ import annotations
-
 import os
 import sys
 import subprocess

@@ -48,21 +48,9 @@ resources:
     memory: 2Gi
 tolerations: []
 persistence:
-  enabled: false
-extraVolumes:
-- name: qdrant-storage
-  hostPath:
-    path: /mnt/nvme/qdrant
-    type: DirectoryOrCreate
-- name: qdrant-snapshots
-  hostPath:
-    path: /mnt/nvme/qdrant/snapshots
-    type: DirectoryOrCreate
-extraVolumeMounts:
-- name: qdrant-storage
-  mountPath: /qdrant/storage
-- name: qdrant-snapshots
-  mountPath: /qdrant/snapshots
+  enabled: true
+  storageClass: standard
+  size: 50Gi
 config:
   params:
     shard_number: 1

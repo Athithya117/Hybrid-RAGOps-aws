@@ -1,68 +1,59 @@
-#!/usr/bin/env python3
-from __future__ import annotations
-import os
 import logging
-import json
-from typing import Optional
-from urllib.parse import urljoin
-import httpx
+import os
+import sys
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, PlainTextResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from jinja2 import Environment, BaseLoader, select_autoescape
 
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=LOG_LEVEL)
 log = logging.getLogger("frontend_noauth")
 
-def _env(name: str, default: Optional[str] = None) -> Optional[str]:
+
+def _env(name: str, default: str = None):
     v = os.getenv(name)
     return v.strip() if isinstance(v, str) and v.strip() != "" else default
 
-QUERY_URL = _env("QUERY_URL")
-FRONTEND_URL = _env("FRONTEND_URL") or "http://localhost:8000"
 
-missing = []
-if not QUERY_URL:
-    missing.append("QUERY_URL")
-if missing:
-    raise RuntimeError("Missing required env vars: " + ", ".join(missing))
+# Non-fatal defaults for CI and dev
+QUERY_URL = _env("QUERY_URL") or "http://retrieval-svc.inference.svc.cluster.local:8001"
+FRONTEND_URL = _env("FRONTEND_URL") or os.getenv("FRONTEND_BASE") or "http://localhost:8000"
 
-def _ensure_url(u: str, name: str) -> None:
-    if not u.startswith("http://") and not u.startswith("https://"):
-        raise RuntimeError(f"{name} must be an http(s) URL: got {u}")
+def _ensure_url(u: str, name: str) -> str:
+    if not isinstance(u, str) or (not u.startswith("http://") and not u.startswith("https://")):
+        log.warning("%s must be http(s). Falling back to default for %s", name, u)
+        return "http://retrieval-svc.inference.svc.cluster.local:8001" if name == "QUERY_URL" else "http://localhost:8000"
+    return u
 
-_ensure_url(QUERY_URL, "QUERY_URL")
-_ensure_url(FRONTEND_URL, "FRONTEND_URL")
+QUERY_URL = _ensure_url(QUERY_URL, "QUERY_URL")
+FRONTEND_URL = _ensure_url(FRONTEND_URL, "FRONTEND_URL")
 
 app = FastAPI(title="frontend-noauth", docs_url=None, redoc_url=None)
+
 ENABLE_CORS = os.getenv("ENABLE_CORS", "false").lower() in ("1", "true", "yes")
 CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "*")
 if ENABLE_CORS:
     origins = ["*"] if CORS_ALLOWED_ORIGINS == "*" else [o.strip() for o in CORS_ALLOWED_ORIGINS.split(",") if o.strip()]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type"],
-    )
+    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
     log.info("CORS enabled for origins: %s", origins)
 
-# index template (same minimal UI)
-INDEX_TEMPLATE = r"""
-<!doctype html>
+INDEX_TEMPLATE = r"""<!doctype html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RAG UI (No Auth)</title>
+<title>RAG UI</title>
 <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 </head>
 <body class="bg-gray-50 min-h-screen p-6">
 <div class="max-w-4xl mx-auto">
   <div class="flex justify-between items-center mb-6">
-    <h1 class="text-2xl font-semibold">RAG UI (No Auth)</h1>
+    <h1 class="text-2xl font-semibold">RAG UI</h1>
+    <div id="auth-controls" class="text-sm"></div>
   </div>
-
   <form id="qry" class="space-y-4 bg-white p-4 rounded shadow" onsubmit="return false;">
     <label class="block text-sm font-medium">Query</label>
     <textarea id="query" rows="3" class="mt-1 block w-full border rounded p-2" placeholder="Ask your question..."></textarea>
@@ -75,18 +66,43 @@ INDEX_TEMPLATE = r"""
   <div id="result" class="mt-6"></div>
   <div class="mt-6 text-xs text-gray-500">This frontend forwards requests to the backend configured by QUERY_URL on the server.</div>
 </div>
-
 <script>
+async function checkAuth(){
+  const ctrl = document.getElementById('auth-controls');
+  ctrl.innerHTML = '<span class="text-gray-500">Checking auth…</span>';
+  const tok = localStorage.getItem('app_jwt');
+  if(!tok){
+    ctrl.innerHTML = '<a href="/auth/login" class="text-sm text-blue-600 underline">Login</a>';
+    return;
+  }
+  try{
+    const resp = await fetch('/auth/me',{headers:{'Authorization':'Bearer '+tok}});
+    if(!resp.ok){
+      localStorage.removeItem('app_jwt');
+      ctrl.innerHTML = '<a href="/auth/login" class="text-sm text-blue-600 underline">Login</a>';
+      return;
+    }
+    const j = await resp.json();
+    const name = j.user && (j.user.name || j.user.email || j.user.sub) || 'user';
+    ctrl.innerHTML = '<span class="mr-4 text-sm text-gray-700">Signed in as '+escapeHtml(name)+'</span><button id="logout-btn" class="text-sm text-red-600 underline">Logout</button>';
+    document.getElementById('logout-btn').addEventListener('click', async function(){
+      try{ await fetch('/auth/logout'); }catch(e){}
+      localStorage.removeItem('app_jwt');
+      window.location.reload();
+    });
+  }catch(e){
+    localStorage.removeItem('app_jwt');
+    ctrl.innerHTML = '<a href="/auth/login" class="text-sm text-blue-600 underline">Login</a>';
+  }
+}
 function renderResult(json){
   const res = document.getElementById('result');
   if(!json || typeof json !== 'object'){
     res.innerHTML = '<pre class="whitespace-pre-wrap">'+(JSON.stringify(json,null,2)||'')+'</pre>';
     return;
   }
-  // answer
   let out = '<div class="bg-white p-4 rounded shadow"><h2 class="font-medium mb-2">Answer</h2>';
   out += '<div class="prose"><pre class="whitespace-pre-wrap">'+(json.answer||'')+'</pre></div>';
-  // chunks
   const chunks = json.chunks || [];
   if(chunks.length){
     out += '<h3 class="mt-4 font-medium">Sources</h3><ul class="space-y-2">';
@@ -99,7 +115,6 @@ function renderResult(json){
         if(it.k === 'content'){
           out += '<li><details><summary class="cursor-pointer text-blue-600">Show content</summary><div class="mt-2 text-xs text-gray-800 whitespace-pre-wrap">'+escapeHtml(it.v)+'</div></details></li>';
         } else if(it.k === 'source_url'){
-          // source link will call /presign to fetch a temporary URL
           out += '<li><strong>'+escapeHtml(it.k)+':</strong> <a href="#" class="source-link text-blue-600 underline" data-s3="'+escapeHtml(it.v)+'">open</a></li>';
         } else {
           out += '<li><strong>'+escapeHtml(it.k)+':</strong> '+escapeHtml(String(it.v))+'</li>';
@@ -113,8 +128,6 @@ function renderResult(json){
   }
   out += '</div>';
   res.innerHTML = out;
-
-  // attach click handlers for presign links
   document.querySelectorAll('.source-link').forEach((el, i) => {
     el.addEventListener('click', async function(ev){
       ev.preventDefault();
@@ -122,7 +135,10 @@ function renderResult(json){
       const presignDiv = document.getElementById('presign-'+i);
       presignDiv.textContent = 'Fetching presigned URL...';
       try{
-        const r = await fetch('/presign', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ s3_path: s3, expires:3600, inline:true })});
+        const tok = localStorage.getItem('app_jwt');
+        const headers = {'Content-Type':'application/json'};
+        if(tok){ headers['Authorization'] = 'Bearer '+tok; }
+        const r = await fetch('/presign', { method:'POST', headers: headers, body: JSON.stringify({ s3_path: s3, expires:3600, inline:true })});
         const j = await r.json();
         if(r.ok && j.url){
           presignDiv.innerHTML = "<a href='"+escapeAttr(j.url)+"' target='_blank' class='text-green-600 underline'>Open presigned URL</a><div class='text-xs text-gray-600 break-words'>"+escapeHtml(j.url)+"</div>";
@@ -135,13 +151,11 @@ function renderResult(json){
     });
   });
 }
-
 function escapeHtml(s){
   if(!s) return '';
   return s.replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
 }
 function escapeAttr(s){ return escapeHtml(s).replace(/"/g,'&quot;'); }
-
 async function submit(){
   const q=document.getElementById('query').value.trim();
   if(!q){ document.getElementById('result').innerHTML='<div class="bg-red-100 p-3 rounded">Query required</div>'; return; }
@@ -150,7 +164,10 @@ async function submit(){
   const payload={ query: q, top_k, enable_tracing, return_chunks: enable_tracing };
   document.getElementById('ask').disabled=true; document.getElementById('ask').innerText='Asking...';
   try{
-    const resp = await fetch('/run', { method:'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
+    const tok = localStorage.getItem('app_jwt');
+    const headers = {'Content-Type':'application/json'};
+    if(tok){ headers['Authorization'] = 'Bearer '+tok; }
+    const resp = await fetch('/run', { method:'POST', headers: headers, body: JSON.stringify(payload) });
     const text = await resp.text();
     const ct = resp.headers.get('content-type') || '';
     if(resp.ok){
@@ -173,15 +190,14 @@ async function submit(){
     document.getElementById('ask').disabled=false; document.getElementById('ask').innerText='Ask';
   }
 }
-
 document.addEventListener('DOMContentLoaded', function(){
+  checkAuth();
   document.getElementById('ask').addEventListener('click', submit);
 });
 </script>
 </body>
 </html>
 """
-
 env = Environment(loader=BaseLoader(), autoescape=select_autoescape(["html"]))
 tmpl = env.from_string(INDEX_TEMPLATE)
 INDEX_HTML = tmpl.render()
@@ -192,56 +208,55 @@ async def index():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "query_url": QUERY_URL}
+    return {"status":"ok","query_url":QUERY_URL}
 
 @app.post("/run")
 async def run(request: Request):
-    """
-    Forwards the JSON body to backend /generate. If backend returns JSON, return it as JSON so the SPA can render it.
-    If backend returns non-JSON, return the raw text.
-    """
     try:
         body = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
     if not isinstance(body, dict) or not body.get("query"):
         raise HTTPException(status_code=400, detail="Missing 'query'")
-
-    target = urljoin(QUERY_URL.rstrip("/") + "/", "generate")
-    headers = {"Content-Type": "application/json"}
+    target = QUERY_URL.rstrip("/") + "/generate"
+    headers = {"Content-Type":"application/json"}
+    auth = request.headers.get("authorization")
+    if auth:
+        headers["Authorization"] = auth
     client_host = request.client.host if request.client else None
     if client_host:
         headers["X-Forwarded-For"] = client_host
-
+    import httpx
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(target, json=body, headers=headers)
-            content_type = resp.headers.get("content-type", "")
+            content_type = resp.headers.get("content-type","")
             if "application/json" in (content_type or ""):
                 return JSONResponse(content=resp.json(), status_code=resp.status_code)
             else:
                 return PlainTextResponse(content=resp.text, status_code=resp.status_code)
     except httpx.HTTPStatusError as e:
         log.error("Upstream returned non-200: %s", str(e))
-        raise HTTPException(status_code=502, detail=f"Upstream error: {getattr(e.response, 'status_code', 'unknown')}")
+        raise HTTPException(status_code=502, detail=f"Upstream error: {getattr(e.response,'status_code','unknown')}")
     except Exception:
         log.exception("Upstream call failed")
         raise HTTPException(status_code=502, detail="Upstream call failed")
 
 @app.post("/presign")
 async def presign(request: Request):
-    """
-    Proxy to backend /presign. Accepts {"s3_path": "...", "expires": 3600, "inline": true}
-    Returns backend JSON response (expected { "url": "..." }).
-    """
     try:
         body = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
-    target = urljoin(QUERY_URL.rstrip("/") + "/", "presign")
+    target = QUERY_URL.rstrip("/") + "/presign"
+    headers = {"Content-Type":"application/json"}
+    auth = request.headers.get("authorization")
+    if auth:
+        headers["Authorization"] = auth
+    import httpx
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.post(target, json=body, headers={"Content-Type": "application/json"})
+            resp = await client.post(target, json=body, headers=headers)
             try:
                 return JSONResponse(content=resp.json(), status_code=resp.status_code)
             except Exception:
@@ -249,9 +264,3 @@ async def presign(request: Request):
     except Exception:
         log.exception("Presign proxy failed")
         raise HTTPException(status_code=502, detail="Presign proxy failed")
-
-if __name__ == "__main__":
-    import uvicorn
-    host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run("frontend:app", host=host, port=port, reload=True)

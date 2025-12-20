@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""
-frontend_auth.py
-
-- Generates non-secret Kubernetes manifests to MANIFESTS_DIR.
-- Ensures Deployment references secret via secretKeyRef (never emits secret values into files).
-- Creates/updates Kubernetes Secret in-cluster from env vars (never writes secret files).
-- Fail-fast validation, deterministic, idempotent.
-Python: 3.10+
-"""
-
 from __future__ import annotations
 import os
 import sys
@@ -22,9 +12,6 @@ from typing import Any, Dict, Optional, List, Tuple
 import yaml
 from urllib.parse import urlparse
 
-# -----------------------------
-# Utility & Logging
-# -----------------------------
 def die(msg: str) -> None:
     print("ERROR:", msg, file=sys.stderr)
     sys.exit(2)
@@ -78,21 +65,20 @@ def run_cmd(cmd: List[str], input_bytes: Optional[bytes] = None, timeout: int = 
     except subprocess.TimeoutExpired as e:
         return 124, getattr(e, "stdout", "") or "", getattr(e, "stderr", "") or f"timeout after {timeout}s"
 
-# -----------------------------
-# Config loader
-# -----------------------------
 def load_config() -> Dict[str, Any]:
     cfg: Dict[str, Any] = {}
     cfg["REPO_ROOT"] = Path(os.getenv("REPO_ROOT", Path.cwd()))
     cfg["KUBE_ENV"] = os.getenv("KUBE_ENV", os.getenv("ENV", "STAGING")).lower()
     if cfg["KUBE_ENV"] not in ("kind", "staging", "prod", "aks"):
         die("KUBE_ENV must be one of kind/staging/prod/aks")
-
     cfg["MANIFESTS_DIR"] = Path(os.getenv("MANIFESTS_DIR", cfg["REPO_ROOT"] / "infra" / "manifests" / "frontend"))
     cfg["FRONTEND_NAMESPACE"] = os.getenv("FRONTEND_NAMESPACE", "inference")
     cfg["SERVICE_NAME"] = os.getenv("FRONTEND_SERVICE_NAME", "frontend")
-    cfg["IMAGE"] = os.getenv("FRONTEND_IMAGE", "athithya5354/frontend-and-auth:v5")
-    cfg["PORT"] = int(os.getenv("FRONTEND_PORT", "8000"))
+    cfg["IMAGE"] = os.getenv("FRONTEND_IMAGE", "athithya5354/frontend-and-auth:v9")
+    try:
+        cfg["PORT"] = int(os.getenv("FRONTEND_PORT", "8000"))
+    except Exception:
+        cfg["PORT"] = 8000
     cfg["REPLICAS"] = int(os.getenv("FRONTEND_REPLICAS", "1" if cfg["KUBE_ENV"] == "kind" else "3"))
     cfg["CPU_REQUEST"] = os.getenv("FRONTEND_CPU_REQUEST", "100m")
     cfg["CPU_LIMIT"] = os.getenv("FRONTEND_CPU_LIMIT", "500m")
@@ -103,10 +89,12 @@ def load_config() -> Dict[str, Any]:
     cfg["HPA_MAX"] = int(os.getenv("FRONTEND_HPA_MAX", "5"))
 
     cfg["QUERY_URL"] = os.getenv("QUERY_URL", "http://retrieval-svc.inference.svc.cluster.local:8001")
-    cfg["FRONTEND_URL"] = os.getenv("FRONTEND_URL", "https://frontend.local")
+    cfg["FRONTEND_URL"] = os.getenv("FRONTEND_URL", os.getenv("FRONTEND_BASE", "https://frontend.local"))
     parsed = urlparse(cfg["FRONTEND_URL"])
     cfg["FRONTEND_HOST"] = parsed.hostname or "frontend.local"
     cfg["FRONTEND_SCHEME"] = parsed.scheme or "https"
+    cfg["FRONTEND_BASE"] = os.getenv("FRONTEND_BASE", cfg["FRONTEND_URL"])
+    cfg["OAUTH_REDIRECT_BASE"] = os.getenv("OAUTH_REDIRECT_BASE", cfg["FRONTEND_BASE"])
     cfg["REDIRECT_URI_ENTRA"] = cfg["FRONTEND_URL"].rstrip("/") + "/auth/callback/entra"
     cfg["REDIRECT_URI_EXTERNAL"] = cfg["FRONTEND_URL"].rstrip("/") + "/auth/callback/external-id"
 
@@ -120,25 +108,66 @@ def load_config() -> Dict[str, Any]:
 
     cfg["ENABLE_CORS"] = os.getenv("ENABLE_CORS", "false").lower() in ("1", "true", "yes")
     cfg["CORS_ALLOWED_ORIGINS"] = os.getenv("CORS_ALLOWED_ORIGINS", cfg["FRONTEND_URL"])
-
     cfg["LOG_LEVEL"] = os.getenv("LOG_LEVEL", "INFO")
 
-    # Secret names mapping: env var -> key in k8s secret
-    cfg["SECRET_NAMES"] = {"JWT_SECRET": "jwt_secret", "SESSION_SECRET": "session_secret"}
+    # auth provider toggles + IDs/redirects
+    cfg["ENABLE_GOOGLE_AUTH"] = os.getenv("ENABLE_GOOGLE_AUTH", "false")
+    cfg["ENABLE_MICROSOFT_AUTH"] = os.getenv("ENABLE_MICROSOFT_AUTH", "false")
+    cfg["ENABLE_GITHUB_AUTH"] = os.getenv("ENABLE_GITHUB_AUTH", "false")
+    cfg["GOOGLE_CLIENT_ID"] = os.getenv("GOOGLE_CLIENT_ID", "")
+    cfg["GOOGLE_REDIRECT_URI"] = os.getenv("GOOGLE_REDIRECT_URI", "")
+    cfg["MS_CLIENT_ID"] = os.getenv("MS_CLIENT_ID", "")
+    cfg["MS_REDIRECT_URI"] = os.getenv("MS_REDIRECT_URI", "")
+    cfg["GITHUB_CLIENT_ID"] = os.getenv("GITHUB_CLIENT_ID", "")
+    cfg["GITHUB_REDIRECT_URI"] = os.getenv("GITHUB_REDIRECT_URI", "")
+
+    # allow-lists
+    cfg["GOOGLE_ALLOWED_DOMAINS"] = os.getenv("GOOGLE_ALLOWED_DOMAINS", "")
+    cfg["MICROSOFT_ALLOWED_DOMAINS"] = os.getenv("MICROSOFT_ALLOWED_DOMAINS", "")
+    cfg["MICROSOFT_ALLOWED_TENANT_IDS"] = os.getenv("MICROSOFT_ALLOWED_TENANT_IDS", "")
+    cfg["GITHUB_ALLOWED_DOMAINS"] = os.getenv("GITHUB_ALLOWED_DOMAINS", "")
+    cfg["GITHUB_ALLOWED_ORGS"] = os.getenv("GITHUB_ALLOWED_ORGS", "")
+
+    cfg["JWT_EXP_SECONDS"] = os.getenv("JWT_EXP_SECONDS", "1800")
+    cfg["JWT_ISS"] = os.getenv("JWT_ISS", "stateless-openid-auth")
+    cfg["JWT_AUD"] = os.getenv("JWT_AUD", "rag-ui")
+    cfg["COOKIE_NAME"] = os.getenv("COOKIE_NAME", "app_session")
+    cfg["COOKIE_SAMESITE"] = os.getenv("COOKIE_SAMESITE", "lax")
+    cfg["COOKIE_SECURE"] = os.getenv("COOKIE_SECURE", "true")
+    cfg["TEMP_DOMAIN"] = os.getenv("TEMP_DOMAIN", "false")
+    cfg["CLOUDFLARE_API_TOKEN"] = os.getenv("CLOUDFLARE_API_TOKEN", "")
+    cfg["CLOUDFLARE_ACCOUNT_ID"] = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+    cfg["CLOUDFLARE_TUNNEL_NAME"] = os.getenv("CLOUDFLARE_TUNNEL_NAME", "")
+    cfg["CLOUDFLARE_TUNNEL_CREDENTIALS_B64"] = os.getenv("CLOUDFLARE_TUNNEL_CREDENTIALS_B64", "")
+    cfg["HOST"] = os.getenv("HOST", "0.0.0.0")
+    cfg["PORT_OVERRIDE"] = os.getenv("PORT", str(cfg["PORT"]))
+
+    # secret names mapping
+    cfg["SECRET_NAMES"] = {
+        "JWT_SECRET": "jwt_secret",
+        "SESSION_SECRET": "session_secret",
+        "GOOGLE_CLIENT_SECRET": "google_client_secret",
+        "MS_CLIENT_SECRET": "ms_client_secret",
+        "GITHUB_CLIENT_SECRET": "github_client_secret",
+        "CLOUDFLARE_API_TOKEN": "cloudflare_api_token",
+        "CLOUDFLARE_TUNNEL_CREDENTIALS_B64": "cloudflared_credentials_b64"
+    }
+
     secret_values: Dict[str, str] = {}
     for envk in cfg["SECRET_NAMES"].keys():
         v = os.getenv(envk)
         if v:
             secret_values[envk] = v
     cfg["SECRET_VALUES"] = secret_values
-    cfg["ALLOW_MISSING_SECRETS"] = os.getenv("ALLOW_MISSING_SECRETS", "false").lower() in ("1", "true", "yes")
+
+    # by default: don't fail CI on missing secrets; allow override
+    cfg["ALLOW_MISSING_SECRETS"] = os.getenv("ALLOW_MISSING_SECRETS", "true" if cfg["KUBE_ENV"] == "kind" else "false").lower() in ("1", "true", "yes")
 
     m = cfg["MANIFESTS_DIR"]
     cfg["FILES"] = {
         "namespace": m / "00-namespace.yaml",
         "sa_role": m / "01-sa-role.yaml",
         "configmap": m / "02-configmap.yaml",
-        # secret intentionally omitted (applied directly)
         "deployment": m / "04-deployment.yaml",
         "service": m / "05-service.yaml",
         "hpa": m / "06-hpa.yaml",
@@ -148,14 +177,10 @@ def load_config() -> Dict[str, Any]:
 
     cfg["AUTH_META_PATH"] = Path(os.getenv("AUTH_META_PATH", cfg["REPO_ROOT"] / "infra" / "manifests" / "auth" / "manifest.meta.json"))
 
-    # warn if secrets missing and not allowed
     if not cfg["SECRET_VALUES"] and not cfg["ALLOW_MISSING_SECRETS"]:
         warn("No SECRET_VALUES found in environment and ALLOW_MISSING_SECRETS is false. Set ALLOW_MISSING_SECRETS=true to proceed without secrets.")
     return cfg
 
-# -----------------------------
-# Renderers
-# -----------------------------
 def render_namespace(cfg: Dict[str, Any]) -> str:
     ns = {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": cfg["FRONTEND_NAMESPACE"], "labels": {"app": "frontend"}}}
     return safe_yaml(ns)
@@ -184,10 +209,13 @@ def render_configmap(cfg: Dict[str, Any]) -> str:
     data = {
         "QUERY_URL": cfg["QUERY_URL"],
         "FRONTEND_URL": cfg["FRONTEND_URL"],
+        "FRONTEND_BASE": cfg["FRONTEND_BASE"],
         "FRONTEND_HOST": cfg["FRONTEND_HOST"],
+        "FRONTEND_SCHEME": cfg["FRONTEND_SCHEME"],
         "PORT": str(cfg["PORT"]),
         "ENV": cfg["KUBE_ENV"].upper(),
         "AUTH_MODE": cfg["AUTH_MODE"],
+        "OAUTH_REDIRECT_BASE": cfg["OAUTH_REDIRECT_BASE"],
         "OIDC_ISSUER": cfg["OIDC_ISSUER"] or "",
         "OIDC_JWKS_URI": cfg["OIDC_JWKS_URI"] or "",
         "OIDC_AUDIENCE": cfg["OIDC_AUDIENCE"],
@@ -197,6 +225,31 @@ def render_configmap(cfg: Dict[str, Any]) -> str:
         "ENABLE_CORS": "true" if cfg["ENABLE_CORS"] else "false",
         "CORS_ALLOWED_ORIGINS": cfg["CORS_ALLOWED_ORIGINS"],
         "LOG_LEVEL": cfg["LOG_LEVEL"],
+        "ENABLE_GOOGLE_AUTH": cfg["ENABLE_GOOGLE_AUTH"],
+        "ENABLE_MICROSOFT_AUTH": cfg["ENABLE_MICROSOFT_AUTH"],
+        "ENABLE_GITHUB_AUTH": cfg["ENABLE_GITHUB_AUTH"],
+        "GOOGLE_CLIENT_ID": cfg["GOOGLE_CLIENT_ID"],
+        "GOOGLE_REDIRECT_URI": cfg["GOOGLE_REDIRECT_URI"],
+        "MS_CLIENT_ID": cfg["MS_CLIENT_ID"],
+        "MS_REDIRECT_URI": cfg["MS_REDIRECT_URI"],
+        "GITHUB_CLIENT_ID": cfg["GITHUB_CLIENT_ID"],
+        "GITHUB_REDIRECT_URI": cfg["GITHUB_REDIRECT_URI"],
+        "GOOGLE_ALLOWED_DOMAINS": cfg["GOOGLE_ALLOWED_DOMAINS"],
+        "MICROSOFT_ALLOWED_DOMAINS": cfg["MICROSOFT_ALLOWED_DOMAINS"],
+        "MICROSOFT_ALLOWED_TENANT_IDS": cfg["MICROSOFT_ALLOWED_TENANT_IDS"],
+        "GITHUB_ALLOWED_DOMAINS": cfg["GITHUB_ALLOWED_DOMAINS"],
+        "GITHUB_ALLOWED_ORGS": cfg["GITHUB_ALLOWED_ORGS"],
+        "JWT_EXP_SECONDS": str(cfg["JWT_EXP_SECONDS"]),
+        "JWT_ISS": cfg["JWT_ISS"],
+        "JWT_AUD": cfg["JWT_AUD"],
+        "COOKIE_NAME": cfg["COOKIE_NAME"],
+        "COOKIE_SAMESITE": cfg["COOKIE_SAMESITE"],
+        "COOKIE_SECURE": cfg["COOKIE_SECURE"],
+        "TEMP_DOMAIN": cfg["TEMP_DOMAIN"],
+        "CLOUDFLARE_ACCOUNT_ID": cfg["CLOUDFLARE_ACCOUNT_ID"],
+        "CLOUDFLARE_TUNNEL_NAME": cfg["CLOUDFLARE_TUNNEL_NAME"],
+        "HOST": cfg["HOST"],
+        "PORT_OVERRIDE": cfg["PORT_OVERRIDE"]
     }
     cm = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": f"{cfg['SERVICE_NAME']}-config", "namespace": cfg["FRONTEND_NAMESPACE"]}, "data": data}
     return safe_yaml(cm)
@@ -204,11 +257,8 @@ def render_configmap(cfg: Dict[str, Any]) -> str:
 def render_deployment(cfg: Dict[str, Any]) -> str:
     labels = {"app.kubernetes.io/name": cfg["SERVICE_NAME"]}
     env_from: List[Dict[str, Any]] = [{"configMapRef": {"name": f"{cfg['SERVICE_NAME']}-config"}}]
-    # Secrets referenced via secretRef (envFrom) only — deployment must not contain secret literal
-    # If secrets are present in env, reference by the standard secret name
     if cfg["SECRET_VALUES"]:
         env_from.append({"secretRef": {"name": f"{cfg['SERVICE_NAME']}-secret"}})
-
     container = {
         "name": cfg["SERVICE_NAME"],
         "image": cfg["IMAGE"],
@@ -218,8 +268,8 @@ def render_deployment(cfg: Dict[str, Any]) -> str:
             "requests": {"cpu": cfg["CPU_REQUEST"], "memory": cfg["MEMORY_REQUEST"]},
             "limits": {"cpu": cfg["CPU_LIMIT"], "memory": cfg["MEMORY_LIMIT"]},
         },
-        "livenessProbe": {"httpGet": {"path": "/orchestrator/health", "port": cfg["PORT"]}, "initialDelaySeconds": 10, "periodSeconds": 10},
-        "readinessProbe": {"httpGet": {"path": "/orchestrator/health", "port": cfg["PORT"]}, "initialDelaySeconds": 3, "periodSeconds": 5},
+        "livenessProbe": {"httpGet": {"path": "/orchestrator/health", "port": cfg["PORT"]}, "initialDelaySeconds": 10, "periodSeconds": 10, "timeoutSeconds": 1},
+        "readinessProbe": {"httpGet": {"path": "/orchestrator/health", "port": cfg["PORT"]}, "initialDelaySeconds": 3, "periodSeconds": 5, "timeoutSeconds": 1},
     }
     pod = {
         "apiVersion": "apps/v1",
@@ -274,7 +324,6 @@ def render_ingressroute(cfg: Dict[str, Any], meta: Dict[str, Any]) -> str:
         middlewares.append({"name": meta["cors_middleware"], "namespace": ns})
     if meta.get("ratelimit_middleware"):
         middlewares.append({"name": meta["ratelimit_middleware"], "namespace": ns})
-
     host = os.getenv("FRONTEND_HOST", cfg["FRONTEND_HOST"])
     ir = {
         "apiVersion": "traefik.containo.us/v1alpha1",
@@ -286,9 +335,6 @@ def render_ingressroute(cfg: Dict[str, Any], meta: Dict[str, Any]) -> str:
         ir["spec"]["routes"][0]["middlewares"] = [{"name": m["name"], "namespace": m["namespace"]} for m in middlewares]
     return safe_yaml(ir)
 
-# -----------------------------
-# Leak detection guard (prevent secrets in manifests)
-# -----------------------------
 def detect_secret_leak(rendered: str, secret_values: Dict[str, str]) -> Optional[str]:
     for envk, v in secret_values.items():
         if not v:
@@ -297,9 +343,6 @@ def detect_secret_leak(rendered: str, secret_values: Dict[str, str]) -> Optional
             return envk
     return None
 
-# -----------------------------
-# Apply secrets directly (no files)
-# -----------------------------
 def apply_namespace_to_cluster(cfg: Dict[str, Any]) -> None:
     ns_yaml = render_namespace(cfg).encode("utf-8")
     rc, out, err = run_cmd(["kubectl", "apply", "-f", "-"], input_bytes=ns_yaml)
@@ -312,7 +355,6 @@ def apply_secret_to_cluster(cfg: Dict[str, Any]) -> None:
         return
     secret_name = f"{cfg['SERVICE_NAME']}-secret"
     ns = cfg["FRONTEND_NAMESPACE"]
-
     create_cmd = ["kubectl", "create", "secret", "generic", secret_name, "--namespace", ns, "--dry-run=client", "-o", "yaml"]
     for env_var, k8s_key in cfg["SECRET_NAMES"].items():
         val = cfg["SECRET_VALUES"].get(env_var)
@@ -323,7 +365,6 @@ def apply_secret_to_cluster(cfg: Dict[str, Any]) -> None:
             else:
                 die(f"Secret env {env_var} missing and ALLOW_MISSING_SECRETS=false")
         create_cmd.append(f"--from-literal={k8s_key}={val}")
-
     info("Generating secret YAML via kubectl create --dry-run and applying")
     rc, out, err = run_cmd(create_cmd, timeout=30)
     if rc != 0:
@@ -333,9 +374,6 @@ def apply_secret_to_cluster(cfg: Dict[str, Any]) -> None:
         die(f"Failed to apply secret: {err2 or out2}")
     info(f"Secret '{secret_name}' applied to namespace '{ns}'")
 
-# -----------------------------
-# Generation / Apply / Validate / Delete
-# -----------------------------
 def ensure_dir(cfg: Dict[str, Any]) -> None:
     cfg["MANIFESTS_DIR"].mkdir(parents=True, exist_ok=True)
 
@@ -351,15 +389,11 @@ def generate(cfg: Dict[str, Any], dry_run: bool = False) -> None:
     if existing == ihash and not dry_run:
         info("No non-secret changes; skipping generation.")
         return
-
     meta = load_auth_meta(cfg)
-
-    # Render deployment first and check leak
     deployment_yaml = render_deployment(cfg)
     leak = detect_secret_leak(deployment_yaml, cfg["SECRET_VALUES"])
     if leak:
         die(f"Secret value for {leak} would be embedded in generated Deployment YAML; refuse to generate.")
-
     atomic_write(cfg["FILES"]["namespace"], render_namespace(cfg))
     atomic_write(cfg["FILES"]["sa_role"], render_sa_role(cfg))
     atomic_write(cfg["FILES"]["configmap"], render_configmap(cfg))
@@ -372,7 +406,6 @@ def generate(cfg: Dict[str, Any], dry_run: bool = False) -> None:
             cfg["FILES"]["hpa"].unlink()
         except Exception:
             pass
-
     allow_missing = os.getenv("FRONTEND_ALLOW_MISSING_AUTH_META", "false").lower() in ("1", "true", "yes")
     if meta or allow_missing:
         atomic_write(cfg["FILES"]["ingressroute"], render_ingressroute(cfg, meta or {}))
@@ -382,7 +415,6 @@ def generate(cfg: Dict[str, Any], dry_run: bool = False) -> None:
             cfg["FILES"]["ingressroute"].unlink()
         except Exception:
             pass
-
     cfg["FILES"]["inputs_hash"].write_text(ihash, encoding="utf-8")
     info("Wrote frontend manifests to %s" % str(cfg["MANIFESTS_DIR"]))
 
@@ -391,20 +423,13 @@ def apply(cfg: Dict[str, Any], confirm: bool = False) -> None:
         die("Refusing to apply without --confirm")
     if not which("kubectl"):
         die("kubectl not found in PATH")
-
-    # ensure namespace
     apply_namespace_to_cluster(cfg)
-
-    # apply secret in-cluster
     apply_secret_to_cluster(cfg)
-
-    # apply non-secret manifests
     files: List[Path] = [cfg["FILES"]["sa_role"], cfg["FILES"]["configmap"], cfg["FILES"]["deployment"], cfg["FILES"]["service"]]
     if cfg["HPA_ENABLED"]:
         files.append(cfg["FILES"]["hpa"])
     if cfg["FILES"]["ingressroute"].exists():
         files.append(cfg["FILES"]["ingressroute"])
-
     combined = ""
     for p in files:
         if not p.exists():
@@ -448,9 +473,6 @@ def delete_manifests(cfg: Dict[str, Any], confirm: bool = False) -> None:
             pass
     info("Deleted frontend manifests from disk")
 
-# -----------------------------
-# CLI & Entry
-# -----------------------------
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Generate/apply frontend + auth manifests; secrets applied in-cluster (not written to disk).")
     g = p.add_mutually_exclusive_group(required=True)

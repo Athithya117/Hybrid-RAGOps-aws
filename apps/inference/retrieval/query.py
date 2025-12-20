@@ -7,6 +7,7 @@ Presign endpoint is robust and backwards-compatible:
  - Returns {"url": "..."} on success.
  - Returns HTTP errors with string 'detail' (no nested objects) to avoid frontend "[object Object]".
 """
+
 from __future__ import annotations
 import os
 import sys

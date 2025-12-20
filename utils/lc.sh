@@ -285,31 +285,11 @@ kubectl -n kube-system wait --for=condition=Available deployment/coredns --timeo
 kubectl -n kube-system wait --for=condition=Ready pods -l k8s-app=kube-proxy --timeout=120s || true
 kubectl -n kube-system wait --for=condition=Ready pods -l k8s-app=kindnet --timeout=120s || true
 
-CLUSTER_NAME="${CLUSTER_NAME:-rag8s-local}"
-
-for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
-  echo "  → Loading into ${node}"
-  docker exec "$node" bash -c 'ctr version >/dev/null 2>&1' || {
-    echo "    [WARN] containerd not ready on $node — skipping"
-    continue
-  }
-  for IMAGE in \
-    docker.io/qdrant/qdrant:v1.16.0 \
-    docker.io/athithya5354/dense:amd64-arm64-v1 \
-    docker.io/athithya5354/sparse:amd64-arm64-v2 \
-    docker.io/athithya5354/reranker:amd64-arm64-v1 \
-    docker.io/athithya5354/retrieval:amd64-arm64-v2 \
-    docker.io/athithya5354/frontend-and-auth:v5 \
-    docker.io/athithya5354/indexing_pipeline_cpu:v12
-  do
-    docker exec "$node" ctr -n k8s.io images pull "$IMAGE" || true
-  done
-done
-
 
 echo "[INFO] Safe preload complete."
 
 echo "kind cluster ${CLUSTER_NAME} created (1 control-plane + 2 workers). Context: ${CONTEXT}"
+
 kubectl get nodes -o wide
 
 exit 0
