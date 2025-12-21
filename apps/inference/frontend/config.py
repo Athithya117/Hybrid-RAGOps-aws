@@ -22,6 +22,16 @@ def norm_url(u, default):
             s = "https://" + s
     return s
 
+def parse_list_env(v):
+    if not v:
+        return []
+    parts = []
+    for p in str(v).split(","):
+        s = p.strip()
+        if s:
+            parts.append(s)
+    return parts
+
 FRONTEND_HOSTNAME = (os.getenv("FRONTEND_HOSTNAME") or "").strip()
 DEFAULT_LOCAL = "http://127.0.0.1:8000"
 if FRONTEND_HOSTNAME:
@@ -43,26 +53,24 @@ if _COOKIE_SEC is not None:
 else:
     COOKIE_SECURE = EXTERNAL_BASE.lower().startswith("https://")
 
-# Providers flags and credentials (runtime read from env; secrets should be injected via k8s Secret)
 ENABLE_GOOGLE = parse_bool_env(os.getenv("ENABLE_GOOGLE_AUTH"), False)
 ENABLE_MICROSOFT = parse_bool_env(os.getenv("ENABLE_MICROSOFT_AUTH"), False)
 ENABLE_GITHUB = parse_bool_env(os.getenv("ENABLE_GITHUB_AUTH"), False)
 
 GOOGLE_CLIENT_ID = (os.getenv("GOOGLE_CLIENT_ID") or "").strip()
 GOOGLE_CLIENT_SECRET = (os.getenv("GOOGLE_CLIENT_SECRET") or "").strip()
-GOOGLE_ALLOWED_DOMAINS = set([s.strip().lower() for s in (os.getenv("GOOGLE_ALLOWED_DOMAINS") or "").split(",") if s.strip()])
+GOOGLE_ALLOWED_DOMAINS = set([s.strip().lower() for s in parse_list_env(os.getenv("GOOGLE_ALLOWED_DOMAINS"))])
 
 MS_CLIENT_ID = (os.getenv("MS_CLIENT_ID") or "").strip()
 MS_CLIENT_SECRET = (os.getenv("MS_CLIENT_SECRET") or "").strip()
-MS_TENANT_ID = (os.getenv("MS_TENANT_ID") or "common").strip()
-MICROSOFT_ALLOWED_DOMAINS = set([s.strip().lower() for s in (os.getenv("MICROSOFT_ALLOWED_DOMAINS") or "").split(",") if s.strip()])
-MICROSOFT_ALLOWED_TENANT_IDS = set([s.strip().lower() for s in (os.getenv("MICROSOFT_ALLOWED_TENANT_IDS") or "").split(",") if s.strip()])
+MS_TENANT_ID = (os.getenv("MS_TENANT_ID") or os.getenv("AZURE_TENANT_ID") or "common").strip()
+MICROSOFT_ALLOWED_DOMAINS = set([s.strip().lower() for s in parse_list_env(os.getenv("MICROSOFT_ALLOWED_DOMAINS"))])
+MICROSOFT_ALLOWED_TENANT_IDS = set([s.strip().lower() for s in parse_list_env(os.getenv("MICROSOFT_ALLOWED_TENANT_IDS"))])
 
 GITHUB_CLIENT_ID = (os.getenv("GITHUB_CLIENT_ID") or "").strip()
 GITHUB_CLIENT_SECRET = (os.getenv("GITHUB_CLIENT_SECRET") or "").strip()
-GITHUB_ALLOWED_ORGS = set([s.strip().lower() for s in (os.getenv("GITHUB_ALLOWED_ORGS") or "").split(",") if s.strip()])
+GITHUB_ALLOWED_ORGS = set([s.strip().lower() for s in parse_list_env(os.getenv("GITHUB_ALLOWED_ORGS"))])
 
-# allow explicit redirect URI envs to override derived ones
 GOOGLE_REDIRECT_URI = (os.getenv("GOOGLE_REDIRECT_URI") or "").strip()
 MS_REDIRECT_URI = (os.getenv("MS_REDIRECT_URI") or "").strip()
 GITHUB_REDIRECT_URI = (os.getenv("GITHUB_REDIRECT_URI") or "").strip()
@@ -75,13 +83,14 @@ JWT_AUD = os.getenv("JWT_AUD", "rag-ui")
 
 def get_redirect(provider: str) -> str:
     p = provider.lower()
+    base = EXTERNAL_BASE.rstrip("/")
+    # allow explicit override envs first
     if p == "google" and GOOGLE_REDIRECT_URI:
         return GOOGLE_REDIRECT_URI
     if p == "microsoft" and MS_REDIRECT_URI:
         return MS_REDIRECT_URI
     if p == "github" and GITHUB_REDIRECT_URI:
         return GITHUB_REDIRECT_URI
-    base = EXTERNAL_BASE.rstrip("/")
     if base.endswith("/auth/callback"):
         return f"{base}/{p}"
     return f"{base}/auth/callback/{p}"
@@ -94,7 +103,7 @@ def enabled_providers_effective():
     flags = enabled_flags()
     if flags.get("google") and GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
         out.append("google")
-    if flags.get("microsoft") and MS_CLIENT_ID and MS_CLIENT_SECRET:
+    if flags.get("microsoft") and MS_CLIENT_ID and (MS_CLIENT_SECRET or os.getenv("MS_CLIENT_SECRET") or os.getenv("MS_CLIENT_CERT")):
         out.append("microsoft")
     if flags.get("github") and GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET:
         out.append("github")

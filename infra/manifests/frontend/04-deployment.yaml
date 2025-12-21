@@ -16,7 +16,7 @@ spec:
       serviceAccountName: frontend-sa
       containers:
       - name: frontend
-        image: athithya5354/frontend-and-auth:v15
+        image: athithya5354/frontend-and-auth:v23
         ports:
         - containerPort: 8000
         envFrom:
@@ -38,6 +38,11 @@ spec:
             secretKeyRef:
               name: frontend-secret
               key: GOOGLE_CLIENT_SECRET
+        - name: MS_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: frontend-secret
+              key: MS_CLIENT_SECRET
         resources:
           requests:
             cpu: 100m

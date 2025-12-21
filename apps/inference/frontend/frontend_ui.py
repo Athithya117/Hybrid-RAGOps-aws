@@ -1,41 +1,31 @@
-# apps/inference/frontend/frontend_ui.py
-import logging, os, sys
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, PlainTextResponse, JSONResponse
+import logging,os,sys
+from fastapi import FastAPI,Request,HTTPException
+from fastapi.responses import HTMLResponse,PlainTextResponse,JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from jinja2 import Environment, BaseLoader, select_autoescape
-
+from jinja2 import Environment,BaseLoader,select_autoescape
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
-
-from config import QUERY_URL, EXTERNAL_BASE, DISPLAY_SOURCES_IN_UI, DISPLAY_TOPK_IN_UI, REQUIRE_AUTH
-
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+from config import QUERY_URL,EXTERNAL_BASE,DISPLAY_SOURCES_IN_UI,DISPLAY_TOPK_IN_UI,REQUIRE_AUTH
+LOG_LEVEL = os.getenv("LOG_LEVEL","INFO").upper()
 logging.basicConfig(level=LOG_LEVEL)
 log = logging.getLogger("frontend_noauth")
-
 def _ensure_url(u: str, name: str) -> str:
-    if not isinstance(u, str) or (not u.startswith("http://") and not u.startswith("https://")):
+    if not isinstance(u,str) or (not u.startswith("http://") and not u.startswith("https://")):
         log.warning("%s must be http(s). Falling back to default for %s", name, u)
         return "http://retrieval-svc.inference.svc.cluster.local:8001" if name == "QUERY_URL" else "http://localhost:8000"
     return u
-
-QUERY_URL = _ensure_url(QUERY_URL, "QUERY_URL")
-FRONTEND_URL = _ensure_url(EXTERNAL_BASE, "FRONTEND_URL")
-
-app = FastAPI(title="frontend-noauth", docs_url=None, redoc_url=None)
-ENABLE_CORS = os.getenv("ENABLE_CORS", "false").lower() in ("1", "true", "yes")
-CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "*")
+QUERY_URL = _ensure_url(QUERY_URL,"QUERY_URL")
+FRONTEND_URL = _ensure_url(EXTERNAL_BASE,"FRONTEND_URL")
+app = FastAPI(title="frontend-noauth",docs_url=None,redoc_url=None)
+ENABLE_CORS = os.getenv("ENABLE_CORS","false").lower() in ("1","true","yes")
+CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS","*")
 if ENABLE_CORS:
     origins = ["*"] if CORS_ALLOWED_ORIGINS == "*" else [o.strip() for o in CORS_ALLOWED_ORIGINS.split(",") if o.strip()]
-    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
-    log.info("CORS enabled for origins: %s", origins)
-
+    app.add_middleware(CORSMiddleware,allow_origins=origins,allow_credentials=False,allow_methods=["GET","POST","OPTIONS"],allow_headers=["Content-Type","Authorization"])
 DISPLAY_SOURCES = bool(DISPLAY_SOURCES_IN_UI)
 DISPLAY_TOPK = bool(DISPLAY_TOPK_IN_UI)
 REQUIRE_AUTH_UI = bool(REQUIRE_AUTH)
-
 INDEX_TEMPLATE = r"""<!doctype html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -71,9 +61,12 @@ async function checkAuth(){
   const ctrl = document.getElementById('auth-controls');
   ctrl.innerHTML = '<span class="text-gray-500">Checking auth…</span>';
   const tok = localStorage.getItem('app_jwt');
+  const askBtn = document.getElementById('ask');
+  askBtn.disabled = true;
+  askBtn.onclick = function(){ window.location.href = '/auth/login'; };
   if(!tok){
     ctrl.innerHTML = '<a href="/auth/login" class="text-sm text-blue-600 underline">Login</a>';
-    if(REQUIRE_AUTH){ disableQuery(); } else { enableQuery(); }
+    setQueryEditable(false);
     return;
   }
   try{
@@ -81,31 +74,30 @@ async function checkAuth(){
     if(!resp.ok){
       localStorage.removeItem('app_jwt');
       ctrl.innerHTML = '<a href="/auth/login" class="text-sm text-blue-600 underline">Login</a>';
-      if(REQUIRE_AUTH){ disableQuery(); } else { enableQuery(); }
+      setQueryEditable(false);
       return;
     }
     const j = await resp.json();
     const name = j.user && (j.user.name || j.user.email || j.user.sub) || 'user';
     ctrl.innerHTML = '<span class="mr-4 text-sm text-gray-700">Signed in as '+escapeHtml(name)+'</span><button id="logout-btn" class="text-sm text-red-600 underline">Logout</button>';
     document.getElementById('logout-btn').addEventListener('click', async function(){ try{ await fetch('/auth/logout'); }catch(e){} localStorage.removeItem('app_jwt'); window.location.reload(); });
-    enableQuery();
+    askBtn.disabled = false;
+    askBtn.onclick = submit;
+    setQueryEditable(true);
   }catch(e){
     localStorage.removeItem('app_jwt');
     ctrl.innerHTML = '<a href="/auth/login" class="text-sm text-blue-600 underline">Login</a>';
-    if(REQUIRE_AUTH){ disableQuery(); } else { enableQuery(); }
+    setQueryEditable(false);
   }
 }
-function disableQuery(){
+function setQueryEditable(allow){
   const q = document.getElementById('query');
   const btn = document.getElementById('ask');
-  if(q) q.disabled = true;
-  if(btn){ btn.disabled = true; btn.innerText = 'Login required'; }
-}
-function enableQuery(){
-  const q = document.getElementById('query');
-  const btn = document.getElementById('ask');
-  if(q) q.disabled = false;
-  if(btn){ btn.disabled = false; btn.innerText = 'Ask'; }
+  if(q) q.disabled = !allow;
+  if(btn){
+    btn.disabled = !allow;
+    btn.innerText = allow ? 'Ask' : 'Login required';
+  }
 }
 function renderResult(json){
   const res = document.getElementById('result');
@@ -207,7 +199,8 @@ async function submit(){
 }
 document.addEventListener('DOMContentLoaded', function(){
   checkAuth();
-  document.getElementById('ask').addEventListener('click', submit);
+  const askBtn = document.getElementById('ask');
+  askBtn.onclick = function(){ window.location.href = '/auth/login'; };
 });
 </script>
 </body>
@@ -215,16 +208,13 @@ document.addEventListener('DOMContentLoaded', function(){
 """
 env = Environment(loader=BaseLoader(), autoescape=select_autoescape(["html"]))
 tmpl = env.from_string(INDEX_TEMPLATE)
-INDEX_HTML = tmpl.render(display_sources=DISPLAY_SOURCES, display_topk=DISPLAY_TOPK, require_auth=REQUIRE_AUTH_UI)
-
+INDEX_HTML = tmpl.render(display_sources=DISPLAY_SOURCES,display_topk=DISPLAY_TOPK,require_auth=REQUIRE_AUTH_UI)
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return HTMLResponse(INDEX_HTML)
-
 @app.get("/health")
 async def health():
     return {"status":"ok","query_url":QUERY_URL}
-
 @app.post("/run")
 async def run(request: Request):
     try:
@@ -256,7 +246,6 @@ async def run(request: Request):
     except Exception:
         log.exception("Upstream call failed")
         raise HTTPException(status_code=502, detail="Upstream call failed")
-
 @app.post("/presign")
 async def presign(request: Request):
     try:

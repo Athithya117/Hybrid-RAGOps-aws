@@ -77,6 +77,12 @@ def derive_redirects(base: str) -> Dict[str, str]:
         return {"google": f"{b}/google", "microsoft": f"{b}/microsoft", "github": f"{b}/github"}
     return {"google": f"{b}/auth/callback/google", "microsoft": f"{b}/auth/callback/microsoft", "github": f"{b}/auth/callback/github"}
 
+def _normalize_csv(s: Optional[str]) -> str:
+    if not s:
+        return ""
+    parts = [p.strip() for p in str(s).split(",") if p.strip()]
+    return ",".join(parts)
+
 def load_config() -> Dict[str, Any]:
     cfg: Dict[str, Any] = {}
     cfg["REPO_ROOT"] = Path(os.getenv("REPO_ROOT", Path.cwd()))
@@ -101,6 +107,7 @@ def load_config() -> Dict[str, Any]:
     try: cfg["HPA_MAX"] = int(os.getenv("FRONTEND_HPA_MAX", "5"))
     except Exception: cfg["HPA_MAX"] = 5
     cfg["QUERY_URL"] = norm_url(os.getenv("QUERY_URL", "http://retrieval-svc.inference.svc.cluster.local:8001"), "http://retrieval-svc.inference.svc.cluster.local:8001")
+
     hostname = os.getenv("FRONTEND_HOSTNAME")
     if hostname: hostname = hostname.strip()
     if not hostname:
@@ -118,12 +125,16 @@ def load_config() -> Dict[str, Any]:
     cfg["OAUTH_REDIRECT_BASE"] = norm_url(os.getenv("OAUTH_REDIRECT_BASE", cfg["FRONTEND_BASE"]), cfg["FRONTEND_BASE"])
     redirects = derive_redirects(cfg["OAUTH_REDIRECT_BASE"])
     cfg["REDIRECTS"] = redirects
+
     cfg["AUTH_MODE"] = os.getenv("AUTH_MODE", "external-id")
     cfg["OIDC_ISSUER"] = os.getenv("OIDC_ISSUER", "")
     cfg["OIDC_JWKS_URI"] = os.getenv("OIDC_JWKS_URI", "")
     cfg["OIDC_AUDIENCE"] = os.getenv("OIDC_AUDIENCE", "")
     cfg["SPA_CLIENT_ID"] = os.getenv("SPA_CLIENT_ID", "")
+
     cfg["AZURE_TENANT_ID"] = os.getenv("AZURE_TENANT_ID", "common")
+    cfg["MS_TENANT_ID"] = os.getenv("MS_TENANT_ID", os.getenv("AZURE_TENANT_ID", "common"))
+
     try: cfg["JWKS_REFRESH_INTERVAL_SECONDS"] = int(os.getenv("JWKS_REFRESH_INTERVAL_SECONDS", "900"))
     except Exception: cfg["JWKS_REFRESH_INTERVAL_SECONDS"] = 900
     cfg["ENABLE_CORS"] = parse_bool_env(os.getenv("ENABLE_CORS"), False)
@@ -132,17 +143,24 @@ def load_config() -> Dict[str, Any]:
     cfg["ENABLE_GOOGLE_AUTH"] = parse_bool_env(os.getenv("ENABLE_GOOGLE_AUTH"), False)
     cfg["ENABLE_MICROSOFT_AUTH"] = parse_bool_env(os.getenv("ENABLE_MICROSOFT_AUTH"), False)
     cfg["ENABLE_GITHUB_AUTH"] = parse_bool_env(os.getenv("ENABLE_GITHUB_AUTH"), False)
+
     cfg["GOOGLE_CLIENT_ID"] = os.getenv("GOOGLE_CLIENT_ID", "").strip()
     cfg["GOOGLE_REDIRECT_URI"] = os.getenv("GOOGLE_REDIRECT_URI", "").strip() or redirects.get("google", "")
+
     cfg["MS_CLIENT_ID"] = os.getenv("MS_CLIENT_ID", "").strip()
     cfg["MS_REDIRECT_URI"] = os.getenv("MS_REDIRECT_URI", "").strip() or redirects.get("microsoft", "")
+    cfg["MS_TENANT_ID"] = os.getenv("MS_TENANT_ID", cfg["MS_TENANT_ID"]).strip()
+
     cfg["GITHUB_CLIENT_ID"] = os.getenv("GITHUB_CLIENT_ID", "").strip()
     cfg["GITHUB_REDIRECT_URI"] = os.getenv("GITHUB_REDIRECT_URI", "").strip() or redirects.get("github", "")
-    cfg["GOOGLE_ALLOWED_DOMAINS"] = os.getenv("GOOGLE_ALLOWED_DOMAINS", "")
-    cfg["MICROSOFT_ALLOWED_DOMAINS"] = os.getenv("MICROSOFT_ALLOWED_DOMAINS", "")
-    cfg["MICROSOFT_ALLOWED_TENANT_IDS"] = os.getenv("MICROSOFT_ALLOWED_TENANT_IDS", "")
-    cfg["GITHUB_ALLOWED_DOMAINS"] = os.getenv("GITHUB_ALLOWED_DOMAINS", "")
-    cfg["GITHUB_ALLOWED_ORGS"] = os.getenv("GITHUB_ALLOWED_ORGS", "")
+
+    # Normalize allowed-lists into comma-separated strings (app reads them as CSVs)
+    cfg["GOOGLE_ALLOWED_DOMAINS"] = _normalize_csv(os.getenv("GOOGLE_ALLOWED_DOMAINS", ""))
+    cfg["MICROSOFT_ALLOWED_DOMAINS"] = _normalize_csv(os.getenv("MICROSOFT_ALLOWED_DOMAINS", ""))
+    cfg["MICROSOFT_ALLOWED_TENANT_IDS"] = _normalize_csv(os.getenv("MICROSOFT_ALLOWED_TENANT_IDS", ""))
+    cfg["GITHUB_ALLOWED_DOMAINS"] = _normalize_csv(os.getenv("GITHUB_ALLOWED_DOMAINS", ""))
+    cfg["GITHUB_ALLOWED_ORGS"] = _normalize_csv(os.getenv("GITHUB_ALLOWED_ORGS", ""))
+
     cfg["JWT_EXP_SECONDS"] = os.getenv("JWT_EXP_SECONDS", "1800")
     cfg["JWT_ISS"] = os.getenv("JWT_ISS", "stateless-openid-auth")
     cfg["JWT_AUD"] = os.getenv("JWT_AUD", "rag-ui")
@@ -181,6 +199,10 @@ def load_config() -> Dict[str, Any]:
         warn("ENABLE_MICROSOFT_AUTH=true but MS_CLIENT_ID missing.")
     if cfg["ENABLE_GITHUB_AUTH"] and not cfg["GITHUB_CLIENT_ID"]:
         warn("ENABLE_GITHUB_AUTH=true but GITHUB_CLIENT_ID missing.")
+
+    # Additional friendly warnings when allow lists are present but empty/likely misconfigured
+    if cfg["ENABLE_MICROSOFT_AUTH"] and not (cfg["MICROSOFT_ALLOWED_DOMAINS"] or cfg["MICROSOFT_ALLOWED_TENANT_IDS"]):
+        warn("MICROSOFT auth enabled but neither MICROSOFT_ALLOWED_DOMAINS nor MICROSOFT_ALLOWED_TENANT_IDS are set; this will allow any Microsoft account (depending on MS_TENANT_ID).")
 
     m = cfg["MANIFESTS_DIR"]
     cfg["FILES"] = {
@@ -226,6 +248,7 @@ def render_configmap(cfg: Dict[str, Any]) -> str:
         "OIDC_AUDIENCE": str(cfg["OIDC_AUDIENCE"] or ""),
         "SPA_CLIENT_ID": str(cfg["SPA_CLIENT_ID"] or ""),
         "AZURE_TENANT_ID": str(cfg["AZURE_TENANT_ID"] or ""),
+        "MS_TENANT_ID": str(cfg.get("MS_TENANT_ID", "") or ""),
         "JWKS_REFRESH_INTERVAL_SECONDS": str(cfg["JWKS_REFRESH_INTERVAL_SECONDS"]),
         "ENABLE_CORS": "true" if cfg["ENABLE_CORS"] else "false",
         "CORS_ALLOWED_ORIGINS": str(cfg["CORS_ALLOWED_ORIGINS"]),
@@ -302,7 +325,7 @@ def render_ingressroute(cfg: Dict[str, Any], meta: Dict[str, Any]) -> str:
     if meta.get("cors_middleware"): middlewares.append({"name": meta["cors_middleware"], "namespace": ns})
     if meta.get("ratelimit_middleware"): middlewares.append({"name": meta["ratelimit_middleware"], "namespace": ns})
     host = cfg["FRONTEND_HOSTNAME"]
-    ir = {"apiVersion":"traefik.containo.us/v1alpha1","kind":"IngressRoute","metadata":{"name":f"{cfg['SERVICE_NAME']}-ingress","namespace":cfg['FRONTEND_NAMESPACE']},"spec":{"entryPoints":["websecure"],"routes":[{"match":f"Host(`{host}`) && PathPrefix(`/`)","kind":"Rule","services":[{"name":f"{cfg['SERVICE_NAME']}-svc","port":cfg['PORT']}] }]}}
+    ir = {"apiVersion":"traefik.containo.us/v1alpha1","kind":"IngressRoute","metadata":{"name":f"{cfg['SERVICE_NAME']}-ingress","namespace":cfg['FRONTEND_NAMESPACE']},"spec":{"entryPoints":["websecure"],"routes":[{"match":f"Host(`{host}`) && PathPrefix(`/`)","kind":"Rule","services":[{"name":f"{cfg['SERVICE_NAME']}-svc","port":cfg['PORT']}] }]} }
     if middlewares: ir["spec"]["routes"][0]["middlewares"] = [{"name": m["name"], "namespace": m["namespace"]} for m in middlewares]
     return safe_yaml(ir)
 

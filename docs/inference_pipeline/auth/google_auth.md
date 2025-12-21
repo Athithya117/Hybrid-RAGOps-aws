@@ -1,7 +1,7 @@
 # Google OAuth Authentication (Our Platform)
 
 This platform uses **stateless OpenID Connect (OIDC)** with Google as an identity provider.
-Authentication issues a **signed JWT** to the browser and does **not** maintain server-side user sessions.
+Authentication issues a **signed JWT** directly to the browser and does **not** maintain any server-side user sessions.
 
 ---
 
@@ -17,8 +17,10 @@ Authentication issues a **signed JWT** to the browser and does **not** maintain 
 | Workload Identity / ADC       | No        |
 | Organization ID usernames     | No        |
 
-**Design principle:**
-We intentionally avoid Admin SDK, service accounts, and group APIs to keep auth **stateless, simple, and portable**.
+**Design principle**
+
+Authentication is intentionally kept **stateless, minimal, and portable**.  
+We avoid Admin SDKs, group APIs, service accounts, and directory queries to eliminate privileged credentials, long-lived secrets, and stateful dependencies.
 
 ---
 
@@ -27,35 +29,58 @@ We intentionally avoid Admin SDK, service accounts, and group APIs to keep auth 
 To enable Google login:
 
 ```bash
-export ENABLE_GOOGLE_AUTH="true"          # Enables Google OAuth provider
-export GOOGLE_CLIENT_ID="..."             # OAuth client ID from Google Cloud
-export GOOGLE_CLIENT_SECRET="..."         # OAuth client secret from Google Cloud
-```
+export ENABLE_GOOGLE_AUTH="true"
+export GOOGLE_CLIENT_ID="..."
+export GOOGLE_CLIENT_SECRET="..."
+````
 
-### Optional (recommended)
+These values must come from a **Google Cloud OAuth Web Application**.
+
+---
+
+### Optional (Recommended to restrict only to your org domain)
 
 ```bash
-export GOOGLE_ALLOWED_DOMAINS="company.com,gmail.com"
+export GOOGLE_ALLOWED_DOMAINS="company.com,gmail.com" 
 ```
 
-Restricts login to users whose **email domain** matches the list.
+Restricts login to users whose **email domain exactly matches** one of the listed domains.
+
+> Domain matching is **exact** — wildcards and subdomains are not supported.
+
+Examples:
+
+| Email                   | Result  |
+| ----------------------- | ------- |
+| `user@company.com`      | Allowed |
+| `user@corp.company.com` | Denied  |
+| `user@gmail.com`        | Allowed |
 
 ---
 
 ## 3. Redirect URI (Critical)
 
-Our system **derives redirect URIs automatically** from `FRONTEND_HOSTNAME`.
+Redirect URIs are derived automatically from the **configured frontend base URL**.
+
+This is resolved internally from:
+
+* `FRONTEND_HOSTNAME` **or**
+* `EXTERNAL_BASE` (if set)
+
+---
 
 ### Canonical redirect URI format
 
 ```
-https://<FRONTEND_HOSTNAME>/auth/callback/google
+https://<FRONTEND_BASE>/auth/callback/google
 ```
+
+---
 
 ### Example
 
 ```bash
-export FRONTEND_HOSTNAME="ui.athithya.site" # <subdomain>.<second-level-domain>.<top-level-domain>
+export FRONTEND_HOSTNAME="ui.athithya.site"
 ```
 
 Redirect URI to register in Google Cloud:
@@ -64,7 +89,8 @@ Redirect URI to register in Google Cloud:
 https://ui.athithya.site/auth/callback/google
 ```
 
-> This URI must match **exactly** (case-sensitive, no trailing slash).
+> The redirect URI must match **exactly**
+> (case-sensitive, no trailing slash, correct scheme).
 
 ---
 
@@ -78,31 +104,38 @@ https://ui.athithya.site/auth/callback/google
 
 ### Step 2: Configure OAuth consent screen
 
-1. Go to **APIs & Services → OAuth consent screen**
-2. Choose **External** (or Internal for Workspace-only use)
-3. Set:
+1. Navigate to **APIs & Services → OAuth consent screen**
+2. Choose:
+   * **External** (default for b2c)
+   * **Internal** (Workspace-only, optional)
+3. Configure:
 
    * App name
    * Support email
-   * Authorized domains (your domain)
+   * Authorized domains (your frontend domain)
 4. Save and continue
 
 ---
 
-### Step 3: Create OAuth client ID
+### Step 3: Create OAuth Client ID
 
 1. Go to **APIs & Services → Credentials**
-2. Click **Create Credentials → OAuth client ID**
-3. Choose **Web application**
-4. Set:
 
-   * **Application name**: anything meaningful
+2. Click **Create Credentials → OAuth client ID**
+
+3. Select **Web application**
+
+4. Configure:
+
+   * Application name (any)
    * **Authorized redirect URIs**:
 
      ```
      https://ui.athithya.site/auth/callback/google
      ```
+
 5. Click **Create**
+
 6. Copy:
 
    * Client ID → `GOOGLE_CLIENT_ID`
@@ -114,48 +147,61 @@ https://ui.athithya.site/auth/callback/google
 
 ### What we support
 
-✔ Domain-based access control via email
 ✔ Provider-issued identity verification
+✔ Email-based domain allowlisting
 ✔ Stateless JWT issuance
 
 ### What we intentionally do NOT support
 
 ✘ Google Groups
 ✘ Admin SDK impersonation
-✘ Service account JSON
+✘ Service account credentials
 ✘ Organization-wide directory queries
 
-**Why:**
-Those require privileged credentials, long-lived secrets, and stateful validation—opposite of this platform’s design goals.
+**Reason**
+
+These require privileged credentials, stateful validation, or directory access — all of which violate the platform’s stateless and portable design goals.
 
 ---
 
 ## 6. Token & Session Behavior
 
-| Aspect          | Behavior                         |
-| --------------- | -------------------------------- |
-| Session storage | Browser localStorage             |
-| Server sessions | None                             |
-| Token type      | Signed JWT (HS256)               |
-| Token lifetime  | Configurable (`JWT_EXP_SECONDS`) |
-| Refresh         | Re-login required after expiry   |
+| Aspect          | Behavior                                  |
+| --------------- | ----------------------------------------- |
+| Session storage | Browser `localStorage`                    |
+| Server sessions | None                                      |
+| Token type      | Signed JWT (HS256)                        |
+| Token lifetime  | Configurable via `JWT_EXP_SECONDS`        |
+| Refresh tokens  | Not used (re-login required after expiry) |
+
+JWTs are issued **only after** domain validation succeeds.
 
 ---
 
 ## 7. Domain Restriction Logic
 
-If configured:
+When `GOOGLE_ALLOWED_DOMAINS` is set:
 
 ```bash
 export GOOGLE_ALLOWED_DOMAINS="company.com"
 ```
 
-Then:
+Flow behavior:
 
-* `user@company.com` → allowed
-* `user@gmail.com` → denied
+1. User completes Google OAuth successfully
+2. Email domain is extracted from the verified email
+3. Domain is checked against the allowlist
+4. If denied:
 
-Validation happens **after OAuth login**, before JWT issuance.
+   * **HTTP 403** is returned
+   * A server-rendered page explains:
+
+     * The rejected email/domain
+     * The allowed domain list
+5. If allowed:
+
+   * JWT is issued
+   * Token is stored in browser `localStorage`
 
 ---
 
@@ -173,27 +219,29 @@ Example output:
 google → https://ui.athithya.site/auth/callback/google
 ```
 
-### Common errors
+---
 
-| Error                   | Cause                                         |
-| ----------------------- | --------------------------------------------- |
-| `redirect_uri_mismatch` | Google console URI does not match derived URI |
-| Login loops             | Cookie/SameSite mismatch (HTTP vs HTTPS)      |
-| Forbidden               | Email domain not allowed                      |
+### Common Errors
+
+| Error                   | Cause                                                             |
+| ----------------------- | ----------------------------------------------------------------- |
+| `redirect_uri_mismatch` | Redirect URI in Google Console does not exactly match derived URI |
+| Login loops             | Cookie / SameSite mismatch (HTTP vs HTTPS, proxy misconfig)       |
+| Forbidden (403)         | Email domain not in `GOOGLE_ALLOWED_DOMAINS`                      |
 
 ---
 
 ## 9. Security Notes
 
 * Always use **HTTPS** in production
-* Do not reuse OAuth secrets across environments
+* Never reuse OAuth client secrets across environments
 * Rotate `JWT_SECRET` only with coordinated logout
-* Do not expose `/auth/callback/*` publicly except via OAuth
+* `/auth/callback/*` must only be reachable via OAuth redirect
 
 ---
 
-## 10. Summary (One-paragraph)
+## 10. Summary
 
-> Google OAuth integration in this platform is intentionally minimal: a single redirect URI derived from `FRONTEND_HOSTNAME`, no Admin SDK or service accounts, optional email-domain restriction, and stateless JWT issuance. This keeps authentication secure, debuggable, and portable across Kubernetes, Cloudflare Tunnel, and bare-metal deployments.
+> Google OAuth integration in this platform is intentionally minimal: a single redirect URI derived from the configured frontend base, optional exact-match email domain restriction, no Admin SDK or service accounts, and stateless JWT issuance. This design maximizes security, debuggability, and portability across Kubernetes, Cloudflare Tunnel, and bare-metal deployments.
 
 ---

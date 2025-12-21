@@ -25,6 +25,27 @@ OAUTH_REDIRECT_BASE = FRONTEND_BASE
 app = FastAPI(title="orchestrator")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, session_cookie=COOKIE_NAME, same_site=COOKIE_SAMESITE, https_only=COOKIE_SECURE)
 
+# safe include_router helper: accepts modules that export either an APIRouter, or a FastAPI instance (we use its .router)
+from fastapi import FastAPI as _FastAPI
+from fastapi.routing import APIRouter as _APIRouter
+
+def _get_router(obj):
+    # obj may be the module, or module.app may be APIRouter or FastAPI or router-like
+    if hasattr(obj, "app"):
+        candidate = getattr(obj, "app")
+    else:
+        candidate = obj
+    if isinstance(candidate, _FastAPI):
+        return candidate.router
+    if isinstance(candidate, _APIRouter):
+        return candidate
+    # last resort: try attribute 'router'
+    if hasattr(candidate, "router"):
+        return getattr(candidate, "router")
+    # unknown type, return None
+    return None
+
+# load auth module (fall back stub)
 try:
     auth_mod = importlib.import_module("stateless_openid_auth")
 except Exception:
@@ -36,8 +57,9 @@ except Exception:
         return JSONResponse({"error": "auth module unavailable"}, status_code=503)
     class _AuthMod:
         app = _auth_router
-    auth_mod = _AuthMod
+    auth_mod = _AuthMod()
 
+# load frontend UI module (fall back stub)
 try:
     frontend_mod = importlib.import_module("frontend_ui")
 except Exception:
@@ -49,10 +71,27 @@ except Exception:
         return JSONResponse({"error": "frontend module unavailable"}, status_code=503)
     class _FeMod:
         app = _fe_router
-    frontend_mod = _FeMod
+    frontend_mod = _FeMod()
 
-app.include_router(auth_mod.app.router if hasattr(auth_mod, "app") and hasattr(auth_mod.app, "router") else auth_mod.app, prefix="/auth")
-app.include_router(frontend_mod.app.router if hasattr(frontend_mod, "app") and hasattr(frontend_mod.app, "router") else frontend_mod.app)
+# include routers using the helper
+auth_router = _get_router(auth_mod)
+if auth_router is not None:
+    app.include_router(auth_router, prefix="/auth")
+else:
+    # last-ditch: if auth_mod itself is a router-like object
+    try:
+        app.include_router(auth_mod.app, prefix="/auth")
+    except Exception:
+        log.error("Unable to include auth router cleanly; auth endpoints may be unavailable.")
+
+fe_router = _get_router(frontend_mod)
+if fe_router is not None:
+    app.include_router(fe_router)
+else:
+    try:
+        app.include_router(frontend_mod.app)
+    except Exception:
+        log.error("Unable to include frontend router cleanly; frontend endpoints may be unavailable.")
 
 @app.get("/login")
 async def login_redirect():
