@@ -102,6 +102,12 @@ qdrant-backup:
 qdrant-restore:
 	@bash $(CONTROL) restore
 
-auth-mode-a-env:
-	bash infra/pulumi_azure/auth_mode_a.sh --create --create-api-secret
+cloudflare-setup:
+	bash infra/setup/cloudflared.sh 
+
+cloudflare-logout:
+	rm -rf ~/.cloudflared && rm -f ~/.config/rag/secrets.env && unset CLOUDFLARE_TUNNEL_TOKEN && unset CLOUDFLARE_TUNNEL_CREDENTIALS_B64 && unset CLOUDFLARE_TUNNEL_NAME
+
+deploy-cloudflared:
+	python3 infra/generators/cloudflared.py --apply --replicas $${CLOUDFLARED_TUNNEL_REPLICAS} --namespace inference
 

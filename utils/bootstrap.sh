@@ -19,6 +19,8 @@ PYTHON_PKGS=(
   "azure-storage-blob==12.27.1"
   "jinja2==3.1.6"
   "ruamel.yaml==0.18.16"
+  "pyyaml==6.0.3"
+  "typing==3.7.4.3"
 )
 
 # ---- Helpers ----

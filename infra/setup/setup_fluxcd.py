@@ -10,7 +10,7 @@ GIT_TIMEOUT=8
 WAIT_CONTROLLER_SECONDS=int(os.environ.get("WAIT_CONTROLLER_SECONDS","180"))
 WAIT_READY_SECONDS=int(os.environ.get("WAIT_READY_SECONDS",str(max(60,RECONCILE_INTERVAL_SECONDS*2))))
 # desired list (script will only use ones that actually exist)
-DESIRED_DIRS=["dense","retrieval","frontend","ingress","karpenter","monitoring","qdrant","reranker","sparse"]
+DESIRED_DIRS=["dense","retrieval","frontend","ingress","monitoring","qdrant","reranker","sparse"]
 LOG_DIR=MANIFESTS_ROOT/FLUX_NS
 LOG_FILE=LOG_DIR/"setup_fluxcd.log"
 
