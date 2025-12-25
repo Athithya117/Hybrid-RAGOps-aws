@@ -1,214 +1,345 @@
-# Frontend & Auth Gateway — Runtime Documentation
+# Frontend & Auth Gateway — Runtime Documentation (Updated)
 
 ## Overview
 
-The Frontend & Auth Gateway is a FastAPI application that provides a single-entry point for the RAG UI and enforces OIDC-based authentication for upstream requests. It performs asynchronous JWKS discovery and caching, verifies incoming bearer tokens, proxies authenticated requests to the retrieval service, serves a minimal SPA, and exposes health and Prometheus metrics endpoints.
+The Frontend & Auth Gateway is a **FastAPI-based stateless edge service** that:
+
+* Serves the RAG UI (SPA)
+* Handles **OAuth-based login** (Google, Microsoft, GitHub)
+* Issues **platform-signed JWTs** to the browser
+* Proxies authenticated requests to the retrieval backend
+* Exposes health endpoints
+
+The service **does not validate third-party JWTs**.
+Instead, it performs OAuth login, validates identity once, and issues its **own JWT** for all subsequent requests.
+
+---
+
+## Core Design Principles
+
+* **Stateless**: no server-side sessions
+* **Single trust boundary**: only platform-issued JWTs are accepted
+* **Minimal OAuth usage**: no admin SDKs, no directory traversal
+* **Frontend is the only browser-facing service**
+* **Backends are private (cluster-internal)**
 
 ---
 
 # Components & Contracts
 
-**Processes / endpoints**
+## HTTP Endpoints
 
-* `GET /` — serves the SPA HTML.
-* `POST /run` — proxy endpoint that accepts a request body (JSON) containing retrieval parameters and forwards it to the configured `QUERY_URL/generate`. Requires `Authorization: Bearer <token>`.
-* `GET /auth/me` — returns authenticated user claims (sanitized).
-* `GET /health` — warms JWKS cache and returns OIDC issuer and JWKS URI.
-* `GET /metrics` — (optional) Prometheus metrics when `PROMETHEUS_ENABLED=true`.
+### Public
 
-**External services**
+* `GET /`
+  Serves the embedded SPA HTML
 
-* OIDC issuer (discovery document and JWKS).
-* Upstream retrieval service at `QUERY_URL` (proxied for `/run`).
-* Browser SPA uses MSAL for sign-in; SPA posts to `/run`.
+* `GET /health`
+  Returns basic liveness info
 
-**Security contract**
+### Authentication
 
-* All protected endpoints expect `Authorization: Bearer <JWT>`.
-* Tokens are validated against the issuer and accepted audiences; token signatures are verified with JWKs fetched from the JWKS endpoint.
+* `GET /auth/login/{provider}`
+  Initiates OAuth login (`google | microsoft | github`)
+
+* `GET /auth/callback/{provider}`
+  OAuth redirect endpoint; issues JWT on success
+
+  *Note:* the temporary cookies/state used during the OAuth redirect handshake are signed with `SESSION_SECRET` (see Configuration). Rotating `SESSION_SECRET` will break in-flight OAuth logins (CSRF / state mismatches) but does **not** invalidate already-issued platform JWTs.
+
+* `GET /auth/me`
+  Returns authenticated user claims
+  Requires `Authorization: Bearer <platform-jwt>`
+
+### Protected
+
+* `POST /run`
+  Proxies request to retrieval backend
+  Requires `Authorization: Bearer <platform-jwt>`
+
+---
+
+## External Dependencies
+
+* OAuth providers:
+
+  * Google
+  * Microsoft Entra ID
+  * GitHub
+* Retrieval backend at `QUERY_URL`
+* Browser (SPA)
+
+---
+
+# Security Contract
+
+* All protected endpoints require:
+
+  ```
+  Authorization: Bearer <JWT>
+  ```
+* JWTs are:
+
+  * Issued **only by this service**
+  * Signed with `JWT_SECRET`
+  * Verified locally (HMAC)
+* No external JWKS, no issuer discovery, no token introspection
+
+  *Important:* `JWT_SECRET` is the platform's signing key (HS256). Rotating `JWT_SECRET` invalidates all previously issued JWTs and forces global re-authentication. Keep `JWT_SECRET` stable and identical across replicas.
 
 ---
 
 # Configuration (Environment Variables)
 
-**Required**
+## Core Runtime
 
-* `OIDC_AUDIENCE` — comma-separated allowed audiences.
-* `SPA_CLIENT_ID` — client id used by SPA and accepted `azp`.
-* `QUERY_URL` — upstream retrieval service base URL (e.g., `https://retrieval.svc`).
-* `FRONTEND_URL` — public front-end origin used to compute `REDIRECT_URI`.
-* `OIDC_ISSUER` *or* `AZURE_TENANT_ID` — issuer base URL or Azure tenant id (if `OIDC_ISSUER` omitted, it is computed using `AZURE_TENANT_ID`).
-
-**Behavioral & optional**
-
-* `AUTH_MODE` — `entra` or `external-id` (default `external-id`). Controls SPA redirect path.
-* `PROMETHEUS_ENABLED` — `true|false` to enable metrics endpoint.
-* `PROMETHEUS_PATH` — metrics path (default `/metrics`).
-* `JWKS_REFRESH_INTERVAL_SECONDS` — JWKS cache TTL (default `900`).
-* `ENABLE_CORS` — enable CORS middleware (default `false`).
-* `CORS_ALLOWED_ORIGINS` — `*` or comma-separated list when CORS enabled.
-* `LOG_LEVEL` — logging level (default `INFO`).
-* `HOST`, `PORT` — uvicorn host/port when run directly.
+| Variable            | Description                                                                                                                                                |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QUERY_URL`         | Retrieval service base URL                                                                                                                                 |
+| `FRONTEND_HOSTNAME` | Public frontend hostname (preferred)                                                                                                                       |
+| `EXTERNAL_BASE`     | Optional full public base URL                                                                                                                              |
+| `JWT_SECRET`        | HMAC secret for signing JWTs — HS256. Rotating this invalidates all existing platform JWTs and forces re-login across the fleet.                           |
+| `SESSION_SECRET`    | Cookie signing (OAuth flow only). Used to sign temporary OAuth state/cookies; rotating this breaks in-flight OAuth logins but does not revoke issued JWTs. |
 
 ---
 
-# Startup & Lifespan Behavior
+## Authentication Providers
 
-1. Process starts and configures logging.
-2. Required environment variables are validated; missing required variables cause startup failure.
-3. CORS middleware is configured if `ENABLE_CORS=true`.
-4. Prometheus middleware and `/metrics` endpoint are installed when `PROMETHEUS_ENABLED=true`.
-5. JWKS cache is lazily populated: `ensure_jwks_loaded()` is called on `GET /health` and on first token verification. JWKS refreshes after `JWKS_REFRESH_INTERVAL_SECONDS` or on forced refresh when a token `kid` is not found.
-6. No persistent background worker threads are required; all network I/O uses `httpx.AsyncClient` and is executed asynchronously.
+### Google
+
+```bash
+ENABLE_GOOGLE_AUTH=true
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_ALLOWED_DOMAINS=company.com,gmail.com
+```
+
+### Microsoft
+
+```bash
+ENABLE_MICROSOFT_AUTH=true
+MS_CLIENT_ID=...
+MS_CLIENT_SECRET=...
+MS_TENANT_ID=b8a65a11-...
+MICROSOFT_ALLOWED_DOMAINS=company.com
+MICROSOFT_ALLOWED_TENANT_IDS=b8a65a11-...
+```
+
+### GitHub
+
+```bash
+ENABLE_GITHUB_AUTH=true
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+GITHUB_ALLOWED_ORGS=myorg
+```
 
 ---
 
-# JWKS & Token Verification — precise flow
+## Optional / Behavioral
 
-1. `verify_token_async(token)` entry:
-
-   * Parse unverified header via `jwt.get_unverified_header(token)` to extract `kid`.
-   * `get_jwk_for_kid(kid)`:
-
-     * Ensure JWKS loaded via `ensure_jwks_loaded()`:
-
-       * If `_jwks_uri` undefined, fetch OIDC discovery at `OIDC_ISSUER/.well-known/openid-configuration` and read `jwks_uri`.
-       * GET the JWKS `jwks_uri` and cache the JSON (`_jwks_cache`) and timestamp (`_jwks_last_refresh`).
-     * Search `_jwks_cache["keys"]` for a key with matching `kid`. If not found, force refresh once and retry.
-   * Convert JWK to public key with `RSAAlgorithm.from_jwk(json.dumps(jwk))`.
-   * Decode token via `jwt.decode(..., public_key, algorithms=[...], options={"verify_aud": False, "verify_iss": False})`. Signature is verified.
-   * Manually validate `iss` equals `OIDC_ISSUER`.
-   * Validate audience: token `aud` or `azp` must overlap with configured `OIDC_AUDIENCE` or equal `SPA_CLIENT_ID` (per code logic).
-   * On success, return the token payload (claims). On failure raise `HTTPException(status_code=401, ...)`.
+| Variable               | Description                    |
+| ---------------------- | ------------------------------ |
+| `JWT_EXP_SECONDS`      | JWT lifetime (default ~30 min) |
+| `COOKIE_SECURE`        | Auto-enabled when HTTPS        |
+| `ENABLE_CORS`          | Default `false`                |
+| `CORS_ALLOWED_ORIGINS` | `*` or comma-separated         |
+| `LOG_LEVEL`            | Default `INFO`                 |
+| `HOST`, `PORT`         | Uvicorn bind                   |
 
 ---
 
-# Endpoint Details & Behavior
+# OAuth Redirect URI Resolution
 
-### `GET /`
+Redirect URIs are **derived automatically**.
 
-* Returns the embedded SPA HTML (tailwind + MSAL + minimal JS).
-* The template injects: `SPA_CLIENT_ID`, `OIDC_ISSUER`, and configured script CDN.
+Priority order:
 
-### `POST /run`
+1. `FRONTEND_HOSTNAME`
+2. `EXTERNAL_BASE`
+3. Fallback: `http://127.0.0.1:8000`
 
-* Authorization: requires `Authorization: Bearer <JWT>`.
-* Token verification performed via `verify_token_async`.
-* Request body: expects JSON with a `query` field and other RAG parameters.
-* Proxies the JSON body to `QUERY_URL/generate` via `httpx.AsyncClient.post(...)` with the same bearer token in the header.
-* Returns upstream response body as `text/plain` with upstream HTTP status code.
+Canonical format:
+
+```
+https://<frontend-base>/auth/callback/<provider>
+```
+
+Examples:
+
+```
+https://ui.example.com/auth/callback/google
+https://ui.example.com/auth/callback/microsoft
+https://ui.example.com/auth/callback/github
+```
+
+---
+
+# Authentication Flow (Precise)
+
+### 1. Login Initiation
+
+```
+Browser → /auth/login/google
+```
+
+* Redirects to provider OAuth consent screen
+
+---
+
+### 2. OAuth Callback
+
+```
+Provider → /auth/callback/google
+```
+
+Steps:
+
+1. Exchange authorization code for access token
+2. Fetch user identity info
+3. Apply provider-specific allowlist rules
+4. On success:
+
+   * Issue platform JWT
+   * Return SPA page that stores JWT in browser storage
+
+*Implementation note:* temporary state/cookies used to correlate the login request to the callback are signed with `SESSION_SECRET`. Ensure `SESSION_SECRET` is consistent across replicas during normal operation; rotating it will abort active login flows.
+
+---
+
+### 3. Platform JWT
+
+JWT claims include:
+
+* `sub` — provider user id
+* `email`
+* `name`
+* `provider`
+* `iat`, `exp`, `iss`, `aud`
+
+Signed with:
+
+```
+HS256(JWT_SECRET)
+```
+
+*Important:* rotating `JWT_SECRET` causes all previously issued JWTs to fail verification and forces global re-authentication.
+
+---
+
+### 4. Authenticated Requests
+
+```
+POST /run
+Authorization: Bearer <platform-jwt>
+```
+
+* JWT verified locally
+* No external calls
+* No JWKS
+* No issuer discovery
+
+---
+
+# `/run` Proxy Behavior
+
+* Requires valid JWT
+* Accepts JSON body (`query`, `top_k`, etc.)
+* Proxies request to:
+
+```
+POST {QUERY_URL}/generate
+```
+
+* Forwards bearer token
+* Returns upstream response verbatim
 * Errors:
 
-  * 400 for invalid JSON or missing `query`.
-  * 401 when token missing/invalid.
-  * 502 when upstream call fails or returns non-200 status.
-
-### `GET /auth/me`
-
-* Authorization: requires `Authorization: Bearer <JWT>`.
-* Returns `{ "authenticated": true, "user": <claims minus exp/nbf/iat> }`.
-
-### `GET /health`
-
-* Ensures JWKS cache by calling `ensure_jwks_loaded()` and returns:
-
-  ```json
-  { "status": "ok", "issuer": "<OIDC_ISSUER>", "jwks_uri": "<_jwks_uri>" }
-  ```
-
-### `GET /metrics` (optional)
-
-* Exposes Prometheus metrics when enabled. Uses `prometheus_client` to generate the scrape payload.
+  * `400` invalid payload
+  * `401` invalid/missing JWT
+  * `502` upstream failure
 
 ---
 
-# SPA Behavior (client-side summary)
+# `/auth/me`
 
-* SPA uses MSAL (browser popup) to perform interactive sign-in.
-* On successful sign-in, SPA stores JWT in `sessionStorage` under `app_jwt`.
-* SPA issues `POST /run` with JSON payload and `Authorization: Bearer <token>` header.
-* SPA uses `GET /auth/me` to verify token and obtain sanitized user info for UI display.
+Returns:
 
----
-
-# Metrics & Monitoring
-
-When `PROMETHEUS_ENABLED=true`, the gateway exposes low-cardinality metrics:
-
-* `frontend_requests_total{method,endpoint,http_status}` — request count
-* `frontend_request_latency_seconds{method,endpoint}` — request latency histogram
-
-Instrumentation is performed in middleware that wraps each HTTP request.
-
----
-
-# Docker image & runtime
-
-* Base image: `python:3.11-slim`.
-* Application file copied: `frontend_and_auth.py`.
-* Dependencies installed from `requirements.txt`.
-* Non-root user `appuser` created; process runs as that user.
-* Runtime command: `uvicorn frontend_and_auth:app --host 0.0.0.0 --port 8000 --workers 1`.
-* Docker-level minimal system dependencies: `ca-certificates`.
-
----
-
-# Error Handling & Response Codes
-
-* **400 Bad Request** — invalid input payload (e.g., malformed JSON, missing `query`).
-* **401 Unauthorized** — missing/invalid bearer token, expired token, issuer/audience mismatch.
-* **502 Bad Gateway** — failure or non-2xx response from upstream `QUERY_URL`.
-* Internal exceptions are logged and surfaced as 502 for upstream failures or 500 for unexpected server errors.
-
----
-
-# Logging & Observability
-
-* Structured logging via Python `logging` module; log level controlled by `LOG_LEVEL`.
-* Critical token verification failures, JWKS fetch errors, and upstream proxy failures are logged with stack traces.
-* Prometheus metrics capture request counts and latencies when enabled.
-* `/health` includes JWKS URI and issuer for quick debugging (remove or sanitize in restricted environments if needed).
-
----
-
-# Security & Operational Notes
-
-* JWKS are cached and refreshed periodically to avoid frequent network calls; token `kid` misses force a single refresh.
-* Token signature verification uses public keys derived from JWK and supports RSA and ECDSA algorithms listed in the code.
-* Audience checks accept tokens where `aud` includes any configured `OIDC_AUDIENCE`; SPA `azp` plus `SPA_CLIENT_ID` is also accepted when present.
-* SPA redirect URI is computed from `FRONTEND_URL` and `AUTH_MODE` and must match the OIDC client registration.
-
----
-
-# Shutdown Behavior
-
-* Normal shutdown closes underlying `httpx` client contexts created per request and stops the uvicorn server. No background tasks persist beyond request scope.
-
----
-
-# Examples
-
-**Proxy a query (client-side)**
-
-```http
-POST /run
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{ "query": "What is RAG?", "top_k": 5, "enable_tracing": false }
+```json
+{
+  "authenticated": true,
+  "user": {
+    "email": "...",
+    "name": "...",
+    "provider": "google"
+  }
+}
 ```
 
-**Get authenticated user**
+* JWT required
+* Time-based claims removed
 
-```http
-GET /auth/me
-Authorization: Bearer <token>
+---
+
+# CORS Behavior
+
+* **Disabled by default**
+* Only applies to browser-originated cross-origin requests. Not required for RAG8s
+* Not required when frontend and backend are same-origin (recommended)
+
+Supported values:
+
+```bash
+ENABLE_CORS=true
+CORS_ALLOWED_ORIGINS="https://ui.example.com"
 ```
 
-**Health check**
+No regex, no wildcards beyond `*`.
 
-```http
-GET /health
-```
+---
+
+# Metrics
+
+* Optional
+* Exposed only when enabled
+* No auth required
+
+---
+
+# Docker & Runtime
+
+* Base: `python:3.x-slim`
+* Entrypoint: `uvicorn frontend_and_auth:app`
+* Single process
+* No background workers
+* Fully async via `httpx`
+
+---
+
+# Error Semantics
+
+| Code | Meaning                        |
+| ---- | ------------------------------ |
+| 400  | Invalid request payload        |
+| 401  | Missing / invalid platform JWT |
+| 403  | OAuth allowlist rejection      |
+| 502  | Upstream retrieval failure     |
+
+---
+
+# Security Notes
+
+* Platform JWT is the **only trusted credential**
+* OAuth tokens are short-lived and discarded after login
+* Rotating `JWT_SECRET` forces global logout
+* Rotating `SESSION_SECRET` breaks in-flight OAuth logins but does not revoke issued JWTs
+* Backends should never be exposed publicly
+* `/auth/callback/*` must not be called directly
+
+---
+
+# Summary
+
+> The Frontend & Auth Gateway is a stateless OAuth-to-JWT edge service. It terminates all identity flows, issues platform-owned JWTs, enforces minimal allowlists, and proxies authenticated requests to private RAG backends. No external token validation, no JWKS, and no server-side session state are used.
 
 ---

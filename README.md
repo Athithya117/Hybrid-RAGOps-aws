@@ -1,20 +1,20 @@
 # Get started
+## Prerequisites
+1. **Docker installed, enabled on boot, and running**
+2. **Visual Studio Code with the Dev Containers extension installed (for a deterministic environments): [https://code.visualstudio.com/docs/devcontainers/containers](https://code.visualstudio.com/docs/devcontainers/containers)**
+3. **An Azure subscription with sufficient permissions (Owner or Contributor) to manage**:
+   * Azure Resource Groups
+   * Azure Kubernetes Service (AKS)
+   * Azure Storage Accounts (Blob)
+   * Managed Identities and role assignments
+**A free trial or Azure for students subscription is sufficient for development and testing purposes**
+4. **A Cloudflare account with a registered domain, with permissions to manage DNS records and create Cloudflare Tunnels (cloudflared)**
 
-## Prerequesities
- 1. Docker enabled on boot and is running
- 2. Vscode with `Dev Containers` extension installed
- 3. AWS root account or IAM user with admin access for S3, EC2 and IAM role management(free tier sufficient if trying RAG8s locally)
-
-# STEP 0/3 environment setup
-
-#### Clone the repo and build the devcontainer
+## Clone the repo and build the devcontainer(Reproducible). This will take 20-30 minutes. 
 ```sh 
-git clone https://github.com/Athithya-Sakthivel/RAG8s.git && cd RAG8s && code .
-ctrl + shift + P -> paste `Dev containers: Rebuild Container` and enter
+cd $HOME && rm -rf RAG8s && git clone https://github.com/Athithya-Sakthivel/RAG8s.git && cd RAG8s && code .
 ```
-
-#### This will take 20-30 minutes. If the image matches your system, you are ready to proceed.
-![alt text](.devcontainer/env_setup_success.png)
+> ctrl + shift + P -> paste `Dev containers: Rebuild Container Without Cache` and enter
 
 #### Open a new terminal and login to your gh account
 ```sh
@@ -33,7 +33,7 @@ gh auth login
 ```
 #### Create a private repo in your gh account
 ```sh
-export REPO_NAME="rag8s"
+export REPO_NAME="rag8s" # or any name
 
 git remote remove origin 2>/dev/null || true
 gh repo create "$REPO_NAME" --private >/dev/null 2>&1
@@ -47,25 +47,67 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 
 ```
 
----
-
-
-
-
-
-# STEP 2/3 INDEXING CRONJOB CONFIGS
+#### Run `az login` and export the correct subscription ID
 
 ```sh
-
-export ENV="STAGING" # STAGING or PROD; controls credential expectations and safety checks  
-export PLATFORMS="linux/amd64,linux/arm64" # Multi-arch default; use amd64 for x86_64 AKS nodepools (Dv5/Ev5/Fv2/Lsv3), arm64 for ARM-based AKS (Ampere Altra)
 export AZURE_SUBSCRIPTION_ID="" # Azure subscription hosting AKS, storage, and all RAG platform resources
+```
+
+## STEP 1: Create a storage account: export the following environment variables with appropriate values, then run `make create-sa`. You can delete it using `make delete-sa`.
+
+```sh
+export AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}"   # Azure subscription ID (must already be set via az login)
+export AZURE_RESOURCE_GROUP_NAME="rg-e2e-rag"             # Resource group hosting storage account and platform infra
+export AZURE_LOCATION="eastus"                            # Azure region for all Azure resources
+export AZURE_STORAGE_ACCOUNT_NAME="defaultsa515"          # Azure Storage Account name (3–24 chars, lowercase, globally unique)
+export STORAGE_TIER="LRS"                                 # Storage redundancy tier (LRS | ZRS | GRS | RAGRS | GZRS | RAGZRS)
+export AZURE_CONTAINER="rag-data-515"                     # Primary Blob container for RAG data
+export PULUMI_AZ_CONTAINER="pulumi-state-515"             # Pulumi backend container (state + locking)
+export BACKUP_AZ_CONTAINER="backups-515"                  # Backup Blob container (snapshots, archives)
+export BACKUP_PREFIX="qdrant/backup"                      # Subdirectory inside backup container (e.g., backups/qdrant/)
+export BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS=7              # Move backup blobs to Cool tier after N days
+export BACKUP_AZ_CONTAINER_RETENTION_DAYS=30              # Permanently delete backup blobs after N days
+
+export AZURE_DELETE_ACCOUNT=0                             # 1 = delete entire storage account on `make delete-sa`, 0 = containers only
+export FORCE_DELETE=1                                     # Skip interactive confirmation prompts
+
+```
+
+## STEP 2: Manage platform infrastructure with Pulumi: export all required environment variables, run `make pulumi-preview` to inspect changes, `make pulumi-up` to apply them, or `make pulumi-destroy` to delete resources (destructive; requires FORCE=1).
+
+```sh
+export PULUMI_STACK="staging"                     # Pulumi state scope (infra boundary); PROD: "prod"
+export PULUMI_CONFIG_PASSPHRASE="mypassword"      # Pulumi secrets encryption; PROD: strong rotated secret
+
+export AKS_MAX_PODS=60                            # Pod density per node (Azure CNI IP pressure); PROD: raise if subnet allows
+export AKS_CLUSTER_NAME="rag-aks"                 # AKS cluster name; change only for parallel clusters/environments
+export AKS_SKU="standard"                         # Control-plane SLA tier; PROD: standard (or premium if regulated)
+
+export SYSTEM_NODE_COUNT=1                        # System pool (kube-system, CNI, CoreDNS); PROD: >=2 (prefer 3)
+export SYSTEM_NODE_VM_SIZE="Standard_B2s"         # System pool VM (infra-only); PROD: D4s_v5+ for stability
+export SYSTEM_NODE_MAX_PODS=60                    # System pod density; must align with AKS_MAX_PODS
+
+export BALANCED_NODE_MIN=0                        # General app pool (APIs, gateways, orchestrators); PROD: >=2 for HA
+export BALANCED_NODE_MAX=2                        # General app scale ceiling; raise with QPS/latency targets
+export BALANCED_NODE_VM_SIZE="Standard_B2s"       # App/API workloads; PROD: D4s_v5 for concurrency
+
+export CPU_HEAVY_NODE_MIN=0                       # CPU model pool (embeddings, rerankers, tokenizers); PROD: >=1 if hot path
+export CPU_HEAVY_NODE_MAX=0                       # CPU burst capacity (batch inference, indexing); PROD: raise as needed
+export CPU_HEAVY_NODE_VM_SIZE="Standard_B2s"      # CPU inference placeholder; PROD: F8s_v2 (AVX2, predictable clocks)
+
+export QDRANT_NODE_COUNT=0                        # Vector DB pool (Qdrant, HNSW, WAL); PROD: 1+ for HA/sharding
+export QDRANT_NODE_VM_SIZE="Standard_B2s"         # RAM/IO-heavy vector storage; PROD: E8ds_v5 / E16ds_v5
+
+export PULUMI_FORCE_DESTROY=1                     # Allow destructive changes (staging safety off); PROD: 0
+export AKS_LOCATION="${AZURE_LOCATION:-eastus}"   # Deployment region; change only for latency or quota management
 
 
-export AZURE_RESOURCE_GROUP_NAME="rg-rag-prod"        # Resource group containing AKS cluster, managed disks, and storage account
-export AZURE_LOCATION="centralindia"                  # Azure region for AKS, storage, and compute; must match resource deployment region
-export AZURE_STORAGE_ACCOUNT_NAME="storeragprod42"    # Azure Storage Account backing Blob containers for backups and data
-export AZURE_CONTAINER="rag-data-prod"                # Default Azure Blob container for application and platform data
+```
+
+
+
+
+```sh
 
 export OVERWRITE_DOC_DOCX_TO_PDF="true"               # If true, remove originals when converting (.doc/.docx) -> .pdf; set false to keep originals
 export OVERWRITE_ALL_AUDIO_FILES="true"               # If true, remove originals when converting (.mp3,.aac/etc) -> (16k wav); false to keep originals
@@ -118,20 +160,22 @@ export INDEXING_PIPELINE_CPU_IMAGE_REPO="athithya5354/indexing_pipeline_cpu"  # 
 export INDEXING_PIPELINE_CPU_IMAGE_TAG="v12" # Set a consistent tag name for clarity. You may change if building your own image
 # optional env if UAI unavailable in local kind cluster
 export AZURE_STORAGE_CONNECTION_STRING="$(python3 infra/base_infra/get_storage_conn_string.py)"
+
+
+
 export PER_POD="true" # When true, perform per-pod Qdrant backup/restore using individual pod port-forwards; when false, operate via cluster/service endpoint
 export BACKUP_ID="" # Optional explicit backup identifier to restore; leave empty to auto-select the latest backup manifest under the Azure prefix
 
 
 
-
 export AZURE_SUBSCRIPTION_ID=$AZURE_SUBSCRIPTION_ID
-export AZURE_RESOURCE_GROUP_NAME="rg-rag-prod"
+export AZURE_RESOURCE_GROUP_NAME=rg-e2e-rag
+export AZURE_DATA_CONTAINER=rag-data-515
+export PULUMI_AZ_CONTAINER=pulumi-state-515
+export AZURE_STORAGE_ACCOUNT_NAME=defaultsa515
 export AZURE_LOCATION="centralindia"
-export AZURE_STORAGE_ACCOUNT_NAME="storeragprod42"
-export AZURE_CONTAINER="rag-data-prod"
-export PULUMI_AZ_CONTAINER="pulumi-state"
-export BACKUP_AZ_CONTAINER="qdrant-backups"
-export AZURE_DELETE_ACCOUNT="0"
+
+
 
 
 export COLLECTION_NAME="rag_hybrid_collection"     # Qdrant collection name. Change per dataset/environment.

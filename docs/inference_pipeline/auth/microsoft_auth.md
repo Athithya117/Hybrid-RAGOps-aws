@@ -22,7 +22,7 @@ Authentication issues a **signed JWT directly to the browser** and does **not** 
 
 **Design principle**
 
-Authentication is intentionally **stateless, minimal, and portable**.  
+Authentication is **stateless, minimal, and portable**.  
 No Microsoft Graph calls, no group overage handling, no privileged credentials.
 
 ---

@@ -18,9 +18,9 @@ RUN python -m pip install --upgrade pip
 
 # Install fastembed + numpy + huggingface_hub + prometheus_client in builder
 RUN if [ "$FASTEMBED_GPU" = "1" ]; then \
-      pip install --no-cache-dir numpy==2.2.6 fastembed-gpu==0.7.3 huggingface_hub prometheus_client==0.23.1; \
+      pip install --no-cache-dir numpy==2.2.6 fastembed-gpu==0.7.3 huggingface_hub; \
     else \
-      pip install --no-cache-dir numpy==2.2.6 fastembed==0.7.3 huggingface_hub prometheus_client==0.23.1; \
+      pip install --no-cache-dir numpy==2.2.6 fastembed==0.7.3 huggingface_hub; \
     fi
 
 WORKDIR /build
@@ -58,9 +58,9 @@ ARG FASTEMBED_GPU=0
 # runtime packages
 RUN sh -c ' \
     if [ "$FASTEMBED_GPU" = "1" ]; then \
-      pip install --no-cache-dir numpy==2.2.6 fastembed-gpu==0.7.3 fastapi==0.122.0 uvicorn==0.38.0 huggingface_hub prometheus_client==0.23.1; \
+      pip install --no-cache-dir numpy==2.2.6 fastembed-gpu==0.7.3 fastapi==0.122.0 uvicorn==0.38.0 huggingface_hub; \
     else \
-      pip install --no-cache-dir numpy==2.2.6 fastembed==0.7.3 fastapi==0.122.0 uvicorn==0.38.0 huggingface_hub prometheus_client==0.23.1; \
+      pip install --no-cache-dir numpy==2.2.6 fastembed==0.7.3 fastapi==0.122.0 uvicorn==0.38.0 huggingface_hub; \
     fi'
 
 ENV SPARSE_HOST=0.0.0.0 \

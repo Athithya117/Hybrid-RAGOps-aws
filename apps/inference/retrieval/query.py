@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""
-Main retrieval service (FastAPI) — Azure SAS presign and UI helpers.
-
-Presign endpoint is robust and backwards-compatible:
- - Accepts JSON bodies with either "path" or "s3_path".
- - Returns {"url": "..."} on success.
- - Returns HTTP errors with string 'detail' (no nested objects) to avoid frontend "[object Object]".
-"""
-
 from __future__ import annotations
 import os
 import sys
@@ -19,7 +10,6 @@ import asyncio
 import time
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
-
 import numpy as np
 import httpx
 from qdrant_client import QdrantClient
@@ -27,29 +17,16 @@ from qdrant_client.models import Prefetch, FusionQuery, Fusion, SparseVector
 from fastapi import FastAPI, HTTPException, Response, Request
 from pydantic import BaseModel, Field, conint
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
-
-# local helper (Azure presign + ui field utils)
 import query_helpers as helpers
-
-# -----------------------
-# Logging
-# -----------------------
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(stream=sys.stdout, level=getattr(logging, LOG_LEVEL, logging.DEBUG),
-                    format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logging.basicConfig(stream=sys.stdout, level=getattr(logging, LOG_LEVEL, logging.DEBUG), format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("inference_pipeline.query")
-
-# -----------------------
-# Env / defaults
-# -----------------------
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "default_rag_collection1")
-
 DENSE_URL = os.getenv("DENSE_URL", "http://0.0.0.0:8200")
 SPARSE_URL = os.getenv("SPARSE_URL", "http://0.0.0.0:8201")
 RERANKER_URL = os.getenv("RERANKER_URL", "http://0.0.0.0:8202")
-
 DENSE_DIM = int(os.getenv("DENSE_DIM", "384"))
 HTTP_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "10.0"))
 SPARSE_BATCH_FALLBACK = int(os.getenv("SPARSE_BATCH_FALLBACK", "8"))
@@ -57,106 +34,66 @@ API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv(
 LLM_MODEL = os.getenv("LLM_MODEL", "llama-3.1-8b-instant")
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0"))
-
-LLM_SYSTEM_PROMPT = os.getenv(
-    "LLM_SYSTEM_PROMPT",
-    "You are an assistant that must base all factual claims ONLY on the provided numbered sources. "
-    "Each factual sentence MUST end with a citation using the exact format [n] where n corresponds to one of the numbered blocks in the context. "
-    "You MUST NOT output filenames, URLs, page numbers, or any other metadata. "
-    "Do NOT invent citation numbers. Use only citations that appear in the context."
-)
-
+LLM_SYSTEM_PROMPT = os.getenv("LLM_SYSTEM_PROMPT","You are an assistant that must base all factual claims ONLY on the provided numbered sources. Each factual sentence MUST end with a citation using the exact format [n] where n corresponds to one of the numbered blocks in the context. You MUST NOT output filenames, URLs, page numbers, or any other metadata. Do NOT invent citation numbers. Use only citations that appear in the context.")
 MAX_PROMPT_TOKENS = int(os.getenv("MAX_PROMPT_TOKENS", "6000"))
 MAX_CHUNKS_TO_LLM = int(os.getenv("MAX_CHUNKS_TO_LLM", "5"))
-
-# ENV + managed identity detection (consistent with helpers)
 ENV = os.getenv("ENV", "STAGING").upper()
 AZURE_USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", "").strip().lower() in ("1", "true", "yes")
 if ENV == "PROD":
     AZURE_USE_MANAGED_IDENTITY = True
-
-# -----------------------
-# Metrics
-# -----------------------
 SERVICE_NAME = "retrieval"
 LABELS = ["service", "env", "endpoint", "status_code"]
-
 REQUEST_COUNT = Counter("retrieval_requests_total", "Total HTTP requests served by retrieval", LABELS)
-REQUEST_LATENCY = Histogram("retrieval_request_duration_seconds", "Request latency (seconds) observed by retrieval", LABELS,
-                            buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0))
+REQUEST_LATENCY = Histogram("retrieval_request_duration_seconds", "Request latency (seconds) observed by retrieval", LABELS, buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0))
 ERROR_COUNT = Counter("retrieval_errors_total", "Retrieval error counts", ["service", "env", "endpoint", "error_type"])
 SERVICE_READY = Gauge("service_ready", "Service readiness (1=ready, 0=not ready)", ["service", "env"])
 SERVICE_READY.labels(service=SERVICE_NAME, env=ENV).set(0)
-
 DENSE_EMBED_COUNT = Counter("dense_embed_requests_total", "Dense embed requests", ["service", "env"])
-DENSE_EMBED_LATENCY = Histogram("dense_embed_duration_seconds", "Dense embed latency", ["service", "env"],
-                                buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0))
+DENSE_EMBED_LATENCY = Histogram("dense_embed_duration_seconds", "Dense embed latency", ["service", "env"], buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0))
 SPARSE_EMBED_COUNT = Counter("sparse_embed_requests_total", "Sparse embed requests", ["service", "env"])
-SPARSE_EMBED_LATENCY = Histogram("sparse_embed_duration_seconds", "Sparse embed latency", ["service", "env"],
-                                 buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5))
+SPARSE_EMBED_LATENCY = Histogram("sparse_embed_duration_seconds", "Sparse embed latency", ["service", "env"], buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5))
 QDRANT_QUERY_COUNT = Counter("qdrant_query_total", "Qdrant queries issued", ["service", "env"])
-QDRANT_QUERY_LATENCY = Histogram("qdrant_query_duration_seconds", "Qdrant query latency", ["service", "env"],
-                                 buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0))
+QDRANT_QUERY_LATENCY = Histogram("qdrant_query_duration_seconds", "Qdrant query latency", ["service", "env"], buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0))
 LLM_CALL_COUNT = Counter("llm_calls_total", "LLM calls", ["service", "env"])
-LLM_CALL_LATENCY = Histogram("llm_call_duration_seconds", "LLM call latency", ["service", "env"],
-                             buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0))
+LLM_CALL_LATENCY = Histogram("llm_call_duration_seconds", "LLM call latency", ["service", "env"], buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0))
 PRESIGN_COUNT = Counter("presign_requests_total", "Presign requests", ["service", "env"])
 PRESIGN_LATENCY = Histogram("presign_duration_seconds", "Presign latency", ["service", "env"])
-RETRIEVED_DOCS = Histogram("retrieved_docs_count", "Number of docs retrieved per request", ["service", "env"],
-                           buckets=(0, 1, 2, 5, 10, 20, 50))
-
-# Clients (created in lifespan)
+RETRIEVED_DOCS = Histogram("retrieved_docs_count", "Number of docs retrieved per request", ["service", "env"], buckets=(0, 1, 2, 5, 10, 20, 50))
+RERANK_LATENCY = Histogram("rerank_duration_seconds", "Reranker latency", ["service", "env"], buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5))
 dense_client: Optional["AsyncDenseClient"] = None
 sparse_client: Optional["AsyncSparseClient"] = None
 reranker_client: Optional["AsyncRerankerClient"] = None
 qdrant_client: Optional[QdrantClient] = None
-
-# alias
 ui_helpers = helpers
-
-# -----------------------
-# Utility helpers
-# -----------------------
 SHUTDOWN = False
-
 def iso_ts():
     return datetime.now(timezone.utc).isoformat()
-
 def _escape_stack(exc: Exception) -> str:
     if exc is None:
         return ""
     tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
     return tb.replace("\n", "\\n")
-
 def slog(level: str, evt: str, **kw):
     entry = {"ts": iso_ts(), "lvl": level, "evt": evt}
     entry.update(kw)
     logger.log(getattr(logging, level.upper(), logging.INFO), json.dumps(entry, ensure_ascii=False))
-
 signal.signal(signal.SIGINT, lambda s, f: setattr(sys.modules[__name__], "SHUTDOWN", True))
 signal.signal(signal.SIGTERM, lambda s, f: setattr(sys.modules[__name__], "SHUTDOWN", True))
-
 def l2_normalize(v: List[float]) -> List[float]:
     a = np.asarray(v, dtype=np.float32)
     n = np.linalg.norm(a)
     if n > 0:
         a = a / n
     return a.astype(float).tolist()
-
-# -----------------------
-# Async clients (thin wrappers)
-# -----------------------
 class AsyncDenseClient:
     def __init__(self, url: str, timeout: float = HTTP_TIMEOUT):
         self.url = url.rstrip("/")
         self._client: Optional[httpx.AsyncClient] = None
         self.timeout = timeout
-
     async def _client_get(self):
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=self.timeout)
         return self._client
-
     async def health(self) -> bool:
         try:
             c = await self._client_get()
@@ -166,7 +103,6 @@ class AsyncDenseClient:
         except Exception as e:
             slog("warning", "dense.health.error", error=str(e))
             return False
-
     async def embed(self, texts: List[str]) -> List[List[float]]:
         if not texts:
             return []
@@ -195,18 +131,15 @@ class AsyncDenseClient:
                 DENSE_EMBED_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(elapsed)
             except Exception:
                 pass
-
 class AsyncSparseClient:
     def __init__(self, url: str, timeout: float = HTTP_TIMEOUT):
         self.url = url.rstrip("/")
         self._client: Optional[httpx.AsyncClient] = None
         self.timeout = timeout
-
     async def _client_get(self):
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=self.timeout)
         return self._client
-
     async def health(self) -> bool:
         try:
             c = await self._client_get()
@@ -216,7 +149,6 @@ class AsyncSparseClient:
         except Exception as e:
             slog("warning", "sparse.health.error", error=str(e))
             return False
-
     async def embed_chunked(self, texts: List[str]) -> List[Dict[str, Any]]:
         if not texts:
             return []
@@ -270,18 +202,15 @@ class AsyncSparseClient:
                 SPARSE_EMBED_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(elapsed)
             except Exception:
                 pass
-
 class AsyncRerankerClient:
     def __init__(self, url: str, timeout: float = HTTP_TIMEOUT):
         self.url = url.rstrip("/")
         self._client: Optional[httpx.AsyncClient] = None
         self.timeout = timeout
-
     async def _client_get(self):
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=self.timeout)
         return self._client
-
     async def health(self) -> bool:
         try:
             c = await self._client_get()
@@ -291,7 +220,6 @@ class AsyncRerankerClient:
         except Exception as e:
             slog("warning", "reranker.health.error", error=str(e))
             return False
-
     async def rerank(self, query: str, documents: List[str]) -> List[float]:
         if not documents:
             return []
@@ -309,15 +237,10 @@ class AsyncRerankerClient:
         finally:
             elapsed = max(time.time() - start, 1e-6)
             try:
-                DENSE_EMBED_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(elapsed)
+                RERANK_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(elapsed)
             except Exception:
                 pass
-
-# -----------------------
-# Helpers: UI + prompt assembly
-# -----------------------
 def _sanitize_chunk_for_llm(payload: Dict[str, Any], index: int) -> Dict[str, Any]:
-    # LLM should receive the full text; obtain via helper (no UI 'snippet' used)
     full_text = ui_helpers._full_text_from_payload(payload)
     heading = None
     fields = ui_helpers.ui_fields_from_payload(payload, prefer_snippet_len=None)
@@ -326,24 +249,16 @@ def _sanitize_chunk_for_llm(payload: Dict[str, Any], index: int) -> Dict[str, An
         heading = d.get("headings")[0]
     content = full_text or ""
     return {"index": index, "heading": heading, "content": content}
-
 def _ordered_meta_items_from_payload(payload: Dict[str, Any]) -> List[Tuple[str, Any]]:
-    # returns list of (k, v) from helpers (helpers does NOT include snippet)
     return ui_helpers.ui_fields_from_payload(payload, prefer_snippet_len=None)
-
 def build_numbered_prompt_and_ui_chunks(results: List[Dict[str, Any]], query: str):
-    """
-    Build prompt_body, llm_lines, ui_chunks.
-    UI meta_items will NOT include 'snippet'; full text is added only as ("content", <full_text>).
-    """
     llm_blocks: List[str] = []
     llm_lines: List[str] = []
     ui_chunks: List[Dict[str, Any]] = []
     for idx, r in enumerate(results, start=1):
         payload = r.get("payload") or {}
-        fields = _ordered_meta_items_from_payload(payload)  # helpers returns ordered fields WITHOUT 'snippet'
+        fields = _ordered_meta_items_from_payload(payload)
         full_text = ui_helpers._full_text_from_payload(payload)
-        # ensure 'content' exists for frontend collapsible block
         existing_keys = {k for k, _ in fields}
         if full_text and "content" not in existing_keys:
             fields = list(fields) + [("content", full_text)]
@@ -351,7 +266,6 @@ def build_numbered_prompt_and_ui_chunks(results: List[Dict[str, Any]], query: st
         ui_chunk["index"] = idx
         ui_chunk["meta_items"] = fields
         ui_chunks.append(ui_chunk)
-
         llm_chunk = _sanitize_chunk_for_llm(payload, index=idx)
         block_lines = [f"[{idx}]"]
         if llm_chunk.get("heading"):
@@ -362,10 +276,6 @@ def build_numbered_prompt_and_ui_chunks(results: List[Dict[str, Any]], query: st
         llm_lines.append(json.dumps(llm_chunk, ensure_ascii=False))
     prompt_body = "\n\n".join(llm_blocks) + f"\n\nQ: {query}\nA:"
     return prompt_body, llm_lines, ui_chunks
-
-# -----------------------
-# Qdrant response helpers
-# -----------------------
 def query_response_to_items(resp):
     data = None
     if hasattr(resp, "model_dump"):
@@ -395,7 +305,6 @@ def query_response_to_items(resp):
     if isinstance(data, dict) and any(k in data for k in ("id", "payload", "score")):
         return [data]
     return []
-
 def extract_point_fields(item):
     pid = item.get("id")
     if pid is None and isinstance(item.get("point"), dict):
@@ -403,16 +312,11 @@ def extract_point_fields(item):
     score = item.get("score", item.get("payload_score"))
     payload = item.get("payload") or (item.get("point", {}).get("payload") if isinstance(item.get("point"), dict) else None)
     return {"id": pid, "score": score, "payload": payload, "raw": item}
-
 def softmax(x):
     a = np.array(x)
     a = a - np.max(a)
     e = np.exp(a)
     return e / e.sum() if e.sum() > 0 else np.ones_like(a) / len(a)
-
-# -----------------------
-# Hybrid query (async)
-# -----------------------
 async def hybrid_query(client, collection_name, query_text, sparse_client, dense_client, reranker_client, hybrid, top_k=10, prefetch_k=128):
     if client is None:
         slog("warning", "qdrant.missing")
@@ -425,14 +329,10 @@ async def hybrid_query(client, collection_name, query_text, sparse_client, dense
     if hybrid:
         try:
             if dense_client is not None:
-                dense_start = time.time()
                 dense_vecs = await dense_client.embed([query_text])
-                DENSE_EMBED_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(max(time.time() - dense_start, 1e-6))
                 q_dense = dense_vecs[0] if dense_vecs else None
             if sparse_client is not None:
-                sparse_start = time.time()
                 sparse_vecs = await sparse_client.embed_chunked([query_text])
-                SPARSE_EMBED_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(max(time.time() - sparse_start, 1e-6))
                 q_sparse = sparse_vecs[0] if sparse_vecs is not None else None
         except Exception as e:
             slog("warning", "embed.failed", error=str(e))
@@ -458,9 +358,7 @@ async def hybrid_query(client, collection_name, query_text, sparse_client, dense
         q_sparse_vecs = None
         try:
             if sparse_client is not None:
-                sparse_start = time.time()
                 q_sparse_vecs = await sparse_client.embed_chunked([query_text])
-                SPARSE_EMBED_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(max(time.time() - sparse_start, 1e-6))
         except Exception as e:
             slog("warning", "sparse.embed.failed", error=str(e))
         q_sparse = q_sparse_vecs[0] if q_sparse_vecs is not None else None
@@ -493,26 +391,16 @@ async def hybrid_query(client, collection_name, query_text, sparse_client, dense
         if len(dedup) >= top_k:
             break
     return dedup
-
-# -----------------------
-# Pydantic models & API (only generate uses Pydantic model)
-# -----------------------
 class GenerateRequest(BaseModel):
     query: str = Field(..., min_length=1)
     enable_tracing: Optional[bool] = False
     top_k: conint(ge=1, le=50) = 5
     return_chunks: Optional[bool] = True
     max_tokens: Optional[conint(ge=16, le=4096)] = LLM_MAX_TOKENS
-
 class GenerateResponse(BaseModel):
     answer: str
     chunks: Optional[List[Dict[str, Any]]] = None
-
-# -----------------------
-# Lifespan
-# -----------------------
 from contextlib import asynccontextmanager
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global dense_client, sparse_client, reranker_client, qdrant_client
@@ -520,17 +408,13 @@ async def lifespan(app: FastAPI):
     dense_client = AsyncDenseClient(DENSE_URL)
     sparse_client = AsyncSparseClient(SPARSE_URL)
     reranker_client = AsyncRerankerClient(RERANKER_URL)
-
     def build_qdrant():
         try:
             return QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY) if QDRANT_API_KEY else QdrantClient(url=QDRANT_URL)
         except Exception as e:
             slog("warning", "qdrant.init.failed", error=str(e))
             return None
-
     qdrant_client = await asyncio.to_thread(build_qdrant)
-
-    # quick health checks (best-effort)
     try:
         ok_dense = await dense_client.health()
     except Exception:
@@ -545,17 +429,13 @@ async def lifespan(app: FastAPI):
         ok_rerank = False
     q_ok = bool(qdrant_client)
     slog("info", "clients.status", dense_ready=bool(ok_dense), sparse_ready=bool(ok_sparse), reranker_ready=bool(ok_rerank), qdrant_ready=bool(q_ok))
-
-    # presign capability check (warn-only)
     try:
         if ENV == "PROD" and (helpers.DefaultAzureCredential is None or helpers.BlobServiceClient is None):
             slog("warning", "presign.unavailable", reason="azure.identity or azure.storage.blob missing in PROD; presign endpoints will error")
     except Exception:
         pass
-
     ready = bool(q_ok)
     SERVICE_READY.labels(service=SERVICE_NAME, env=ENV).set(1 if ready else 0)
-
     try:
         yield
     finally:
@@ -566,12 +446,7 @@ async def lifespan(app: FastAPI):
                 except Exception:
                     pass
         slog("info", "lifespan.shutdown")
-
 app = FastAPI(lifespan=lifespan)
-
-# -----------------------
-# Generate handler
-# -----------------------
 async def generate_handler(req: GenerateRequest) -> GenerateResponse:
     endpoint = "/generate"
     start = time.time()
@@ -607,7 +482,6 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
                         payload = r.get("payload") or {}
                         fields = _ordered_meta_items_from_payload(payload)
                         full_text = ui_helpers._full_text_from_payload(payload)
-                        # ensure 'content' is present (UI collapsible)
                         existing_keys = {k for k, _ in fields}
                         if full_text and "content" not in existing_keys:
                             fields = list(fields) + [("content", full_text)]
@@ -656,10 +530,6 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
                 ERROR_COUNT.labels(service=SERVICE_NAME, env=ENV, endpoint=endpoint, error_type=str(status_code)).inc()
         except Exception:
             pass
-
-# -----------------------
-# Minimal LLM HTTP proxy used earlier
-# -----------------------
 async def _call_llm_via_http(system: str, user_prompt: str, model: str, max_tokens: int, temperature: float) -> str:
     key = API_KEY or ""
     if not key:
@@ -697,10 +567,6 @@ async def _call_llm_via_http(system: str, user_prompt: str, model: str, max_toke
             LLM_CALL_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(elapsed)
         except Exception:
             pass
-
-# -----------------------
-# Fallback deterministic summarizer and citation filter
-# -----------------------
 def deterministic_summarize(lines: List[str], query: str, max_chars: int = 800) -> str:
     texts = []
     for ln in lines:
@@ -725,7 +591,6 @@ def deterministic_summarize(lines: List[str], query: str, max_chars: int = 800) 
     if not out:
         return joined[:max_chars]
     return " ".join(out)[:max_chars]
-
 def _validate_and_filter_citations(ans: str, valid_indexes: List[int]) -> str:
     if not ans:
         return ans
@@ -737,24 +602,11 @@ def _validate_and_filter_citations(ans: str, valid_indexes: List[int]) -> str:
     ans = __import__("re").sub(r"https?://\S+", "", ans)
     ans = __import__("re").sub(r"\s+", " ", ans).strip()
     return ans
-
-# -----------------------
-# API endpoints
-# -----------------------
 @app.post("/generate", response_model=GenerateResponse)
 async def api_generate(req: GenerateRequest):
     return await generate_handler(req)
-
 @app.post("/presign")
 async def api_presign(request: Request):
-    """
-    Robust presign endpoint.
-    Accepts JSON body with either:
-      - {"path": "...", "expires": 3600, "inline": true}
-      - {"s3_path": "...", "expires": 3600, "inline": true}  (legacy)
-    Returns JSON {"url": "<sas-url>"} on success.
-    Errors return HTTPException with string detail (no nested objects).
-    """
     PRESIGN_COUNT.labels(service=SERVICE_NAME, env=ENV).inc()
     start = time.time()
     try:
@@ -764,31 +616,24 @@ async def api_presign(request: Request):
                 raise ValueError("invalid json body")
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"invalid json body: {e}")
-
-        # backward-compatible key names
         path = payload.get("path") or payload.get("s3_path") or payload.get("az_path") or None
         if not path:
             raise HTTPException(status_code=400, detail="missing 'path' or 's3_path' in request body")
-
         try:
             expires = int(payload.get("expires", 3600))
         except Exception:
             expires = 3600
         inline = bool(payload.get("inline", True))
-
-        # run blocking presign in thread
         try:
             url = await asyncio.to_thread(helpers.presign_azure_blob_blocking, path, int(expires), bool(inline))
             return {"url": url}
         except ValueError as e:
-            # validation errors from helper -> 400
             raise HTTPException(status_code=400, detail=str(e))
         except RuntimeError as e:
             slog("error", "presign.runtime.failed", error=str(e))
             raise HTTPException(status_code=500, detail=str(e))
         except Exception as e:
             slog("error", "presign.failed", error=str(e), stack=_escape_stack(e))
-            # return a clear string detail to avoid "[object Object]" in JS
             raise HTTPException(status_code=500, detail=f"presign failed: {e}")
     finally:
         elapsed = max(time.time() - start, 1e-6)
@@ -796,11 +641,9 @@ async def api_presign(request: Request):
             PRESIGN_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(elapsed)
         except Exception:
             pass
-
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
-
 @app.get("/readyz")
 async def readyz():
     try:
@@ -821,19 +664,9 @@ async def readyz():
         r = False
     ready_val = bool(q_ok)
     return {"status": "ready" if ready_val else "not_ready", "service_ready": ready_val, "qdrant": bool(q_ok), "dense": bool(d), "sparse": bool(s), "reranker": bool(r)}
-
 @app.get("/metrics")
 def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
-# -----------------------
-# Run
-# -----------------------
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", "8001")),
-        log_level=os.getenv("LOG_LEVEL", "info").lower(),
-    )
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8001")), log_level=os.getenv("LOG_LEVEL", "info").lower())

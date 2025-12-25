@@ -174,20 +174,7 @@ resp=$(printf '%s' "${EMBED_PAYLOAD}" | curl -fsS -X POST "http://127.0.0.1:${HO
 }
 printf '%s\n' "${resp}" | pretty_json
 
-# basic metrics check
-METRICS=$(curl -fsS "http://127.0.0.1:${HOST_PORT}/metrics" 2>/dev/null || true)
-if [ -z "${METRICS}" ]; then
-  err "/metrics empty"
-  docker logs --tail 200 "${CONTAINER_NAME}" || true
-  docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
-  exit 7
-fi
-if printf '%s' "${METRICS}" | grep -q 'requests_total{.*endpoint="/embed"'; then
-  log "Found requests_total for /embed"
-  printf '%s\n' "${METRICS}" | grep 'requests_total{.*endpoint="/embed"' || true
-else
-  warn "requests_total for /embed not present (continuing)"
-fi
+
 
 # stop local container before multi-arch build/push
 docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true

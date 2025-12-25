@@ -19,9 +19,9 @@ RUN python -m pip install --upgrade pip
 
 # Install fastembed + numpy + prometheus_client in builder (prewarm tools)
 RUN if [ "$FASTEMBED_GPU" = "1" ]; then \
-      pip install --no-cache-dir numpy==2.2.6 fastembed-gpu==0.7.3 prometheus_client==0.23.1; \
+      pip install --no-cache-dir numpy==2.2.6 fastembed-gpu==0.7.3; \
     else \
-      pip install --no-cache-dir numpy==2.2.6 fastembed==0.7.3 prometheus_client==0.23.1; \
+      pip install --no-cache-dir numpy==2.2.6 fastembed==0.7.3; \
     fi
 
 WORKDIR /build
@@ -64,9 +64,9 @@ ARG FASTEMBED_GPU=0
 # Install runtime packages (conditional for GPU/CPU)
 RUN sh -c ' \
     if [ "$FASTEMBED_GPU" = "1" ]; then \
-      pip install --no-cache-dir numpy==2.2.6 fastembed-gpu==0.7.3 fastapi==0.122.0 uvicorn==0.38.0 prometheus_client==0.23.1; \
+      pip install --no-cache-dir numpy==2.2.6 fastembed-gpu==0.7.3 fastapi==0.122.0 uvicorn==0.38.0; \
     else \
-      pip install --no-cache-dir numpy==2.2.6 fastembed==0.7.3 fastapi==0.122.0 uvicorn==0.38.0 prometheus_client==0.23.1; \
+      pip install --no-cache-dir numpy==2.2.6 fastembed==0.7.3 fastapi==0.122.0 uvicorn==0.38.0; \
     fi'
 
 ENV RERANKER_HOST=0.0.0.0 \

@@ -29,6 +29,22 @@ clean:
 	find . -type f -name "*.pulumi-logs" ! -path "./.git/*" -delete
 	clear
 
+create-sa:
+	python3 infra/base_infra/storage_acc.py --create
+
+delete-sa:
+	python3 infra/base_infra/storage_acc.py --delete
+
+
+pulumi-up:
+	bash infra/pulumi_azure/run.sh --create || true
+
+pulumi-destroy:
+	bash infra/pulumi_azure/run.sh --delete || true
+
+pulumi-preview:
+	bash infra/pulumi_azure/run.sh --preview || true
+
 index-image:
 	bash apps/index/build_and_push_image.sh
 
@@ -49,12 +65,6 @@ inspect-flux:
 
 flux-status:
 	flux check && flux get kustomizations -n flux-system
-
-pulumi-up:
-	bash infra/pulumi_azure/run.sh --create || true
-
-pulumi-destroy:
-	bash infra/pulumi_azure/run.sh --delete || true
 
 deploy-dense:
 	python3 infra/generators/dense.py --apply

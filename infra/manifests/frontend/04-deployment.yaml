@@ -16,7 +16,7 @@ spec:
       serviceAccountName: frontend-sa
       containers:
       - name: frontend
-        image: athithya5354/frontend-and-auth:v23
+        image: athithya5354/frontend-and-auth:v5
         ports:
         - containerPort: 8000
         envFrom:
@@ -43,6 +43,11 @@ spec:
             secretKeyRef:
               name: frontend-secret
               key: MS_CLIENT_SECRET
+        - name: GITHUB_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: frontend-secret
+              key: GITHUB_CLIENT_SECRET
         resources:
           requests:
             cpu: 100m

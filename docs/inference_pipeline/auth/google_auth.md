@@ -19,7 +19,7 @@ Authentication issues a **signed JWT** directly to the browser and does **not** 
 
 **Design principle**
 
-Authentication is intentionally kept **stateless, minimal, and portable**.  
+Authentication is kept **stateless, minimal, and portable**.  
 We avoid Admin SDKs, group APIs, service accounts, and directory queries to eliminate privileged credentials, long-lived secrets, and stateful dependencies.
 
 ---

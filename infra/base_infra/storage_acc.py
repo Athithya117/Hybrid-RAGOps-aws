@@ -1,31 +1,35 @@
 #!/usr/bin/env python3
 """
-infra/base_infra/storage_acc_uai.py
+infra/base_infra/storage_acc.py
 
 Env-driven Azure Resource bootstrapper (create/delete) - KEY-AUTH mode.
 
 Changes from prior version:
 - All blob/container operations use --auth-mode key + --account-key (Option A).
-- Creates two UAIs: uai-rag-rw (Storage Blob Data Contributor) and uai-rag-ro (Storage Blob Data Reader).
-- Role assignment uses robust retry with explicit --assignee-principal-type ServicePrincipal.
-- Prints clear logs and UAI client/principal IDs at the end.
+- UAI creation/cleanup removed (simplified bootstrap).
+- Role assignment helpers retained for optional future use.
+- Adds optional lifecycle policy application for backup container using env:
+    BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS
+    BACKUP_AZ_CONTAINER_RETENTION_DAYS
 
 Required env:
   AZURE_SUBSCRIPTION_ID
   AZURE_STORAGE_ACCOUNT_NAME
-  AZURE_CONTAINER
+  AZURE_CONTAINER or AZURE_DATA_CONTAINER
 
 Optional env:
   AZURE_RESOURCE_GROUP_NAME (default: rg-e2e-rag)
   AZURE_LOCATION (default: centralindia)
-  PULUMI_AZ_CONTAINER, FLOW_LOG_CONTAINER, BACKUP_AZ_CONTAINER
+  PULUMI_AZ_CONTAINER, BACKUP_AZ_CONTAINER
   AZURE_DELETE_ACCOUNT (0/1) - when deleting storage account instead of containers
   FORCE_DELETE (0/1) - skip interactive confirmation
-  UAI_RAG_RW_NAME / UAI_RAG_RO_NAME (override UAI names)
+  UAI_RAG_RW_NAME / UAI_RAG_RO_NAME (not used by default)
+
+  
 
 Usage:
-  python infra/base_infra/storage_acc_uai.py --create
-  python infra/base_infra/storage_acc_uai.py --delete
+  python infra/base_infra/storage_acc.py --create
+  python infra/base_infra/storage_acc.py --delete
 """
 from __future__ import annotations
 import os
@@ -35,7 +39,8 @@ import time
 import json
 import argparse
 import subprocess
-from typing import List, Tuple, Optional
+import tempfile
+from typing import List, Tuple, Optional, Dict
 
 # ---------- small logger ----------
 def now() -> str:
@@ -76,15 +81,22 @@ AZURE_LOCATION = os.getenv("AZURE_LOCATION", "centralindia").strip()
 AZURE_STORAGE_ACCOUNT_NAME = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "").strip() or None
 AZURE_ENDPOINT_SUFFIX = os.getenv("AZURE_ENDPOINT_SUFFIX", "core.windows.net").strip()
 STORAGE_TIER = os.getenv("STORAGE_TIER", "LRS").strip()
-AZURE_CONTAINER = os.getenv("AZURE_CONTAINER", "").strip() or None
+# accept either AZURE_CONTAINER (common) or AZURE_DATA_CONTAINER (legacy in repo)
+AZURE_CONTAINER = (os.getenv("AZURE_CONTAINER") or os.getenv("AZURE_DATA_CONTAINER") or "").strip() or None
 PULUMI_AZ_CONTAINER = os.getenv("PULUMI_AZ_CONTAINER", "").strip() or None
-FLOW_LOG_CONTAINER = os.getenv("FLOW_LOG_CONTAINER", "").strip() or None
 BACKUP_AZ_CONTAINER = os.getenv("BACKUP_AZ_CONTAINER", "").strip() or None
-AZURE_DELETE_ACCOUNT = os.getenv("AZURE_DELETE_ACCOUNT", "0").strip().lower() in ("1", "true", "yes")
-FORCE_DELETE = os.getenv("FORCE_DELETE", "0").strip().lower() in ("1", "true", "yes")
+
+# Deletion defaults preserved (match existing usage)
+AZURE_DELETE_ACCOUNT = os.getenv("AZURE_DELETE_ACCOUNT", "1").strip().lower() in ("1", "true", "yes")
+FORCE_DELETE = os.getenv("FORCE_DELETE", "1").strip().lower() in ("1", "true", "yes")
 
 UAI_RW_NAME = os.getenv("UAI_RAG_RW_NAME", "uai-rag-rw").strip()
 UAI_RO_NAME = os.getenv("UAI_RAG_RO_NAME", "uai-rag-ro").strip()
+
+# Backup lifecycle envs (optional)
+BACKUP_AZ_CONTAINER_RETENTION_DAYS = os.getenv("BACKUP_AZ_CONTAINER_RETENTION_DAYS", "").strip()
+BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS = os.getenv("BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS", "").strip()
+BACKUP_PREFIX = os.getenv("BACKUP_PREFIX", "qdrant").strip()
 
 def normalize_sku(token: str) -> str:
     t = token.strip().upper()
@@ -105,11 +117,18 @@ def validate_env_minimum():
     if not AZURE_STORAGE_ACCOUNT_NAME:
         missing.append("AZURE_STORAGE_ACCOUNT_NAME")
     if not AZURE_CONTAINER:
-        missing.append("AZURE_CONTAINER")
+        missing.append("AZURE_CONTAINER or AZURE_DATA_CONTAINER")
     if missing:
         die("Missing required environment variables: " + ", ".join(missing))
     if not re.fullmatch(r"[a-z0-9]{3,24}", AZURE_STORAGE_ACCOUNT_NAME):
         die("AZURE_STORAGE_ACCOUNT_NAME must be 3-24 chars, lowercase letters and numbers only.")
+    # validate optional numeric lifecycle envs (if provided)
+    if BACKUP_AZ_CONTAINER_RETENTION_DAYS:
+        if not BACKUP_AZ_CONTAINER_RETENTION_DAYS.isdigit():
+            die("BACKUP_AZ_CONTAINER_RETENTION_DAYS must be an integer number of days")
+    if BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS:
+        if not BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS.isdigit():
+            die("BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS must be an integer number of days")
 validate_env_minimum()
 
 # ---------- azure helpers ----------
@@ -183,30 +202,7 @@ def get_storage_account_resource(name: str, rg: str) -> dict:
     rc, out, _ = run(["az","storage","account","show","--name",name,"--resource-group",rg,"-o","json"], check=True)
     return json.loads(out)
 
-# ---------- UAI helpers ----------
-def ensure_uai(uai_name: str, rg: str, location: str) -> dict:
-    """
-    Ensure a User Assigned Identity exists. Returns object with keys:
-    { 'name', 'id', 'clientId', 'principalId', 'resourceGroup', 'location' }
-    """
-    rc, out, err = run(["az","identity","show","--name",uai_name,"--resource-group",rg,"-o","json"], check=False)
-    if rc == 0 and out:
-        info(f"Found existing UAI '{uai_name}' in RG '{rg}'.")
-        return json.loads(out)
-    info(f"Creating User Assigned Identity '{uai_name}' in RG '{rg}' ...")
-    rc, out, err = run(["az","identity","create","--name",uai_name,"--resource-group",rg,"--location",location,"-o","json"], check=True)
-    obj = json.loads(out)
-    info(f"Created UAI '{uai_name}' (clientId={obj.get('clientId')}, principalId={obj.get('principalId')}).")
-    return obj
-
-def delete_uai_if_exists(uai_name: str, rg: str):
-    rc, out, err = run(["az","identity","show","--name",uai_name,"--resource-group",rg,"-o","json"], check=False)
-    if rc != 0:
-        info(f"UAI '{uai_name}' not found in RG '{rg}', skipping delete.")
-        return
-    info(f"Deleting UAI '{uai_name}' in RG '{rg}' ...")
-    run(["az","identity","delete","--name",uai_name,"--resource-group",rg], check=False)
-    info(f"Deletion initiated for UAI '{uai_name}' (may take a moment).")
+# NOTE: UAI helpers intentionally removed to simplify bootstrap logic.
 
 def assign_storage_rbac(principal_id: str, storage_scope: str, role: str, max_retries: int = 6, initial_delay: int = 3) -> None:
     """
@@ -360,6 +356,72 @@ def delete_container(account: str, key: str, container: str):
         return
     warn(f"Failed deleting container '{container}': {err or out}")
 
+# ---------- lifecycle policy helpers ----------
+def _build_lifecycle_policy_json(prefix: str, cool_after: Optional[int], delete_after: Optional[int]) -> Dict:
+    """
+    Build a management-policy JSON structure for the given prefix.
+    prefix: container/prefix/ e.g. "backups/qdrant/"
+    """
+    rule: Dict = {
+        "enabled": True,
+        "name": "backup-tier-and-delete",
+        "type": "Lifecycle",
+        "definition": {
+            "filters": {
+                "blobTypes": ["blockBlob"],
+                "prefixMatch": [prefix]
+            },
+            "actions": {
+                "baseBlob": {}
+            }
+        }
+    }
+    base_blob_actions = rule["definition"]["actions"]["baseBlob"]
+    if cool_after is not None:
+        base_blob_actions["tierToCool"] = {"daysAfterModificationGreaterThan": cool_after}
+    if delete_after is not None:
+        base_blob_actions["delete"] = {"daysAfterModificationGreaterThan": delete_after}
+    return {"rules": [rule]}
+
+def apply_lifecycle_policy(account: str, rg: str, container: str, prefix_segment: str, cool_after_days: Optional[int], retention_days: Optional[int]) -> None:
+    """
+    Apply lifecycle policy scoped to container/prefix_segment/.
+    This writes a temporary JSON file and calls az storage account management-policy create.
+    Non-fatal: on failure we log a warning and continue.
+    """
+    if cool_after_days is None and retention_days is None:
+        info("No lifecycle policy requested (both cool_after_days and retention_days are empty); skipping.")
+        return
+    # ensure prefix ends with slash and is composed as container/prefix/
+    if not prefix_segment:
+        prefix = f"{container}/"
+    else:
+        prefix = f"{container}/{prefix_segment.strip().strip('/')}/"
+    policy = _build_lifecycle_policy_json(prefix, cool_after_days, retention_days)
+    info(f"Applying lifecycle policy for storage account '{account}' in RG '{rg}' with prefix '{prefix}' (cool_after={cool_after_days} delete_after={retention_days})")
+    try:
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as tf:
+            tf.write(json.dumps(policy, indent=2))
+            tmp_path = tf.name
+        # az storage account management-policy create will create or update
+        rc, out, err_txt = run([
+            "az", "storage", "account", "management-policy", "create",
+            "--resource-group", rg,
+            "--account-name", account,
+            "--policy", tmp_path
+        ], check=False)
+        if rc != 0:
+            warn(f"Failed to apply lifecycle policy via az CLI: {err_txt or out}")
+        else:
+            info("Lifecycle policy applied successfully.")
+    except Exception as e:
+        warn(f"Applying lifecycle policy failed: {e}")
+    finally:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+
 # ---------- deletion helpers ----------
 def delete_storage_account(account: str, rg: str, wait_poll: bool = False, poll_timeout: int = 300):
     info(f"Initiating deletion of storage account {account} in {rg} ...")
@@ -390,45 +452,38 @@ def do_create():
     if not storage_id:
         die("Failed to read storage account resource id; aborting.")
 
-    # create UAIs
-    uai_rw = ensure_uai(UAI_RW_NAME, AZURE_RESOURCE_GROUP_NAME, AZURE_LOCATION)
-    uai_ro = ensure_uai(UAI_RO_NAME, AZURE_RESOURCE_GROUP_NAME, AZURE_LOCATION)
-
-    uai_rw_principal = uai_rw.get("principalId")
-    uai_ro_principal = uai_ro.get("principalId")
-    if not uai_rw_principal or not uai_ro_principal:
-        die("Failed to read principalId for UAIs; ensure az identity create returned principalId.")
-
-    # assign RBAC roles (use retries and explicit principal type)
-    assign_storage_rbac(uai_rw_principal, storage_id, "Storage Blob Data Contributor")
-    assign_storage_rbac(uai_ro_principal, storage_id, "Storage Blob Data Reader")
+    # NOTE: UAI creation and role assignment logic intentionally removed.
 
     # Fetch account key and create containers using key auth
     key = get_storage_account_key(AZURE_STORAGE_ACCOUNT_NAME, AZURE_RESOURCE_GROUP_NAME)
     create_container(AZURE_STORAGE_ACCOUNT_NAME, key, AZURE_CONTAINER)
     if PULUMI_AZ_CONTAINER:
         create_container(AZURE_STORAGE_ACCOUNT_NAME, key, PULUMI_AZ_CONTAINER)
-    if FLOW_LOG_CONTAINER:
-        create_container(AZURE_STORAGE_ACCOUNT_NAME, key, FLOW_LOG_CONTAINER)
     if BACKUP_AZ_CONTAINER:
         create_container(AZURE_STORAGE_ACCOUNT_NAME, key, BACKUP_AZ_CONTAINER)
 
     info("CREATED/ENSURED containers:")
     out_containers = [AZURE_CONTAINER]
     if PULUMI_AZ_CONTAINER: out_containers.append(PULUMI_AZ_CONTAINER)
-    if FLOW_LOG_CONTAINER: out_containers.append(FLOW_LOG_CONTAINER)
     if BACKUP_AZ_CONTAINER: out_containers.append(BACKUP_AZ_CONTAINER)
     for c in out_containers:
         info(f" - {c}")
 
-    # Print UAI client IDs & principal IDs
-    uai_rw_client = uai_rw.get("clientId")
-    uai_ro_client = uai_ro.get("clientId")
-    info("User Assigned Identities created/verified:")
-    print(f"export UAI_RAG_RW_CLIENT_ID={uai_rw_client}")
-    print(f"export UAI_RAG_RO_CLIENT_ID={uai_ro_client}")
-    print(f"export UAI_RAG_RW_PRINCIPAL_ID={uai_rw_principal}")
-    print(f"export UAI_RAG_RO_PRINCIPAL_ID={uai_ro_principal}")
+    # Apply lifecycle policy to backup container (if requested via env)
+    try:
+        retention = int(BACKUP_AZ_CONTAINER_RETENTION_DAYS) if BACKUP_AZ_CONTAINER_RETENTION_DAYS else None
+    except ValueError:
+        retention = None
+    try:
+        cool_after = int(BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS) if BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS else None
+    except ValueError:
+        cool_after = None
+
+    if BACKUP_AZ_CONTAINER and (retention is not None or cool_after is not None):
+        # Use backup prefix (e.g. qdrant) if present; policy will apply to blobs under container/prefix/
+        apply_lifecycle_policy(AZURE_STORAGE_ACCOUNT_NAME, AZURE_RESOURCE_GROUP_NAME, BACKUP_AZ_CONTAINER, BACKUP_PREFIX, cool_after, retention)
+    else:
+        info("No backup lifecycle policy configured or BACKUP_AZ_CONTAINER not set; skipping lifecycle application.")
 
 def do_delete():
     ensure_subscription()
@@ -453,28 +508,7 @@ def do_delete():
                 info("Aborted by user.")
                 return
 
-        if FORCE_DELETE:
-            try:
-                rc, out, _ = run(["az","identity","show","--name",UAI_RW_NAME,"--resource-group",AZURE_RESOURCE_GROUP_NAME,"-o","json"], check=False)
-                if rc == 0:
-                    uai = json.loads(out)
-                    principal = uai.get("principalId")
-                    storage_obj = get_storage_account_resource(AZURE_STORAGE_ACCOUNT_NAME, AZURE_RESOURCE_GROUP_NAME)
-                    storage_id = storage_obj.get("id")
-                    if principal and storage_id:
-                        remove_role_assignments(principal, storage_id, role="Storage Blob Data Contributor")
-                rc2, out2, _ = run(["az","identity","show","--name",UAI_RO_NAME,"--resource-group",AZURE_RESOURCE_GROUP_NAME,"-o","json"], check=False)
-                if rc2 == 0:
-                    uai2 = json.loads(out2)
-                    principal2 = uai2.get("principalId")
-                    storage_obj = get_storage_account_resource(AZURE_STORAGE_ACCOUNT_NAME, AZURE_RESOURCE_GROUP_NAME)
-                    storage_id = storage_obj.get("id")
-                    if principal2 and storage_id:
-                        remove_role_assignments(principal2, storage_id, role="Storage Blob Data Reader")
-                delete_uai_if_exists(UAI_RW_NAME, AZURE_RESOURCE_GROUP_NAME)
-                delete_uai_if_exists(UAI_RO_NAME, AZURE_RESOURCE_GROUP_NAME)
-            except Exception as e:
-                warn(f"UAI cleanup step failed (continuing with storage deletion): {e}")
+        # NOTE: UAI cleanup removed (no UAIs were created)
 
         delete_storage_account(AZURE_STORAGE_ACCOUNT_NAME, AZURE_RESOURCE_GROUP_NAME, wait_poll=True, poll_timeout=300)
         return
@@ -486,7 +520,7 @@ def do_delete():
 
     key = get_storage_account_key(AZURE_STORAGE_ACCOUNT_NAME, AZURE_RESOURCE_GROUP_NAME)
 
-    planned = [c for c in [AZURE_CONTAINER, PULUMI_AZ_CONTAINER, FLOW_LOG_CONTAINER, BACKUP_AZ_CONTAINER] if c]
+    planned = [c for c in [AZURE_CONTAINER, PULUMI_AZ_CONTAINER, BACKUP_AZ_CONTAINER] if c]
     info("Pre-delete container inventory (planned deletions):")
     for c in planned:
         cnt = container_blob_count(AZURE_STORAGE_ACCOUNT_NAME, key, c)
@@ -506,7 +540,7 @@ def do_delete():
 
 # ---------- CLI ----------
 def parse_args():
-    p = argparse.ArgumentParser(description="Env-driven Azure Storage Account + Containers bootstrapper (key auth, UAI creation).")
+    p = argparse.ArgumentParser(description="Env-driven Azure Storage Account + Containers bootstrapper (key auth).")
     gp = p.add_mutually_exclusive_group(required=True)
     gp.add_argument("--create", action="store_true", help="Create resources.")
     gp.add_argument("--delete", action="store_true", help="Delete (containers or storage account controlled via env AZURE_DELETE_ACCOUNT).")

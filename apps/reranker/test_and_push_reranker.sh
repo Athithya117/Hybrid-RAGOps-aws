@@ -230,25 +230,6 @@ if [ "${SCORES_COUNT}" -ne "${DOCS_COUNT}" ]; then
   exit 8
 fi
 
-# metrics check
-log "Checking /metrics for requests_total{endpoint=\"/rerank\"}"
-METRICS=$(curl -fsS "http://127.0.0.1:${HOST_PORT}/metrics" 2>/dev/null || true)
-if [ -z "${METRICS}" ]; then
-  err "/metrics empty"
-  docker logs --tail 200 "${CONTAINER_NAME}" || true
-  docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
-  exit 9
-fi
-if printf '%s' "${METRICS}" | grep -q 'requests_total{.*endpoint="/rerank"'; then
-  log "Found requests_total for /rerank"
-  printf '%s\n' "${METRICS}" | grep 'requests_total{.*endpoint="/rerank"' || true
-else
-  err "requests_total for /rerank not found"
-  printf '%s\n' "${METRICS}" | sed -n '1,200p'
-  docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
-  exit 10
-fi
-
 # stop local test container before multi-arch build
 docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
 
