@@ -285,6 +285,10 @@ kubectl -n kube-system wait --for=condition=Available deployment/coredns --timeo
 kubectl -n kube-system wait --for=condition=Ready pods -l k8s-app=kube-proxy --timeout=120s || true
 kubectl -n kube-system wait --for=condition=Ready pods -l k8s-app=kindnet --timeout=120s || true
 
+kubectl label nodes $(kubectl get nodes -o name | head -n1 | cut -d'/' -f2) observability=true --overwrite
+kubectl label nodes -l '!node-role.kubernetes.io/control-plane' observability=true --overwrite
+
+
 CLUSTER_NAME="${CLUSTER_NAME:-rag8s-local}"
 
 for node in $(kind get nodes --name "${CLUSTER_NAME}"); do

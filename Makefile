@@ -1,3 +1,121 @@
+create-sa:
+	python3 infra/base_infra/storage_acc.py --create
+
+delete-sa:
+	python3 infra/base_infra/storage_acc.py --delete
+
+pulumi-up:
+	bash infra/pulumi_azure/run.sh --create || true
+
+pulumi-destroy:
+	bash infra/pulumi_azure/run.sh --delete || true
+
+pulumi-preview:
+	bash infra/pulumi_azure/run.sh --preview || true
+
+
+
+set-aks-context:
+	az aks get-credentials \
+	  -g "$$AZURE_RESOURCE_GROUP_NAME" \
+	  -n "$$(jq -r '.aks_cluster_name' infra/pulumi_azure/pulumi-outputs.json)" \
+	  --overwrite-existing && kubectl get nodes
+
+set-kind-context:
+	kubectl config use-context kind-rag8s-local
+
+
+
+index-image:
+	bash apps/index/build_and_push_image.sh
+
+frontend-image:
+	bash apps/inference/frontend/build_and_push_frontend.sh
+
+retrieval-image:
+	bash apps/inference/retrieval/test_and_push_retriever.sh
+
+sparse-image:
+	bash apps/sparse/test_and_push_sparse.sh
+
+dense-image:
+	bash apps/dense/test_and_push_dense.sh
+
+reranker-image:
+	bash apps/reranker/test_and_push_reranker.sh
+
+
+setup-flux:
+	python3 infra/scripts/setup_fluxcd.py --auto-push
+
+inspect-flux:
+	tail -f infra/manifests/flux-system/setup_fluxcd.log
+
+flux-status:
+	flux check && flux get kustomizations -n flux-system
+
+
+
+deploy-dense:
+	python3 infra/generators/dense.py --apply
+
+deploy-sparse:
+	python3 infra/generators/sparse.py --apply
+
+deploy-reranker:
+	python3 infra/generators/reranker.py --apply
+
+deploy-qdrant:
+	python3 infra/generators/qdrant_cluster.py --apply
+
+deploy-retriever:
+	python3 infra/generators/retriever.py --apply --confirm
+
+deploy-frontend:
+	python3 infra/generators/frontend_auth.py --apply --confirm
+
+deploy-cloudflared:
+	python3 infra/generators/cloudflared.py --apply --replicas $${CLOUDFLARED_TUNNEL_REPLICAS} --namespace inference
+
+deploy-prometheus:
+	python3 infra/generators/monitoring_alerts.py --apply 
+
+deploy-models: deploy-dense deploy-sparse deploy-reranker
+deploy-inference-svc: deploy-retriever deploy-frontend
+
+run-indexing-cronjob-kind:
+	@echo "[make fix-dns] invoking utils/fix_kind_cluster_dns.sh"
+	@chmod +x utils/fix_kind_cluster_dns.sh || true
+	@utils/fix_kind_cluster_dns.sh --timeout 60
+	sleep 5
+	python3 infra/generators/indexing_cronjob.py --delete
+	python3 infra/generators/indexing_cronjob.py --apply
+	python3 infra/runners/run_indexing_cronjob.py --wait-for-running --wait-running-timeout 120
+
+fix-dns:
+	@echo "[make fix-dns] invoking utils/fix_kind_cluster_dns.sh"
+	@chmod +x utils/fix_kind_cluster_dns.sh || true
+	@utils/fix_kind_cluster_dns.sh --timeout 60
+
+
+PY ?= python3
+CONTROL := infra/runners/backup_and_restore.sh
+
+qdrant-backup:
+	@bash $(CONTROL) backup
+
+qdrant-restore:
+	@bash $(CONTROL) restore
+
+cloudflare-setup:
+	bash infra/setup/cloudflared.sh 
+
+cloudflare-logout:
+	rm -rf ~/.cloudflared && rm -f ~/.config/rag/secrets.env && unset CLOUDFLARE_TUNNEL_TOKEN && unset CLOUDFLARE_TUNNEL_CREDENTIALS_B64 && unset CLOUDFLARE_TUNNEL_NAME
+
+
+
+
 .PHONY: tree clean lc push docker-login docker-build-backup docker-push-backup \
 	index-image frontend-image init-reranker setup-flux inspect-flux flux-status \
 	pulumi-up pulumi-destroy deploy-dense deploy-sparse deploy-reranker deploy-qdrant \
@@ -28,96 +146,3 @@ clean:
 	find . -type f -name "*.log" ! -path "./.git/*" -delete
 	find . -type f -name "*.pulumi-logs" ! -path "./.git/*" -delete
 	clear
-
-create-sa:
-	python3 infra/base_infra/storage_acc.py --create
-
-delete-sa:
-	python3 infra/base_infra/storage_acc.py --delete
-
-
-pulumi-up:
-	bash infra/pulumi_azure/run.sh --create || true
-
-pulumi-destroy:
-	bash infra/pulumi_azure/run.sh --delete || true
-
-pulumi-preview:
-	bash infra/pulumi_azure/run.sh --preview || true
-
-index-image:
-	bash apps/index/build_and_push_image.sh
-
-frontend-image:
-	bash apps/inference/frontend/build_and_push_frontend.sh
-
-retrieval-image:
-	bash apps/inference/retrieval/test_and_push_retriever.sh
-	
-init-reranker:
-	python3 infra/generators/gen_reranker.py --generate
-
-setup-flux:
-	python3 infra/scripts/setup_fluxcd.py --auto-push
-
-inspect-flux:
-	tail -f infra/manifests/flux-system/setup_fluxcd.log
-
-flux-status:
-	flux check && flux get kustomizations -n flux-system
-
-deploy-dense:
-	python3 infra/generators/dense.py --apply
-
-deploy-sparse:
-	python3 infra/generators/sparse.py --apply
-
-deploy-reranker:
-	python3 infra/generators/reranker.py --apply
-
-deploy-qdrant:
-	python3 infra/generators/qdrant_cluster.py --apply
-
-deploy-retriever:
-	python3 infra/generators/retriever.py --apply --confirm
-
-deploy-frontend:
-	python3 infra/generators/frontend_auth.py --apply --confirm
-
-deploy-models: deploy-dense deploy-sparse deploy-reranker
-
-deploy-inference-svc: deploy-retriever deploy-frontend
-
-run-indexing-cronjob:
-	@echo "[make fix-dns] invoking utils/fix_kind_cluster_dns.sh"
-	@chmod +x utils/fix_kind_cluster_dns.sh || true
-	@utils/fix_kind_cluster_dns.sh --timeout 60
-	sleep 5
-	python3 infra/generators/indexing_cronjob.py --delete
-	python3 infra/generators/indexing_cronjob.py --apply
-	python3 infra/runners/run_indexing_cronjob.py --wait-for-running --wait-running-timeout 120
-
-fix-dns:
-	@echo "[make fix-dns] invoking utils/fix_kind_cluster_dns.sh"
-	@chmod +x utils/fix_kind_cluster_dns.sh || true
-	@utils/fix_kind_cluster_dns.sh --timeout 60
-
-
-PY ?= python3
-CONTROL := infra/runners/backup_and_restore.sh
-
-qdrant-backup:
-	@bash $(CONTROL) backup
-
-qdrant-restore:
-	@bash $(CONTROL) restore
-
-cloudflare-setup:
-	bash infra/setup/cloudflared.sh 
-
-cloudflare-logout:
-	rm -rf ~/.cloudflared && rm -f ~/.config/rag/secrets.env && unset CLOUDFLARE_TUNNEL_TOKEN && unset CLOUDFLARE_TUNNEL_CREDENTIALS_B64 && unset CLOUDFLARE_TUNNEL_NAME
-
-deploy-cloudflared:
-	python3 infra/generators/cloudflared.py --apply --replicas $${CLOUDFLARED_TUNNEL_REPLICAS} --namespace inference
-

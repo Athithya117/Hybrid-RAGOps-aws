@@ -1,28 +1,20 @@
 #!/usr/bin/env python3
-"""
-monitoring_and_alerts.py
-
-Generates Prometheus/Grafana related manifests under infra/manifests/ and optionally applies them.
-- Uses os.getenv for configuration knobs.
-- Applies sensitive values (alertmanager/webhook etc.) directly to the cluster as Kubernetes Secrets (kubectl).
-- Three CLI modes: --generate, --apply, --delete
-
-Requires: python3.10+, pyyaml, kubectl on PATH when --apply/--delete is used.
-"""
-from __future__ import annotations
 import argparse
 import os
-import sys
 import shutil
 import subprocess
-import yaml
+import sys
+import logging
+import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Tuple, Dict, Any, Optional
+import json
+import yaml
 
-# ---------------------
-# Helpers
-# ---------------------
-def run_cmd(cmd: List[str], input_bytes: Optional[bytes] = None, timeout:int = 60) -> tuple[int,str,str]:
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+LOG = logging.getLogger("monitoring_and_alerts")
+
+def run_cmd(cmd: list, input_bytes: bytes | None = None, timeout: int = 60) -> Tuple[int, str, str]:
     try:
         proc = subprocess.run(cmd, input=input_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=timeout)
         out = (proc.stdout or b"").decode("utf-8", errors="replace").strip()
@@ -31,8 +23,8 @@ def run_cmd(cmd: List[str], input_bytes: Optional[bytes] = None, timeout:int = 6
     except subprocess.TimeoutExpired as e:
         return 124, getattr(e, "stdout", "") or "", getattr(e, "stderr", "") or f"timeout after {timeout}s"
 
-def ensure_dir(path: Path):
-    path.mkdir(parents=True, exist_ok=True)
+def ensure_dir(p: Path):
+    p.mkdir(parents=True, exist_ok=True)
 
 def atomic_write(path: Path, content: str):
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -42,254 +34,393 @@ def atomic_write(path: Path, content: str):
 def kubectl_available() -> bool:
     return shutil.which("kubectl") is not None
 
-# ---------------------
-# Config (env-driven)
-# ---------------------
-CFG = {
-    "RENDER_DIR": Path(os.getenv("YAML_RENDER_DIR", "infra/manifests")).resolve(),
-    "MONITORING_NAMESPACE": os.getenv("MONITORING_NAMESPACE", "monitoring"),
-    "RETRIEVAL_NAMESPACE": os.getenv("RETRIEVAL_NAMESPACE", "inference"),
-    "RETRIEVAL_SERVICE_LABEL": os.getenv("RETRIEVAL_SERVICE_LABEL", "app=retrieval"),
-    "RETRIEVAL_METRICS_PORT": os.getenv("RETRIEVAL_METRICS_PORT", "metrics"),
-    "QDRANT_NAMESPACE": os.getenv("QDRANT_NAMESPACE", "qdrant"),
-    "QDRANT_SERVICE_LABEL": os.getenv("QDRANT_SERVICE_LABEL", "app=qdrant"),
-    "QDRANT_METRICS_PORT": os.getenv("QDRANT_METRICS_PORT", "http-metrics"),
-    "SCRAPE_INTERVAL": os.getenv("SCRAPE_INTERVAL", "15s"),
-    "RETRIEVAL_P95_THRESHOLD_S": float(os.getenv("RETRIEVAL_P95_THRESHOLD_S", "0.5")),
-    "RETRIEVAL_ERROR_RATE": float(os.getenv("RETRIEVAL_ERROR_RATE", "0.01")),
-    "QDRANT_PVC_USAGE_THRESHOLD": float(os.getenv("QDRANT_PVC_USAGE_THRESHOLD", "0.75")),
-    "INDEXER_CRONJOB_NAME": os.getenv("INDEXER_CRONJOB_NAME", "indexing-backup-cronjob"),
-    "INDEXER_NAMESPACE": os.getenv("INDEXER_NAMESPACE", "indexing"),
-    "ALERTMANAGER_SLACK_WEBHOOK": os.getenv("ALERTMANAGER_SLACK_WEBHOOK", ""),
-    "ALERTMANAGER_SMTP_PASSWORD": os.getenv("ALERTMANAGER_SMTP_PASSWORD", ""),
-    "ALERTMANAGER_SECRET_NAME": os.getenv("ALERTMANAGER_SECRET_NAME", "alertmanager-credentials"),
-    "ALERTMANAGER_SECRET_NAMESPACE": os.getenv("ALERTMANAGER_SECRET_NAMESPACE", ""),
-    "GRAFANA_PROV_NAMESPACE": os.getenv("GRAFANA_PROV_NAMESPACE", os.getenv("MONITORING_NAMESPACE", "monitoring")),
-    "GRAFANA_DATASOURCE_NAME": os.getenv("GRAFANA_DATASOURCE_NAME", "Prometheus"),
-    "QDRANT_DEAD_REPLICAS_METRIC": os.getenv("QDRANT_DEAD_REPLICAS_METRIC", "cluster_dead_replicas"),
-    "QDRANT_PENDING_OPS_METRIC": os.getenv("QDRANT_PENDING_OPS_METRIC", "cluster_pending_operations_total"),
-    "QDRANT_SNAPSHOT_CREATED_METRIC": os.getenv("QDRANT_SNAPSHOT_CREATED_METRIC", "snapshot_created_total"),
-}
+def helm_available() -> bool:
+    return shutil.which("helm") is not None
 
-# compute secret namespace default
-if not CFG["ALERTMANAGER_SECRET_NAMESPACE"]:
-    CFG["ALERTMANAGER_SECRET_NAMESPACE"] = CFG["MONITORING_NAMESPACE"]
+K8S_CLUSTER = os.getenv("K8S_CLUSTER", "kind").lower()
+if K8S_CLUSTER not in ("kind", "aks"):
+    LOG.error("Unsupported K8S_CLUSTER '%s' — allowed: kind, aks", K8S_CLUSTER)
+    sys.exit(2)
 
-# parse label selectors into dict
-def parse_label_selector(sel: str) -> Dict[str,str]:
-    out: Dict[str,str] = {}
-    for part in filter(None, (p.strip() for p in sel.split(","))):
-        if "=" in part:
-            k,v = part.split("=",1)
-            out[k.strip()] = v.strip()
-    return out
+OBS_NAMESPACE = os.getenv("OBS_NAMESPACE", "observability")
+RENDER_DIR = Path(os.getenv("MONITORING_MANIFESTS_DIR", "infra/manifests/monitoring")).resolve()
+KUBE_PROM_STACK_CHART = os.getenv("KUBE_PROM_STACK_CHART", "prometheus-community/kube-prometheus-stack")
+KUBE_PROM_STACK_VERSION = os.getenv("KUBE_PROM_STACK_VERSION", "80.6.0")
+HELM_REPO_NAME = os.getenv("PROM_HELM_REPO_NAME", "prometheus-community")
+HELM_REPO_URL = os.getenv("PROM_HELM_REPO_URL", "https://prometheus-community.github.io/helm-charts")
+RELEASE_NAME = os.getenv("PROM_RELEASE_NAME", "kube-prom-stack")
+OBS_NODE_SELECTOR_KEY = os.getenv("OBS_NODE_SELECTOR_KEY", "observability")
+OBS_NODE_SELECTOR_VALUE = os.getenv("OBS_NODE_SELECTOR_VALUE", "true")
+OBS_TAINT_KEY = os.getenv("OBS_TAINT_KEY", "CriticalAddonsOnly")
 
-RETRIEVAL_SELECTOR = parse_label_selector(CFG["RETRIEVAL_SERVICE_LABEL"])
-QDRANT_SELECTOR = parse_label_selector(CFG["QDRANT_SERVICE_LABEL"])
+PROM_ENABLED = os.getenv("PROM_ENABLED", "true").lower() in ("1", "true", "yes")
+PROM_STORAGE_SIZE = os.getenv("PROM_STORAGE_SIZE", "50Gi")
+PROM_RETENTION = os.getenv("PROM_RETENTION", "7d")
+PROM_CPU_REQUEST = os.getenv("PROM_CPU_REQUEST", "500m")
+PROM_CPU_LIMIT = os.getenv("PROM_CPU_LIMIT", "500m")
+PROM_MEM_REQUEST = os.getenv("PROM_MEM_REQUEST", "1Gi")
+PROM_MEM_LIMIT = os.getenv("PROM_MEM_LIMIT", "1Gi")
+PROM_STORAGE_CLASS = os.getenv("PROM_STORAGE_CLASS", "")
 
-# file layout
-RENDER_DIR = CFG["RENDER_DIR"]
-GRAFANA_DIR = RENDER_DIR / "grafana"
-FILES = {
-    "namespace": RENDER_DIR / "00-monitoring-namespace.yaml",
+GRAFANA_ENABLED = os.getenv("GRAFANA_ENABLED", "true").lower() in ("1", "true", "yes")
+GRAFANA_ADMIN_USER = os.getenv("GRAFANA_ADMIN_USER", "admin")
+GRAFANA_ADMIN_PASSWORD = os.getenv("GRAFANA_ADMIN_PASSWORD", "change-me")
+GRAFANA_PERSISTENCE = os.getenv("GRAFANA_PERSISTENCE", "true").lower() in ("1", "true", "yes")
+GRAFANA_PERSISTENCE_SIZE = os.getenv("GRAFANA_PERSISTENCE_SIZE", "5Gi")
+GRAFANA_STORAGE_CLASS = os.getenv("GRAFANA_STORAGE_CLASS", "")
+
+LOKI_PERSISTENCE_SIZE = os.getenv("LOKI_PERSISTENCE_SIZE", "50Gi")
+LOKI_RETENTION = os.getenv("LOKI_RETENTION", "7d")
+LOKI_CPU_REQUEST = os.getenv("LOKI_CPU_REQUEST", "500m")
+LOKI_MEM_REQUEST = os.getenv("LOKI_MEM_REQUEST", "1Gi")
+LOKI_CPU_LIMIT = os.getenv("LOKI_CPU_LIMIT", "500m")
+LOKI_MEM_LIMIT = os.getenv("LOKI_MEM_LIMIT", "2Gi")
+LOKI_SHIPPER = os.getenv("LOKI_SHIPPER", "vector")
+
+ALERTMANAGER_SLACK_WEBHOOK = os.getenv("ALERTMANAGER_SLACK_WEBHOOK", "")
+
+PROM_REPLICAS_ENV = os.getenv("PROM_REPLICAS", "")
+if PROM_REPLICAS_ENV:
+    try:
+        PROM_REPLICAS = int(PROM_REPLICAS_ENV)
+        if PROM_REPLICAS < 1:
+            raise ValueError()
+    except Exception:
+        LOG.error("Invalid PROM_REPLICAS '%s' — must be integer >=1", PROM_REPLICAS_ENV)
+        sys.exit(2)
+else:
+    PROM_REPLICAS = 1 if K8S_CLUSTER == "kind" else 2
+
+RENDER_FILES = {
+    "namespace": RENDER_DIR / "00-namespace.yaml",
     "retrieval_servicemonitor": RENDER_DIR / "10-retrieval-servicemonitor.yaml",
     "qdrant_servicemonitor": RENDER_DIR / "11-qdrant-servicemonitor.yaml",
-    "prometheusrule": RENDER_DIR / "20-rag-alerts-prometheusrule.yaml",
-    "grafana_provisioning": GRAFANA_DIR / "01-grafana-provisioning.yaml",
+    "prometheusrule": RENDER_DIR / "20-rag-prometheusrule.yaml",
+    "helm_values": RENDER_DIR / "kube-prom-values.yaml",
 }
 
-# ---------------------
-# Render functions
-# ---------------------
-def render_namespace(ns: str) -> Dict[str,Any]:
-    return {"apiVersion":"v1","kind":"Namespace","metadata":{"name":ns,"labels":{"app.kubernetes.io/managed-by":"gitops-monitoring"}}}
+def render_namespace(ns: str) -> Dict[str, Any]:
+    return {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": ns, "labels": {"name": ns, "observability-managed": "true"}}}
 
-def render_service_monitor(name: str, namespace: str, selector: Dict[str,str], port: str, path: str, interval: str) -> Dict[str,Any]:
+def render_service_monitor(name: str, monitor_ns: str, target_ns: str, selector: Dict[str, str], port: str, interval: str = "15s") -> Dict[str, Any]:
     return {
         "apiVersion": "monitoring.coreos.com/v1",
         "kind": "ServiceMonitor",
-        "metadata": {"name": name, "namespace": namespace, "labels":{"app.kubernetes.io/managed-by":"gitops-monitoring"}},
-        "spec": {
-            "selector": {"matchLabels": selector},
-            "namespaceSelector": {"matchNames": [namespace]},
-            "endpoints": [{"port": port, "path": path, "interval": interval}],
-        },
+        "metadata": {"name": name, "namespace": monitor_ns, "labels": {"app.kubernetes.io/managed-by": "monitoring_and_alerts"}},
+        "spec": {"selector": {"matchLabels": selector}, "namespaceSelector": {"matchNames": [target_ns]}, "endpoints": [{"port": port, "path": "/metrics", "interval": interval}]}
     }
 
-def render_prometheus_rule() -> Dict[str,Any]:
-    p95_t = CFG["RETRIEVAL_P95_THRESHOLD_S"]
-    err_rate = CFG["RETRIEVAL_ERROR_RATE"]
-    pvc_thresh = CFG["QDRANT_PVC_USAGE_THRESHOLD"]
-    q_dead = CFG["QDRANT_DEAD_REPLICAS_METRIC"]
-    q_pending = CFG["QDRANT_PENDING_OPS_METRIC"]
-    q_snapshot = CFG["QDRANT_SNAPSHOT_CREATED_METRIC"]
-    indexer_job = CFG["INDEXER_CRONJOB_NAME"]
+def render_prometheus_rule(obs_ns: str, p95: float = 0.5, err_rate: float = 0.01, pvc_thresh: float = 0.75, indexer_job: str = "indexing-backup-cronjob") -> Dict[str, Any]:
     return {
-        "apiVersion":"monitoring.coreos.com/v1",
-        "kind":"PrometheusRule",
-        "metadata":{"name":"rag-alerts","namespace":CFG["MONITORING_NAMESPACE"],"labels":{"app.kubernetes.io/managed-by":"gitops-monitoring"}},
-        "spec":{
-            "groups":[
-                {"name":"retrieval-slo",
-                 "rules":[
-                     {"alert":"RetrievalUnavailable","expr":'absent(service_ready{service="retrieval"}==1)',"for":"2m","labels":{"severity":"critical"},"annotations":{"summary":"Retrieval readiness missing"}},
-                     {"alert":"RetrievalHigh5xx","expr":f'sum(rate(retrieval_requests_total{{status_code=~"5.."}}[5m])) / sum(rate(retrieval_requests_total[5m])) > {err_rate}','for':"5m","labels":{"severity":"page"},"annotations":{"summary":"Retrieval 5xx error rate > configured threshold"}},
-                     {"alert":"RetrievalP95LatencyBreach","expr":f'histogram_quantile(0.95, sum(rate(retrieval_request_duration_seconds_bucket[5m])) by (le)) > {p95_t}','for':"5m","labels":{"severity":"page"},"annotations":{"summary":"Retrieval p95 latency exceeded"}},
-                 ]},
-                {"name":"qdrant-safety",
-                 "rules":[
-                    {"alert":"QdrantInstanceDown","expr":'up{job=~"qdrant.*"} == 0',"for":"2m","labels":{"severity":"critical"},"annotations":{"summary":"Qdrant instance down"}},
-                    {"alert":"QdrantDeadReplicas","expr":f'{q_dead} > 0',"for":"1m","labels":{"severity":"page"},"annotations":{"summary":"Qdrant dead replicas detected"}},
-                    {"alert":"QdrantPendingOpsGrowing","expr":f'increase({q_pending}[10m]) > 0',"for":"10m","labels":{"severity":"warning"},"annotations":{"summary":"Qdrant pending operations growing"}},
-                    {"alert":"QdrantSnapshotStalled","expr":f'increase({q_snapshot}[1h]) == 0',"for":"1h","labels":{"severity":"critical"},"annotations":{"summary":"No qdrant snapshots created in expected window"}},
-                    {"alert":"QdrantPVCHighUsage","expr":f'kubelet_volume_stats_capacity_bytes > 0 and kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes > {pvc_thresh}',"labels":{"severity":"critical"},"annotations":{"summary":"Qdrant PVC usage > configured threshold"}},
-                 ]},
-                {"name":"batch",
-                 "rules":[
-                     {"alert":"IndexerJobFailed","expr":f'increase(kube_job_status_failed{{job_name=~"{indexer_job}.*"}}[5m]) > 0',"for":"1m","labels":{"severity":"page"},"annotations":{"summary":"Indexer job failed"}}
-                 ]}
+        "apiVersion": "monitoring.coreos.com/v1",
+        "kind": "PrometheusRule",
+        "metadata": {"name": "rag-alerts", "namespace": obs_ns, "labels": {"app.kubernetes.io/managed-by": "monitoring_and_alerts"}},
+        "spec": {
+            "groups": [
+                {
+                    "name": "retrieval-slo",
+                    "rules": [
+                        {"alert": "RetrievalUnavailable", "expr": "absent(service_ready{service='retrieval'} == 1)", "for": "2m", "labels": {"severity": "critical"}, "annotations": {"summary": "Retrieval readiness missing"}},
+                        {"alert": "RetrievalHigh5xx", "expr": f"sum(rate(retrieval_requests_total{{status_code=~'5..'}}[5m])) / (sum(rate(retrieval_requests_total[5m])) + 1e-12) > {err_rate}", "for": "5m", "labels": {"severity": "page"}, "annotations": {"summary": "Retrieval 5xx error rate high"}},
+                        {"alert": "RetrievalP95LatencyBreach", "expr": f"histogram_quantile(0.95, sum(rate(retrieval_request_duration_seconds_bucket[5m])) by (le)) > {p95}", "for": "5m", "labels": {"severity": "page"}, "annotations": {"summary": "Retrieval p95 latency exceeded"}}
+                    ]
+                },
+                {
+                    "name": "qdrant-safety",
+                    "rules": [
+                        {"alert": "QdrantInstanceDown", "expr": 'up{job=~"qdrant.*"} == 0', "for": "2m", "labels": {"severity": "critical"}, "annotations": {"summary": "Qdrant instance down"}},
+                        {"alert": "QdrantDeadReplicas", "expr": "cluster_dead_replicas > 0", "for": "1m", "labels": {"severity": "page"}, "annotations": {"summary": "Qdrant dead replicas detected"}},
+                        {"alert": "QdrantPVCHighUsage", "expr": "kubelet_volume_stats_capacity_bytes > 0 and kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes > " + str(pvc_thresh), "for": "10m", "labels": {"severity": "critical"}, "annotations": {"summary": "Qdrant PVC usage above threshold"}}
+                    ]
+                },
+                {
+                    "name": "batch",
+                    "rules": [
+                        {"alert": "IndexerJobFailed", "expr": f'increase(kube_job_status_failed{{job_name=~"{indexer_job}.*"}}[5m]) > 0', "for": "1m", "labels": {"severity": "page"}, "annotations": {"summary": "Indexer job failures detected"}}
+                    ]
+                }
             ]
         }
     }
 
-# ---------------------
-# Secret handling (apply directly, not to disk)
-# ---------------------
-def build_alertmanager_secret_manifest() -> Optional[Dict[str,Any]]:
-    data = {}
-    if CFG["ALERTMANAGER_SLACK_WEBHOOK"]:
-        data["slack_webhook"] = CFG["ALERTMANAGER_SLACK_WEBHOOK"]
-    if CFG["ALERTMANAGER_SMTP_PASSWORD"]:
-        data["smtp_password"] = CFG["ALERTMANAGER_SMTP_PASSWORD"]
-    if not data:
-        return None
-    return {"apiVersion":"v1","kind":"Secret","metadata":{"name":CFG["ALERTMANAGER_SECRET_NAME"],"namespace":CFG["ALERTMANAGER_SECRET_NAMESPACE"]},"type":"Opaque","stringData":data}
-
-def apply_secret(manifest: Dict[str,Any]):
-    if not kubectl_available():
-        raise RuntimeError("kubectl required to apply secrets but not found in PATH")
-    b = yaml.safe_dump(manifest, sort_keys=False)
-    rc,out,err = run_cmd(["kubectl","apply","-f","-"], input_bytes=b.encode("utf-8"), timeout=20)
-    if rc != 0:
-        raise RuntimeError(f"kubectl apply secret failed: {err or out}")
-
-def delete_secret():
-    if not kubectl_available():
-        raise RuntimeError("kubectl required to delete secrets but not found in PATH")
-    rc,out,err = run_cmd(["kubectl","delete","secret",CFG["ALERTMANAGER_SECRET_NAME"],"-n",CFG["ALERTMANAGER_SECRET_NAMESPACE"],"--ignore-not-found"], timeout=20)
-    if rc != 0:
-        raise RuntimeError(f"kubectl delete secret returned non-zero: {err or out}")
-
-# ---------------------
-# Generate / Apply / Delete
-# ---------------------
-def generate_manifests():
-    ensure_dir(RENDER_DIR)
-    ensure_dir(GRAFANA_DIR)
-    # Namespace
-    ns = render_namespace(CFG["MONITORING_NAMESPACE"])
-    atomic_write(FILES["namespace"], yaml.safe_dump(ns, sort_keys=False))
-    # ServiceMonitors
-    sm_retrieval = render_service_monitor("retrieval-servicemonitor", CFG["MONITORING_NAMESPACE"], RETRIEVAL_SELECTOR, CFG["RETRIEVAL_METRICS_PORT"], "/metrics", CFG["SCRAPE_INTERVAL"])
-    atomic_write(FILES["retrieval_servicemonitor"], yaml.safe_dump(sm_retrieval, sort_keys=False))
-    sm_qdrant = render_service_monitor("qdrant-servicemonitor", CFG["MONITORING_NAMESPACE"], QDRANT_SELECTOR, CFG["QDRANT_METRICS_PORT"], "/metrics", CFG["SCRAPE_INTERVAL"])
-    atomic_write(FILES["qdrant_servicemonitor"], yaml.safe_dump(sm_qdrant, sort_keys=False))
-    # PrometheusRule
-    pr = render_prometheus_rule()
-    atomic_write(FILES["prometheusrule"], yaml.safe_dump(pr, sort_keys=False))
-    print("Generated manifests in:", REENDER_MSG() if False else str(RENDER_DIR))
-    for k,p in FILES.items():
-        if p.exists():
-            print(" -", p.relative_to(Path.cwd()))
-
-def apply_manifests():
-    if not kubectl_available():
-        print("ERROR: kubectl not found in PATH; cannot apply manifests", file=sys.stderr)
-        raise SystemExit(2)
-    # apply namespace first
-    rc,out,err = run_cmd(["kubectl","apply","-f",str(FILES["namespace"])], timeout=20)
-    if rc != 0:
-        raise RuntimeError(f"kubectl apply namespace failed: {err or out}")
-    # wait a little for namespace readiness
-    # apply secret if present
-    sm = build_alertmanager_secret_manifest()
-    if sm:
-        apply_secret(sm)
-        print(f"Applied secret {CFG['ALERTMANAGER_SECRET_NAME']} to {CFG['ALERTMANAGER_SECRET_NAMESPACE']}")
-    # apply servicemonitors and prometheusrule
-    for key in ("retrieval_servicemonitor","qdrant_servicemonitor","prometheusrule"):
-        path = FILES[key]
-        rc,out,err = run_cmd(["kubectl","apply","-f",str(path)], timeout=20)
-        if rc != 0:
-            raise RuntimeError(f"kubectl apply {path} failed: {err or out}")
-        print("Applied:", path)
-
-def delete_manifests():
-    if kubectl_available():
-        # delete in reverse-ish order
-        for key in ("prometheusrule","retrieval_servicemonitor","qdrant_servicemonitor"):
-            path = FILES[key]
-            if path.exists():
-                rc,out,err = run_cmd(["kubectl","delete","-f",str(path), "--ignore-not-found"], timeout=20)
-                if rc != 0:
-                    print(f"kubectl delete {path} returned non-zero: {err or out}", file=sys.stderr)
-                else:
-                    print("Deleted resources from:", path)
-        # delete secret
-        try:
-            delete_secret()
-            print("Deleted alertmanager secret (if existed).")
-        except Exception as e:
-            print("Warning deleting secret:", e, file=sys.stderr)
+def render_helm_values() -> Dict[str, Any]:
+    node_selector = {OBS_NODE_SELECTOR_KEY: OBS_NODE_SELECTOR_VALUE}
+    toleration = [{"key": OBS_TAINT_KEY, "operator": "Exists", "effect": "NoSchedule"}]
+    prom_resources = {"requests": {"cpu": PROM_CPU_REQUEST, "memory": PROM_MEM_REQUEST}, "limits": {"cpu": PROM_CPU_LIMIT, "memory": PROM_MEM_LIMIT}}
+    if PROM_STORAGE_CLASS:
+        storage_spec = {"volumeClaimTemplate": {"spec": {"storageClassName": PROM_STORAGE_CLASS, "resources": {"requests": {"storage": PROM_STORAGE_SIZE}}}}}
     else:
-        print("kubectl not present; skip cluster deletion step")
-    # remove files
-    for k,p in FILES.items():
-        if p.exists():
-            try:
-                p.unlink()
-                print("Removed file:", p)
-            except Exception as e:
-                print("Warning removing file:", p, e, file=sys.stderr)
-    # remove grafana dir if empty
-    try:
-        if GRAFANA_DIR.exists() and not any(GRAFANA_DIR.iterdir()):
-            GRAFANA_DIR.rmdir()
-            print("Removed empty grafana dir")
-    except Exception:
-        pass
+        storage_spec = {"volumeClaimTemplate": {"spec": {"resources": {"requests": {"storage": PROM_STORAGE_SIZE}}}}}
+    grafana_block = {}
+    grafana_persistence_enabled = GRAFANA_PERSISTENCE
+    if K8S_CLUSTER == "kind":
+        grafana_persistence_enabled = False
+    if GRAFANA_ENABLED:
+        grafana_block = {
+            "grafana": {
+                "enabled": True,
+                "adminUser": GRAFANA_ADMIN_USER,
+                "adminPassword": GRAFANA_ADMIN_PASSWORD,
+                "persistence": {"enabled": bool(grafana_persistence_enabled), "size": GRAFANA_PERSISTENCE_SIZE}
+            }
+        }
+        if grafana_persistence_enabled and GRAFANA_STORAGE_CLASS:
+            grafana_block["grafana"]["persistence"]["storageClassName"] = GRAFANA_STORAGE_CLASS
+        grafana_block["grafana"]["nodeSelector"] = node_selector
+        grafana_block["grafana"]["tolerations"] = toleration
+        grafana_block["grafana"]["securityContext"] = {"fsGroup": 472}
+        if K8S_CLUSTER == "kind":
+            grafana_block["grafana"]["initChownData"] = {"enabled": False}
+    values: Dict[str, Any] = {}
+    values.update(grafana_block)
+    values["prometheus"] = {
+        "prometheusSpec": {
+            "replicaCount": PROM_REPLICAS,
+            "nodeSelector": node_selector,
+            "tolerations": toleration,
+            "resources": prom_resources,
+            "storageSpec": storage_spec,
+            "retention": PROM_RETENTION
+        }
+    }
+    values["alertmanager"] = {"alertmanagerSpec": {"nodeSelector": node_selector, "tolerations": toleration}}
+    values["nodeSelector"] = node_selector
+    values["tolerations"] = toleration
+    return values
 
-# ---------------------
-# CLI
-# ---------------------
+def generate():
+    ensure_dir(RENDER_DIR)
+    ns = render_namespace(OBS_NAMESPACE)
+    atomic_write(RENDER_FILES["namespace"], yaml.safe_dump(ns, sort_keys=False))
+    sm_retrieval = render_service_monitor("retrieval-servicemonitor", OBS_NAMESPACE, OBS_NAMESPACE, {"app": "retrieval"}, "metrics")
+    atomic_write(RENDER_FILES["retrieval_servicemonitor"], yaml.safe_dump(sm_retrieval, sort_keys=False))
+    sm_qdrant = render_service_monitor("qdrant-servicemonitor", OBS_NAMESPACE, OBS_NAMESPACE, {"app": "qdrant"}, "http-metrics")
+    atomic_write(RENDER_FILES["qdrant_servicemonitor"], yaml.safe_dump(sm_qdrant, sort_keys=False))
+    pr = render_prometheus_rule(OBS_NAMESPACE)
+    atomic_write(RENDER_FILES["prometheusrule"], yaml.safe_dump(pr, sort_keys=False))
+    hv = render_helm_values()
+    atomic_write(RENDER_FILES["helm_values"], yaml.safe_dump(hv, sort_keys=False))
+    LOG.info("Generated manifests at %s", str(RENDER_DIR))
+    for k, v in RENDER_FILES.items():
+        LOG.info(" - %s", v)
+
+def wait_for_namespace_ready(ns: str, timeout_sec: int = 300, poll: int = 3) -> None:
+    start = time.time()
+    while True:
+        rc, out, err = run_cmd(["kubectl", "get", "ns", ns, "-o", "jsonpath={.status.phase}"], timeout=10)
+        if rc != 0:
+            LOG.info("Namespace %s not found (kubectl returned: %s). Will create.", ns, out or err)
+            return
+        phase = out.strip()
+        if phase == "Active":
+            LOG.info("Namespace %s is Active", ns)
+            return
+        if phase == "Terminating":
+            if time.time() - start > timeout_sec:
+                LOG.error("Namespace %s stuck Terminating for >%ds; manual intervention required", ns, timeout_sec)
+                raise RuntimeError(f"namespace {ns} terminating")
+            LOG.info("Namespace %s is Terminating — waiting up to %ds for removal", ns, timeout_sec - int(time.time() - start))
+            time.sleep(poll)
+            continue
+        LOG.info("Namespace %s in phase '%s' — waiting", ns, phase)
+        time.sleep(poll)
+
+def ensure_namespace(ns: str):
+    if not kubectl_available():
+        LOG.error("kubectl not found in PATH; cannot ensure namespace")
+        raise RuntimeError("kubectl required")
+    rc, out, err = run_cmd(["kubectl", "get", "ns", ns, "-o", "jsonpath={.status.phase}"], timeout=10)
+    if rc == 0 and out.strip() == "Active":
+        LOG.info("Applying namespace manifest %s (idempotent)", RENDER_FILES["namespace"])
+        rc2, out2, err2 = run_cmd(["kubectl", "apply", "-f", str(RENDER_FILES["namespace"])], timeout=20)
+        if rc2 != 0:
+            LOG.error("kubectl apply namespace failed: stdout: %s stderr: %s", out2, err2)
+            raise RuntimeError("kubectl apply namespace failed")
+        return
+    if rc == 0 and out.strip() == "Terminating":
+        LOG.warning("Namespace %s is terminating — will wait for removal before recreate", ns)
+        wait_for_namespace_ready(ns)
+    LOG.info("Creating namespace %s via manifest", ns)
+    rc3, out3, err3 = run_cmd(["kubectl", "apply", "-f", str(RENDER_FILES["namespace"])], timeout=20)
+    if rc3 != 0:
+        LOG.error("Failed to apply namespace manifest: stdout: %s stderr: %s", out3, err3)
+        raise RuntimeError("failed to apply namespace manifest")
+    wait_for_namespace_ready(ns)
+
+def label_nodes_for_parity():
+    if not kubectl_available():
+        LOG.warning("kubectl not in PATH; skipping node labeling")
+        return
+    rc, out, err = run_cmd(["kubectl", "get", "nodes", "-l", f"{OBS_NODE_SELECTOR_KEY}={OBS_NODE_SELECTOR_VALUE}", "-o", "name"], timeout=20)
+    if rc == 0 and out.strip():
+        cnt = len([l for l in out.splitlines() if l.strip()])
+        LOG.info("Nodes already labeled: %s=%s (found %d)", OBS_NODE_SELECTOR_KEY, OBS_NODE_SELECTOR_VALUE, cnt)
+        return
+    if K8S_CLUSTER == "aks":
+        rc, out, err = run_cmd(["kubectl", "get", "nodes", "-l", "kubernetes.azure.com/mode=system", "-o", "name"], timeout=20)
+        if rc == 0 and out.strip():
+            nodes = [n.strip().split("/", 1)[-1] for n in out.splitlines() if n.strip()]
+            for n in nodes:
+                rc2, o2, e2 = run_cmd(["kubectl", "label", "nodes", n, f"{OBS_NODE_SELECTOR_KEY}={OBS_NODE_SELECTOR_VALUE}", "--overwrite"], timeout=20)
+                if rc2 == 0:
+                    LOG.info("Labeled AKS system node %s with %s=%s", n, OBS_NODE_SELECTOR_KEY, OBS_NODE_SELECTOR_VALUE)
+                else:
+                    LOG.error("Failed labeling AKS node %s: stdout: %s stderr: %s", n, o2, e2)
+            return
+    rc, out, err = run_cmd(["kubectl", "get", "nodes", "-o", "name"], timeout=20)
+    if rc != 0 or not out.strip():
+        LOG.error("Cannot list cluster nodes to label: stdout: %s stderr: %s", out, err)
+        raise RuntimeError("cannot list nodes")
+    nodes = [n.strip().split("/", 1)[-1] for n in out.splitlines() if n.strip()]
+    target = nodes[0]
+    rc, o, e = run_cmd(["kubectl", "label", "nodes", target, f"{OBS_NODE_SELECTOR_KEY}={OBS_NODE_SELECTOR_VALUE}", "--overwrite"], timeout=20)
+    if rc == 0:
+        LOG.info("Labeled node %s with %s=%s for %s parity", target, OBS_NODE_SELECTOR_KEY, OBS_NODE_SELECTOR_VALUE, K8S_CLUSTER)
+    else:
+        LOG.error("Failed to label node %s: stdout: %s stderr: %s", target, o, e)
+        raise RuntimeError("failed to label node")
+
+def helm_repo_add_and_update():
+    if not helm_available():
+        LOG.error("helm not found in PATH; required to install charts")
+        raise RuntimeError("helm required")
+    rc, out, err = run_cmd(["helm", "repo", "add", "--force-update", HELM_REPO_NAME, HELM_REPO_URL], timeout=30)
+    if rc == 0:
+        LOG.info("Helm repo %s added/updated", HELM_REPO_NAME)
+    else:
+        LOG.warning("helm repo add returned non-zero: stdout: %s stderr: %s", out, err)
+    rc2, out2, err2 = run_cmd(["helm", "repo", "update"], timeout=60)
+    if rc2 == 0:
+        LOG.info("Helm repo update completed")
+    else:
+        LOG.warning("helm repo update returned non-zero: stdout: %s stderr: %s", out2, err2)
+
+def helm_release_exists(release: str, namespace: str) -> Optional[Dict[str, Any]]:
+    if not helm_available():
+        return None
+    rc, out, err = run_cmd(["helm", "list", "-n", namespace, "-a", "-o", "json"], timeout=30)
+    if rc != 0 or not out.strip():
+        return None
+    try:
+        arr = json.loads(out)
+        for item in arr:
+            if item.get("name") == release:
+                return item
+    except Exception:
+        return None
+    return None
+
+def helm_upgrade_install():
+    if not helm_available():
+        LOG.error("helm not in PATH; cannot run helm upgrade/install")
+        raise RuntimeError("helm required")
+    values_file = str(RENDER_FILES["helm_values"])
+    cmd = ["helm", "upgrade", "--install", RELEASE_NAME, KUBE_PROM_STACK_CHART, "--namespace", OBS_NAMESPACE, "--create-namespace", "-f", values_file, "--wait", "--timeout", "10m"]
+    if KUBE_PROM_STACK_VERSION:
+        cmd += ["--version", KUBE_PROM_STACK_VERSION]
+    LOG.info("Running Helm upgrade --install for release '%s' (chart=%s, version=%s)", RELEASE_NAME, KUBE_PROM_STACK_CHART, KUBE_PROM_STACK_VERSION or "latest")
+    rc, out, err = run_cmd(cmd, timeout=900)
+    if rc == 0:
+        LOG.info("Helm upgrade/install succeeded for release '%s'", RELEASE_NAME)
+        return
+    LOG.warning("Helm upgrade --install failed (rc=%d). stdout: %s stderr: %s", rc, out, err)
+    if "is forbidden: unable to create new content in namespace" in err or "being terminated" in err:
+        LOG.error("Namespace '%s' appears to be terminating or blocking resource creation. Manual fix required.", OBS_NAMESPACE)
+        raise RuntimeError("namespace terminating or blocking creation")
+    rc_check, out_check, err_check = run_cmd(["helm", "list", "-A", "-o", "json"], timeout=30)
+    if rc_check == 0 and out_check.strip():
+        try:
+            all_releases = json.loads(out_check)
+            for r in all_releases:
+                if r.get("name") == RELEASE_NAME and r.get("namespace") != OBS_NAMESPACE:
+                    LOG.error("Release name '%s' already exists in namespace '%s'. Cannot reuse name in '%s'.", RELEASE_NAME, r.get("namespace"), OBS_NAMESPACE)
+                    raise RuntimeError(f"release name conflict: exists in {r.get('namespace')}")
+        except Exception:
+            pass
+    LOG.info("Attempting fallback: helm install with --replace to recover from failed state")
+    install_cmd = ["helm", "install", RELEASE_NAME, KUBE_PROM_STACK_CHART, "--namespace", OBS_NAMESPACE, "-f", values_file, "--wait", "--timeout", "10m", "--replace"]
+    if KUBE_PROM_STACK_VERSION:
+        install_cmd += ["--version", KUBE_PROM_STACK_VERSION]
+    rc2, out2, err2 = run_cmd(install_cmd, timeout=900)
+    if rc2 == 0:
+        LOG.info("Helm install --replace succeeded for release '%s'", RELEASE_NAME)
+        return
+    LOG.error("Helm install fallback failed (rc=%d). stdout: %s stderr: %s", rc2, out2, err2)
+    raise RuntimeError(f"helm upgrade/install ultimately failed: {err2 or out2}")
+
+def apply():
+    if not kubectl_available():
+        LOG.error("kubectl not found in PATH; required to apply manifests")
+        raise RuntimeError("kubectl required")
+    generate()
+    LOG.info("Applying namespace %s", OBS_NAMESPACE)
+    ensure_namespace(OBS_NAMESPACE)
+    label_nodes_for_parity()
+    if PROM_ENABLED:
+        helm_repo_add_and_update()
+        LOG.info("Installing/upgrading kube-prometheus-stack via Helm")
+        helm_upgrade_install()
+    for key in ("retrieval_servicemonitor", "qdrant_servicemonitor", "prometheusrule"):
+        p = str(RENDER_FILES[key])
+        LOG.info("Applying manifest %s", p)
+        rc, out, err = run_cmd(["kubectl", "apply", "-f", p], timeout=30)
+        if rc != 0:
+            LOG.error("kubectl apply %s failed. stdout: %s stderr: %s", p, out, err)
+            raise RuntimeError(f"kubectl apply failed for {p}")
+        LOG.info("Applied %s", p)
+    LOG.info("Apply completed: manifests generated and applied idempotently")
+
+def delete():
+    if helm_available():
+        LOG.info("Attempting to uninstall Helm release '%s' in namespace '%s' if present", RELEASE_NAME, OBS_NAMESPACE)
+        rc, out, err = run_cmd(["helm", "uninstall", RELEASE_NAME, "--namespace", OBS_NAMESPACE], timeout=120)
+        if rc == 0:
+            LOG.info("Helm release '%s' uninstalled", RELEASE_NAME)
+        else:
+            LOG.info("Helm uninstall returned non-zero: stdout: %s stderr: %s", out, err)
+    else:
+        LOG.warning("helm not available; skipping helm uninstall")
+    for key in ("prometheusrule", "retrieval_servicemonitor", "qdrant_servicemonitor"):
+        p = str(RENDER_FILES[key])
+        LOG.info("Deleting resources defined in %s (ignore-not-found)", p)
+        rc, out, err = run_cmd(["kubectl", "delete", "-f", p, "--ignore-not-found"], timeout=30)
+        if rc == 0:
+            LOG.info("Deleted resources from %s or they did not exist", p)
+        else:
+            LOG.warning("kubectl delete %s returned non-zero: stdout: %s stderr: %s", p, out, err)
+    for f in RENDER_FILES.values():
+        try:
+            if f.exists():
+                f.unlink()
+                LOG.info("Removed generated file %s", f)
+        except Exception as e:
+            LOG.warning("Failed to remove file %s: %s", f, e)
+    LOG.info("Delete finished. Namespace '%s' intentionally retained to avoid accidental cluster-wide deletion.", OBS_NAMESPACE)
+
 def parse_args():
-    p = argparse.ArgumentParser(description="Generate/apply/delete monitoring manifests.")
+    p = argparse.ArgumentParser(description="Generate/apply/delete monitoring and alerts for RAG platform")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--generate", action="store_true")
     g.add_argument("--apply", action="store_true")
     g.add_argument("--delete", action="store_true")
-    p.add_argument("--verbose", action="store_true")
     return p.parse_args()
 
 def main():
     args = parse_args()
-    if args.generate:
-        generate_manifests()
-        print("Generation complete.")
-        return
-    if args.apply:
-        generate_manifests()
-        try:
-            apply_manifests()
-            print("Apply complete.")
-        except Exception as e:
-            print("ERROR during apply:", e, file=sys.stderr)
-            raise
-        return
-    if args.delete:
-        delete_manifests()
-        print("Delete complete.")
-        return
+    LOG.info("Starting monitoring_and_alerts with K8S_CLUSTER=%s PROM_REPLICAS=%d PROM_STORAGE_CLASS=%s", K8S_CLUSTER, PROM_REPLICAS, PROM_STORAGE_CLASS or "<cluster-default>")
+    try:
+        if args.generate:
+            generate()
+            return
+        if args.apply:
+            apply()
+            return
+        if args.delete:
+            delete()
+            return
+    except Exception as e:
+        LOG.error("ERROR: %s", e)
+        sys.exit(3)
 
 if __name__ == "__main__":
     main()

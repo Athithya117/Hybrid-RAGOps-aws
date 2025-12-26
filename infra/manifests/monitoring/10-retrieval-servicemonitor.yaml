@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: retrieval-servicemonitor
+  namespace: observability
+  labels:
+    app.kubernetes.io/managed-by: monitoring_and_alerts
+spec:
+  selector:
+    matchLabels:
+      app: retrieval
+  namespaceSelector:
+    matchNames:
+    - observability
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 15s

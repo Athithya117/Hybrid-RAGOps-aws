@@ -1,0 +1,68 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: rag-alerts
+  namespace: observability
+  labels:
+    app.kubernetes.io/managed-by: gitops-monitoring
+spec:
+  groups:
+  - name: retrieval-slo
+    rules:
+    - alert: RetrievalUnavailable
+      expr: absent(service_ready{service='retrieval'} == 1)
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: Retrieval readiness missing
+    - alert: RetrievalHigh5xx
+      expr: sum(rate(retrieval_requests_total{status_code=~'5..'}[5m])) / (sum(rate(retrieval_requests_total[5m]))
+        + 1e-12) > 0.01
+      for: 5m
+      labels:
+        severity: page
+      annotations:
+        summary: Retrieval 5xx error rate high
+    - alert: RetrievalP95LatencyBreach
+      expr: histogram_quantile(0.95, sum(rate(retrieval_request_duration_seconds_bucket[5m]))
+        by (le)) > 0.5
+      for: 5m
+      labels:
+        severity: page
+      annotations:
+        summary: Retrieval p95 latency exceeded
+  - name: qdrant-safety
+    rules:
+    - alert: QdrantInstanceDown
+      expr: up{job=~"qdrant.*"} == 0
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: Qdrant instance down
+    - alert: QdrantDeadReplicas
+      expr: cluster_dead_replicas > 0
+      for: 1m
+      labels:
+        severity: page
+      annotations:
+        summary: Qdrant dead replicas detected
+    - alert: QdrantPVCHighUsage
+      expr: kubelet_volume_stats_capacity_bytes > 0 and kubelet_volume_stats_used_bytes
+        / kubelet_volume_stats_capacity_bytes > 0.75
+      for: 10m
+      labels:
+        severity: critical
+      annotations:
+        summary: Qdrant PVC usage above threshold
+  - name: batch
+    rules:
+    - alert: IndexerJobFailed
+      expr: increase(kube_job_status_failed{job_name=~"indexing-backup-cronjob.*"}[5m])
+        > 0
+      for: 1m
+      labels:
+        severity: page
+      annotations:
+        summary: Indexer job failures detected

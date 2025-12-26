@@ -56,7 +56,7 @@ export AZURE_SUBSCRIPTION_ID="" # Azure subscription hosting AKS, storage, and a
 ## STEP 1: Create a storage account: export the following environment variables with appropriate values, then run `make create-sa`. You can delete it using `make delete-sa`.
 
 ```sh
-export AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}"   # Azure subscription ID (must already be set via az login)
+export AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}"   # Azure subscription ID (must already be set after az login)
 export AZURE_RESOURCE_GROUP_NAME="rg-e2e-rag"             # Resource group hosting storage account and platform infra
 export AZURE_LOCATION="eastus"                            # Azure region for all Azure resources
 export AZURE_STORAGE_ACCOUNT_NAME="defaultsa515"          # Azure Storage Account name (3–24 chars, lowercase, globally unique)
@@ -88,7 +88,7 @@ export SYSTEM_NODE_VM_SIZE="Standard_B2s"         # System pool VM (infra-only);
 export SYSTEM_NODE_MAX_PODS=60                    # System pod density; must align with AKS_MAX_PODS
 
 export BALANCED_NODE_MIN=0                        # General app pool (APIs, gateways, orchestrators); PROD: >=2 for HA
-export BALANCED_NODE_MAX=2                        # General app scale ceiling; raise with QPS/latency targets
+export BALANCED_NODE_MAX=1                        # General app scale ceiling; raise with QPS/latency targets
 export BALANCED_NODE_VM_SIZE="Standard_B2s"       # App/API workloads; PROD: D4s_v5 for concurrency
 
 export CPU_HEAVY_NODE_MIN=0                       # CPU model pool (embeddings, rerankers, tokenizers); PROD: >=1 if hot path
@@ -99,11 +99,12 @@ export QDRANT_NODE_COUNT=0                        # Vector DB pool (Qdrant, HNSW
 export QDRANT_NODE_VM_SIZE="Standard_B2s"         # RAM/IO-heavy vector storage; PROD: E8ds_v5 / E16ds_v5
 
 export PULUMI_FORCE_DESTROY=1                     # Allow destructive changes (staging safety off); PROD: 0
-export AKS_LOCATION="${AZURE_LOCATION:-eastus}"   # Deployment region; change only for latency or quota management
+export AKS_LOCATION="${AZURE_LOCATION}"   # Deployment region; change only for latency or quota management
 
-
-```
-
+export ACR_NAME=acr49251                                   # Global ACR name; change only if creating a new registry (cannot rename)
+export ACR_REPO_PREFIX=rag                              # Logical repo namespace; change when multiple teams/apps share one ACR
+export ACR_LOCATION="${AKS_LOCATION:-${AZURE_LOCATION:-eastus}}"  # Region; change only if co-locating with AKS or for compliance
+export ACR_SKU=Standard                                 # SKU; use Premium only for Private Endpoint / geo-replication
 
 
 

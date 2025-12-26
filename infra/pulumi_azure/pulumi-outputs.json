@@ -1,7 +1,0 @@
-{
-  "aks_cluster_name": "rag-aks-pulumi0c94bea5",
-  "blob_container_name": "rag-data-515",
-  "note": "Region=eastus. If apply fails, check region quota, VM size availability, RG permissions and outbound type (AKS_OUTBOUND_TYPE).",
-  "system_pool_name": "systempool",
-  "vnet_name": "rag-vnet-staging18cd7851"
-}
