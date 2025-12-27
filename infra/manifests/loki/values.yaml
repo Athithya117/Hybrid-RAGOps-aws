@@ -1,0 +1,21 @@
+deploymentMode: SingleBinary
+singleBinary:
+  replicas: 1
+loki:
+  image:
+    repository: grafana/loki
+    tag: 3.6.3
+  useTestSchema: true
+persistence:
+  enabled: false
+resources:
+  limits:
+    cpu: 500m
+    memory: 1Gi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+metrics:
+  enabled: true
+nodeSelector: {}
+tolerations: []

@@ -53,7 +53,7 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 export AZURE_SUBSCRIPTION_ID="" # Azure subscription hosting AKS, storage, and all RAG platform resources
 ```
 
-## STEP 1: Create a storage account: export the following environment variables with appropriate values, then run `make create-sa`. You can delete it using `make delete-sa`.
+## STEP 1: Create a storage account: export the following environment variables with appropriate values, then run `make create-sa`. You can delete it using `make delete-sa`. 
 
 ```sh
 export AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}"   # Azure subscription ID (must already be set after az login)
@@ -67,13 +67,20 @@ export BACKUP_AZ_CONTAINER="backups-515"                  # Backup Blob containe
 export BACKUP_PREFIX="qdrant/backup"                      # Subdirectory inside backup container (e.g., backups/qdrant/)
 export BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS=7              # Move backup blobs to Cool tier after N days
 export BACKUP_AZ_CONTAINER_RETENTION_DAYS=30              # Permanently delete backup blobs after N days
+export AZURE_STORAGE_CONNECTION_STRING="$(python3 infra/base_infra/get_storage_conn_string.py)"
+
+
+export LOKI_AZ_CONTAINER="loki-logs-515"
+export LOKI_PREFIX="loki"
+export LOKI_COOL_AFTER_DAYS=7
+export LOKI_RETENTION_DAYS=30
 
 export AZURE_DELETE_ACCOUNT=0                             # 1 = delete entire storage account on `make delete-sa`, 0 = containers only
 export FORCE_DELETE=1                                     # Skip interactive confirmation prompts
 
 ```
 
-## STEP 2: Manage platform infrastructure with Pulumi: export all required environment variables, run `make pulumi-preview` to inspect changes, `make pulumi-up` to apply them, or `make pulumi-destroy` to delete resources (destructive; requires FORCE=1).
+## STEP 2: Manage platform infrastructure with Pulumi: export all required environment variables, run `make pulumi-preview` to inspect changes, `make pulumi-up` to apply them, or `make pulumi-destroy` to delete resources (destructive; requires PULUMI_FORCE_DESTROY=1).
 
 ```sh
 export PULUMI_STACK="staging"                     # Pulumi state scope (infra boundary); PROD: "prod"
@@ -105,7 +112,7 @@ export ACR_NAME=acr49251                                   # Global ACR name; ch
 export ACR_REPO_PREFIX=rag                              # Logical repo namespace; change when multiple teams/apps share one ACR
 export ACR_LOCATION="${AKS_LOCATION:-${AZURE_LOCATION:-eastus}}"  # Region; change only if co-locating with AKS or for compliance
 export ACR_SKU=Standard                                 # SKU; use Premium only for Private Endpoint / geo-replication
-
+```
 
 
 ```sh
@@ -207,4 +214,44 @@ export LOGLEVEL="INFO"                             # Logging verbosity (DEBUG|IN
 
 ```
 
+```sh
 
+export K8S_CLUSTER=aks                        # set to aks for production behavior
+export NAMESPACE=observability                # namespace for manifests
+export VECTOR_IMAGE_REPO=timberio/vector      # vector image repo override
+export VECTOR_IMAGE_TAG=0.52.0-debian         # vector image tag for AKS
+export VECTOR_REPLICAS=1                      # logical replica control (future-proof)
+export VECTOR_REQ_CPU=200m                    # vector CPU request
+export VECTOR_REQ_MEM=512Mi                   # vector memory request
+export VECTOR_LIMIT_CPU=1000m                 # vector CPU limit
+export VECTOR_LIMIT_MEM=1Gi                   # vector memory limit
+export CLICKHOUSE_IMAGE_REPO=clickhouse/clickhouse-server  # clickhouse image repo
+export CLICKHOUSE_IMAGE_TAG=25.8              # clickhouse image tag
+export CLICKHOUSE_REPLICAS=1                  # clickhouse statefulset replicas
+export CLICKHOUSE_PVC_SIZE=100Gi              # clickhouse PVC size
+export CLICKHOUSE_REQ_CPU=1                   # clickhouse CPU request
+export CLICKHOUSE_REQ_MEM=4Gi                 # clickhouse memory request
+export CLICKHOUSE_LIMIT_CPU=4                 # clickhouse CPU limit
+export CLICKHOUSE_LIMIT_MEM=16Gi              # clickhouse memory limit
+export CLICKHOUSE_USER=vector                 # clickhouse user for vector
+export CLICKHOUSE_PASSWORD=vectorpass         # clickhouse password (replace with secret manager in prod)
+
+
+make deploy-clickhouse
+make deploy-vector
+
+
+export PROM_REPLICAS=2                       # HA replicas for Prometheus on AKS
+export PROM_STORAGE_SIZE=200Gi               # PVC size for Prometheus in production
+export PROM_STORAGE_CLASS=managed-premium    # StorageClass for Prometheus PVCs on AKS
+export PROM_CPU_REQUEST=500m                 # Production CPU request for Prometheus
+export PROM_CPU_LIMIT=2000m                  # Production CPU limit for Prometheus
+export PROM_MEM_REQUEST=1Gi                  # Production memory request for Prometheus
+export PROM_MEM_LIMIT=8Gi                    # Production memory limit for Prometheus
+export GRAFANA_PERSISTENCE=true              # Enable Grafana PVC on AKS
+export GRAFANA_PERSISTENCE_SIZE=20Gi         # Grafana PVC size on AKS
+export GRAFANA_STORAGE_CLASS=managed-standard # Grafana StorageClass on AKS
+export ALERTMANAGER_SLACK_WEBHOOK=...        # Optional: Slack webhook URL for Alertmanager
+
+make deploy-prometheus
+```

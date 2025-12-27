@@ -1,0 +1,178 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vector
+  namespace: observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vector-k8s-reader
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  - namespaces
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vector-k8s-reader-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vector-k8s-reader
+subjects:
+- kind: ServiceAccount
+  name: vector
+  namespace: observability
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-config
+  namespace: observability
+data:
+  vector.yaml: |
+    api:
+      enabled: true
+      address: "0.0.0.0:8686"
+      playground: false
+
+    sources:
+      kubernetes_logs:
+        type: kubernetes_logs
+        self_node_name: "${VECTOR_SELF_NODE_NAME}"
+        insert_namespace_fields: true
+
+    transforms:
+      parse_and_map:
+        type: remap
+        inputs: [kubernetes_logs]
+        source: |
+          # Attempt to parse message; parse_json returns null on error when used with ??.
+          parsed = parse_json(.message) ?? null
+
+          # Merge only when parsed is an object; otherwise do not attempt merge.
+          if is_object(parsed) {
+            if is_object(.) {
+              . = merge!(., parsed)
+            } else {
+              . = parsed
+            }
+          }
+
+          # Map kubernetes fields into top-level pod/namespace.
+          if .kubernetes != null {
+            if .kubernetes.pod != null && .kubernetes.pod.name != null {
+              .pod = .kubernetes.pod.name
+            } else if .kubernetes.pod_name != null {
+              .pod = .kubernetes.pod_name
+            }
+            if .kubernetes.namespace != null && .kubernetes.namespace.name != null {
+              .namespace = .kubernetes.namespace.name
+            } else if .kubernetes.namespace != null {
+              .namespace = .kubernetes.namespace
+            }
+          }
+
+          # Ensure .message is a string
+          if !is_string(.message) {
+            .message = encode_json(.message)
+          }
+
+    sinks:
+      clickhouse:
+        type: clickhouse
+        inputs: [parse_and_map]
+        endpoint: "http://clickhouse.observability.svc.cluster.local:8123"
+        auth:
+          strategy: basic
+          user: "${CLICKHOUSE_USER}"
+          password: "${CLICKHOUSE_PASSWORD}"
+        database: "logs"
+        table: "kube_logs"
+        format: "json_each_row"
+        compression: "gzip"
+        skip_unknown_fields: true
+        batch:
+          max_events: 1000
+          timeout_secs: 1
+        healthcheck:
+          enabled: false
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: vector-agent
+  namespace: observability
+spec:
+  selector:
+    matchLabels:
+      app: vector
+  template:
+    metadata:
+      labels:
+        app: vector
+    spec:
+      serviceAccountName: vector
+      tolerations:
+      - operator: Exists
+      volumes:
+      - name: vector-config
+        configMap:
+          name: vector-config
+          items:
+          - key: vector.yaml
+            path: vector.yaml
+      - name: data-dir
+        hostPath:
+          path: /var/lib/vector
+          type: DirectoryOrCreate
+      - name: pod-logs
+        hostPath:
+          path: /var/log/pods
+          type: DirectoryOrCreate
+      containers:
+      - name: vector
+        image: timberio/vector:0.52.0-debian
+        args:
+        - -c
+        - /etc/vector/vector.yaml
+        volumeMounts:
+        - name: vector-config
+          mountPath: /etc/vector/vector.yaml
+          subPath: vector.yaml
+        - name: data-dir
+          mountPath: /var/lib/vector
+        - name: pod-logs
+          mountPath: /var/log/pods
+          readOnly: true
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        env:
+        - name: CLICKHOUSE_USER
+          valueFrom:
+            secretKeyRef:
+              name: clickhouse-credentials
+              key: username
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: clickhouse-credentials
+              key: password
+        - name: VECTOR_SELF_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName

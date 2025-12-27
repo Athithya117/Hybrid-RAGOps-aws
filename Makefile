@@ -80,6 +80,12 @@ deploy-cloudflared:
 deploy-prometheus:
 	python3 infra/generators/monitoring_alerts.py --apply 
 
+deploy-clickhouse:
+	python3 infra/generators/clickhouse.py --apply
+
+deploy-vector:
+	python3 infra/generators/vector_logger.py --apply
+
 deploy-models: deploy-dense deploy-sparse deploy-reranker
 deploy-inference-svc: deploy-retriever deploy-frontend
 
@@ -113,7 +119,8 @@ cloudflare-setup:
 cloudflare-logout:
 	rm -rf ~/.cloudflared && rm -f ~/.config/rag/secrets.env && unset CLOUDFLARE_TUNNEL_TOKEN && unset CLOUDFLARE_TUNNEL_CREDENTIALS_B64 && unset CLOUDFLARE_TUNNEL_NAME
 
-
+test-vector-connection:
+	bash infra/tests/test_vector_clickhouse_connection.sh
 
 
 .PHONY: tree clean lc push docker-login docker-build-backup docker-push-backup \
