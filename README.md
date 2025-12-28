@@ -216,17 +216,16 @@ export LOGLEVEL="INFO"                             # Logging verbosity (DEBUG|IN
 
 ```sh
 
-export K8S_CLUSTER=aks                        # set to aks for production behavior
-export NAMESPACE=observability                # namespace for manifests
-export VECTOR_IMAGE_REPO=timberio/vector      # vector image repo override
-export VECTOR_IMAGE_TAG=0.52.0-debian         # vector image tag for AKS
+export K8S_CLUSTER=kind                        # set to aks for production behavior
 export VECTOR_REPLICAS=1                      # logical replica control (future-proof)
 export VECTOR_REQ_CPU=200m                    # vector CPU request
 export VECTOR_REQ_MEM=512Mi                   # vector memory request
 export VECTOR_LIMIT_CPU=1000m                 # vector CPU limit
 export VECTOR_LIMIT_MEM=1Gi                   # vector memory limit
-export CLICKHOUSE_IMAGE_REPO=clickhouse/clickhouse-server  # clickhouse image repo
-export CLICKHOUSE_IMAGE_TAG=25.8              # clickhouse image tag
+export VECTOR_DROP_NAMESPACES=kube-system
+export VECTOR_LOG_LEVELS=info,warn,error
+
+
 export CLICKHOUSE_REPLICAS=1                  # clickhouse statefulset replicas
 export CLICKHOUSE_PVC_SIZE=100Gi              # clickhouse PVC size
 export CLICKHOUSE_REQ_CPU=1                   # clickhouse CPU request
@@ -235,7 +234,7 @@ export CLICKHOUSE_LIMIT_CPU=4                 # clickhouse CPU limit
 export CLICKHOUSE_LIMIT_MEM=16Gi              # clickhouse memory limit
 export CLICKHOUSE_USER=vector                 # clickhouse user for vector
 export CLICKHOUSE_PASSWORD=vectorpass         # clickhouse password (replace with secret manager in prod)
-
+export LOGS_TTL_DAYS=2
 
 make deploy-clickhouse
 make deploy-vector

@@ -49,6 +49,16 @@ spec:
           limits:
             cpu: '4'
             memory: 16Gi
+        readinessProbe:
+          exec:
+            command:
+            - clickhouse-client
+            - --query
+            - SELECT 1
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 3
+          timeoutSeconds: 5
   volumeClaimTemplates:
   - metadata:
       name: data

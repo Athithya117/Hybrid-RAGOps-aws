@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 """
-clickhouse.py
+infra/generators/clickhouse.py
 
 Generate / apply / delete ClickHouse Service + StatefulSet, create secret
 and ensure user/database/table exist. Grants INSERT and SELECT.
-
-Usage:
-  python3 infra/manifests/clickhouse/clickhouse.py --generate
-  python3 infra/manifests/clickhouse/clickhouse.py --apply
-  python3 infra/manifests/clickhouse/clickhouse.py --delete
+This hardened generator adds readinessProbe, validates YAML and retries
+the SQL creation step to tolerate transient pod initialization delays.
 """
-
 from __future__ import annotations
 import os
 import sys
@@ -18,6 +14,7 @@ import argparse
 import subprocess
 import yaml
 import time
+from typing import List, Dict, Any
 
 # --------- static constants ----------
 CLICKHOUSE_SERVICE_NAME = "clickhouse"
@@ -28,45 +25,53 @@ CLICKHOUSE_SECRET_NAME = "clickhouse-credentials"
 MANIFEST_DIR = os.path.join("infra", "manifests", "clickhouse")
 MANIFEST_FILE = os.path.join(MANIFEST_DIR, "clickhouse.yaml")
 
+
 # --------- helpers ----------
-def run(cmd: str, capture: bool = False, check: bool = True, quiet: bool = False):
+def run(cmd: str, capture: bool = False, check: bool = True, quiet: bool = False) -> subprocess.CompletedProcess:
     if not quiet:
         print("[run]", cmd)
     res = subprocess.run(
-        cmd, shell=True,
+        cmd,
+        shell=True,
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
-        text=True
+        text=True,
     )
     if check and res.returncode != 0:
         if capture:
-            print(res.stdout)
-            print(res.stderr, file=sys.stderr)
+            print(res.stdout or "")
+            print(res.stderr or "", file=sys.stderr)
         raise SystemExit(res.returncode)
     return res
 
-def run_quiet(cmd: str, capture: bool = False, check: bool = True):
+
+def run_quiet(cmd: str, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess:
     return run(cmd, capture=capture, check=check, quiet=True)
 
-def ensure_namespace(ns: str):
+
+def ensure_namespace(ns: str) -> None:
     run(
         f"kubectl create namespace {ns} --dry-run=client -o yaml"
         " | kubectl apply -f -"
     )
 
-def write_yaml(path: str, docs):
+
+def write_yaml(path: str, docs: List[Dict[str, Any]]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as fh:
         yaml.safe_dump_all(docs, fh, sort_keys=False)
     print("[info] wrote", path)
 
-def kubectl_apply(path: str):
+
+def kubectl_apply(path: str) -> None:
     run(f"kubectl apply -f {path}")
 
-def kubectl_delete(path: str):
+
+def kubectl_delete(path: str) -> None:
     run(f"kubectl delete -f {path} --ignore-not-found")
 
-def create_secret(ns: str, name: str, username: str, password: str):
+
+def create_secret(ns: str, name: str, username: str, password: str) -> None:
     cmd = (
         f"kubectl -n {ns} create secret generic {name} "
         f"--from-literal=username={username} "
@@ -75,11 +80,13 @@ def create_secret(ns: str, name: str, username: str, password: str):
     )
     run(cmd)
 
-def delete_secret(ns: str, name: str):
+
+def delete_secret(ns: str, name: str) -> None:
     run(f"kubectl -n {ns} delete secret {name} --ignore-not-found")
 
+
 # --------- manifest builder ----------
-def build_clickhouse_docs(env: dict) -> list:
+def build_clickhouse_docs(env: Dict[str, str]) -> List[Dict[str, Any]]:
     ns = env["NAMESPACE"]
     image = f"{env['CLICKHOUSE_IMAGE_REPO']}:{env['CLICKHOUSE_IMAGE_TAG']}"
     replicas = int(env["CLICKHOUSE_REPLICAS"])
@@ -103,6 +110,7 @@ def build_clickhouse_docs(env: dict) -> list:
         },
     }
 
+    # StatefulSet with a readinessProbe so Service endpoints only appear when ClickHouse accepts queries.
     stateful = {
         "apiVersion": "apps/v1",
         "kind": "StatefulSet",
@@ -123,7 +131,18 @@ def build_clickhouse_docs(env: dict) -> list:
                                 {"containerPort": int(CLICKHOUSE_NATIVE_PORT), "name": "native"},
                             ],
                             "volumeMounts": [{"name": "data", "mountPath": "/var/lib/clickhouse"}],
-                            "resources": {"requests": {"cpu": req_cpu, "memory": req_mem}, "limits": {"cpu": lim_cpu, "memory": lim_mem}},
+                            "resources": {
+                                # slightly larger defaults to avoid OOM during startup
+                                "requests": {"cpu": req_cpu, "memory": req_mem},
+                                "limits": {"cpu": lim_cpu, "memory": lim_mem},
+                            },
+                            "readinessProbe": {
+                                "exec": {"command": ["clickhouse-client", "--query", "SELECT 1"]},
+                                "initialDelaySeconds": 10,
+                                "periodSeconds": 10,
+                                "failureThreshold": 3,
+                                "timeoutSeconds": 5,
+                            },
                         }
                     ]
                 },
@@ -139,8 +158,9 @@ def build_clickhouse_docs(env: dict) -> list:
 
     return [service, stateful]
 
+
 # --------- wait & post actions ----------
-def wait_for_pod(ns: str, label_selector: str, timeout: int):
+def wait_for_pod(ns: str, label_selector: str, timeout: int) -> str:
     start = time.time()
     while True:
         try:
@@ -164,18 +184,65 @@ def wait_for_pod(ns: str, label_selector: str, timeout: int):
             raise SystemExit("timeout waiting for pod ready")
         time.sleep(3)
 
-def create_user_and_table(ns: str, pod: str, user: str, password: str):
-    q = (
-        "CREATE USER IF NOT EXISTS {u} IDENTIFIED WITH plaintext_password BY '{p}'; "
-        "CREATE DATABASE IF NOT EXISTS logs; "
-        "CREATE TABLE IF NOT EXISTS logs.kube_logs "
-        "(ts DateTime64(3) DEFAULT now(), pod String, namespace String, message String) "
-        "ENGINE = MergeTree() ORDER BY ts; "
-        "GRANT INSERT ON logs.* TO {u}; "
-        "GRANT SELECT ON logs.* TO {u};"
-    ).format(u=user, p=password)
-    cmd = f"kubectl -n {ns} exec -i {pod} -- clickhouse-client --multiquery --query=\"{q}\""
-    run(cmd)
+
+def _shell_single_quote(s: str) -> str:
+    return "'" + s.replace("'", "'\"'\"'") + "'"
+
+
+def create_user_and_table(ns: str, pod: str, user: str, password: str, ttl_days: int) -> None:
+    try:
+        ttl_val = int(ttl_days)
+    except Exception:
+        ttl_val = 0
+
+    ttl_clause = ""
+    if ttl_val > 0:
+        ttl_clause = f" TTL ts + INTERVAL {ttl_val} DAY DELETE"
+
+    safe_password = password.replace("'", "''")
+
+    parts: List[str] = []
+    parts.append(f"CREATE USER IF NOT EXISTS {user} IDENTIFIED WITH plaintext_password BY '{safe_password}';")
+    parts.append("CREATE DATABASE IF NOT EXISTS logs;")
+
+    table_stmt = (
+        "CREATE TABLE IF NOT EXISTS logs.kube_logs ("
+        "ts DateTime64(3), "
+        "level LowCardinality(String), "
+        "message String, "
+        "service LowCardinality(String), "
+        "pod LowCardinality(String), "
+        "namespace LowCardinality(String), "
+        "container LowCardinality(String), "
+        "trace_id String, "
+        "span_id String, "
+        "fields String"
+        ") ENGINE = MergeTree() ORDER BY (ts, level)"
+    )
+    if ttl_clause:
+        table_stmt += ttl_clause
+    table_stmt += ";"
+
+    parts.append(table_stmt)
+    parts.append(f"GRANT INSERT ON logs.* TO {user};")
+    parts.append(f"GRANT SELECT ON logs.* TO {user};")
+
+    q = " ".join(parts)
+    q_quoted = _shell_single_quote(q)
+
+    # Retry loop because pod may report ready while ClickHouse still initializes
+    attempts = 5
+    for attempt in range(1, attempts + 1):
+        try:
+            cmd = f"kubectl -n {ns} exec -i {pod} -- clickhouse-client --multiquery --query={q_quoted}"
+            run(cmd)
+            return
+        except SystemExit as e:
+            if attempt == attempts:
+                raise
+            print(f"[warn] create_user_and_table attempt {attempt} failed, retrying in 5s...")
+            time.sleep(5)
+
 
 # --------- main ----------
 def main():
@@ -185,7 +252,6 @@ def main():
     p.add_argument("--delete", action="store_true")
     args = p.parse_args()
 
-    k8s_cluster = os.getenv("K8S_CLUSTER", "kind").strip().lower()
     ns = os.getenv("NAMESPACE", "observability").strip()
 
     env = {
@@ -195,10 +261,11 @@ def main():
         "CLICKHOUSE_REPLICAS": os.getenv("CLICKHOUSE_REPLICAS", "1"),
         "CLICKHOUSE_PVC_SIZE": os.getenv("CLICKHOUSE_PVC_SIZE", "5Gi"),
         "CLICKHOUSE_REQ_CPU": os.getenv("CLICKHOUSE_REQ_CPU", "100m"),
-        "CLICKHOUSE_REQ_MEM": os.getenv("CLICKHOUSE_REQ_MEM", "512Mi"),
-        "CLICKHOUSE_LIMIT_CPU": os.getenv("CLICKHOUSE_LIMIT_CPU", "500m"),
-        "CLICKHOUSE_LIMIT_MEM": os.getenv("CLICKHOUSE_LIMIT_MEM", "1Gi"),
+        "CLICKHOUSE_REQ_MEM": os.getenv("CLICKHOUSE_REQ_MEM", "1Gi"),
+        "CLICKHOUSE_LIMIT_CPU": os.getenv("CLICKHOUSE_LIMIT_CPU", "1"),
+        "CLICKHOUSE_LIMIT_MEM": os.getenv("CLICKHOUSE_LIMIT_MEM", "2Gi"),
         "SETUP_TIMEOUT_SEC": int(os.getenv("SETUP_TIMEOUT_SEC", "600")),
+        "LOGS_TTL_DAYS": os.getenv("LOGS_TTL_DAYS", "7"),
     }
 
     if args.generate:
@@ -213,9 +280,11 @@ def main():
         create_secret(env["NAMESPACE"], CLICKHOUSE_SECRET_NAME, user, password)
         docs = build_clickhouse_docs(env)
         write_yaml(MANIFEST_FILE, docs)
+        # dry-run validation
+        run(f"kubectl apply --dry-run=client -f {MANIFEST_FILE}")
         kubectl_apply(MANIFEST_FILE)
         pod = wait_for_pod(env["NAMESPACE"], "app=clickhouse", env["SETUP_TIMEOUT_SEC"])
-        create_user_and_table(env["NAMESPACE"], pod, user, password)
+        create_user_and_table(env["NAMESPACE"], pod, user, password, env["LOGS_TTL_DAYS"])
         print("[ok] clickhouse applied")
         return
 
@@ -229,6 +298,7 @@ def main():
         return
 
     p.print_help()
+
 
 if __name__ == "__main__":
     main()

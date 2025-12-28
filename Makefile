@@ -120,6 +120,7 @@ cloudflare-logout:
 	rm -rf ~/.cloudflared && rm -f ~/.config/rag/secrets.env && unset CLOUDFLARE_TUNNEL_TOKEN && unset CLOUDFLARE_TUNNEL_CREDENTIALS_B64 && unset CLOUDFLARE_TUNNEL_NAME
 
 test-vector-connection:
+	make fix-dns
 	bash infra/tests/test_vector_clickhouse_connection.sh
 
 

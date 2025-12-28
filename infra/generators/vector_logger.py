@@ -1,347 +1,471 @@
 #!/usr/bin/env python3
 """
-Final, corrected vector_logger.py (ready-to-run)
+Final defensive Vector generator.
 
-- Emits a single multi-document YAML at infra/manifests/vector/vector.yaml:
-  ServiceAccount, ClusterRole, ClusterRoleBinding, ConfigMap, DaemonSet.
-- ConfigMap.vector.yaml is written as a YAML literal block to avoid escaping.
-- ClickHouse auth.strategy set to "basic" (compatible with Vector 0.52.x).
-- Uses guarded VRL remap to parse JSON logs and map kubernetes metadata.
-- CLI flags: --generate, --apply, --delete
+This generator:
+- inserts a UNIQUE placeholder as the 'source' value when dumping YAML,
+- replaces the single placeholder line with a properly-indented literal block
+  containing the VRL remap code,
+- validates YAML before writing to infra/manifests/vector/vector.yaml.
 """
 from __future__ import annotations
 import os
-import sys
-import argparse
-import subprocess
-import yaml
+import json
 import textwrap
+import yaml
+import subprocess
+import re
+import sys
 from typing import Dict, Any, List
 
-# Hardcoded constants
+ROOT_MANIFEST_DIR = os.path.join("infra", "manifests", "vector")
+MANIFEST_FILE = os.path.join(ROOT_MANIFEST_DIR, "vector.yaml")
 CLICKHOUSE_SERVICE_NAME = "clickhouse"
 CLICKHOUSE_HTTP_PORT = "8123"
 CLICKHOUSE_SECRET_NAME = "clickhouse-credentials"
 
-MANIFEST_DIR = os.path.join("infra", "manifests", "vector")
-MANIFEST_FILE = os.path.join(MANIFEST_DIR, "vector.yaml")
+# Unique placeholder that should never appear elsewhere
+VRL_PLACEHOLDER = "__VRL_REPLACEMENT_TOKEN__DO_NOT_TOUCH__"
 
+# VRL: no inline Python comments; no '#' inside.
+VRL = textwrap.dedent("""\
+parsed = parse_json(.message) ?? {}
 
-def run(cmd: str, check: bool = True, quiet: bool = False):
-    if not quiet:
-        print("[run]", cmd)
-    r = subprocess.run(cmd, shell=True, text=True,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if check and r.returncode != 0:
-        print(r.stdout, end="")
-        print(r.stderr, end="", file=sys.stderr)
-        raise SystemExit(r.returncode)
-    return r
+if exists(parsed.timestamp) {
+  if is_integer(parsed.timestamp) {
+    .ts = from_unix_timestamp(parsed.timestamp) ?? now()
+  } else {
+    .ts = parse_timestamp(parsed.timestamp, format: "%+") ?? now()
+  }
+} else if exists(.timestamp) {
+  .ts = parse_timestamp(.timestamp, format: "%+") ?? now()
+} else {
+  .ts = now()
+}
 
+formatted, fmt_err = format_timestamp(.ts, format: "%Y-%m-%d %H:%M:%S%.3f")
+if fmt_err == null {
+  .ts = to_string(formatted)
+} else {
+  now_formatted, now_err = format_timestamp(now(), format: "%Y-%m-%d %H:%M:%S%.3f")
+  if now_err == null {
+    .ts = to_string(now_formatted)
+  } else {
+    .ts = to_string(now())
+  }
+}
 
-def ensure_namespace(ns: str):
-    run(
-        f"kubectl create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -"
-    )
+allowed_levels = __ALLOWED_LEVELS__
 
+raw_level = ""
+if exists(parsed.level) && is_string(parsed.level) {
+  raw_level = parsed.level
+} else if exists(.level) && is_string(.level) {
+  raw_level = .level
+} else {
+  raw_level = ""
+}
 
-def create_secret(ns: str, name: str, username: str, password: str):
-    run(
-        f"kubectl -n {ns} create secret generic {name} "
-        f"--from-literal=username={username} --from-literal=password={password} "
-        "--dry-run=client -o yaml | kubectl apply -f -"
-    )
+if raw_level == "" {
+  .level = "INFO"
+} else {
+  rl_low, rl_err = downcase(raw_level)
+  if rl_err == null {
+    found = false
+    for_each(allowed_levels) -> |_, v| {
+      if v == rl_low {
+        found = true
+      }
+    }
+    if found {
+      if rl_low == "debug" {
+        .level = "DEBUG"
+      } else if rl_low == "info" {
+        .level = "INFO"
+      } else if rl_low == "warn" || rl_low == "warning" {
+        .level = "WARN"
+      } else if rl_low == "error" || rl_low == "err" {
+        .level = "ERROR"
+      } else {
+        .level = "INFO"
+      }
+    } else {
+      .level = "INFO"
+    }
+  } else {
+    .level = "INFO"
+  }
+}
 
+if exists(parsed.message) {
+  if is_string(parsed.message) {
+    .message = parsed.message
+  } else {
+    .message = encode_json(parsed.message)
+  }
+} else if exists(.message) && is_string(.message) {
+  .message = .message
+} else {
+  .message = ""
+}
 
-def delete_secret(ns: str, name: str):
-    run(f"kubectl -n {ns} delete secret {name} --ignore-not-found", check=False)
+if exists(parsed.service) && is_string(parsed.service) {
+  .service = parsed.service
+} else if exists(.kubernetes.labels.app) && is_string(.kubernetes.labels.app) {
+  .service = .kubernetes.labels.app
+} else if exists(.kubernetes.container_name) && is_string(.kubernetes.container_name) {
+  .service = .kubernetes.container_name
+} else {
+  .service = ""
+}
 
+if exists(.kubernetes.container_name) && is_string(.kubernetes.container_name) {
+  .container = .kubernetes.container_name
+} else {
+  .container = ""
+}
+
+if exists(.kubernetes.pod_name) && is_string(.kubernetes.pod_name) {
+  .pod = .kubernetes.pod_name
+} else {
+  .pod = ""
+}
+
+.namespace = ""
+if exists(.kubernetes.pod_namespace) && is_string(.kubernetes.pod_namespace) {
+  .namespace = .kubernetes.pod_namespace
+} else if exists(.kubernetes.namespace) && is_string(.kubernetes.namespace) {
+  .namespace = .kubernetes.namespace
+} else if exists(.kubernetes.namespace_name) && is_string(.kubernetes.namespace_name) {
+  .namespace = .kubernetes.namespace_name
+} else if exists(.kubernetes.ns) && is_string(.kubernetes.ns) {
+  .namespace = .kubernetes.ns
+} else {
+  .namespace = ""
+}
+
+if exists(parsed.trace_id) && is_string(parsed.trace_id) {
+  .trace_id = parsed.trace_id
+} else {
+  .trace_id = ""
+}
+
+if exists(parsed.span_id) && is_string(parsed.span_id) {
+  .span_id = parsed.span_id
+} else {
+  .span_id = ""
+}
+
+.fields = encode_json(parsed)
+
+drop_namespaces = __DROP_NAMESPACES__
+ns_drop = false
+
+if .namespace != "" {
+  for_each(drop_namespaces) -> |_, v| {
+    if v == .namespace {
+      ns_drop = true
+    }
+  }
+}
+
+if ns_drop {
+  del(.)
+}
+""")
+
+def run(cmd: str, check: bool = True):
+    print("[run]", cmd)
+    res = subprocess.run(cmd, shell=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if check and res.returncode != 0:
+        print(res.stdout or "", end="")
+        print(res.stderr or "", end="")
+        raise SystemExit(res.returncode)
+    return res
 
 def ensure_manifest_dir():
     os.makedirs(os.path.dirname(MANIFEST_FILE), exist_ok=True)
 
-
-def write_manifest_file(
-    sa: Dict[str, Any],
-    cr: Dict[str, Any],
-    crb: Dict[str, Any],
-    configmap_cfg: str,
-    daemonset: Dict[str, Any],
-) -> None:
+def inject_vrl(dumped_yaml: str, vrl: str) -> str:
     """
-    Write a YAML file containing multiple documents.
-    The ConfigMap is written manually to guarantee vector.yaml is a literal block.
+    Find a single line 'source: "<PLACEHOLDER>"' (possibly single- or double-quoted)
+    and replace it with a literal block 'source: |' followed by vrl indented two
+    spaces more than the key indentation.
     """
-    ensure_manifest_dir()
-    parts: List[str] = []
+    # regex finds leading whitespace then source: "<placeholder>"
+    pattern = re.compile(r'^(\s*)source:\s*(["\'])' + re.escape(VRL_PLACEHOLDER) + r'\2\s*$', flags=re.M)
+    m = pattern.search(dumped_yaml)
+    if not m:
+        # fallback: try an unquoted placeholder
+        pattern2 = re.compile(r'^(\s*)source:\s*' + re.escape(VRL_PLACEHOLDER) + r'\s*$', flags=re.M)
+        m2 = pattern2.search(dumped_yaml)
+        if not m2:
+            raise SystemExit("VRL placeholder line not found in dumped YAML; cannot safely inject VRL.")
+        m = m2
 
-    parts.append(yaml.safe_dump(sa, sort_keys=False))
-    parts.append("---\n")
-    parts.append(yaml.safe_dump(cr, sort_keys=False))
-    parts.append("---\n")
-    parts.append(yaml.safe_dump(crb, sort_keys=False))
-    parts.append("---\n")
+    leading = m.group(1)
+    content_indent = leading + "  "  # make the literal block lines deeper than key indentation
+    vrl_block = "source: |\n" + textwrap.indent(vrl.rstrip("\n"), content_indent) + "\n"
 
-    cfg_cm = (
-        "apiVersion: v1\nkind: ConfigMap\n"
-        f"metadata:\n  name: vector-config\n  namespace: {sa['metadata']['namespace']}\n"
-        "data:\n  vector.yaml: |\n"
-    )
-    indented = textwrap.indent(configmap_cfg.rstrip("\n"), "    ")
-    cfg_cm += indented + "\n"
-    parts.append(cfg_cm)
-    parts.append("---\n")
+    start, end = m.span(0)
+    new_yaml = dumped_yaml[:start] + leading + vrl_block + dumped_yaml[end:]
+    return new_yaml
 
-    parts.append(yaml.safe_dump(daemonset, sort_keys=False))
+def build_manifest(namespace: str, env: Dict[str, str]) -> str:
+    # prepare lists
+    drop_csv = env.get("VECTOR_DROP_NAMESPACES", "") or ""
+    if drop_csv.strip() == "":
+        drop_list = ["kube-system"]
+    else:
+        drop_list = [p.strip() for p in drop_csv.split(",") if p.strip()]
+    allowed_csv = env.get("VECTOR_LOG_LEVELS", "info,warn,error")
+    allowed_list = [p.strip().lower() for p in allowed_csv.split(",") if p.strip()]
 
-    with open(MANIFEST_FILE, "w") as fh:
-        fh.write("".join(parts))
-    print("[info] wrote", MANIFEST_FILE)
+    # inject JSON lists into VRL text
+    vrl = VRL.replace("__DROP_NAMESPACES__", json.dumps(drop_list)).replace("__ALLOWED_LEVELS__", json.dumps(allowed_list))
 
-
-def build_vector_docs(env: Dict[str, str]):
-    ns = env["NAMESPACE"]
-    image = f"{env['VECTOR_IMAGE_REPO']}:{env['VECTOR_IMAGE_TAG']}"
-    data_dir = env["VECTOR_DATA_DIR"]
-    batch_max = env["VECTOR_BATCH_MAX_EVENTS"]
-    batch_to = env["VECTOR_BATCH_TIMEOUT_SEC"]
-
-    ch_fqdn = f"{CLICKHOUSE_SERVICE_NAME}.{ns}.svc.cluster.local"
+    ch_fqdn = f"{CLICKHOUSE_SERVICE_NAME}.{namespace}.svc.cluster.local"
     ch_endpoint = f"http://{ch_fqdn}:{CLICKHOUSE_HTTP_PORT}"
 
-    # Use a non-f string template so raw braces in VRL are preserved.
-    cfg_template = textwrap.dedent("""\
-    api:
-      enabled: true
-      address: "0.0.0.0:8686"
-      playground: false
-
-    sources:
-      kubernetes_logs:
-        type: kubernetes_logs
-        self_node_name: "${VECTOR_SELF_NODE_NAME}"
-        insert_namespace_fields: true
-
-    transforms:
-      parse_and_map:
-        type: remap
-        inputs: [kubernetes_logs]
-        source: |
-          # Attempt to parse message; parse_json returns null on error when used with ??.
-          parsed = parse_json(.message) ?? null
-
-          # Merge only when parsed is an object; otherwise do not attempt merge.
-          if is_object(parsed) {
-            if is_object(.) {
-              . = merge!(., parsed)
-            } else {
-              . = parsed
+    # build vector config dict with placeholder in 'source'
+    vector_cfg = {
+        "api": {"enabled": True, "address": "0.0.0.0:8686", "playground": False},
+        "sources": {"kubernetes_logs": {"type": "kubernetes_logs", "insert_namespace_fields": True}},
+        "transforms": {"normalize_v1": {"type": "remap", "inputs": ["kubernetes_logs"], "source": VRL_PLACEHOLDER}},
+        "sinks": {
+            "clickhouse": {
+                "type": "clickhouse",
+                "inputs": ["normalize_v1"],
+                "endpoint": ch_endpoint,
+                "auth": {"strategy": "basic", "user": env.get("CLICKHOUSE_USER", "vector"), "password": env.get("CLICKHOUSE_PASSWORD", "vectorpass")},
+                "database": env.get("VECTOR_CLICKHOUSE_DATABASE", "logs"),
+                "table": env.get("VECTOR_CLICKHOUSE_TABLE", "kube_logs"),
+                "format": "json_each_row",
+                "compression": "gzip",
+                "skip_unknown_fields": True,
+                "batch": {"max_events": int(env.get("VECTOR_BATCH_MAX_EVENTS", "200")), "timeout_secs": float(env.get("VECTOR_BATCH_TIMEOUT_SEC", "2.0"))},
+                "healthcheck": {"enabled": True},
             }
-          }
-
-          # Map kubernetes fields into top-level pod/namespace.
-          if .kubernetes != null {
-            if .kubernetes.pod != null && .kubernetes.pod.name != null {
-              .pod = .kubernetes.pod.name
-            } else if .kubernetes.pod_name != null {
-              .pod = .kubernetes.pod_name
-            }
-            if .kubernetes.namespace != null && .kubernetes.namespace.name != null {
-              .namespace = .kubernetes.namespace.name
-            } else if .kubernetes.namespace != null {
-              .namespace = .kubernetes.namespace
-            }
-          }
-
-          # Ensure .message is a string
-          if !is_string(.message) {
-            .message = encode_json(.message)
-          }
-
-    sinks:
-      clickhouse:
-        type: clickhouse
-        inputs: [parse_and_map]
-        endpoint: "__CH_ENDPOINT__"
-        auth:
-          strategy: basic
-          user: "${CLICKHOUSE_USER}"
-          password: "${CLICKHOUSE_PASSWORD}"
-        database: "__DB__"
-        table: "__TABLE__"
-        format: "json_each_row"
-        compression: "gzip"
-        skip_unknown_fields: true
-        batch:
-          max_events: __BATCH_MAX__
-          timeout_secs: __BATCH_TO__
-        healthcheck:
-          enabled: false
-    """)
-
-    # Inject dynamic values safely (no f-string interpolation of braces).
-    cfg = (
-        cfg_template
-        .replace("__CH_ENDPOINT__", ch_endpoint)
-        .replace("__DB__", str(env["VECTOR_CLICKHOUSE_DATABASE"]))
-        .replace("__TABLE__", str(env["VECTOR_CLICKHOUSE_TABLE"]))
-        .replace("__BATCH_MAX__", str(batch_max))
-        .replace("__BATCH_TO__", str(batch_to))
-    )
-
-    sa = {
-        "apiVersion": "v1",
-        "kind": "ServiceAccount",
-        "metadata": {"name": "vector", "namespace": ns},
+        }
     }
 
-    cr = {
-        "apiVersion": "rbac.authorization.k8s.io/v1",
-        "kind": "ClusterRole",
-        "metadata": {"name": "vector-k8s-reader"},
-        "rules": [
-            {
-                "apiGroups": [""],
-                "resources": ["pods", "namespaces", "nodes"],
-                "verbs": ["get", "list", "watch"],
-            }
-        ],
-    }
+    # Dump dict to YAML (placeholder remains quoted)
+    dumped = yaml.safe_dump(vector_cfg, sort_keys=False)
 
-    crb = {
-        "apiVersion": "rbac.authorization.k8s.io/v1",
-        "kind": "ClusterRoleBinding",
-        "metadata": {"name": "vector-k8s-reader-binding"},
-        "roleRef": {
-            "apiGroup": "rbac.authorization.k8s.io",
-            "kind": "ClusterRole",
-            "name": "vector-k8s-reader",
-        },
-        "subjects": [{"kind": "ServiceAccount", "name": "vector", "namespace": ns}],
-    }
+    # Inject the VRL literal block replacing placeholder
+    vector_yaml = inject_vrl(dumped, vrl)
 
-    daemonset = {
-        "apiVersion": "apps/v1",
-        "kind": "DaemonSet",
-        "metadata": {"name": "vector-agent", "namespace": ns},
-        "spec": {
-            "selector": {"matchLabels": {"app": "vector"}},
-            "template": {
-                "metadata": {"labels": {"app": "vector"}},
-                "spec": {
-                    "serviceAccountName": "vector",
-                    "tolerations": [{"operator": "Exists"}],
-                    "volumes": [
-                        {
-                            "name": "vector-config",
-                            "configMap": {
-                                "name": "vector-config",
-                                "items": [{"key": "vector.yaml", "path": "vector.yaml"}],
-                            },
-                        },
-                        {"name": "data-dir", "hostPath": {"path": data_dir, "type": "DirectoryOrCreate"}},
-                        {"name": "pod-logs", "hostPath": {"path": "/var/log/pods", "type": "DirectoryOrCreate"}},
-                    ],
-                    "containers": [
-                        {
-                            "name": "vector",
-                            "image": image,
-                            "args": ["-c", "/etc/vector/vector.yaml"],
-                            "volumeMounts": [
-                                {"name": "vector-config", "mountPath": "/etc/vector/vector.yaml", "subPath": "vector.yaml"},
-                                {"name": "data-dir", "mountPath": data_dir},
-                                {"name": "pod-logs", "mountPath": "/var/log/pods", "readOnly": True},
-                            ],
-                            "resources": {
-                                "requests": {
-                                    "cpu": env.get("VECTOR_REQ_CPU", "50m"),
-                                    "memory": env.get("VECTOR_REQ_MEM", "128Mi"),
-                                },
-                                "limits": {
-                                    "cpu": env.get("VECTOR_LIMIT_CPU", "200m"),
-                                    "memory": env.get("VECTOR_LIMIT_MEM", "256Mi"),
-                                },
-                            },
-                            "env": [
-                                {
-                                    "name": "CLICKHOUSE_USER",
-                                    "valueFrom": {"secretKeyRef": {"name": CLICKHOUSE_SECRET_NAME, "key": "username"}},
-                                },
-                                {
-                                    "name": "CLICKHOUSE_PASSWORD",
-                                    "valueFrom": {"secretKeyRef": {"name": CLICKHOUSE_SECRET_NAME, "key": "password"}},
-                                },
-                                {
-                                    "name": "VECTOR_SELF_NODE_NAME",
-                                    "valueFrom": {"fieldRef": {"fieldPath": "spec.nodeName"}},
-                                },
-                            ],
-                        }
-                    ],
-                }
-            },
-        },
-    }
+    # Basic lint for double-escaped sequences that indicate earlier escape problem
+    for bad in ["\\\\n", "\\n", "\\t"]:
+        if bad in vector_yaml:
+            raise SystemExit(f"Generated vector config contains suspicious escape {bad!r}; aborting to avoid malformed YAML.")
 
-    return sa, cr, crb, cfg, daemonset
+    # build multi-doc manifest; vector_yaml already contains correct 'source: |' and VRL content
+    sa_doc = f"""apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vector
+  namespace: {namespace}
+"""
+    cr_doc = """apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vector-k8s-reader
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "namespaces", "nodes", "services", "endpoints", "events"]
+    verbs: ["get", "list", "watch"]
+"""
+    crb_doc = f"""apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vector-k8s-reader-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vector-k8s-reader
+subjects:
+  - kind: ServiceAccount
+    name: vector
+    namespace: {namespace}
+"""
 
+    cfg_cm = f"""apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-config
+  namespace: {namespace}
+data:
+  vector.yaml: |
+{textwrap.indent(vector_yaml.rstrip(), '    ')}
+"""
 
+    ds_doc = f"""apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: vector-agent
+  namespace: {namespace}
+spec:
+  selector:
+    matchLabels:
+      app: vector
+  template:
+    metadata:
+      labels:
+        app: vector
+    spec:
+      serviceAccountName: vector
+      tolerations:
+        - operator: Exists
+      volumes:
+        - name: vector-config
+          configMap:
+            name: vector-config
+            items:
+              - key: vector.yaml
+                path: vector.yaml
+        - name: data-dir
+          hostPath:
+            path: {env.get('VECTOR_DATA_DIR','/var/lib/vector')}
+            type: DirectoryOrCreate
+        - name: pod-logs
+          hostPath:
+            path: /var/log/pods
+            type: DirectoryOrCreate
+      containers:
+        - name: vector
+          image: {env.get('VECTOR_IMAGE_REPO','timberio/vector')}:{env.get('VECTOR_IMAGE_TAG','0.52.0-debian')}
+          args: ["-c", "/etc/vector/vector.yaml"]
+          volumeMounts:
+            - name: vector-config
+              mountPath: /etc/vector/vector.yaml
+              subPath: vector.yaml
+            - name: data-dir
+              mountPath: {env.get('VECTOR_DATA_DIR','/var/lib/vector')}
+            - name: pod-logs
+              mountPath: /var/log/pods
+              readOnly: true
+          resources:
+            requests:
+              cpu: {env.get('VECTOR_REQ_CPU','50m')}
+              memory: {env.get('VECTOR_REQ_MEM','128Mi')}
+            limits:
+              cpu: {env.get('VECTOR_LIMIT_CPU','200m')}
+              memory: {env.get('VECTOR_LIMIT_MEM','256Mi')}
+          env:
+            - name: CLICKHOUSE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {CLICKHOUSE_SECRET_NAME}
+                  key: username
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {CLICKHOUSE_SECRET_NAME}
+                  key: password
+            - name: VECTOR_SELF_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: VECTOR_DROP_NAMESPACES
+              value: "{','.join(drop_list)}"
+            - name: VECTOR_LOG_LEVELS
+              value: "{','.join(allowed_list)}"
+"""
+
+    manifest_text = "\n---\n".join([sa_doc, cr_doc, crb_doc, cfg_cm, ds_doc])
+    return manifest_text
+
+def validate_and_write(manifest_text: str):
+    try:
+        list(yaml.safe_load_all(manifest_text))
+    except Exception as e:
+        tmp = "/tmp/vector_manifest_error.yaml"
+        with open(tmp, "w") as fh:
+            fh.write(manifest_text)
+        raise SystemExit(f"Generated manifest YAML failed validation: {e}\nWrote manifest to {tmp} for inspection.")
+    ensure_manifest_dir()
+    with open(MANIFEST_FILE, "w") as fh:
+        fh.write(manifest_text)
+    print("[info] wrote", MANIFEST_FILE)
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--generate", action="store_true")
-    p.add_argument("--apply", action="store_true")
-    p.add_argument("--delete", action="store_true")
-    args = p.parse_args()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--generate", action="store_true")
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--delete", action="store_true")
+    args = parser.parse_args()
 
     ns = os.getenv("NAMESPACE", "observability").strip()
     env = {
-        "NAMESPACE": ns,
         "VECTOR_IMAGE_REPO": os.getenv("VECTOR_IMAGE_REPO", "timberio/vector"),
         "VECTOR_IMAGE_TAG": os.getenv("VECTOR_IMAGE_TAG", "0.52.0-debian"),
         "VECTOR_DATA_DIR": os.getenv("VECTOR_DATA_DIR", "/var/lib/vector"),
-        "VECTOR_BATCH_MAX_EVENTS": os.getenv("VECTOR_BATCH_MAX_EVENTS", "1000"),
-        "VECTOR_BATCH_TIMEOUT_SEC": os.getenv("VECTOR_BATCH_TIMEOUT_SEC", "1"),
+        "VECTOR_BATCH_MAX_EVENTS": os.getenv("VECTOR_BATCH_MAX_EVENTS", "200"),
+        "VECTOR_BATCH_TIMEOUT_SEC": os.getenv("VECTOR_BATCH_TIMEOUT_SEC", "2.0"),
         "VECTOR_CLICKHOUSE_DATABASE": os.getenv("VECTOR_CLICKHOUSE_DATABASE", "logs"),
         "VECTOR_CLICKHOUSE_TABLE": os.getenv("VECTOR_CLICKHOUSE_TABLE", "kube_logs"),
         "VECTOR_REQ_CPU": os.getenv("VECTOR_REQ_CPU", "50m"),
         "VECTOR_REQ_MEM": os.getenv("VECTOR_REQ_MEM", "128Mi"),
         "VECTOR_LIMIT_CPU": os.getenv("VECTOR_LIMIT_CPU", "200m"),
         "VECTOR_LIMIT_MEM": os.getenv("VECTOR_LIMIT_MEM", "256Mi"),
+        "VECTOR_DROP_NAMESPACES": os.getenv("VECTOR_DROP_NAMESPACES", "kube-system"),
+        "VECTOR_LOG_LEVELS": os.getenv("VECTOR_LOG_LEVELS", "info,warn,error"),
+        "CLICKHOUSE_USER": os.getenv("CLICKHOUSE_USER", "vector"),
+        "CLICKHOUSE_PASSWORD": os.getenv("CLICKHOUSE_PASSWORD", "vectorpass"),
     }
 
-    sa, cr, crb, cfg, daemonset = build_vector_docs(env)
-
     if args.generate:
-        write_manifest_file(sa, cr, crb, cfg, daemonset)
+        manifest_text = build_manifest(ns, env)
+        validate_and_write(manifest_text)
+        print("[ok] generate complete")
         return
 
     if args.apply:
-        ensure_namespace(env["NAMESPACE"])
-        user = os.getenv("CLICKHOUSE_USER", "vector")
-        password = os.getenv("CLICKHOUSE_PASSWORD", "vectorpass")
-        create_secret(env["NAMESPACE"], CLICKHOUSE_SECRET_NAME, user, password)
-        write_manifest_file(sa, cr, crb, cfg, daemonset)
+        # backup
+        try:
+            if os.path.exists(MANIFEST_FILE):
+                os.makedirs("/tmp/infra-backups", exist_ok=True)
+                subprocess.run(f"cp {MANIFEST_FILE} /tmp/infra-backups/vector.yaml.bak", shell=True)
+        except Exception:
+            pass
+        manifest_text = build_manifest(ns, env)
+        validate_and_write(manifest_text)
+
+        run(f"kubectl create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -")
+        run(
+            f"kubectl -n {ns} create secret generic {CLICKHOUSE_SECRET_NAME} "
+            f"--from-literal=username={env['CLICKHOUSE_USER']} --from-literal=password={env['CLICKHOUSE_PASSWORD']} "
+            "--dry-run=client -o yaml | kubectl apply -f -"
+        )
+        run(f"kubectl apply --dry-run=client -f {MANIFEST_FILE}")
         run(f"kubectl apply -f {MANIFEST_FILE}")
-        print("[ok] vector applied")
+        run(f"kubectl -n {ns} rollout restart daemonset vector-agent")
+        print("[ok] apply complete")
         return
 
     if args.delete:
         if os.path.exists(MANIFEST_FILE):
-            run(f"kubectl delete -f {MANIFEST_FILE} --ignore-not-found")
+            try:
+                run(f"kubectl delete -f {MANIFEST_FILE} --ignore-not-found", check=False)
+            except Exception:
+                pass
             try:
                 os.remove(MANIFEST_FILE)
             except Exception:
                 pass
-        delete_secret(os.getenv("NAMESPACE", env["NAMESPACE"]), CLICKHOUSE_SECRET_NAME)
-        run("kubectl delete clusterrolebinding vector-k8s-reader-binding --ignore-not-found", check=False)
-        run("kubectl delete clusterrole vector-k8s-reader --ignore-not-found", check=False)
-        run(f"kubectl -n {env['NAMESPACE']} delete serviceaccount vector --ignore-not-found", check=False)
-        print("[ok] vector deleted")
+        try:
+            run(f"kubectl -n {ns} delete secret {CLICKHOUSE_SECRET_NAME} --ignore-not-found", check=False)
+            run("kubectl delete clusterrolebinding vector-k8s-reader-binding --ignore-not-found", check=False)
+            run("kubectl delete clusterrole vector-k8s-reader --ignore-not-found", check=False)
+            run(f"kubectl -n {ns} delete serviceaccount vector --ignore-not-found", check=False)
+        except Exception:
+            pass
+        print("[ok] delete complete")
         return
 
-    p.print_help()
-
+    parser.print_help()
 
 if __name__ == "__main__":
     main()
