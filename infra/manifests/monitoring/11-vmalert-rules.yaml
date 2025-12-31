@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmalert-rules
+  namespace: observability
+data:
+  example.rules: "groups:\n- name: example\n  rules:\n  - alert: InstanceDown\n  \
+    \  expr: up == 0\n    for: 2m\n    labels:\n      severity: critical\n    annotations:\n\
+    \      summary: \"Instance down\"\n"

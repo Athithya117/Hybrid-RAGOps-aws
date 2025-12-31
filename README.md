@@ -69,12 +69,6 @@ export BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS=7              # Move backup blobs to
 export BACKUP_AZ_CONTAINER_RETENTION_DAYS=30              # Permanently delete backup blobs after N days
 export AZURE_STORAGE_CONNECTION_STRING="$(python3 infra/base_infra/get_storage_conn_string.py)"
 
-
-export LOKI_AZ_CONTAINER="loki-logs-515"
-export LOKI_PREFIX="loki"
-export LOKI_COOL_AFTER_DAYS=7
-export LOKI_RETENTION_DAYS=30
-
 export AZURE_DELETE_ACCOUNT=0                             # 1 = delete entire storage account on `make delete-sa`, 0 = containers only
 export FORCE_DELETE=1                                     # Skip interactive confirmation prompts
 
@@ -169,6 +163,7 @@ export INDEXING_PIPELINE_CPU_IMAGE_TAG="v12" # Set a consistent tag name for cla
 # optional env if UAI unavailable in local kind cluster
 export AZURE_STORAGE_CONNECTION_STRING="$(python3 infra/base_infra/get_storage_conn_string.py)"
 
+make run-indexing-cronjob
 
 
 export PER_POD="true" # When true, perform per-pod Qdrant backup/restore using individual pod port-forwards; when false, operate via cluster/service endpoint
@@ -176,41 +171,49 @@ export BACKUP_ID="" # Optional explicit backup identifier to restore; leave empt
 
 
 
-export AZURE_SUBSCRIPTION_ID=$AZURE_SUBSCRIPTION_ID
-export AZURE_RESOURCE_GROUP_NAME=rg-e2e-rag
-export AZURE_DATA_CONTAINER=rag-data-515
-export PULUMI_AZ_CONTAINER=pulumi-state-515
-export AZURE_STORAGE_ACCOUNT_NAME=defaultsa515
-export AZURE_LOCATION="centralindia"
+export RETRIEVAL_IMAGE="docker.io/athithya5354/retrieval:v10"  # container image:tag; change to deploy a new build/tag
+export RETRIEVER_REPLICAS="1"                                 # number of pods; increase to scale, decrease to save cost
+export RETRIEVAL_RES_CPU="200m"                               # cpu request/limit; raise for CPU-heavy workloads
+export RETRIEVAL_RES_MEM="256Mi"                              # memory request/limit; raise if OOMs occur
+
+export AZURE_STORAGE_CONNECTION_STRING=""                    # Azure connection string (AccountName+AccountKey); set if using presign
+export AZURE_ENDPOINT_SUFFIX="core.windows.net"              # Azure endpoint suffix; change for sovereign clouds
+
+export GROQ_API_KEY=""                                        # GROQ LLM key; set when using GROQ (highest precedence)
+export OPENAI_API_KEY=""                                      # OpenAI API key; set when using OpenAI (fallback if GROQ not set)
+export LLM_API_KEY=""                                         # Generic LLM key; set for other providers (lowest precedence)
+export LLM_MODEL="llama-3.1-8b-instant"                       # default LLM model id; change to target a different model
+export LLM_MAX_TOKENS="512"                                   # max tokens per request; increase for longer outputs (cost ↑)
+export LLM_TEMPERATURE="0.2"                                  # sampling temperature 0.0–1.0; higher = creative, lower = deterministic
+export MAX_PROMPT_TOKENS="6000"                               # safety cap for prompt construction; raise only if you need larger context
+
+export LLM_SYSTEM_PROMPT="You are a clear concise assistant. Provide a short explanatory answer in 2-3 sentences. When you cite evidence, use only numeric tags like [1],[2]. Do NOT output filenames, URLs, raw page numbers."  
+                                                             # system role prompt; controls assistant policy/tone—change to alter model behavior/safety
+export LLM_USER_PROMPT_TEMPLATE="Summarize the following retrieved passages and answer the question in 2-3 sentences.
+
+QUESTION: {question}
+
+PASSAGES:
+{passages}
+
+Answer:"                                                           # user prompt template; change task framing but keep {question} and {passages}
+
+export RERANKER_MODE="AUTO"                                   # DISABLE|ALWAYS|AUTO; controls when reranker runs
+export RERANK_TOPK="20"                                       # candidates sent to reranker; increase for quality (cost ↑)
+export RERANKER_TOP_K="$RERANK_TOPK"                          # backward-compat alias; keep synced
+export RERANK_AUTO_THRESHOLD="0.75"                           # if fused top score >= this, skip rerank in AUTO (higher => fewer reranks)
+export RERANK_THRESHOLD="30"                                  # rank-disagreement threshold (abs(dense_rank - sparse_rank)) to trigger rerank
+export RERANK_MARGIN="0.08"                                   # if top-second fused-gap < this, rerank (tie-breaker)
+export RERANK_ALPHA="0.6"                                     # weight on reranker vs fused (0..1); higher favors reranker
+
+export MAX_CHUNKS_TO_LLM="6"                                  # max docs sent to LLM; raise for more context, lower for cost/perf
+export QUERY_TOPK_DENSE="200"                                 # dense prefetch top-k for RRF fusion; larger=slower but better recall
+export QUERY_TOPK_SPARSE="200"                                # sparse prefetch top-k
+export RRF_TOP_N="10"                                         # number of fused (deduped) top results returned for reranker/LLM
+
+make deploy-retriever
 
 
-
-
-export COLLECTION_NAME="rag_hybrid_collection"     # Qdrant collection name. Change per dataset/environment.
-export DENSE_MODEL_NAME="BAAI/bge-small-en-v1.5"   # or https://qdrant.github.io/fastembed/examples/Supported_Models/
-export DENSE_DIM="384"                             # Dense embedding dim (must match model); used to create collection.
-export SPARSE_MODEL_NAME="prithivida/Splade_PP_en_v1" # Splade++ embedder for lexical matching
-export RERANK_MODEL_NAME="Xenova/ms-marco-MiniLM-L-6-v2" # Cross-encoder reranker model. 
-export BATCH_SIZE="16"                             # Indexing batch size for processing chunks (embedding step).
-export UPSERT_CHUNK="500"                          # Number of points sent in each upsert to Qdrant.
-export MAX_CHARS_PER_PART="1400"                   # Max characters to keep per chunk part (controls splitting).
-export LARGE_UPLOAD_THRESHOLD="100000"             # If total points exceed this and client supports upload_points, use it.
-export RERANKER_MODE="AUTO"                        # DISABLE|ALWAYS|AUTO. AUTO uses thresholds to decide rerank.
-export RERANK_TOPK="20"                            # Number of top candidates sent to reranker when triggered.
-export RERANKER_TOP_K="$RERANK_TOPK"               # Alias for backward compatibility.
-export RERANK_AUTO_THRESHOLD="0.75"                # If fused top score >= this, skip rerank in AUTO (higher => fewer reranks).
-export RERANK_THRESHOLD="30"                       # Rank-disagreement threshold (abs(dense_rank-sparse_rank)) to trigger rerank.
-export RERANK_MARGIN="0.08"                        # If top-second fused-gap < this, rerank (tie-breaker).
-export RERANK_ALPHA="0.6"                          # When combining reranker & fused scores (0..1 weight on reranker).
-export MAX_CHUNKS_TO_LLM="6"                       # Max chunks to prepare/send to LLM (safety/perf).
-export QUERY_TOPK_DENSE="200"                      # Prefetch top-k dense results for RRF fusion (larger=slower, better recall).
-export QUERY_TOPK_SPARSE="200"                     # Prefetch top-k sparse results for RRF fusion.
-export RRF_TOP_N="10"                              # Number of fused (deduped) top results to return for reranker/LLM.
-export QDRANT_HNSW_EF_CONSTRUCTION="128"           # HNSW efConstruction parameter (build-time recall/speed tradeoff).
-export QDRANT_HNSW_M="32"                          # HNSW M parameter (graph connectivity / RAM tradeoff).
-export QDRANT_ONDISK="FALSE"                       # TRUE lowers RAM (on-disk store) at cost of speed.
-export HTTP_TIMEOUT="30.0"                         # HTTP timeout for external requests (seconds).
-export LOGLEVEL="INFO"                             # Logging verbosity (DEBUG|INFO|WARNING|ERROR).
 
 ```
 
@@ -227,7 +230,7 @@ export VECTOR_LOG_LEVELS=info,warn,error
 
 
 export CLICKHOUSE_REPLICAS=1                  # clickhouse statefulset replicas
-export CLICKHOUSE_PVC_SIZE=100Gi              # clickhouse PVC size
+export CLICKHOUSE_PVC_SIZE=10Gi              # clickhouse PVC size
 export CLICKHOUSE_REQ_CPU=1                   # clickhouse CPU request
 export CLICKHOUSE_REQ_MEM=4Gi                 # clickhouse memory request
 export CLICKHOUSE_LIMIT_CPU=4                 # clickhouse CPU limit
@@ -240,17 +243,20 @@ make deploy-clickhouse
 make deploy-vector
 
 
-export PROM_REPLICAS=2                       # HA replicas for Prometheus on AKS
-export PROM_STORAGE_SIZE=200Gi               # PVC size for Prometheus in production
+export PROM_REPLICAS=1                       # HA replicas for Prometheus on AKS
+export PROM_STORAGE_SIZE=2Gi               # PVC size for Prometheus in production
 export PROM_STORAGE_CLASS=managed-premium    # StorageClass for Prometheus PVCs on AKS
 export PROM_CPU_REQUEST=500m                 # Production CPU request for Prometheus
 export PROM_CPU_LIMIT=2000m                  # Production CPU limit for Prometheus
 export PROM_MEM_REQUEST=1Gi                  # Production memory request for Prometheus
 export PROM_MEM_LIMIT=8Gi                    # Production memory limit for Prometheus
+
+export ALERTMANAGER_SLACK_WEBHOOK=...        # Optional: Slack webhook URL for Alertmanager
+
 export GRAFANA_PERSISTENCE=true              # Enable Grafana PVC on AKS
 export GRAFANA_PERSISTENCE_SIZE=20Gi         # Grafana PVC size on AKS
 export GRAFANA_STORAGE_CLASS=managed-standard # Grafana StorageClass on AKS
-export ALERTMANAGER_SLACK_WEBHOOK=...        # Optional: Slack webhook URL for Alertmanager
 
-make deploy-prometheus
+make deploy-vm
+
 ```

@@ -1,45 +1,38 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: retrieval-sa
-  namespace: inference
+  name: vm-agent-sa
+  namespace: observability
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
-  name: retrieval-role
-  namespace: inference
+  name: vm-agent-clusterrole
 rules:
 - apiGroups:
   - ''
   resources:
-  - pods
   - services
   - endpoints
-  - configmaps
+  - pods
+  - nodes
+  - namespaces
   verbs:
   - get
   - list
   - watch
-- apiGroups:
-  - ''
-  resources:
-  - secrets
-  verbs:
-  - get
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
-  name: retrieval-rb
-  namespace: inference
+  name: vm-agent-clusterrolebinding
 subjects:
 - kind: ServiceAccount
-  name: retrieval-sa
-  namespace: inference
+  name: vm-agent-sa
+  namespace: observability
 roleRef:
-  kind: Role
-  name: retrieval-role
+  kind: ClusterRole
+  name: vm-agent-clusterrole
   apiGroup: rbac.authorization.k8s.io

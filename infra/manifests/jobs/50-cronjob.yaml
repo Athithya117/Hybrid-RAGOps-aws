@@ -43,13 +43,13 @@ spec:
             - name: AZURE_CLIENT_ID
               value: ''
             - name: AZURE_CONTAINER
-              value: rag-data-prod
+              value: rag-data-515
             - name: AZURE_ENDPOINT_SUFFIX
               value: core.windows.net
             - name: AZURE_LOCATION
-              value: centralindia
+              value: eastus
             - name: AZURE_RESOURCE_GROUP_NAME
-              value: rg-rag-prod
+              value: rg-e2e-rag
             - name: AZURE_SAS_TOKEN
               value: ''
             - name: AZURE_SECRET_NAME
@@ -57,7 +57,7 @@ spec:
             - name: AZURE_STORAGE_ACCOUNT_KEY
               value: ''
             - name: AZURE_STORAGE_ACCOUNT_NAME
-              value: storeragprod42
+              value: defaultsa515
             - name: AZURE_STORAGE_API_VERSION
               value: ''
             - name: AZURE_STORAGE_CONNECTION_STRING
@@ -110,10 +110,7 @@ spec:
             - name: PYTHONUNBUFFERED
               value: '1'
             - name: QDRANT_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: qdrant-api-key
-                  key: QDRANT_API_KEY
+              value: ''
             - name: QDRANT_SECRET_NAME
               value: qdrant-api-key
             - name: QDRANT_URL

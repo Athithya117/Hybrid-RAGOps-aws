@@ -1,5 +1,5 @@
 {
-  "generated_at": "2025-12-18T00:49:05.335512Z",
+  "generated_at": "2025-12-28T04:49:02.340100Z",
   "image": "athithya5354/reranker:amd64-arm64-v1",
   "namespace": "models",
   "replicas": 1,

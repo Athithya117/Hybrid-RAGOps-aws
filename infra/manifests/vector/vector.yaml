@@ -263,11 +263,11 @@ spec:
               readOnly: true
           resources:
             requests:
-              cpu: 200m
-              memory: 512Mi
+              cpu: 50m
+              memory: 128Mi
             limits:
-              cpu: 1000m
-              memory: 1Gi
+              cpu: 200m
+              memory: 256Mi
           env:
             - name: CLICKHOUSE_USER
               valueFrom:

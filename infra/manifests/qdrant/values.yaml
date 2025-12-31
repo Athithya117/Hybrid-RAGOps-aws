@@ -5,6 +5,13 @@ image:
   pullPolicy: IfNotPresent
 service:
   type: ClusterIP
+  labels:
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/component: qdrant
+  annotations:
+    prometheus.io/scrape: 'true'
+    prometheus.io/port: '6333'
+    prometheus.io/path: /metrics
 p2p:
   port: 6335
 cluster:
@@ -34,11 +41,6 @@ extraEnv:
     secretKeyRef:
       name: qdrant-backup-azure
       key: AZURE_STORAGE_ACCOUNT_KEY
-- name: QDRANT__SERVICE__API_KEY
-  valueFrom:
-    secretKeyRef:
-      name: qdrant-service-creds
-      key: QDRANT__SERVICE__API_KEY
 resources:
   requests:
     cpu: '1'

@@ -92,7 +92,7 @@ def load_config() -> Dict[str, Any]:
     cfg["MANIFESTS_DIR"] = Path(os.getenv("MANIFESTS_DIR", MANIFESTS_DEFAULT))
     cfg["FRONTEND_NAMESPACE"] = os.getenv("FRONTEND_NAMESPACE", "inference")
     cfg["SERVICE_NAME"] = os.getenv("FRONTEND_SERVICE_NAME", "frontend")
-    cfg["IMAGE"] = os.getenv("FRONTEND_AND_AUTH_IMAGE", "athithya5354/frontend-and-auth:v14")
+    cfg["IMAGE"] = os.getenv("FRONTEND_AND_AUTH_IMAGE", "athithya5354/frontend-and-auth:v10")
     try: cfg["PORT"] = int(os.getenv("FRONTEND_PORT", "8000"))
     except Exception: cfg["PORT"] = 8000
     try: cfg["REPLICAS"] = int(os.getenv("FRONTEND_AND_AUTH_REPLICAS","1"))

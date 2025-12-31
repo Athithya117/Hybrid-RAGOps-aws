@@ -6,7 +6,7 @@ metadata:
   labels: &id001
     app.kubernetes.io/name: frontend
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels: *id001
   template:

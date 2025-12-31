@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  namespace: qdrant
+  labels:
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/component: qdrant
+spec:
+  selector:
+    app.kubernetes.io/name: qdrant
+  ports:
+  - name: metrics
+    port: 6333
+    targetPort: 6333
+    protocol: TCP
+  type: ClusterIP

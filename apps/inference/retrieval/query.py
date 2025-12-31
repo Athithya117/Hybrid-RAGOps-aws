@@ -1,3 +1,4 @@
+# apps/inference/retrieval/query.py
 #!/usr/bin/env python3
 from __future__ import annotations
 import os
@@ -12,36 +13,63 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
 import numpy as np
 import httpx
+import socket
+from urllib.parse import urlparse
 from qdrant_client import QdrantClient
 from qdrant_client.models import Prefetch, FusionQuery, Fusion, SparseVector
 from fastapi import FastAPI, HTTPException, Response, Request
 from pydantic import BaseModel, Field, conint
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 import query_helpers as helpers
+
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(stream=sys.stdout, level=getattr(logging, LOG_LEVEL, logging.DEBUG), format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logging.basicConfig(stream=sys.stdout, level=getattr(logging, LOG_LEVEL, logging.INFO))
 logger = logging.getLogger("inference_pipeline.query")
-QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+
+QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant.qdrant.svc.cluster.local:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "default_rag_collection1")
-DENSE_URL = os.getenv("DENSE_URL", "http://0.0.0.0:8200")
-SPARSE_URL = os.getenv("SPARSE_URL", "http://0.0.0.0:8201")
-RERANKER_URL = os.getenv("RERANKER_URL", "http://0.0.0.0:8202")
+DENSE_URL = os.getenv("DENSE_URL", "http://dense-svc.models.svc.cluster.local:8200")
+SPARSE_URL = os.getenv("SPARSE_URL", "http://sparse-svc.models.svc.cluster.local:8201")
+RERANKER_URL = os.getenv("RERANKER_URL", "http://reranker-svc.models.svc.cluster.local:8202")
 DENSE_DIM = int(os.getenv("DENSE_DIM", "384"))
 HTTP_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "10.0"))
 SPARSE_BATCH_FALLBACK = int(os.getenv("SPARSE_BATCH_FALLBACK", "8"))
 API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
 LLM_MODEL = os.getenv("LLM_MODEL", "llama-3.1-8b-instant")
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
-LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0"))
-LLM_SYSTEM_PROMPT = os.getenv("LLM_SYSTEM_PROMPT","You are an assistant that must base all factual claims ONLY on the provided numbered sources. Each factual sentence MUST end with a citation using the exact format [n] where n corresponds to one of the numbered blocks in the context. You MUST NOT output filenames, URLs, page numbers, or any other metadata. Do NOT invent citation numbers. Use only citations that appear in the context.")
+LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
+
+# Prompt control: two envs (system = behavior, user template = task framing)
+LLM_SYSTEM_PROMPT = os.getenv(
+    "LLM_SYSTEM_PROMPT",
+    "You are a clear concise assistant. Provide a short explanatory answer in 2-3 sentences. "
+    "When you cite evidence, use only numeric tags like [1],[2]. Do NOT output filenames, URLs, or raw page numbers."
+)
+LLM_USER_PROMPT_TEMPLATE = os.getenv(
+    "LLM_USER_PROMPT_TEMPLATE",
+    "Summarize the following retrieved passages and answer the question in 2-3 sentences.\n\n"
+    "QUESTION: {question}\n\nPASSAGES:\n{passages}\n\nAnswer:"
+)
+
 MAX_PROMPT_TOKENS = int(os.getenv("MAX_PROMPT_TOKENS", "6000"))
-MAX_CHUNKS_TO_LLM = int(os.getenv("MAX_CHUNKS_TO_LLM", "5"))
+
+# new app-level env vars (defaults chosen to match change summary)
+RERANKER_MODE = os.getenv("RERANKER_MODE", helpers.RERANKER_MODE if hasattr(helpers, "RERANKER_MODE") else "AUTO").upper()
+RERANK_TOPK = int(os.getenv("RERANK_TOPK", os.getenv("RERANKER_TOP_K", str(getattr(helpers, "RERANK_TOPK", 20)))))
+RERANKER_TOP_K = RERANK_TOPK
+RERANK_AUTO_THRESHOLD = float(os.getenv("RERANK_AUTO_THRESHOLD", str(getattr(helpers, "RERANK_AUTO_THRESHOLD", 0.75))))
+RERANK_THRESHOLD = int(os.getenv("RERANK_THRESHOLD", str(getattr(helpers, "RERANK_THRESHOLD", 30))))
+RERANK_MARGIN = float(os.getenv("RERANK_MARGIN", str(getattr(helpers, "RERANK_MARGIN", 0.08))))
+RERANK_ALPHA = float(os.getenv("RERANK_ALPHA", str(getattr(helpers, "RERANK_ALPHA", 0.6))))
+MAX_CHUNKS_TO_LLM = int(os.getenv("MAX_CHUNKS_TO_LLM", str(getattr(helpers, "MAX_CHUNKS_TO_LLM", 6))))
+QUERY_TOPK_DENSE = int(os.getenv("QUERY_TOPK_DENSE", str(getattr(helpers, "QUERY_TOPK_DENSE", 200))))
+QUERY_TOPK_SPARSE = int(os.getenv("QUERY_TOPK_SPARSE", str(getattr(helpers, "QUERY_TOPK_SPARSE", 200))))
+RRF_TOP_N = int(os.getenv("RRF_TOP_N", str(getattr(helpers, "RRF_TOP_N", 10))))
+
 ENV = os.getenv("ENV", "STAGING").upper()
-AZURE_USE_MANAGED_IDENTITY = os.getenv("AZURE_USE_MANAGED_IDENTITY", "").strip().lower() in ("1", "true", "yes")
-if ENV == "PROD":
-    AZURE_USE_MANAGED_IDENTITY = True
 SERVICE_NAME = "retrieval"
+
 LABELS = ["service", "env", "endpoint", "status_code"]
 REQUEST_COUNT = Counter("retrieval_requests_total", "Total HTTP requests served by retrieval", LABELS)
 REQUEST_LATENCY = Histogram("retrieval_request_duration_seconds", "Request latency (seconds) observed by retrieval", LABELS, buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0))
@@ -60,31 +88,45 @@ PRESIGN_COUNT = Counter("presign_requests_total", "Presign requests", ["service"
 PRESIGN_LATENCY = Histogram("presign_duration_seconds", "Presign latency", ["service", "env"])
 RETRIEVED_DOCS = Histogram("retrieved_docs_count", "Number of docs retrieved per request", ["service", "env"], buckets=(0, 1, 2, 5, 10, 20, 50))
 RERANK_LATENCY = Histogram("rerank_duration_seconds", "Reranker latency", ["service", "env"], buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5))
+
 dense_client: Optional["AsyncDenseClient"] = None
 sparse_client: Optional["AsyncSparseClient"] = None
 reranker_client: Optional["AsyncRerankerClient"] = None
 qdrant_client: Optional[QdrantClient] = None
+
 ui_helpers = helpers
 SHUTDOWN = False
+
 def iso_ts():
     return datetime.now(timezone.utc).isoformat()
+
 def _escape_stack(exc: Exception) -> str:
     if exc is None:
         return ""
     tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
     return tb.replace("\n", "\\n")
-def slog(level: str, evt: str, **kw):
-    entry = {"ts": iso_ts(), "lvl": level, "evt": evt}
-    entry.update(kw)
-    logger.log(getattr(logging, level.upper(), logging.INFO), json.dumps(entry, ensure_ascii=False))
+
+def _json_log(level: str, evt: str, **kw):
+    entry = {"timestamp": iso_ts(), "level": level.upper(), "message": evt, "service": SERVICE_NAME, "env": ENV}
+    if level.lower() == "info":
+        payload = {k: v for k, v in kw.items() if k in ("status", "service", "env")}
+        if payload:
+            entry["fields"] = payload
+        logger.log(getattr(logging, level.upper(), logging.INFO), json.dumps(entry, ensure_ascii=False, separators=(",", ":")))
+        return
+    entry["fields"] = kw if kw else {}
+    logger.log(getattr(logging, level.upper(), logging.INFO), json.dumps(entry, ensure_ascii=False, separators=(",", ":")))
+
 signal.signal(signal.SIGINT, lambda s, f: setattr(sys.modules[__name__], "SHUTDOWN", True))
 signal.signal(signal.SIGTERM, lambda s, f: setattr(sys.modules[__name__], "SHUTDOWN", True))
+
 def l2_normalize(v: List[float]) -> List[float]:
     a = np.asarray(v, dtype=np.float32)
     n = np.linalg.norm(a)
     if n > 0:
         a = a / n
     return a.astype(float).tolist()
+
 class AsyncDenseClient:
     def __init__(self, url: str, timeout: float = HTTP_TIMEOUT):
         self.url = url.rstrip("/")
@@ -98,10 +140,10 @@ class AsyncDenseClient:
         try:
             c = await self._client_get()
             r = await c.get(f"{self.url}/health", timeout=self.timeout)
-            slog("debug", "dense.health", url=self.url, status=r.status_code)
+            _json_log("debug", "dense.health", url=self.url, status=r.status_code)
             return r.status_code == 200
         except Exception as e:
-            slog("warning", "dense.health.error", error=str(e))
+            _json_log("warning", "dense.health.error", error=str(e))
             return False
     async def embed(self, texts: List[str]) -> List[List[float]]:
         if not texts:
@@ -122,7 +164,7 @@ class AsyncDenseClient:
                     if len(vv) != DENSE_DIM:
                         raise RuntimeError("dense dim mismatch")
                     out.append(l2_normalize(vv))
-                slog("debug", "dense.embedded", count=len(out))
+                _json_log("debug", "dense.embedded", count=len(out))
                 return out
             raise RuntimeError(f"dense embed failed status={r.status_code} body={r.text}")
         finally:
@@ -131,6 +173,7 @@ class AsyncDenseClient:
                 DENSE_EMBED_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(elapsed)
             except Exception:
                 pass
+
 class AsyncSparseClient:
     def __init__(self, url: str, timeout: float = HTTP_TIMEOUT):
         self.url = url.rstrip("/")
@@ -144,10 +187,10 @@ class AsyncSparseClient:
         try:
             c = await self._client_get()
             r = await c.get(f"{self.url}/health", timeout=self.timeout)
-            slog("debug", "sparse.health", url=self.url, status=r.status_code)
+            _json_log("debug", "sparse.health", url=self.url, status=r.status_code)
             return r.status_code == 200
         except Exception as e:
-            slog("warning", "sparse.health.error", error=str(e))
+            _json_log("warning", "sparse.health.error", error=str(e))
             return False
     async def embed_chunked(self, texts: List[str]) -> List[Dict[str, Any]]:
         if not texts:
@@ -167,7 +210,7 @@ class AsyncSparseClient:
                     if not isinstance(s, dict) or "indices" not in s or "values" not in s:
                         raise RuntimeError("sparse element invalid")
                     out.append({"indices": [int(x) for x in s["indices"]], "values": [float(x) for x in s["values"]]})
-                slog("debug", "sparse.embedded", count=len(out))
+                _json_log("debug", "sparse.embedded", count=len(out))
                 return out
             if r.status_code == 400:
                 try:
@@ -182,10 +225,10 @@ class AsyncSparseClient:
                         while i < len(texts):
                             out.extend(await self.embed_chunked(texts[i:i + maxb]))
                             i += maxb
-                        slog("debug", "sparse.batch.split", original=len(texts), split_to=maxb)
+                        _json_log("debug", "sparse.batch.split", original=len(texts), split_to=maxb)
                         return out
                 except Exception as e:
-                    slog("warning", "sparse.batch.split.failed", error=str(e))
+                    _json_log("warning", "sparse.batch.split.failed", error=str(e))
             if r.status_code == 422:
                 maxb = SPARSE_BATCH_FALLBACK
                 out = []
@@ -193,7 +236,7 @@ class AsyncSparseClient:
                 while i < len(texts):
                     out.extend(await self.embed_chunked(texts[i:i + maxb]))
                     i += maxb
-                slog("debug", "sparse.batch.fallback", original=len(texts), fallback=maxb)
+                _json_log("debug", "sparse.batch.fallback", original=len(texts), fallback=maxb)
                 return out
             raise RuntimeError(f"sparse embed failed status={r.status_code}")
         finally:
@@ -202,6 +245,7 @@ class AsyncSparseClient:
                 SPARSE_EMBED_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(elapsed)
             except Exception:
                 pass
+
 class AsyncRerankerClient:
     def __init__(self, url: str, timeout: float = HTTP_TIMEOUT):
         self.url = url.rstrip("/")
@@ -215,10 +259,10 @@ class AsyncRerankerClient:
         try:
             c = await self._client_get()
             r = await c.get(f"{self.url}/health", timeout=self.timeout)
-            slog("debug", "reranker.health", url=self.url, status=r.status_code)
+            _json_log("debug", "reranker.health", url=self.url, status=r.status_code)
             return r.status_code == 200
         except Exception as e:
-            slog("warning", "reranker.health.error", error=str(e))
+            _json_log("warning", "reranker.health.error", error=str(e))
             return False
     async def rerank(self, query: str, documents: List[str]) -> List[float]:
         if not documents:
@@ -240,6 +284,7 @@ class AsyncRerankerClient:
                 RERANK_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(elapsed)
             except Exception:
                 pass
+
 def _sanitize_chunk_for_llm(payload: Dict[str, Any], index: int) -> Dict[str, Any]:
     full_text = ui_helpers._full_text_from_payload(payload)
     heading = None
@@ -249,8 +294,10 @@ def _sanitize_chunk_for_llm(payload: Dict[str, Any], index: int) -> Dict[str, An
         heading = d.get("headings")[0]
     content = full_text or ""
     return {"index": index, "heading": heading, "content": content}
+
 def _ordered_meta_items_from_payload(payload: Dict[str, Any]) -> List[Tuple[str, Any]]:
     return ui_helpers.ui_fields_from_payload(payload, prefer_snippet_len=None)
+
 def build_numbered_prompt_and_ui_chunks(results: List[Dict[str, Any]], query: str):
     llm_blocks: List[str] = []
     llm_lines: List[str] = []
@@ -276,6 +323,7 @@ def build_numbered_prompt_and_ui_chunks(results: List[Dict[str, Any]], query: st
         llm_lines.append(json.dumps(llm_chunk, ensure_ascii=False))
     prompt_body = "\n\n".join(llm_blocks) + f"\n\nQ: {query}\nA:"
     return prompt_body, llm_lines, ui_chunks
+
 def query_response_to_items(resp):
     data = None
     if hasattr(resp, "model_dump"):
@@ -305,21 +353,24 @@ def query_response_to_items(resp):
     if isinstance(data, dict) and any(k in data for k in ("id", "payload", "score")):
         return [data]
     return []
+
 def extract_point_fields(item):
     pid = item.get("id")
     if pid is None and isinstance(item.get("point"), dict):
         pid = item["point"].get("id")
-    score = item.get("score", item.get("payload_score"))
+    score = item.get("score", item.get("payload_score", 0.0))
     payload = item.get("payload") or (item.get("point", {}).get("payload") if isinstance(item.get("point"), dict) else None)
-    return {"id": pid, "score": score, "payload": payload, "raw": item}
+    return {"id": pid, "score": float(score) if score is not None else 0.0, "payload": payload, "raw": item}
+
 def softmax(x):
-    a = np.array(x)
-    a = a - np.max(a)
+    a = np.array(x, dtype=float)
+    a = a - np.max(a) if a.size else a
     e = np.exp(a)
-    return e / e.sum() if e.sum() > 0 else np.ones_like(a) / len(a)
-async def hybrid_query(client, collection_name, query_text, sparse_client, dense_client, reranker_client, hybrid, top_k=10, prefetch_k=128):
+    return (e / e.sum()).tolist() if e.sum() > 0 else (np.ones_like(a) / max(1, len(a))).tolist()
+
+async def hybrid_query(client, collection_name, query_text, sparse_client, dense_client, reranker_client, hybrid, top_k=10, prefetch_k_dense=200, prefetch_k_sparse=200, rrf_top_n=10):
     if client is None:
-        slog("warning", "qdrant.missing")
+        _json_log("warning", "qdrant.missing")
         return []
     if hybrid and dense_client is None:
         hybrid = False
@@ -335,7 +386,7 @@ async def hybrid_query(client, collection_name, query_text, sparse_client, dense
                 sparse_vecs = await sparse_client.embed_chunked([query_text])
                 q_sparse = sparse_vecs[0] if sparse_vecs is not None else None
         except Exception as e:
-            slog("warning", "embed.failed", error=str(e))
+            _json_log("warning", "embed.failed", error=str(e))
             q_dense = None
             q_sparse = None
         q_sparse_obj = None
@@ -344,15 +395,15 @@ async def hybrid_query(client, collection_name, query_text, sparse_client, dense
             values = list(map(float, q_sparse.get("values", [])))
             q_sparse_obj = SparseVector(indices=indices, values=values)
         try:
-            prefetch_arg = [Prefetch(query=q_dense, using="dense", limit=prefetch_k)] if q_dense is not None else None
+            prefetch_arg = [Prefetch(query=q_dense, using="dense", limit=prefetch_k_dense)] if q_dense is not None else None
             q_start = time.time()
-            fused = await asyncio.to_thread(lambda: client.query_points(collection_name=collection_name, prefetch=prefetch_arg, query=FusionQuery(fusion=Fusion.RRF), limit=top_k, with_payload=True, with_vectors=False))
+            fused = await asyncio.to_thread(lambda: client.query_points(collection_name=collection_name, prefetch=prefetch_arg, query=FusionQuery(fusion=Fusion.RRF), limit=rrf_top_n, with_payload=True, with_vectors=False))
             q_elapsed = max(time.time() - q_start, 1e-6)
             QDRANT_QUERY_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(q_elapsed)
             QDRANT_QUERY_COUNT.labels(service=SERVICE_NAME, env=ENV).inc()
             items = query_response_to_items(fused)
         except Exception as e:
-            slog("warning", "qdrant.query.failed", error=str(e))
+            _json_log("warning", "qdrant.query.failed", error=str(e))
             items = []
     else:
         q_sparse_vecs = None
@@ -360,7 +411,7 @@ async def hybrid_query(client, collection_name, query_text, sparse_client, dense
             if sparse_client is not None:
                 q_sparse_vecs = await sparse_client.embed_chunked([query_text])
         except Exception as e:
-            slog("warning", "sparse.embed.failed", error=str(e))
+            _json_log("warning", "sparse.embed.failed", error=str(e))
         q_sparse = q_sparse_vecs[0] if q_sparse_vecs is not None else None
         q_sparse_obj = None
         if q_sparse is not None:
@@ -369,13 +420,13 @@ async def hybrid_query(client, collection_name, query_text, sparse_client, dense
             q_sparse_obj = SparseVector(indices=indices, values=values)
         try:
             q_start = time.time()
-            resp = await asyncio.to_thread(lambda: client.query_points(collection_name=collection_name, query=q_sparse_obj, using="sparse", limit=top_k, with_payload=True, with_vectors=False))
+            resp = await asyncio.to_thread(lambda: client.query_points(collection_name=collection_name, query=q_sparse_obj, using="sparse", limit=prefetch_k_sparse, with_payload=True, with_vectors=False))
             q_elapsed = max(time.time() - q_start, 1e-6)
             QDRANT_QUERY_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(q_elapsed)
             QDRANT_QUERY_COUNT.labels(service=SERVICE_NAME, env=ENV).inc()
             items = query_response_to_items(resp)
         except Exception as e:
-            slog("warning", "qdrant.query.failed", error=str(e))
+            _json_log("warning", "qdrant.query.failed", error=str(e))
             items = []
     results = [extract_point_fields(it) for it in items]
     seen = set()
@@ -391,20 +442,43 @@ async def hybrid_query(client, collection_name, query_text, sparse_client, dense
         if len(dedup) >= top_k:
             break
     return dedup
+
 class GenerateRequest(BaseModel):
     query: str = Field(..., min_length=1)
     enable_tracing: Optional[bool] = False
     top_k: conint(ge=1, le=50) = 5
     return_chunks: Optional[bool] = True
     max_tokens: Optional[conint(ge=16, le=4096)] = LLM_MAX_TOKENS
+
 class GenerateResponse(BaseModel):
     answer: str
     chunks: Optional[List[Dict[str, Any]]] = None
+
 from contextlib import asynccontextmanager
+
+def _validate_service_dns(url: str) -> bool:
+    try:
+        p = urlparse(url)
+        host = p.hostname
+        if not host:
+            return False
+        socket.getaddrinfo(host, p.port or 0)
+        return True
+    except Exception:
+        return False
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global dense_client, sparse_client, reranker_client, qdrant_client
-    slog("info", "lifespan.starting", qdrant_url=QDRANT_URL, dense_url=DENSE_URL, sparse_url=SPARSE_URL, reranker_url=RERANKER_URL, env=ENV, managed_identity=str(AZURE_USE_MANAGED_IDENTITY).lower())
+    _json_log("info", "lifespan.starting", status="starting")
+    if not _validate_service_dns(QDRANT_URL):
+        _json_log("warning", "dns.unresolved", error="qdrant host unresolved", qdrant_url=QDRANT_URL)
+    if not _validate_service_dns(DENSE_URL):
+        _json_log("warning", "dns.unresolved", error="dense host unresolved", dense_url=DENSE_URL)
+    if not _validate_service_dns(SPARSE_URL):
+        _json_log("warning", "dns.unresolved", error="sparse host unresolved", sparse_url=SPARSE_URL)
+    if not _validate_service_dns(RERANKER_URL):
+        _json_log("warning", "dns.unresolved", error="reranker host unresolved", reranker_url=RERANKER_URL)
     dense_client = AsyncDenseClient(DENSE_URL)
     sparse_client = AsyncSparseClient(SPARSE_URL)
     reranker_client = AsyncRerankerClient(RERANKER_URL)
@@ -412,7 +486,7 @@ async def lifespan(app: FastAPI):
         try:
             return QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY) if QDRANT_API_KEY else QdrantClient(url=QDRANT_URL)
         except Exception as e:
-            slog("warning", "qdrant.init.failed", error=str(e))
+            _json_log("warning", "qdrant.init.failed", error=str(e))
             return None
     qdrant_client = await asyncio.to_thread(build_qdrant)
     try:
@@ -428,10 +502,10 @@ async def lifespan(app: FastAPI):
     except Exception:
         ok_rerank = False
     q_ok = bool(qdrant_client)
-    slog("info", "clients.status", dense_ready=bool(ok_dense), sparse_ready=bool(ok_sparse), reranker_ready=bool(ok_rerank), qdrant_ready=bool(q_ok))
+    _json_log("info", "clients.status", dense_ready=bool(ok_dense), sparse_ready=bool(ok_sparse), reranker_ready=bool(ok_rerank), qdrant_ready=bool(q_ok))
     try:
-        if ENV == "PROD" and (helpers.DefaultAzureCredential is None or helpers.BlobServiceClient is None):
-            slog("warning", "presign.unavailable", reason="azure.identity or azure.storage.blob missing in PROD; presign endpoints will error")
+        if not (helpers.AZURE_STORAGE_CONNECTION_STRING or helpers.AZURE_STORAGE_ACCOUNT_KEY or helpers.AZURE_SAS_TOKEN):
+            _json_log("warning", "presign.unavailable", reason="no AZURE_STORAGE_CONNECTION_STRING/AZURE_STORAGE_ACCOUNT_KEY/AZURE_SAS_TOKEN configured; presign endpoints will error")
     except Exception:
         pass
     ready = bool(q_ok)
@@ -445,8 +519,10 @@ async def lifespan(app: FastAPI):
                     await c._client.aclose()
                 except Exception:
                     pass
-        slog("info", "lifespan.shutdown")
+        _json_log("info", "lifespan.shutdown", status="stopping")
+
 app = FastAPI(lifespan=lifespan)
+
 async def generate_handler(req: GenerateRequest) -> GenerateResponse:
     endpoint = "/generate"
     start = time.time()
@@ -457,16 +533,65 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
             raise HTTPException(status_code=400, detail="query required")
         if qdrant_client is None:
             msg = "retrieval backend (qdrant) unavailable; check QDRANT_URL/QDRANT_API_KEY"
-            slog("error", "generate.failed", error=msg)
+            _json_log("error", "generate.failed", error=msg)
             status_code = 503
             return GenerateResponse(answer=msg)
         try:
-            results = await hybrid_query(qdrant_client, COLLECTION_NAME, req.query, sparse_client, dense_client, reranker_client, (dense_client is not None and sparse_client is not None), top_k=int(req.top_k), prefetch_k=max(50, int(os.getenv("QUERY_TOPK", "200"))))
+            results = await hybrid_query(
+                qdrant_client,
+                COLLECTION_NAME,
+                req.query,
+                sparse_client,
+                dense_client,
+                reranker_client,
+                (dense_client is not None and sparse_client is not None),
+                top_k=int(req.top_k),
+                prefetch_k_dense=QUERY_TOPK_DENSE,
+                prefetch_k_sparse=QUERY_TOPK_SPARSE,
+                rrf_top_n=RRF_TOP_N,
+            )
         except Exception as e:
-            slog("error", "retrieval.failed", error=str(e))
+            _json_log("error", "retrieval.failed", error=str(e))
             status_code = 500
             return GenerateResponse(answer=f"retrieval failed: {e}")
         RETRIEVED_DOCS.labels(service=SERVICE_NAME, env=ENV).observe(len(results))
+
+        # Rerank decision & execution
+        try:
+            do_rerank = False
+            if RERANKER_MODE == "ALWAYS":
+                do_rerank = True
+            elif RERANKER_MODE == "DISABLE":
+                do_rerank = False
+            else:
+                top_score = results[0].get("score", 0.0) if results else 0.0
+                second_score = results[1].get("score", 0.0) if len(results) > 1 else 0.0
+                if top_score < RERANK_AUTO_THRESHOLD:
+                    do_rerank = True
+                elif (top_score - second_score) < RERANK_MARGIN:
+                    do_rerank = True
+            if do_rerank and reranker_client is not None and results:
+                candidate_count = min(len(results), RERANK_TOPK)
+                candidates = results[:candidate_count]
+                docs = [ui_helpers._full_text_from_payload(c.get("payload") or {}) or "" for c in candidates]
+                try:
+                    rerank_scores = await reranker_client.rerank(req.query, docs)
+                    if rerank_scores and len(rerank_scores) == len(candidates):
+                        fused_scores = [c.get("score", 0.0) for c in candidates]
+                        fused_norm = softmax(fused_scores)
+                        rerank_norm = softmax([float(x) for x in rerank_scores])
+                        combined = [(RERANK_ALPHA * r) + ((1.0 - RERANK_ALPHA) * f) for r, f in zip(rerank_norm, fused_norm)]
+                        order = sorted(range(len(combined)), key=lambda i: combined[i], reverse=True)
+                        reordered = [candidates[i] for i in order]
+                        for i, r in enumerate(reordered):
+                            r["combined_score"] = combined[order.index(i)] if i < len(combined) else reordered[i].get("score", 0.0)
+                        results = reordered + results[candidate_count:]
+                except Exception as e:
+                    _json_log("warning", "rerank.failed", error=str(e))
+        except Exception as e:
+            _json_log("warning", "rerank.decision.failed", error=str(e))
+
+        # choose docs to send to LLM
         docs_for_llm = results[:min(len(results), max(1, MAX_CHUNKS_TO_LLM))]
         if not docs_for_llm:
             return GenerateResponse(answer="no documents retrieved")
@@ -476,7 +601,7 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
             if req.enable_tracing:
                 if not API_KEY:
                     msg = "LLM API key not configured; cannot produce traced answer"
-                    slog("error", "llm.missing.key")
+                    _json_log("error", "llm.missing.key")
                     ui_chunks = []
                     for idx, r in enumerate(docs_for_llm, start=1):
                         payload = r.get("payload") or {}
@@ -490,30 +615,32 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
                         ui_chunks.append({"index": idx, "meta_items": meta_items, "source_url": src})
                     return GenerateResponse(answer=msg, chunks=[{"index": c["index"], "meta_items": c["meta_items"], "source_url": c["source_url"]} for c in ui_chunks])
                 prompt_body, llm_lines, ui_chunks = build_numbered_prompt_and_ui_chunks(docs_for_llm, req.query)
+                system_prompt = LLM_SYSTEM_PROMPT
+                user_prompt = LLM_USER_PROMPT_TEMPLATE.format(question=req.query, passages=prompt_body)
                 if API_KEY:
-                    answer_text = await _call_llm_via_http(LLM_SYSTEM_PROMPT, "\n\n".join(llm_lines) + f"\n\nQ: {req.query}\nA:", model=LLM_MODEL, max_tokens=req.max_tokens or LLM_MAX_TOKENS, temperature=LLM_TEMPERATURE)
+                    answer_text = await _call_llm_via_http(system_prompt, user_prompt, model=LLM_MODEL, max_tokens=req.max_tokens or LLM_MAX_TOKENS, temperature=LLM_TEMPERATURE)
                 else:
                     answer_text = "tracing requires LLM API key"
             else:
                 prompt_body, llm_lines, ui_chunks = build_numbered_prompt_and_ui_chunks(docs_for_llm, req.query)
-                system_prompt = "You are a clear concise assistant. Provide a short explanatory answer in 2-3 sentences. When you cite evidence, use only numeric tags like [1],[2]. Do NOT output filenames, URLs, raw page numbers."
-                user_prompt = f"Summarize the following retrieved passages and answer the question in 2-3 sentences.\n\nQUESTION: {req.query}\n\nPASSAGES:\n{prompt_body}\n\nAnswer:"
+                system_prompt = LLM_SYSTEM_PROMPT
+                user_prompt = LLM_USER_PROMPT_TEMPLATE.format(question=req.query, passages=prompt_body)
                 if API_KEY:
                     max_toks = req.max_tokens or max(128, LLM_MAX_TOKENS)
                     answer_text = await _call_llm_via_http(system_prompt, user_prompt, model=LLM_MODEL, max_tokens=max_toks, temperature=LLM_TEMPERATURE)
                     if isinstance(answer_text, str) and len(answer_text.strip()) < 3:
-                        slog("warning", "llm.too_short", len=len(answer_text))
+                        _json_log("warning", "llm.too_short", len=len(answer_text))
                         answer_text = deterministic_summarize(llm_lines, req.query)
                 else:
                     answer_text = deterministic_summarize(llm_lines, req.query)
         except Exception as e:
-            slog("error", "llm.call.failed", error=str(e))
+            _json_log("error", "llm.call.failed", error=str(e))
             answer_text = deterministic_summarize(llm_lines, req.query) or f"llm call failed: {e}"
         valid_indexes = [c["index"] for c in ui_chunks] if ui_chunks else []
         try:
             answer_text = _validate_and_filter_citations(answer_text, valid_indexes)
         except Exception as e:
-            slog("warning", "citation.filter.failed", error=str(e))
+            _json_log("warning", "citation.filter.failed", error=str(e))
         out_chunks = None
         if req.return_chunks and req.enable_tracing:
             out_chunks = []
@@ -530,6 +657,7 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
                 ERROR_COUNT.labels(service=SERVICE_NAME, env=ENV, endpoint=endpoint, error_type=str(status_code)).inc()
         except Exception:
             pass
+
 async def _call_llm_via_http(system: str, user_prompt: str, model: str, max_tokens: int, temperature: float) -> str:
     key = API_KEY or ""
     if not key:
@@ -567,6 +695,7 @@ async def _call_llm_via_http(system: str, user_prompt: str, model: str, max_toke
             LLM_CALL_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(elapsed)
         except Exception:
             pass
+
 def deterministic_summarize(lines: List[str], query: str, max_chars: int = 800) -> str:
     texts = []
     for ln in lines:
@@ -591,6 +720,7 @@ def deterministic_summarize(lines: List[str], query: str, max_chars: int = 800) 
     if not out:
         return joined[:max_chars]
     return " ".join(out)[:max_chars]
+
 def _validate_and_filter_citations(ans: str, valid_indexes: List[int]) -> str:
     if not ans:
         return ans
@@ -602,9 +732,11 @@ def _validate_and_filter_citations(ans: str, valid_indexes: List[int]) -> str:
     ans = __import__("re").sub(r"https?://\S+", "", ans)
     ans = __import__("re").sub(r"\s+", " ", ans).strip()
     return ans
+
 @app.post("/generate", response_model=GenerateResponse)
 async def api_generate(req: GenerateRequest):
     return await generate_handler(req)
+
 @app.post("/presign")
 async def api_presign(request: Request):
     PRESIGN_COUNT.labels(service=SERVICE_NAME, env=ENV).inc()
@@ -630,10 +762,10 @@ async def api_presign(request: Request):
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except RuntimeError as e:
-            slog("error", "presign.runtime.failed", error=str(e))
+            _json_log("error", "presign.runtime.failed", error=str(e))
             raise HTTPException(status_code=500, detail=str(e))
         except Exception as e:
-            slog("error", "presign.failed", error=str(e), stack=_escape_stack(e))
+            _json_log("error", "presign.failed", error=str(e), stack=_escape_stack(e))
             raise HTTPException(status_code=500, detail=f"presign failed: {e}")
     finally:
         elapsed = max(time.time() - start, 1e-6)
@@ -641,9 +773,11 @@ async def api_presign(request: Request):
             PRESIGN_LATENCY.labels(service=SERVICE_NAME, env=ENV).observe(elapsed)
         except Exception:
             pass
+
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+
 @app.get("/readyz")
 async def readyz():
     try:
@@ -664,9 +798,11 @@ async def readyz():
         r = False
     ready_val = bool(q_ok)
     return {"status": "ready" if ready_val else "not_ready", "service_ready": ready_val, "qdrant": bool(q_ok), "dense": bool(d), "sparse": bool(s), "reranker": bool(r)}
+
 @app.get("/metrics")
 def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8001")), log_level=os.getenv("LOG_LEVEL", "info").lower())

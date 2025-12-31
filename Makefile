@@ -69,7 +69,7 @@ deploy-qdrant:
 	python3 infra/generators/qdrant_cluster.py --apply
 
 deploy-retriever:
-	python3 infra/generators/retriever.py --apply --confirm
+	bash infra/generators/retriever.sh --apply
 
 deploy-frontend:
 	python3 infra/generators/frontend_auth.py --apply --confirm
@@ -77,17 +77,19 @@ deploy-frontend:
 deploy-cloudflared:
 	python3 infra/generators/cloudflared.py --apply --replicas $${CLOUDFLARED_TUNNEL_REPLICAS} --namespace inference
 
-deploy-prometheus:
-	python3 infra/generators/monitoring_alerts.py --apply 
-
 deploy-clickhouse:
 	python3 infra/generators/clickhouse.py --apply
 
 deploy-vector:
 	python3 infra/generators/vector_logger.py --apply
 
+deploy-vm:
+	bash infra/generators/monitoring_and_alerts.sh --apply
+
 deploy-models: deploy-dense deploy-sparse deploy-reranker
 deploy-inference-svc: deploy-retriever deploy-frontend
+deploy-observability-stack:	deploy-prometheus deploy-clickhouse deploy-vector
+
 
 run-indexing-cronjob-kind:
 	@echo "[make fix-dns] invoking utils/fix_kind_cluster_dns.sh"
@@ -123,18 +125,16 @@ test-vector-connection:
 	make fix-dns
 	bash infra/tests/test_vector_clickhouse_connection.sh
 
-
-.PHONY: tree clean lc push docker-login docker-build-backup docker-push-backup \
-	index-image frontend-image init-reranker setup-flux inspect-flux flux-status \
-	pulumi-up pulumi-destroy deploy-dense deploy-sparse deploy-reranker deploy-qdrant \
-	deploy-retriever deploy-frontend deploy-models deploy-inference-svc \
-	indexing-cronjob fix-dns qdrant-backup-cluster qdrant-backup-per-pod
+test-vm:
+	make deploy-vm
+	make deploy-retriever
+	bash infra/tests/monitoring/test_retriever.sh || true
 
 lc:
 	bash utils/lc.sh
 
 tree:
-	tree -a -I '.git|.venv|repos|__pycache__|venv|commands.sh|production-stack|raw_data|.venv-pulumi|.venv2|archive|tmp.md|docs|models|tmp|raw|chunked'
+	tree -a -I '.git|.venv|repos|__pycache__|venv|commands.sh|raw_data|.venv-pulumi|.venv2|archive|tmp.md|docs|models|tmp|raw|chunked'
 
 docker-login:
 	echo "$$DOCKER_PASSWORD" | docker login -u "$$DOCKER_USERNAME" --password-stdin

@@ -52,17 +52,9 @@ BACKUP_AZ_CONTAINER = os.getenv("BACKUP_AZ_CONTAINER", "").strip() or None
 AZURE_DELETE_ACCOUNT = os.getenv("AZURE_DELETE_ACCOUNT", "1").strip().lower() in ("1", "true", "yes")
 FORCE_DELETE = os.getenv("FORCE_DELETE", "1").strip().lower() in ("1", "true", "yes")
 
-UAI_RW_NAME = os.getenv("UAI_RAG_RW_NAME", "uai-rag-rw").strip()
-UAI_RO_NAME = os.getenv("UAI_RAG_RO_NAME", "uai-rag-ro").strip()
-
 BACKUP_AZ_CONTAINER_RETENTION_DAYS = os.getenv("BACKUP_AZ_CONTAINER_RETENTION_DAYS", "").strip()
 BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS = os.getenv("BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS", "").strip()
 BACKUP_PREFIX = os.getenv("BACKUP_PREFIX", "qdrant").strip()
-
-LOKI_AZ_CONTAINER = os.getenv("LOKI_AZ_CONTAINER", "").strip() or None
-LOKI_PREFIX = os.getenv("LOKI_PREFIX", "loki").strip()
-LOKI_COOL_AFTER_DAYS = os.getenv("LOKI_COOL_AFTER_DAYS", "").strip()
-LOKI_RETENTION_DAYS = os.getenv("LOKI_RETENTION_DAYS", "").strip()
 
 def normalize_sku(token: str) -> str:
     t = token.strip().upper()
@@ -93,12 +85,7 @@ def validate_env_minimum():
     if BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS:
         if not BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS.isdigit():
             die("BACKUP_AZ_CONTAINER_COOL_AFTER_DAYS must be an integer number of days")
-    if LOKI_COOL_AFTER_DAYS:
-        if not LOKI_COOL_AFTER_DAYS.isdigit():
-            die("LOKI_COOL_AFTER_DAYS must be an integer number of days")
-    if LOKI_RETENTION_DAYS:
-        if not LOKI_RETENTION_DAYS.isdigit():
-            die("LOKI_RETENTION_DAYS must be an integer number of days")
+
 validate_env_minimum()
 
 def ensure_subscription():
@@ -404,13 +391,10 @@ def do_create():
         create_container(AZURE_STORAGE_ACCOUNT_NAME, key, PULUMI_AZ_CONTAINER)
     if BACKUP_AZ_CONTAINER:
         create_container(AZURE_STORAGE_ACCOUNT_NAME, key, BACKUP_AZ_CONTAINER)
-    if LOKI_AZ_CONTAINER:
-        create_container(AZURE_STORAGE_ACCOUNT_NAME, key, LOKI_AZ_CONTAINER)
     info("CREATED/ENSURED containers:")
     out_containers = [AZURE_CONTAINER]
     if PULUMI_AZ_CONTAINER: out_containers.append(PULUMI_AZ_CONTAINER)
     if BACKUP_AZ_CONTAINER: out_containers.append(BACKUP_AZ_CONTAINER)
-    if LOKI_AZ_CONTAINER: out_containers.append(LOKI_AZ_CONTAINER)
     for c in out_containers:
         info(f" - {c}")
     try:
@@ -425,18 +409,6 @@ def do_create():
         apply_lifecycle_policy(AZURE_STORAGE_ACCOUNT_NAME, AZURE_RESOURCE_GROUP_NAME, BACKUP_AZ_CONTAINER, BACKUP_PREFIX, cool_after, retention)
     else:
         info("No backup lifecycle policy configured or BACKUP_AZ_CONTAINER not set; skipping lifecycle application.")
-    try:
-        loki_retention = int(LOKI_RETENTION_DAYS) if LOKI_RETENTION_DAYS else None
-    except ValueError:
-        loki_retention = None
-    try:
-        loki_cool = int(LOKI_COOL_AFTER_DAYS) if LOKI_COOL_AFTER_DAYS else None
-    except ValueError:
-        loki_cool = None
-    if LOKI_AZ_CONTAINER and (loki_retention is not None or loki_cool is not None):
-        apply_lifecycle_policy(AZURE_STORAGE_ACCOUNT_NAME, AZURE_RESOURCE_GROUP_NAME, LOKI_AZ_CONTAINER, LOKI_PREFIX, loki_cool, loki_retention)
-    else:
-        info("No Loki lifecycle policy configured or LOKI_AZ_CONTAINER not set; skipping lifecycle application.")
 
 def do_delete():
     ensure_subscription()
@@ -464,7 +436,7 @@ def do_delete():
         warn(f"Storage account {AZURE_STORAGE_ACCOUNT_NAME} not found in resource group {AZURE_RESOURCE_GROUP_NAME}; cannot delete containers.")
         return
     key = get_storage_account_key(AZURE_STORAGE_ACCOUNT_NAME, AZURE_RESOURCE_GROUP_NAME)
-    planned = [c for c in [AZURE_CONTAINER, PULUMI_AZ_CONTAINER, BACKUP_AZ_CONTAINER, LOKI_AZ_CONTAINER] if c]
+    planned = [c for c in [AZURE_CONTAINER, PULUMI_AZ_CONTAINER, BACKUP_AZ_CONTAINER] if c]
     info("Pre-delete container inventory (planned deletions):")
     for c in planned:
         cnt = container_blob_count(AZURE_STORAGE_ACCOUNT_NAME, key, c)

@@ -1,0 +1,189 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-config
+  namespace: observability
+data:
+  ENABLE_ALERTS: "false"
+  FAIL_ON_MISCONFIG: "false"
+  K8S_CLUSTER: "k3s"
+  VMSINGLE_IMAGE: "victoriametrics/victoria-metrics:v1.99.0"
+  VMAGENT_IMAGE: "victoriametrics/vmagent:v1.99.0"
+  VMALERT_IMAGE: "victoriametrics/vmalert:v1.99.0"
+  VMSINGLE_RETENTION: "30d"
+  VMSINGLE_PVC_SIZE: "10Gi"
+  VMSINGLE_STORAGE_CLASS: ""
+  VMAGENT_REPLICAS: "1"
+  VMSINGLE_REPLICAS: "1"
+  VMAGENT_CPU_REQ: "200m"
+  VMAGENT_MEM_REQ: "512Mi"
+  VMAGENT_CPU_LIMIT: "1"
+  VMAGENT_MEM_LIMIT: "1Gi"
+  RETRIEVAL_SVC_SELECTOR: "app.kubernetes.io/name=retrieval"
+  RETRIEVAL_NAMESPACE: "inference"
+  RETRIEVAL_METRICS_PORT: "metrics"
+  QDRANT_SVC_SELECTOR: "app.kubernetes.io/name=qdrant"
+  QDRANT_NAMESPACE: "qdrant"
+  QDRANT_METRICS_PORT: "6333"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmagent-config
+  namespace: observability
+data:
+  scrape.yml: |
+    global:
+      scrape_interval: 15s
+    scrape_configs:
+      - job_name: k8s-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_monitoring_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_ip, __meta_kubernetes_pod_annotation_monitoring_io_port]
+            action: replace
+            target_label: __address__
+            regex: (.+);(.+)
+            replacement: $1:$2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victoria-metrics
+  namespace: observability
+  labels:
+    app: victoria-metrics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: victoria-metrics
+  template:
+    metadata:
+      labels:
+        app: victoria-metrics
+    spec:
+      containers:
+        - name: vm
+          image: victoriametrics/victoria-metrics:v1.99.0
+          args:
+            - "-retentionPeriod=30d"
+            - "-storageDataPath=/data"
+          ports:
+            - containerPort: 8428
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: victoria-metrics
+  namespace: observability
+spec:
+  selector:
+    app: victoria-metrics
+  ports:
+    - port: 8428
+      targetPort: 8428
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmagent
+  namespace: observability
+  labels:
+    app: vmagent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vmagent
+  template:
+    metadata:
+      labels:
+        app: vmagent
+    spec:
+      serviceAccountName: vmagent
+      containers:
+        - name: vmagent
+          image: victoriametrics/vmagent:v1.99.0
+          args:
+            - "-promscrape.config=/config/scrape.yml"
+            - "-remoteWrite.url=http://victoria-metrics.observability.svc.cluster.local:8428/api/v1/write"
+            - "-remoteWrite.tmpDataPath=/vmagent-remotewrite-data"
+            - "-remoteWrite.showURL=true"
+          volumeMounts:
+            - name: config
+              mountPath: /config
+      volumes:
+        - name: config
+          configMap:
+            name: vmagent-config
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vmagent
+  namespace: observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vmagent
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vmagent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vmagent
+subjects:
+  - kind: ServiceAccount
+    name: vmagent
+    namespace: observability
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fake-inference
+  namespace: default
+  labels:
+    app: fake-inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fake-inference
+  template:
+    metadata:
+      labels:
+        app: fake-inference
+      annotations:
+        monitoring.io/scrape: "true"
+        monitoring.io/port: "9100"
+    spec:
+      containers:
+        - name: metrics
+          image: prom/node-exporter:v1.7.0
+          args:
+            - "--web.listen-address=:9100"
+          ports:
+            - containerPort: 9100

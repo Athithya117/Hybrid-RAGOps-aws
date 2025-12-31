@@ -20,7 +20,7 @@ JQ_CMD="$(command -v jq 2>/dev/null || true)"
 # Option 1 DNS binding knobs (opt-in)
 ENABLE_DNS_BINDING="${ENABLE_DNS_BINDING:-"true"}"   # "true" to attempt cloudflared CLI DNS bind
 PUBLIC_HOSTNAME="${FRONTEND_HOSTNAME:-"ui.athithya.site"}"   # e.g. ui.athithya.site
-DNS_OVERWRITE="${DNS_OVERWRITE:-"true"}"             # "true" to pass --overwrite-dns (use with caution)
+DNS_OVERWRITE="${DNS_OVERWRITE:-"true"}"             # "true" to pass --overwrite-dns (safe)
 
 # Ensure directories exist with conservative permissions
 mkdir -p "$CONFIG_DIR" 2>/dev/null || true

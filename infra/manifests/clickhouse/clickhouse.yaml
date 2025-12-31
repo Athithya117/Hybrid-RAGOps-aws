@@ -44,11 +44,11 @@ spec:
           mountPath: /var/lib/clickhouse
         resources:
           requests:
-            cpu: '1'
-            memory: 4Gi
+            cpu: 100m
+            memory: 1Gi
           limits:
-            cpu: '4'
-            memory: 16Gi
+            cpu: '1'
+            memory: 2Gi
         readinessProbe:
           exec:
             command:
@@ -67,4 +67,4 @@ spec:
       - ReadWriteOnce
       resources:
         requests:
-          storage: 100Gi
+          storage: 5Gi
