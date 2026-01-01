@@ -164,6 +164,11 @@ install_if_missing pulumi "${PULUMI_VERSION}" install_pulumi
 
 # ---- Python packages (system pip) — show all output directly ----
 log "Installing selected Python packages with system pip (outputs shown on stdout/stderr)."
+sudo apt-get update -y \
+&& sudo apt-get install -y wget ca-certificates \
+&& wget -q https://github.com/jgm/pandoc/releases/download/3.1.11/pandoc-3.1.11-1-amd64.deb \
+&& sudo dpkg -i pandoc-3.1.11-1-amd64.deb && rm -rf pandoc-3.1.11-1-amd64.deb
+
 
 # Upgrade pip/setuptools/wheel first (no redirection)
 log "Upgrading pip, setuptools, wheel (may require sudo for system-managed environments)."

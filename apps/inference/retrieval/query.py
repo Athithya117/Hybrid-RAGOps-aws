@@ -1,4 +1,3 @@
-# apps/inference/retrieval/query.py
 #!/usr/bin/env python3
 from __future__ import annotations
 import os
@@ -40,21 +39,17 @@ LLM_MODEL = os.getenv("LLM_MODEL", "llama-3.1-8b-instant")
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 
-# Prompt control: two envs (system = behavior, user template = task framing)
 LLM_SYSTEM_PROMPT = os.getenv(
     "LLM_SYSTEM_PROMPT",
-    "You are a clear concise assistant. Provide a short explanatory answer in 2-3 sentences. "
-    "When you cite evidence, use only numeric tags like [1],[2]. Do NOT output filenames, URLs, or raw page numbers."
+    "You are a clear concise assistant. Provide a short explanatory answer in 2-3 sentences. When you cite evidence, use only numeric tags like [1],[2]. Do NOT output filenames, URLs, or raw page numbers."
 )
 LLM_USER_PROMPT_TEMPLATE = os.getenv(
     "LLM_USER_PROMPT_TEMPLATE",
-    "Summarize the following retrieved passages and answer the question in 2-3 sentences.\n\n"
-    "QUESTION: {question}\n\nPASSAGES:\n{passages}\n\nAnswer:"
+    "Summarize the following retrieved passages and answer the question in 2-3 sentences.\n\nQUESTION: {question}\n\nPASSAGES:\n{passages}\n\nAnswer:"
 )
 
 MAX_PROMPT_TOKENS = int(os.getenv("MAX_PROMPT_TOKENS", "6000"))
 
-# new app-level env vars (defaults chosen to match change summary)
 RERANKER_MODE = os.getenv("RERANKER_MODE", helpers.RERANKER_MODE if hasattr(helpers, "RERANKER_MODE") else "AUTO").upper()
 RERANK_TOPK = int(os.getenv("RERANK_TOPK", os.getenv("RERANKER_TOP_K", str(getattr(helpers, "RERANK_TOPK", 20)))))
 RERANKER_TOP_K = RERANK_TOPK
@@ -96,6 +91,8 @@ qdrant_client: Optional[QdrantClient] = None
 
 ui_helpers = helpers
 SHUTDOWN = False
+background_task: Optional[asyncio.Task] = None
+health_state = {"qdrant": False, "dense": False, "sparse": False, "reranker": False, "ready": False}
 
 def iso_ts():
     return datetime.now(timezone.utc).isoformat()
@@ -454,74 +451,97 @@ class GenerateResponse(BaseModel):
     answer: str
     chunks: Optional[List[Dict[str, Any]]] = None
 
-from contextlib import asynccontextmanager
-
-def _validate_service_dns(url: str) -> bool:
+async def _background_health_checker():
+    global dense_client, sparse_client, reranker_client, qdrant_client, health_state
+    _json_log("info", "background.init", status="starting")
     try:
-        p = urlparse(url)
-        host = p.hostname
-        if not host:
-            return False
-        socket.getaddrinfo(host, p.port or 0)
-        return True
-    except Exception:
-        return False
+        dense_client = AsyncDenseClient(DENSE_URL)
+        sparse_client = AsyncSparseClient(SPARSE_URL)
+        reranker_client = AsyncRerankerClient(RERANKER_URL)
+        def build_qdrant():
+            try:
+                return QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY) if QDRANT_API_KEY else QdrantClient(url=QDRANT_URL)
+            except Exception as e:
+                _json_log("warning", "qdrant.init.failed", error=str(e))
+                return None
+        qdrant_client = await asyncio.to_thread(build_qdrant)
+        for _ in range(6):
+            try:
+                ok_dense = await dense_client.health() if dense_client is not None else False
+            except Exception:
+                ok_dense = False
+            try:
+                ok_sparse = await sparse_client.health() if sparse_client is not None else False
+            except Exception:
+                ok_sparse = False
+            try:
+                ok_rerank = await reranker_client.health() if reranker_client is not None else False
+            except Exception:
+                ok_rerank = False
+            q_ok = bool(qdrant_client)
+            health_state["dense"] = bool(ok_dense)
+            health_state["sparse"] = bool(ok_sparse)
+            health_state["reranker"] = bool(ok_rerank)
+            health_state["qdrant"] = bool(q_ok)
+            health_state["ready"] = bool(q_ok)
+            SERVICE_READY.labels(service=SERVICE_NAME, env=ENV).set(1 if health_state["ready"] else 0)
+            _json_log("info", "clients.status", dense_ready=bool(ok_dense), sparse_ready=bool(ok_sparse), reranker_ready=bool(ok_rerank), qdrant_ready=bool(q_ok))
+            if health_state["ready"]:
+                break
+            await asyncio.sleep(5)
+        while True:
+            try:
+                ok_dense = await dense_client.health() if dense_client is not None else False
+            except Exception:
+                ok_dense = False
+            try:
+                ok_sparse = await sparse_client.health() if sparse_client is not None else False
+            except Exception:
+                ok_sparse = False
+            try:
+                ok_rerank = await reranker_client.health() if reranker_client is not None else False
+            except Exception:
+                ok_rerank = False
+            q_ok = True if qdrant_client else False
+            health_state["dense"] = bool(ok_dense)
+            health_state["sparse"] = bool(ok_sparse)
+            health_state["reranker"] = bool(ok_rerank)
+            health_state["qdrant"] = bool(q_ok)
+            health_state["ready"] = bool(q_ok)
+            SERVICE_READY.labels(service=SERVICE_NAME, env=ENV).set(1 if health_state["ready"] else 0)
+            await asyncio.sleep(10)
+    except asyncio.CancelledError:
+        _json_log("info", "background.init", status="cancelled")
+    except Exception as e:
+        _json_log("error", "background.init.failed", error=str(e), stack=_escape_stack(e))
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global dense_client, sparse_client, reranker_client, qdrant_client
-    _json_log("info", "lifespan.starting", status="starting")
-    if not _validate_service_dns(QDRANT_URL):
-        _json_log("warning", "dns.unresolved", error="qdrant host unresolved", qdrant_url=QDRANT_URL)
-    if not _validate_service_dns(DENSE_URL):
-        _json_log("warning", "dns.unresolved", error="dense host unresolved", dense_url=DENSE_URL)
-    if not _validate_service_dns(SPARSE_URL):
-        _json_log("warning", "dns.unresolved", error="sparse host unresolved", sparse_url=SPARSE_URL)
-    if not _validate_service_dns(RERANKER_URL):
-        _json_log("warning", "dns.unresolved", error="reranker host unresolved", reranker_url=RERANKER_URL)
-    dense_client = AsyncDenseClient(DENSE_URL)
-    sparse_client = AsyncSparseClient(SPARSE_URL)
-    reranker_client = AsyncRerankerClient(RERANKER_URL)
-    def build_qdrant():
+app = FastAPI()
+
+@app.on_event("startup")
+async def _startup_event():
+    global background_task
+    if background_task is None:
+        background_task = asyncio.create_task(_background_health_checker())
+        _json_log("info", "startup.scheduled_background_checker", status="scheduled")
+
+@app.on_event("shutdown")
+async def _shutdown_event():
+    global background_task, dense_client, sparse_client, reranker_client, qdrant_client
+    if background_task is not None:
+        background_task.cancel()
         try:
-            return QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY) if QDRANT_API_KEY else QdrantClient(url=QDRANT_URL)
-        except Exception as e:
-            _json_log("warning", "qdrant.init.failed", error=str(e))
-            return None
-    qdrant_client = await asyncio.to_thread(build_qdrant)
-    try:
-        ok_dense = await dense_client.health()
-    except Exception:
-        ok_dense = False
-    try:
-        ok_sparse = await sparse_client.health()
-    except Exception:
-        ok_sparse = False
-    try:
-        ok_rerank = await reranker_client.health()
-    except Exception:
-        ok_rerank = False
-    q_ok = bool(qdrant_client)
-    _json_log("info", "clients.status", dense_ready=bool(ok_dense), sparse_ready=bool(ok_sparse), reranker_ready=bool(ok_rerank), qdrant_ready=bool(q_ok))
-    try:
-        if not (helpers.AZURE_STORAGE_CONNECTION_STRING or helpers.AZURE_STORAGE_ACCOUNT_KEY or helpers.AZURE_SAS_TOKEN):
-            _json_log("warning", "presign.unavailable", reason="no AZURE_STORAGE_CONNECTION_STRING/AZURE_STORAGE_ACCOUNT_KEY/AZURE_SAS_TOKEN configured; presign endpoints will error")
-    except Exception:
-        pass
-    ready = bool(q_ok)
-    SERVICE_READY.labels(service=SERVICE_NAME, env=ENV).set(1 if ready else 0)
-    try:
-        yield
-    finally:
-        for c in (dense_client, sparse_client, reranker_client):
-            if c and getattr(c, "_client", None) is not None:
-                try:
-                    await c._client.aclose()
-                except Exception:
-                    pass
-        _json_log("info", "lifespan.shutdown", status="stopping")
-
-app = FastAPI(lifespan=lifespan)
+            await background_task
+        except Exception:
+            pass
+        background_task = None
+    for c in (dense_client, sparse_client, reranker_client):
+        if c and getattr(c, "_client", None) is not None:
+            try:
+                await c._client.aclose()
+            except Exception:
+                pass
+    _json_log("info", "shutdown.complete", status="stopping")
+    SERVICE_READY.labels(service=SERVICE_NAME, env=ENV).set(0)
 
 async def generate_handler(req: GenerateRequest) -> GenerateResponse:
     endpoint = "/generate"
@@ -555,8 +575,6 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
             status_code = 500
             return GenerateResponse(answer=f"retrieval failed: {e}")
         RETRIEVED_DOCS.labels(service=SERVICE_NAME, env=ENV).observe(len(results))
-
-        # Rerank decision & execution
         try:
             do_rerank = False
             if RERANKER_MODE == "ALWAYS":
@@ -590,8 +608,6 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
                     _json_log("warning", "rerank.failed", error=str(e))
         except Exception as e:
             _json_log("warning", "rerank.decision.failed", error=str(e))
-
-        # choose docs to send to LLM
         docs_for_llm = results[:min(len(results), max(1, MAX_CHUNKS_TO_LLM))]
         if not docs_for_llm:
             return GenerateResponse(answer="no documents retrieved")
@@ -781,23 +797,10 @@ async def healthz():
 @app.get("/readyz")
 async def readyz():
     try:
-        q_ok = bool(qdrant_client)
+        ready_val = bool(health_state.get("ready", False))
     except Exception:
-        q_ok = False
-    try:
-        d = await dense_client.health() if dense_client is not None else False
-    except Exception:
-        d = False
-    try:
-        s = await sparse_client.health() if sparse_client is not None else False
-    except Exception:
-        s = False
-    try:
-        r = await reranker_client.health() if reranker_client is not None else False
-    except Exception:
-        r = False
-    ready_val = bool(q_ok)
-    return {"status": "ready" if ready_val else "not_ready", "service_ready": ready_val, "qdrant": bool(q_ok), "dense": bool(d), "sparse": bool(s), "reranker": bool(r)}
+        ready_val = False
+    return {"status": "ready" if ready_val else "not_ready", "service_ready": ready_val, "qdrant": bool(health_state.get("qdrant", False)), "dense": bool(health_state.get("dense", False)), "sparse": bool(health_state.get("sparse", False)), "reranker": bool(health_state.get("reranker", False))}
 
 @app.get("/metrics")
 def metrics():

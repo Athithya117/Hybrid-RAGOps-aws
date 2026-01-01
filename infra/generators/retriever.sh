@@ -8,7 +8,7 @@ mkdir -p "${RENDER_DIR}"
 
 : "${RETRIEVAL_NAMESPACE:=inference}"
 : "${RETRIEVAL_NAME:=retrieval}"
-: "${RETRIEVAL_IMAGE:=docker.io/athithya5354/retrieval:v10}"
+: "${RETRIEVAL_IMAGE:=docker.io/athithya5354/retrieval:v11}"
 : "${RETRIEVAL_HTTP_PORT:=8001}"
 : "${RETRIEVAL_METRICS_PORT:=${RETRIEVAL_HTTP_PORT}}"
 : "${RETRIEVER_REPLICAS:=1}"

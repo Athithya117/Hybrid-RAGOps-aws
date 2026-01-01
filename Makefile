@@ -84,11 +84,18 @@ deploy-vector:
 	python3 infra/generators/vector_logger.py --apply
 
 deploy-vm:
-	bash infra/generators/monitoring_and_alerts.sh --apply
+	bash infra/generators/monitoring.sh --apply
+
+deploy-runbooks:
+	bash infra/base_infra/az_runbooks.sh
+
+deploy-alert-manager:
+	python3 infra/generators/alerting.py --apply
+
 
 deploy-models: deploy-dense deploy-sparse deploy-reranker
 deploy-inference-svc: deploy-retriever deploy-frontend
-deploy-observability-stack:	deploy-prometheus deploy-clickhouse deploy-vector
+deploy-observability-stack:	deploy-prometheus deploy-clickhouse deploy-vector deploy-runbooks 
 
 
 run-indexing-cronjob-kind:

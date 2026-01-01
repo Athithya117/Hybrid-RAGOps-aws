@@ -1,0 +1,223 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vmagent
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vmagent-clusterrole
+rules:
+  - apiGroups: [""]
+    resources: ["pods","endpoints","services","nodes","namespaces"]
+    verbs: ["get","list","watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vmagent-clusterrolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vmagent-clusterrole
+subjects:
+  - kind: ServiceAccount
+    name: vmagent
+    namespace: monitoring
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmagent-config
+  namespace: monitoring
+data:
+  scrape.yml: |
+    global:
+      scrape_interval: 15s
+      scrape_timeout: 10s
+    scrape_configs:
+      - job_name: k8s-pods-qdrant
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            action: keep
+            regex: qdrant
+          - source_labels: [__meta_kubernetes_pod_annotation_monitoring_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_ready]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_ip,__meta_kubernetes_pod_annotation_monitoring_io_port]
+            action: replace
+            regex: (.+);(.+)
+            replacement: '$1:$2'
+            target_label: __address__
+          - target_label: __metrics_path__
+            replacement: /metrics
+      - job_name: k8s-pods-retriever
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            action: keep
+            regex: inference
+          - source_labels: [__meta_kubernetes_pod_annotation_monitoring_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_ready]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_ip,__meta_kubernetes_pod_annotation_monitoring_io_port]
+            action: replace
+            regex: (.+);(.+)
+            replacement: '$1:$2'
+            target_label: __address__
+          - target_label: __metrics_path__
+            replacement: /metrics
+      - job_name: k8s-pods-annotated
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_monitoring_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_ready]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_ip,__meta_kubernetes_pod_annotation_monitoring_io_port]
+            action: replace
+            regex: (.+);(.+)
+            replacement: '$1:$2'
+            target_label: __address__
+          - target_label: __metrics_path__
+            replacement: /metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmagent
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vmagent
+  template:
+    metadata:
+      labels:
+        app: vmagent
+    spec:
+      serviceAccountName: vmagent
+      containers:
+        - name: vmagent
+          image: victoriametrics/vmagent:v1.99.0
+          args:
+            - "-promscrape.config=/config/scrape.yml"
+            - "-remoteWrite.url=http://victoria-metrics.monitoring.svc.cluster.local:8428/api/v1/write"
+            - "-remoteWrite.tmpDataPath=/vmagent-remotewrite-data"
+            - "-promscrape.suppressDuplicateScrapeTargetErrors=true"
+            - "-promscrape.suppressScrapeErrors=true"
+            - "-promscrape.suppressScrapeErrorsDelay=30s"
+          ports:
+            - containerPort: 8429
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 8429
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: tmp
+              mountPath: /vmagent-remotewrite-data
+      volumes:
+        - name: config
+          configMap:
+            name: vmagent-config
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmagent
+  namespace: monitoring
+spec:
+  selector:
+    app: vmagent
+  ports:
+    - name: metrics
+      port: 8429
+      targetPort: 8429
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victoria-metrics
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: victoria-metrics
+  template:
+    metadata:
+      labels:
+        app: victoria-metrics
+    spec:
+      containers:
+        - name: victoria-metrics
+          image: victoriametrics/victoria-metrics:v1.99.0
+          args:
+            - "-retentionPeriod=1d"
+            - "-storageDataPath=/data"
+            - "-httpListenAddr=:8428"
+          ports:
+            - containerPort: 8428
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8428
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: victoria-metrics
+  namespace: monitoring
+spec:
+  selector:
+    app: victoria-metrics
+  ports:
+    - port: 8428
+      targetPort: 8428

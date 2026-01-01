@@ -1,0 +1,51 @@
+replicaCount: 1
+image:
+  repository: qdrant/qdrant
+  tag: v1.16.0
+  pullPolicy: IfNotPresent
+service:
+  type: ClusterIP
+  labels:
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/component: qdrant
+podAnnotations:
+  monitoring.io/scrape: 'true'
+  monitoring.io/port: '6333'
+  monitoring.io/path: /metrics
+ports:
+- name: metrics
+  containerPort: 6333
+  protocol: TCP
+p2p:
+  port: 6335
+cluster:
+  enabled: true
+  peers:
+  - http://qdrant-0.qdrant-headless:6335
+snapshots:
+  enabled: false
+  s3:
+    bucket: ''
+    endpoint: ''
+    region: ''
+    prefix: ''
+extraEnv: []
+resources:
+  requests:
+    cpu: '1'
+    memory: 2Gi
+  limits:
+    cpu: '1'
+    memory: 2Gi
+tolerations: []
+persistence:
+  enabled: false
+config:
+  params:
+    shard_number: 1
+    replication_factor: 1
+    write_consistency_factor: 1
+  log_level: INFO
+  storage:
+    storage_path: /qdrant/storage
+    snapshots_path: /qdrant/snapshots

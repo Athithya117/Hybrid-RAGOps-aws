@@ -58,6 +58,7 @@ export AZURE_SUBSCRIPTION_ID="" # Azure subscription hosting AKS, storage, and a
 ```sh
 export AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}"   # Azure subscription ID (must already be set after az login)
 export AZURE_RESOURCE_GROUP_NAME="rg-e2e-rag"             # Resource group hosting storage account and platform infra
+export AZURE_ENDPOINT_SUFFIX="core.windows.net"           # Override this only for sovereign clouds (e.g., Azure China or Gov) to avoid endpoint failures
 export AZURE_LOCATION="eastus"                            # Azure region for all Azure resources
 export AZURE_STORAGE_ACCOUNT_NAME="defaultsa515"          # Azure Storage Account name (3–24 chars, lowercase, globally unique)
 export STORAGE_TIER="LRS"                                 # Storage redundancy tier (LRS | ZRS | GRS | RAGRS | GZRS | RAGZRS)
@@ -165,13 +166,13 @@ export AZURE_STORAGE_CONNECTION_STRING="$(python3 infra/base_infra/get_storage_c
 
 make run-indexing-cronjob
 
-
 export PER_POD="true" # When true, perform per-pod Qdrant backup/restore using individual pod port-forwards; when false, operate via cluster/service endpoint
+make backup
+
 export BACKUP_ID="" # Optional explicit backup identifier to restore; leave empty to auto-select the latest backup manifest under the Azure prefix
+make restore
 
-
-
-export RETRIEVAL_IMAGE="docker.io/athithya5354/retrieval:v10"  # container image:tag; change to deploy a new build/tag
+export RETRIEVAL_IMAGE="docker.io/athithya5354/retrieval:v11"  # container image:tag; change to deploy a new build/tag
 export RETRIEVER_REPLICAS="1"                                 # number of pods; increase to scale, decrease to save cost
 export RETRIEVAL_RES_CPU="200m"                               # cpu request/limit; raise for CPU-heavy workloads
 export RETRIEVAL_RES_MEM="256Mi"                              # memory request/limit; raise if OOMs occur
@@ -214,20 +215,58 @@ export RRF_TOP_N="10"                                         # number of fused 
 make deploy-retriever
 
 
+export VMAGENT_REPLICAS="${VMAGENT_REPLICAS:-1}"                                      # vmagent replica count; increase only for HA if you handle dupes/deduplication.
+export VM_RES_CPU="${VM_RES_CPU:-100m}"                                               # victoria container cpu request/limit; raise when ingestion/query CPU saturated.
+export VM_RES_MEM="${VM_RES_MEM:-256Mi}"                                              # victoria memory request/limit; raise to avoid OOM for larger TSDB.
+export VMAGENT_RES_CPU="${VMAGENT_RES_CPU:-100m}"                                     # vmagent cpu; increase when scraping or remote-write CPU is high.
+export VMAGENT_RES_MEM="${VMAGENT_RES_MEM:-256Mi}"                                    # vmagent memory; increase if vmagent OOMs or persistent-queue grows.
+# scrape & timing (affects ingestion rate / storage)
+export VM_SCRAPE_INTERVAL="${VM_SCRAPE_INTERVAL:-15s}"                                 # global scrape interval; increase (longer) if cardinality/CPU/WAL pressure.
+export VM_SCRAPE_TIMEOUT="${VM_SCRAPE_TIMEOUT:-10s}"                                   # per-scrape timeout;
+make deploy-vm
 
-```
+
+make deploy-runbooks  # deploying runbooks will export the env var RUNBOOK_BASE_URL
+
+
+export ENABLE_SLACK=true                         # master switch for Slack delivery (true/false)
+export ENABLE_PAGERDUTY=true                     # master switch for PagerDuty paging (true/false)
+export ALERTING_PAGING_SEVERITY_LEVELS=critical  # severities considered paging; routed to Slack if PagerDuty is off
+export ALERTING_SLACK_SEVERITY_LEVELS=warning,critical  # severities delivered to Slack when Slack is on
+
+export PAGERDUTY_INTEGRATION_KEY=$PAGERDUTY_INTEGRATION_KEY   # Set when PagerDuty receiver required; empty fully disables PD in build_alertmanager_cm()
+export ALERTMANAGER_SLACK_WEBHOOK=$ALERTMANAGER_SLACK_WEBHOOK     # Set when Slack receiver required; empty disables Slack receiver entirely
+export ALERT_DEFAULT_CHANNEL="#alerts-prod"                       # (Optional) Change per environment/team; used by Slack templates downstream 
+export RUNBOOK_BASE_URL=$RUNBOOK_BASE_URL                         # Set to absolute http(s) URL to enable per-alert runbook links; 
+export ALERTING_GROUP_WAIT="30s"                                  # Change to reduce initial fanout latency; wired to Alertmanager global+route group_wait
+export ALERTING_GROUP_INTERVAL="5m"                               # Increase to reduce noise for flappy alerts; Alertmanager route group_interval
+export ALERTING_REPEAT_INTERVAL="3h"                              # Increase for less reminder spam; decrease for stricter paging policies
+export VMALERT_EVAL_INTERVAL="30s"                                # Increase if CPU-bound; decrease for faster detection; passed directly to vmalert
+export VMALERT_REPLICAS="2"                                       # Set to 1 for k3s/dev; >=2 for AKS HA; parsed as int with safe fallback
+export SLO_SUCCESS_TARGET="0.999"                                 # Change ONLY when SLO policy changes; must be 0<value<1 or validation fails
+export SLO_LATENCY_QUANTILE="0.95"                                # Allowed values ONLY: 0.95 or 0.99; controls histogram_quantile in SLO alerts
+export SLO_FAST_BURN_MULTIPLIER="2.0"                             # Increase to reduce pages; decrease for aggressive paging; used in fast-burn PromQL
+export SLO_SLOW_BURN_MULTIPLIER="1.2"                             # Increase to tolerate long-term degradation; used in slow-burn PromQL
+export ALERTMANAGER_REPLICAS="2"                                  # Set >=2 to enable HA gossip; parsed as int with fallback to 1
+export ALERTMANAGER_RES_CPU="200m"                                # Increase with high route/template count; no validation, pure manifest pass-through
+export ALERTMANAGER_RES_MEM="256Mi"                               # Increase when many alerts or receivers; Alertmanager memory-bound first
+export VMALERT_RES_CPU="200m"                                     # Increase with rule count and eval interval; affects vmalert stability
+export VMALERT_RES_MEM="256Mi"                                    # Increase with complex PromQL or large rule files
+
+
+make deploy-alert-manager
+
 
 ```sh
-
-export K8S_CLUSTER=kind                        # set to aks for production behavior
+export K8S_CLUSTER=aks                        # set to aks for production behavior
 export VECTOR_REPLICAS=1                      # logical replica control (future-proof)
 export VECTOR_REQ_CPU=200m                    # vector CPU request
 export VECTOR_REQ_MEM=512Mi                   # vector memory request
 export VECTOR_LIMIT_CPU=1000m                 # vector CPU limit
 export VECTOR_LIMIT_MEM=1Gi                   # vector memory limit
-export VECTOR_DROP_NAMESPACES=kube-system
+export VECTOR_DROP_NAMESPACES="kube-system,models,indexing"
 export VECTOR_LOG_LEVELS=info,warn,error
-
+make deploy-vector
 
 export CLICKHOUSE_REPLICAS=1                  # clickhouse statefulset replicas
 export CLICKHOUSE_PVC_SIZE=10Gi              # clickhouse PVC size
@@ -240,18 +279,4 @@ export CLICKHOUSE_PASSWORD=vectorpass         # clickhouse password (replace wit
 export LOGS_TTL_DAYS=2
 
 make deploy-clickhouse
-make deploy-vector
 
-
-
-export VMAGENT_REPLICAS="${VMAGENT_REPLICAS:-1}"                                      # vmagent replica count; increase only for HA if you handle dupes/deduplication.
-export VM_RES_CPU="${VM_RES_CPU:-100m}"                                               # victoria container cpu request/limit; raise when ingestion/query CPU saturated.
-export VM_RES_MEM="${VM_RES_MEM:-256Mi}"                                              # victoria memory request/limit; raise to avoid OOM for larger TSDB.
-export VMAGENT_RES_CPU="${VMAGENT_RES_CPU:-100m}"                                     # vmagent cpu; increase when scraping or remote-write CPU is high.
-export VMAGENT_RES_MEM="${VMAGENT_RES_MEM:-256Mi}"                                    # vmagent memory; increase if vmagent OOMs or persistent-queue grows.
-# scrape & timing (affects ingestion rate / storage)
-export VM_SCRAPE_INTERVAL="${VM_SCRAPE_INTERVAL:-15s}"                                 # global scrape interval; increase (longer) if cardinality/CPU/WAL pressure.
-export VM_SCRAPE_TIMEOUT="${VM_SCRAPE_TIMEOUT:-10s}"                                   # per-scrape timeout;
-make deploy-vm
-
-```

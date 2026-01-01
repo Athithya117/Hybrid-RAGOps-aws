@@ -1,6 +1,6 @@
 # Monitoring & Metrics — actual, observed state (revised)
 
-## Simple summary (one-paragraph)
+## Purpose 
 
 This document lists the production-grade metrics you must collect for a Retrieval-Augmented Generation (RAG) system, explains exactly what each metric means, and justifies why it is needed for operational reliability, observability, and capacity planning. It excludes alert rules — it focuses on measurement, labels, cardinality constraints, and practical queries you will use to validate pipeline health and correctness.
 

@@ -1,6 +1,6 @@
 # Monitoring workflow — VictoriaMetrics + vmagent
 
-## Simple summary
+## Purpose
 
 A lightweight telemetry pipeline scrapes Prometheus-format metrics from annotated pods and forwards them via Prometheus remote-write to a single-node VictoriaMetrics TSDB. Discovery is annotation-driven; vmagent performs scraping and remote-write, VictoriaMetrics stores and serves PromQL queries for validation and analysis.
 

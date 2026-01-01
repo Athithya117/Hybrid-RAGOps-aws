@@ -203,7 +203,6 @@ def _parse_az_path(path: str) -> Tuple[str, str, str]:
     if not path:
         raise ValueError("empty path")
     path = path.strip()
-
     if path.startswith("az://"):
         stripped = path[5:]
         parts = stripped.split("/", 1)
@@ -219,7 +218,6 @@ def _parse_az_path(path: str) -> Tuple[str, str, str]:
             if acct_from_conn:
                 return acct_from_conn, container, blob
         raise ValueError("AZURE_STORAGE_ACCOUNT_NAME env required for az:// paths (or supply AZURE_STORAGE_CONNECTION_STRING containing AccountName)")
-
     if path.startswith("http://") or path.startswith("https://"):
         u = urlparse(path)
         hostparts = u.netloc.split(".")
@@ -232,7 +230,6 @@ def _parse_az_path(path: str) -> Tuple[str, str, str]:
             raise ValueError("blob URL must include container and blob path")
         container, blob = parts[0], parts[1]
         return account, container, blob
-
     if "/" in path:
         acct = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "") or ""
         if acct:
@@ -245,7 +242,6 @@ def _parse_az_path(path: str) -> Tuple[str, str, str]:
                 container, blob = path.split("/", 1)
                 return acct_from_conn, container, blob
         raise ValueError("AZURE_STORAGE_ACCOUNT_NAME env required when passing container/blob style path (or supply AZURE_STORAGE_CONNECTION_STRING containing AccountName)")
-
     raise ValueError("unrecognized path format; expected az://, https://... or container/blob")
 
 def _extract_account_key_from_connection_string(conn: str) -> Tuple[Optional[str], Optional[str]]:
@@ -263,7 +259,6 @@ def _extract_account_key_from_connection_string(conn: str) -> Tuple[Optional[str
 def presign_azure_blob_blocking(path: str, expires: int = 3600, inline: bool = True) -> str:
     if generate_blob_sas is None:
         raise RuntimeError("azure.storage.blob not installed; install azure-storage-blob")
-
     account, container, blob = _parse_az_path(path)
     now = datetime.now(timezone.utc)
     start = now - timedelta(minutes=5)
@@ -274,7 +269,6 @@ def presign_azure_blob_blocking(path: str, expires: int = 3600, inline: bool = T
     if inline:
         filename = blob.split("/")[-1] or "file"
         content_disp = f'inline; filename="{filename}"'
-
     conn = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "") or ""
     if conn:
         acct_from_conn, acct_key = _extract_account_key_from_connection_string(conn)
@@ -291,7 +285,6 @@ def presign_azure_blob_blocking(path: str, expires: int = 3600, inline: bool = T
                 content_type=content_type,
             )
             return f"{endpoint}/{container}/{quote_plus(blob)}?{sas}"
-
     acct_key_env = os.getenv("AZURE_STORAGE_ACCOUNT_KEY", "") or ""
     acct_name_env = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "") or ""
     if acct_key_env and (acct_name_env or account):
@@ -308,10 +301,8 @@ def presign_azure_blob_blocking(path: str, expires: int = 3600, inline: bool = T
             content_type=content_type,
         )
         return f"{endpoint}/{container}/{quote_plus(blob)}?{sas}"
-
     sas_token = os.getenv("AZURE_SAS_TOKEN", "") or ""
     if sas_token:
         token = sas_token if sas_token.startswith("?") else ("?" + sas_token)
         return f"{endpoint}/{container}/{quote_plus(blob)}{token}"
-
     raise RuntimeError("No AZURE_STORAGE_CONNECTION_STRING with AccountKey, nor AZURE_STORAGE_ACCOUNT_KEY, nor AZURE_SAS_TOKEN configured for presign")

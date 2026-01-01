@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmalert-rules
+  namespace: monitoring
+data:
+  slo.rules.yaml: "groups:\n- name: recording-rules\n  rules:\n  - record: retrieval_errors_rate_1h\n\
+    \    expr: sum(rate(retrieval_errors_total[1h]))\n    annotations:\n      summary:\
+    \ retrieval_errors_rate_1h\n      runbook: https://defaultsa515.z13.web.core.windows.net/retrieval-errors-rate-1h.html\n\
+    \  - record: retrieval_requests_rate_1h\n    expr: sum(rate(retrieval_requests_total[1h]))\n\
+    \    annotations:\n      summary: retrieval_requests_rate_1h\n      runbook: https://defaultsa515.z13.web.core.windows.net/retrieval-requests-rate-1h.html\n\
+    \  - record: retrieval_errors_rate_6h\n    expr: sum(rate(retrieval_errors_total[6h]))\n\
+    \    annotations:\n      summary: retrieval_errors_rate_6h\n      runbook: https://defaultsa515.z13.web.core.windows.net/retrieval-errors-rate-6h.html\n\
+    \  - record: retrieval_requests_rate_6h\n    expr: sum(rate(retrieval_requests_total[6h]))\n\
+    \    annotations:\n      summary: retrieval_requests_rate_6h\n      runbook: https://defaultsa515.z13.web.core.windows.net/retrieval-requests-rate-6h.html\n\
+    \  - record: qdrant_rest_fail_rate_1h\n    expr: sum(rate(rest_responses_fail_total[1h]))\n\
+    \    annotations:\n      summary: qdrant_rest_fail_rate_1h\n      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-rest-fail-rate-1h.html\n\
+    \  - record: qdrant_rest_total_rate_1h\n    expr: sum(rate(rest_responses_total[1h]))\n\
+    \    annotations:\n      summary: qdrant_rest_total_rate_1h\n      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-rest-total-rate-1h.html\n\
+    - name: ingestion-truth\n  rules:\n  - alert: VmagentDiscoveryEmpty\n    expr:\
+    \ vm_promscrape_discovery_kubernetes_objects{role=\"pod\"} == 0\n    for: 2m\n\
+    \    labels:\n      severity: critical\n      plane: ingestion\n      service:\
+    \ vmagent\n    annotations:\n      summary: VmagentDiscoveryEmpty\n      runbook:\
+    \ https://defaultsa515.z13.web.core.windows.net/vmagent-discovery-empty.html\n\
+    \  - alert: VmagentNoRemoteWrite\n    expr: increase(vm_persistentqueue_bytes_written_total[5m])\
+    \ == 0\n    for: 5m\n    labels:\n      severity: critical\n      plane: ingestion\n\
+    \      service: vmagent\n    annotations:\n      summary: VmagentNoRemoteWrite\n\
+    \      runbook: https://defaultsa515.z13.web.core.windows.net/vmagent-no-remote-write.html\n\
+    - name: service-safety\n  rules:\n  - alert: RetrieverNotReady\n    expr: service_ready{service=\"\
+    retrieval\"} == 0\n    for: 2m\n    labels:\n      severity: critical\n      plane:\
+    \ safety\n      service: retriever\n    annotations:\n      summary: RetrieverNotReady\n\
+    \      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-not-ready.html\n\
+    \  - alert: QdrantDeadReplicas\n    expr: collection_dead_replicas > 0\n    for:\
+    \ 2m\n    labels:\n      severity: critical\n      plane: safety\n      service:\
+    \ qdrant\n    annotations:\n      summary: QdrantDeadReplicas\n      runbook:\
+    \ https://defaultsa515.z13.web.core.windows.net/qdrant-dead-replicas.html\n  -\
+    \ alert: QdrantSnapshotStuck\n    expr: snapshot_creation_running > 0\n    for:\
+    \ 30m\n    labels:\n      severity: warning\n      plane: safety\n      service:\
+    \ qdrant\n    annotations:\n      summary: QdrantSnapshotStuck\n      runbook:\
+    \ https://defaultsa515.z13.web.core.windows.net/qdrant-snapshot-stuck.html\n-\
+    \ name: retriever-slo\n  rules:\n  - alert: RetrieverErrorBudgetFastBurn\n   \
+    \ expr: (retrieval_errors_rate_1h / max(retrieval_requests_rate_1h, 1)) / (1 -\
+    \ 0.999)\n      > 2.0\n    for: 10m\n    labels:\n      severity: critical\n \
+    \     plane: slo\n      service: retriever\n    annotations:\n      summary: RetrieverErrorBudgetFastBurn\n\
+    \      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-error-budget-fast-burn.html\n\
+    \  - alert: RetrieverErrorBudgetSlowBurn\n    expr: (retrieval_errors_rate_6h\
+    \ / max(retrieval_requests_rate_6h, 1)) / (1 - 0.999)\n      > 1.2\n    for: 30m\n\
+    \    labels:\n      severity: warning\n      plane: slo\n      service: retriever\n\
+    \    annotations:\n      summary: RetrieverErrorBudgetSlowBurn\n      runbook:\
+    \ https://defaultsa515.z13.web.core.windows.net/retriever-error-budget-slow-burn.html\n\
+    \  - alert: RetrieverHighP95Latency\n    expr: histogram_quantile(0.95, sum(rate(retrieval_request_duration_seconds_bucket[5m]))\n\
+    \      by (le)) > 0.5\n    for: 5m\n    labels:\n      severity: warning\n   \
+    \   plane: slo\n      service: retriever\n    annotations:\n      summary: RetrieverHighP95Latency\n\
+    \      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-high-p95-latency.html\n\
+    - name: qdrant-slo\n  rules:\n  - alert: QdrantErrorBudgetFastBurn\n    expr:\
+    \ (qdrant_rest_fail_rate_1h / max(qdrant_rest_total_rate_1h, 1)) / (1 - 0.999)\n\
+    \      > 2.0\n    for: 10m\n    labels:\n      severity: critical\n      plane:\
+    \ slo\n      service: qdrant\n    annotations:\n      summary: QdrantErrorBudgetFastBurn\n\
+    \      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-error-budget-fast-burn.html\n\
+    \  - alert: QdrantHighP95Latency\n    expr: histogram_quantile(0.95, sum(rate(rest_responses_duration_seconds_bucket[5m]))\n\
+    \      by (le)) > 0.8\n    for: 5m\n    labels:\n      severity: warning\n   \
+    \   plane: slo\n      service: qdrant\n    annotations:\n      summary: QdrantHighP95Latency\n\
+    \      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-high-p95-latency.html\n"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmalert
+  namespace: monitoring
+  labels:
+    app: vmalert
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vmalert
+  template:
+    metadata:
+      labels:
+        app: vmalert
+    spec:
+      containers:
+      - name: vmalert
+        image: victoriametrics/vmalert:v1.132.0
+        args:
+        - -rule=/etc/vmalert/slo.rules.yaml
+        - -datasource.url=http://victoria-metrics.monitoring.svc:8428
+        - -notifier.url=http://alertmanager.monitoring.svc:9093
+        - -evaluationInterval=30s
+        - -remoteWrite.url=http://victoria-metrics.monitoring.svc.cluster.local:8428/api/v1/write
+        volumeMounts:
+        - name: rules
+          mountPath: /etc/vmalert
+        ports:
+        - containerPort: 8880
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 8880
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: rules
+        configMap:
+          name: vmalert-rules
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmalert
+  namespace: monitoring
+spec:
+  selector:
+    app: vmalert
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8880
+
