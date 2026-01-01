@@ -66,7 +66,7 @@ deploy-reranker:
 	python3 infra/generators/reranker.py --apply
 
 deploy-qdrant:
-	python3 infra/generators/qdrant_cluster.py --apply
+	bash infra/generators/qdrant_cluster.sh --apply
 
 deploy-retriever:
 	bash infra/generators/retriever.sh --apply
@@ -125,7 +125,7 @@ test-vector-connection:
 	make fix-dns
 	bash infra/tests/test_vector_clickhouse_connection.sh
 
-test-vm:
+test-retriever:
 	make deploy-vm
 	make deploy-retriever
 	bash infra/tests/monitoring/test_retriever.sh || true

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 LOG(){ printf '%s %s\n' "$(date -Iseconds)" "$*"; }
+DBG(){ if [ "${VERBOSE:-0}" != "0" ]; then printf '%s %s\n' "$(date -Iseconds)" "$*"; fi; }
 
 : "${RENDER_DIR:=${PWD}/infra/manifests}"
 mkdir -p "${RENDER_DIR}"
@@ -8,10 +9,11 @@ mkdir -p "${RENDER_DIR}"
 : "${RETRIEVAL_NAMESPACE:=inference}"
 : "${RETRIEVAL_NAME:=retrieval}"
 : "${RETRIEVAL_IMAGE:=docker.io/athithya5354/retrieval:v10}"
-: "${RETRIEVAL_PORT:=8001}"
+: "${RETRIEVAL_HTTP_PORT:=8001}"
+: "${RETRIEVAL_METRICS_PORT:=${RETRIEVAL_HTTP_PORT}}"
 : "${RETRIEVER_REPLICAS:=1}"
 : "${CONTRACT_LABELS:=app=retrieval,team=search}"
-: "${CONTRACT_ANNOTATIONS:=monitoring.io/scrape=true,monitoring.io/port=${RETRIEVAL_PORT},monitoring.io/path=/metrics}"
+: "${CONTRACT_ANNOTATIONS:=""}"
 : "${RETRIEVAL_RES_CPU:=200m}"
 : "${RETRIEVAL_RES_MEM:=256Mi}"
 
@@ -48,12 +50,23 @@ mkdir -p "${RENDER_DIR}"
 : "${QUERY_TOPK_SPARSE:=200}"
 : "${RRF_TOP_N:=10}"
 
+: "${VM_NAMESPACE:=monitoring}"
+: "${VMAGENT_SERVICE:=vmagent}"
+: "${VMAGENT_PORT:=8429}"
+: "${VICTORIA_SERVICE:=victoria-metrics}"
+: "${VICTORIA_PORT:=8428}"
+
 MANIFEST_NS="${RENDER_DIR}/10-retriever-namespace.yaml"
 MANIFEST_DEP="${RENDER_DIR}/11-retriever-deploy.yaml"
 MANIFEST_SVC="${RENDER_DIR}/12-retriever-svc.yaml"
 MANIFEST_CM="${RENDER_DIR}/13-retriever-configmap.yaml"
 
-check_kubectl(){ command -v kubectl >/dev/null 2>&1 || { LOG "kubectl required"; exit 1; } }
+TMP_FILES=()
+cleanup(){ local rc=$?; for f in "${TMP_FILES[@]:-}"; do [ -f "$f" ] && rm -f "$f" || true; done; [ -n "${PF_PID:-}" ] && kill "${PF_PID}" >/dev/null 2>&1 || true; exit $rc; }
+trap cleanup INT TERM EXIT
+
+check_kubectl(){ command -v kubectl >/dev/null 2>&1 || { LOG "kubectl required"; exit 2; } }
+check_jq(){ command -v jq >/dev/null 2>&1 || { LOG "jq required"; exit 2; } }
 
 yaml_single_quote(){
   local v="$1"
@@ -62,7 +75,7 @@ yaml_single_quote(){
 }
 
 build_kv_yaml(){
-  local csv="$1"; local indent="${2:-6}"
+  local csv="$1"; local indent="${2:-4}"
   local out=""
   IFS=',' read -ra pairs <<< "$csv"
   for pair in "${pairs[@]}"; do
@@ -71,49 +84,82 @@ build_kv_yaml(){
     [ -z "$pair" ] && continue
     local k="${pair%%=*}"
     local v="${pair#*=}"
-    if [[ "$k" =~ [./\ ] || "$k" == *":"* ]]; then
-      k=$(yaml_single_quote "$k")
-    fi
+    if [[ "$k" =~ [./\ ] || "$k" == *":"* ]]; then k=$(yaml_single_quote "$k"); fi
     v=$(yaml_single_quote "$v")
     out="${out}\n$(printf '%*s' "${indent}" '')${k}: ${v}"
   done
   printf '%b' "${out}"
 }
 
-extract_monitoring_port(){
-  local csv="$1"
-  IFS=',' read -ra pairs <<< "$csv"
-  for pair in "${pairs[@]}"; do
-    pair="${pair#"${pair%%[![:space:]]*}"}"
-    pair="${pair%"${pair##*[![:space:]]}"}"
-    [ -z "$pair" ] && continue
-    local k="${pair%%=*}"
-    local v="${pair#*=}"
-    if [[ "$k" == "monitoring.io/port" ]]; then
-      printf '%s' "$v"
-      return 0
+validate_numeric_ports(){
+  for v in RETRIEVAL_HTTP_PORT RETRIEVAL_METRICS_PORT VMAGENT_PORT VICTORIA_PORT; do
+    val="$(eval "printf '%s' \"\$${v}\"")"
+    if ! printf '%s' "${val}" | grep -qE '^[0-9]+$'; then
+      LOG "ERROR: ${v} must be numeric (found: ${val})"
+      exit 2
     fi
+    if [ "${val}" -lt 1 ] || [ "${val}" -gt 65535 ]; then LOG "ERROR: ${v} out of TCP port range (found: ${val})"; exit 2; fi
   done
-  return 1
 }
 
-ensure_config_and_secrets(){
-  check_kubectl
-  kubectl create namespace "${RETRIEVAL_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
-  local port
-  port=$(extract_monitoring_port "${CONTRACT_ANNOTATIONS}") || port="${RETRIEVAL_PORT}"
-  if ! printf '%s\n' "${port}" | grep -qE '^[0-9]+$' ; then
-    LOG "ERROR: monitoring.io/port must be numeric (found: ${port})"; exit 1
+sanitize_multiline(){
+  local in="$1"
+  printf '%s' "${in}" | tr -d '\r' | sed 's/\\//g'
+}
+
+atomic_write(){
+  local dest="$1"; local content="$2"
+  mkdir -p "$(dirname "$dest")"
+  local tmp
+  tmp="$(mktemp "${dest}.tmp.XXXXXX")"
+  TMP_FILES+=("$tmp")
+  printf '%s' "$content" > "$tmp"
+  mv "$tmp" "$dest"
+  for i in "${!TMP_FILES[@]}"; do [ "${TMP_FILES[$i]}" = "$tmp" ] && unset 'TMP_FILES[i]' || true; done
+  LOG "wrote ${dest}"
+}
+
+render_manifests(){
+  validate_numeric_ports
+
+  if [ -z "${CONTRACT_ANNOTATIONS:-}" ]; then
+    CONTRACT_ANNOTATIONS="monitoring.io/scrape=true,monitoring.io/port=${RETRIEVAL_METRICS_PORT},monitoring.io/path=/metrics"
   fi
 
-  cat > "${MANIFEST_CM}" <<EOF
+  local labels_yaml selector_yaml podlabels_yaml annots_yaml
+  labels_yaml=$(build_kv_yaml "${CONTRACT_LABELS}" 4)
+  selector_yaml=$(build_kv_yaml "${CONTRACT_LABELS}" 6)
+  podlabels_yaml=$(build_kv_yaml "${CONTRACT_LABELS}" 8)
+  annots_yaml=$(build_kv_yaml "${CONTRACT_ANNOTATIONS}" 8)
+
+  local effective_metrics_port="${RETRIEVAL_METRICS_PORT}"
+  local single_port="false"
+  if [ "${RETRIEVAL_HTTP_PORT}" -eq "${effective_metrics_port}" ]; then single_port="true"; fi
+
+  local ns_yaml
+  ns_yaml=$(cat <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${RETRIEVAL_NAMESPACE}
+EOF
+)
+  atomic_write "${MANIFEST_NS}" "${ns_yaml}"
+
+  local sys_prompt_s
+  sys_prompt_s="$(sanitize_multiline "${LLM_SYSTEM_PROMPT}")"
+  local user_prompt_s
+  user_prompt_s="$(sanitize_multiline "${LLM_USER_PROMPT_TEMPLATE}")"
+
+  local cm_yaml
+  cm_yaml=$(cat <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: retrieval-config
   namespace: ${RETRIEVAL_NAMESPACE}
 data:
-  PORT: "${RETRIEVAL_PORT}"
+  PORT: "${RETRIEVAL_HTTP_PORT}"
   ENV: "${ENV}"
   QDRANT_URL: "${QDRANT_URL}"
   DENSE_URL: "${DENSE_URL}"
@@ -126,10 +172,6 @@ data:
   LLM_MODEL: "${LLM_MODEL}"
   LLM_MAX_TOKENS: "${LLM_MAX_TOKENS}"
   LLM_TEMPERATURE: "${LLM_TEMPERATURE}"
-  LLM_SYSTEM_PROMPT: |
-$(printf '%s\n' "${LLM_SYSTEM_PROMPT}" | sed 's/^/    /')
-  LLM_USER_PROMPT_TEMPLATE: |
-$(printf '%s\n' "${LLM_USER_PROMPT_TEMPLATE}" | sed 's/^/    /')
   RERANKER_MODE: "${RERANKER_MODE}"
   RERANK_TOPK: "${RERANK_TOPK}"
   RERANKER_TOP_K: "${RERANKER_TOP_K}"
@@ -140,34 +182,35 @@ $(printf '%s\n' "${LLM_USER_PROMPT_TEMPLATE}" | sed 's/^/    /')
   QUERY_TOPK_DENSE: "${QUERY_TOPK_DENSE}"
   QUERY_TOPK_SPARSE: "${QUERY_TOPK_SPARSE}"
   RRF_TOP_N: "${RRF_TOP_N}"
+  LLM_SYSTEM_PROMPT: |
+$(printf '%s\n' "${sys_prompt_s}" | sed 's/^/    /')
+  LLM_USER_PROMPT_TEMPLATE: |
+$(printf '%s\n' "${user_prompt_s}" | sed 's/^/    /')
 EOF
+)
+  atomic_write "${MANIFEST_CM}" "${cm_yaml}"
 
-  kubectl -n "${RETRIEVAL_NAMESPACE}" apply -f "${MANIFEST_CM}"
-  kubectl -n "${RETRIEVAL_NAMESPACE}" create secret generic retrieval-secrets \
-    --from-literal=GROQ_API_KEY="${GROQ_API_KEY}" \
-    --from-literal=OPENAI_API_KEY="${OPENAI_API_KEY}" \
-    --from-literal=LLM_API_KEY="${LLM_API_KEY}" \
-    --from-literal=QDRANT_API_KEY="${QDRANT_API_KEY}" \
-    --from-literal=AZURE_STORAGE_CONNECTION_STRING="${AZURE_STORAGE_CONNECTION_STRING}" \
-    --dry-run=client -o yaml | kubectl apply -f -
-  LOG "applied retrieval-config and retrieval-secrets in ${RETRIEVAL_NAMESPACE}"
-}
-
-render_manifests(){
-  local labels_yaml selector_yaml podlabels_yaml annots_yaml
-  labels_yaml=$(build_kv_yaml "${CONTRACT_LABELS}" 4)
-  selector_yaml=$(build_kv_yaml "${CONTRACT_LABELS}" 6)
-  podlabels_yaml=$(build_kv_yaml "${CONTRACT_LABELS}" 8)
-  annots_yaml=$(build_kv_yaml "${CONTRACT_ANNOTATIONS}" 8)
-
-cat >"${MANIFEST_NS}" <<EOF
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ${RETRIEVAL_NAMESPACE}
+  local ports_yaml=""
+  if [ "${single_port}" = "true" ]; then
+    ports_yaml=$(cat <<EOF
+          ports:
+            - name: http
+              containerPort: ${RETRIEVAL_HTTP_PORT}
 EOF
+)
+  else
+    ports_yaml=$(cat <<EOF
+          ports:
+            - name: http
+              containerPort: ${RETRIEVAL_HTTP_PORT}
+            - name: metrics
+              containerPort: ${effective_metrics_port}
+EOF
+)
+  fi
 
-cat >"${MANIFEST_DEP}" <<EOF
+  local dep_yaml
+  dep_yaml=$(cat <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -197,7 +240,7 @@ ${annots_yaml}
                 name: retrieval-secrets
           env:
             - name: PORT
-              value: "${RETRIEVAL_PORT}"
+              value: "${RETRIEVAL_HTTP_PORT}"
             - name: ENV
               value: "${ENV}"
             - name: GROQ_API_KEY
@@ -247,12 +290,6 @@ ${annots_yaml}
                 configMapKeyRef:
                   name: retrieval-config
                   key: LLM_USER_PROMPT_TEMPLATE
-                  optional: true
-            - name: MAX_CHUNKS_TO_LLM
-              valueFrom:
-                configMapKeyRef:
-                  name: retrieval-config
-                  key: MAX_CHUNKS_TO_LLM
                   optional: true
             - name: RERANKER_MODE
               valueFrom:
@@ -314,20 +351,18 @@ ${annots_yaml}
                   name: retrieval-config
                   key: RRF_TOP_N
                   optional: true
-          ports:
-            - name: http
-              containerPort: ${RETRIEVAL_PORT}
+${ports_yaml}
           readinessProbe:
             httpGet:
               path: /readyz
-              port: ${RETRIEVAL_PORT}
+              port: ${RETRIEVAL_HTTP_PORT}
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /healthz
-              port: ${RETRIEVAL_PORT}
+              port: ${RETRIEVAL_HTTP_PORT}
             initialDelaySeconds: 15
             periodSeconds: 20
             failureThreshold: 3
@@ -339,8 +374,33 @@ ${annots_yaml}
               cpu: ${RETRIEVAL_RES_CPU}
               memory: ${RETRIEVAL_RES_MEM}
 EOF
+)
+  atomic_write "${MANIFEST_DEP}" "${dep_yaml}"
 
-cat >"${MANIFEST_SVC}" <<EOF
+  local svc_ports_yaml=""
+  if [ "${single_port}" = "true" ]; then
+    svc_ports_yaml=$(cat <<EOF
+  ports:
+    - name: http
+      port: ${RETRIEVAL_HTTP_PORT}
+      targetPort: ${RETRIEVAL_HTTP_PORT}
+EOF
+)
+  else
+    svc_ports_yaml=$(cat <<EOF
+  ports:
+    - name: http
+      port: ${RETRIEVAL_HTTP_PORT}
+      targetPort: ${RETRIEVAL_HTTP_PORT}
+    - name: metrics
+      port: ${effective_metrics_port}
+      targetPort: ${effective_metrics_port}
+EOF
+)
+  fi
+
+  local svc_yaml
+  svc_yaml=$(cat <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -351,42 +411,160 @@ ${labels_yaml}
 spec:
   selector:
 ${selector_yaml}
-  ports:
-    - name: http
-      port: ${RETRIEVAL_PORT}
-      targetPort: ${RETRIEVAL_PORT}
+${svc_ports_yaml}
   type: ClusterIP
 EOF
+)
+  atomic_write "${MANIFEST_SVC}" "${svc_yaml}"
 
-  if grep -q '\\\\' "${MANIFEST_DEP}" "${MANIFEST_SVC}" "${MANIFEST_CM}" 2>/dev/null ; then
+  if grep -q "\\\\" "${MANIFEST_NS}" "${MANIFEST_DEP}" "${MANIFEST_SVC}" "${MANIFEST_CM}" 2>/dev/null ; then
     LOG "ERROR: generated manifest contains backslash escapes; aborting"
     exit 1
   fi
+
+  LOG "rendered manifests: ${MANIFEST_NS}, ${MANIFEST_DEP}, ${MANIFEST_SVC}, ${MANIFEST_CM}"
+}
+
+ensure_config_and_secrets(){
+  check_kubectl
+  kubectl create namespace "${RETRIEVAL_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1
+  kubectl -n "${RETRIEVAL_NAMESPACE}" apply -f "${MANIFEST_CM}" >/dev/null 2>&1 || true
+  kubectl -n "${RETRIEVAL_NAMESPACE}" create secret generic retrieval-secrets \
+    --from-literal=GROQ_API_KEY="${GROQ_API_KEY}" \
+    --from-literal=OPENAI_API_KEY="${OPENAI_API_KEY}" \
+    --from-literal=LLM_API_KEY="${LLM_API_KEY}" \
+    --from-literal=QDRANT_API_KEY="${QDRANT_API_KEY}" \
+    --from-literal=AZURE_STORAGE_CONNECTION_STRING="${AZURE_STORAGE_CONNECTION_STRING}" \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1
+  LOG "applied configmap and secrets in ${RETRIEVAL_NAMESPACE}"
+}
+
+patch_deployment_metrics_port_if_missing(){
+  check_kubectl
+  check_jq
+  local dep_json
+  dep_json="$(kubectl -n "${RETRIEVAL_NAMESPACE}" get deployment "${RETRIEVAL_NAME}" -o json 2>/dev/null || true)"
+  if [ -z "${dep_json}" ]; then LOG "deployment not found; skipping metrics port patch"; return 0; fi
+  local container_name
+  container_name="$(echo "${dep_json}" | jq -r '.spec.template.spec.containers[0].name // empty')"
+  if [ -z "${container_name}" ]; then LOG "no container name discovered; skipping patch"; return 0; fi
+  local exists
+  exists="$(echo "${dep_json}" | jq --arg port "${RETRIEVAL_METRICS_PORT}" '[.spec.template.spec.containers[]?.ports[]? | select((.containerPort|tostring) == $port)] | length' 2>/dev/null || echo 0)"
+  if [ "${exists:-0}" -gt 0 ]; then LOG "metrics port ${RETRIEVAL_METRICS_PORT} already declared"; return 0; fi
+  local patch
+  patch="$(jq -n --arg name "${container_name}" --arg pname "metrics" --argjson port "${RETRIEVAL_METRICS_PORT}" '{ "spec": { "template": { "spec": { "containers": [ { "name": $name, "ports": [ { "name": $pname, "containerPort": $port, "protocol": "TCP" } ] } ] } } } }')"
+  if kubectl -n "${RETRIEVAL_NAMESPACE}" patch deployment "${RETRIEVAL_NAME}" --type=merge -p "${patch}" >/dev/null 2>&1; then
+    LOG "patched deployment to add metrics port ${RETRIEVAL_METRICS_PORT} to container ${container_name}"
+    kubectl -n "${RETRIEVAL_NAMESPACE}" rollout restart deployment "${RETRIEVAL_NAME}" >/dev/null 2>&1 || true
+    return 0
+  else
+    LOG "warning: metrics port patch failed"
+    return 1
+  fi
+}
+
+validate_service_post_install(){
+  check_kubectl
+  check_jq
+  local selector="$(printf '%s' "${CONTRACT_LABELS}" | awk -F',' '{print $1}' )"
+  LOG "waiting for pods matching '${selector}' to be present and ready"
+  if kubectl -n "${RETRIEVAL_NAMESPACE}" wait --for=condition=Ready pod -l "${selector}" --timeout=120s >/dev/null 2>&1; then DBG "pods ready"; else DBG "kubectl wait timed out; will poll"; fi
+  local tmpjson
+  tmpjson="$(mktemp /tmp/retriever-pods.XXXXXX.json)"; TMP_FILES+=("${tmpjson}")
+  local end=$((SECONDS + 120)); local items_count=0
+  while [ "${SECONDS}" -lt "${end}" ]; do
+    kubectl -n "${RETRIEVAL_NAMESPACE}" get pods -l "${selector}" -o json > "${tmpjson}" 2>/dev/null || true
+    if [ -s "${tmpjson}" ]; then items_count=$(jq '.items | length' "${tmpjson}" 2>/dev/null || echo 0); [ "${items_count:-0}" -gt 0 ] && break; fi
+    sleep 2
+  done
+  if [ "${items_count:-0}" -eq 0 ]; then LOG "no pods found for ${RETRIEVAL_NAME} in ${RETRIEVAL_NAMESPACE}"; return 3; fi
+
+  local tmp_errors
+  tmp_errors="$(mktemp /tmp/retriever-annot-errors.XXXXXX)"; TMP_FILES+=("${tmp_errors}")
+  jq -r --arg expected_port "${RETRIEVAL_METRICS_PORT}" '.items[] | .metadata.name as $n | .metadata.annotations as $ann | [$n, ($ann["monitoring.io/scrape"] // ""), ($ann["monitoring.io/port"] // ""), ($ann["monitoring.io/path"] // "")] | @tsv' "${tmpjson}" | while IFS=$'\t' read -r name scrape port path; do
+    if [ "${scrape,,}" != "true" ]; then printf '%s\n' "ERR ${name} missing monitoring.io/scrape=true" >> "${tmp_errors}"; continue; fi
+    if ! printf '%s' "${port}" | grep -qE '^[0-9]+$'; then printf '%s\n' "ERR ${name} monitoring.io/port must be numeric (found: ${port})" >> "${tmp_errors}"; continue; fi
+    if [ "${port}" != "${RETRIEVAL_METRICS_PORT}" ]; then printf '%s\n' "ERR ${name} monitoring.io/port mismatch expected ${RETRIEVAL_METRICS_PORT} found ${port}" >> "${tmp_errors}"; fi
+    if [ "${path}" != "/metrics" ]; then printf '%s\n' "ERR ${name} monitoring.io/path must be /metrics found ${path}" >> "${tmp_errors}"; fi
+  done
+  if [ -s "${tmp_errors}" ]; then LOG "annotation validation errors:"; sed -n '1,200p' "${tmp_errors}" || true; return 3; fi
+  LOG "pod annotations contract satisfied for all pods"
+
+  LOG "checking deployment container ports presence (informational)"
+  local dep_json
+  dep_json="$(kubectl -n "${RETRIEVAL_NAMESPACE}" get deployment "${RETRIEVAL_NAME}" -o json 2>/dev/null || true)"
+  if [ -z "${dep_json}" ]; then LOG "deployment not present; skipping container-port check"; return 0; fi
+  local port_declared
+  port_declared="$(echo "${dep_json}" | jq --arg port "${RETRIEVAL_METRICS_PORT}" '[.spec.template.spec.containers[]?.ports[]? | select((.containerPort|tostring) == $port)] | length' 2>/dev/null || echo 0)"
+  if [ "${port_declared:-0}" -gt 0 ]; then LOG "deployment declares metrics port ${RETRIEVAL_METRICS_PORT}"; else LOG "deployment does NOT declare metrics port ${RETRIEVAL_METRICS_PORT}; attempting safe patch"; patch_deployment_metrics_port_if_missing || LOG "patch attempt failed"; fi
+
+  LOG "checking one pod /metrics (port-forward head)"
+  local pod
+  pod="$(jq -r '.items[0].metadata.name' "${tmpjson}" 2>/dev/null || true)"
+  if [ -n "${pod}" ]; then
+    local local_port
+    local_port="$(python3 - <<PY
+import socket
+s=socket.socket()
+s.bind(('',0))
+p=s.getsockname()[1]
+s.close()
+print(p)
+PY
+)"
+    kubectl -n "${RETRIEVAL_NAMESPACE}" port-forward "pod/${pod}" "${local_port}:${RETRIEVAL_METRICS_PORT}" > /tmp/retriever_pf.log 2>&1 &
+    local pfpid=$!
+    sleep 1
+    if curl -sS --max-time 3 "http://127.0.0.1:${local_port}/metrics" | sed -n '1,80p' >/dev/null 2>&1; then LOG "/metrics responded for ${pod}"; else LOG "warning: /metrics did not respond for ${pod}; tail 200 lines of port-forward log:"; tail -n 200 /tmp/retriever_pf.log || true; kill "${pfpid}" >/dev/null 2>&1 || true; return 3; fi
+    kill "${pfpid}" >/dev/null 2>&1 || true
+  fi
+
+  LOG "post-install validation completed"
+  return 0
 }
 
 apply(){
   check_kubectl
+  check_jq
+  validate_numeric_ports
   ensure_config_and_secrets
   render_manifests
   kubectl apply -f "${MANIFEST_NS}"
+  kubectl apply -f "${MANIFEST_CM}"
   kubectl apply -f "${MANIFEST_DEP}"
   kubectl apply -f "${MANIFEST_SVC}"
-  LOG "retriever applied in ${RETRIEVAL_NAMESPACE}"
+  LOG "applied retriever manifests into ${RETRIEVAL_NAMESPACE}"
+  patch_deployment_metrics_port_if_missing || true
+  if ! validate_service_post_install; then LOG "post-install validation failed"; exit 3; fi
+  LOG "retriever apply complete and validated in ${RETRIEVAL_NAMESPACE}"
 }
 
 delete(){
   check_kubectl
-  kubectl delete -f "${MANIFEST_SVC}" --ignore-not-found || true
-  kubectl delete -f "${MANIFEST_DEP}" --ignore-not-found || true
-  kubectl delete -f "${MANIFEST_NS}" --ignore-not-found || true
-  kubectl -n "${RETRIEVAL_NAMESPACE}" delete configmap retrieval-config --ignore-not-found || true
+  kubectl -n "${RETRIEVAL_NAMESPACE}" delete -f "${MANIFEST_SVC}" --ignore-not-found || true
+  kubectl -n "${RETRIEVAL_NAMESPACE}" delete -f "${MANIFEST_DEP}" --ignore-not-found || true
+  kubectl -n "${RETRIEVAL_NAMESPACE}" delete -f "${MANIFEST_CM}" --ignore-not-found || true
+  kubectl -n "${RETRIEVAL_NAMESPACE}" delete namespace "${RETRIEVAL_NAMESPACE}" --ignore-not-found || true
   kubectl -n "${RETRIEVAL_NAMESPACE}" delete secret retrieval-secrets --ignore-not-found || true
   LOG "retriever deleted (best-effort)"
 }
 
-case "${1:-}" in
-  --generate) ensure_config_and_secrets; render_manifests; LOG "rendered manifests to ${RENDER_DIR}" ;;
-  --apply) apply ;;
-  --delete) delete ;;
-  *) LOG "usage: $0 --generate|--apply|--delete"; exit 1 ;;
-esac
+usage(){ printf '%s\n' "usage: $0 --generate|--apply|--delete [--verbose]"; exit 1; }
+
+if [ "$#" -eq 0 ]; then usage; fi
+cmd=""; force=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --generate) cmd="generate"; shift;;
+    --apply) cmd="apply"; shift;;
+    --delete) cmd="delete"; shift;;
+    --verbose) VERBOSE=1; shift;;
+    --force) force="--force"; shift;;
+    *) usage;;
+  esac
+done
+
+if [ "$cmd" = "generate" ]; then render_manifests && LOG "rendered manifests to ${RENDER_DIR}"; exit 0; fi
+if [ "$cmd" = "apply" ]; then apply; exit $?; fi
+if [ "$cmd" = "delete" ]; then delete; exit 0; fi
+usage

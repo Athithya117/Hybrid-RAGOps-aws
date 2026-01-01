@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: cloudflared-config
-  namespace: inference
-data:
-  config.yml: "ingress:\n- hostname: ui.athithya.site\n  service: http://frontend-svc.inference.svc.cluster.local:8000\n\
-    - service: http_status:404\n"

@@ -1,282 +1,222 @@
-# Prometheus environment variables — exact meaning, default, when to change (concrete)
+# Monitoring environment variables (what to change, when, and why)
 
-Below are the Prometheus-related environment variables used by the generator and Helm values. For each variable I show:
+This document describes **only** the environment variables that are intentionally exposed by `infra/generators/monitoring_and_alerts.sh`.
+They are ordered by **leverage**: the ones most likely to break or unlock observability come first; cosmetic or static knobs are last.
 
-* **What it is** (effect / mapping)
-* **Default value used in this repo**
-* **Valid format / type**
-* **When to change it** (concrete criteria)
-* **Risk / consequence** of changing it
-
-Use these variables to make Prometheus behavior deterministic across environments. Where appropriate I include the exact Helm value path that the generator writes.
+The defaults are safe for **local k3s / dev**. Change values **only** when the conditions below apply.
 
 ---
 
-## `PROM_SCRAPE_INTERVAL`
+## 1. `REMOTE_WRITE_URL` (highest leverage)
 
-* **What it is:** Global scrape interval Prometheus uses for target endpoints (how often Prometheus requests `/metrics` from targets).
-* **Helm mapping:** `prometheus.prometheusSpec.scrapeInterval` and ServiceMonitor `endpoints[].interval`.
-* **Default in this repo:** `15s`
-* **Type / format:** Prometheus duration string, e.g. `15s`, `30s`, `1m`.
-* **When to change:**
+**What it is**
+The endpoint where `vmagent` sends all scraped metrics (VictoriaMetrics remote-write API).
 
-  * Increase (longer interval) when total metric **series cardinality** or scrape load causes Prometheus resource pressure (high CPU, WAL churn, or scraping timeouts). Example: move to `30s` or `1m` if series count > 200k or Prometheus CPU saturated.
-  * Decrease (shorter interval) only if you need finer-grained alerting or SLO detection (e.g., SLO requires detection <15s). Example: change to `10s` only if you have tight SLOs and Prometheus sizing to match.
-* **Risk:** Shorter intervals increase CPU, memory, WAL writes, metrics cardinality impact; longer intervals increase detection latency for alerts and SLO violations.
+**Default**
+`http://victoria-metrics.monitoring.svc.cluster.local:8428/api/v1/write`
 
-**Example**
+**When to change**
 
-```bash
-export PROM_SCRAPE_INTERVAL="15s"
-```
+* When exporting metrics to a **remote / centralized TSDB**
+* When switching from in-cluster VictoriaMetrics to:
 
----
+  * VM Cluster
+  * Managed VictoriaMetrics
+  * Thanos Receive
+  * Any HTTPS / authenticated endpoint
 
-## `PROM_EVALUATION_INTERVAL`
+**Concrete examples**
 
-* **What it is:** How often Prometheus evaluates recording and alerting rules.
-* **Helm mapping:** `prometheus.prometheusSpec.evaluationInterval`
-* **Default in this repo:** unset explicitly → generator sets it equal to `PROM_SCRAPE_INTERVAL` by default (so both are the same).
-* **Type / format:** Prometheus duration string, same format as scrape interval.
-* **When to change:**
+* Local dev / k3s: **leave default**
+* Central metrics cluster:
 
-  * Keep equal to `PROM_SCRAPE_INTERVAL` in almost all cases. Change only when you want rules evaluated less often than scrapes (reduce alert noise/resource usage) or more often (rare).
-  * Example: `scrapeInterval=15s`, `evaluationInterval=30s` reduces rule eval CPU while retaining data fidelity.
-* **Risk:** If evaluationInterval is much longer than scrapeInterval, alerts will have extra latency; if shorter, rules may evaluate on stale data or more often than new samples arrive.
+  ```
+  https://vm-remote.company.internal/api/v1/write
+  ```
 
-**Example**
+**Failure mode if wrong**
 
-```bash
-export PROM_EVALUATION_INTERVAL="15s"
-```
+* TSDB stays empty even though `/metrics` endpoints work
+* All PromQL tests fail with “no results”
 
 ---
 
-## `PROM_RETENTION`
+## 2. `VMAGENT_REPLICAS`
 
-* **What it is:** How long Prometheus retains raw time-series data on disk (e.g., `7d` = 7 days).
-* **Helm mapping:** `prometheus.prometheusSpec.retention`
-* **Default in this repo:** `7d`
-* **Type / format:** Duration string such as `7d`, `30d`, `24h`.
-* **When to change:**
+**What it is**
+Number of `vmagent` pods scraping and remote-writing metrics.
 
-  * Increase retention when you need historical troubleshooting/alerts beyond default window (e.g., compliance or long-term analysis). Example: 30d for production business analytics.
-  * Decrease retention to conserve disk if cardinality is high and storage is constrained (e.g., 3d).
-* **Risk:** Longer retention requires more PVC size and IO; shorter retention reduces ability to investigate past incidents.
+**Default**
+`1`
 
-**Example**
+**When to change**
 
-```bash
-export PROM_RETENTION="7d"
-```
+* Keep `1` for dev, CI, single-node, or non-deduplicated setups
+* Increase **only** if:
 
----
+  * You need HA for scraping **and**
+  * Your TSDB or downstream system handles duplicate samples
 
-## `PROM_REPLICAS`
+**Concrete values**
 
-* **What it is:** Number of Prometheus replicas managed by the chart (operator/HA setup).
-* **Helm mapping:** used to set `prometheus.prometheusSpec.replicaCount` (chart/operator behaviour).
-* **Default in this repo:** `1` for `kind` (local), `2` recommended for AKS/prod (generator default logic).
-* **Type / format:** Integer ≥ 1
-* **When to change:**
+* Dev / k3s: `1`
+* Production with dedupe: `2`
 
-  * Set to `1` for development or single-node clusters.
-  * Set to `>1` for production only if you handle deduplication (e.g., Thanos or Alertmanager route dedupe) and understand HA implications (alerts may duplicate).
-  * Use `2` for basic HA; use >2 only for special multi-instance topologies and with dedup tooling.
-* **Risk:** Multiple Prometheus replicas without deduplication will cause duplicate alerts and duplicate remote-write data; more replicas increase resource usage.
+**Failure mode if misused**
 
-**Example**
-
-```bash
-export PROM_REPLICAS=1
-```
+* Duplicate metrics
+* Inflated series counts
+* Duplicate alerts
 
 ---
 
-## `PROM_STORAGE_SIZE`
+## 3. `VM_RES_CPU`, `VM_RES_MEM` (VictoriaMetrics resources)
 
-* **What it is:** PVC size requested for Prometheus TSDB storage.
-* **Helm mapping:** `prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage`
-* **Default in this repo:** `50Gi` in Helm generator examples; for dev you may use `2Gi`.
-* **Type / format:** Kubernetes storage quantity (e.g., `50Gi`, `10Gi`)
-* **When to change:**
+**What they are**
+CPU and memory requests/limits for the VictoriaMetrics TSDB container.
 
-  * Increase with higher scrape frequency, higher retention, or higher cardinality (more series).
-  * Estimate: approximate retention * ingestion rate * cardinality multiplier. If cardinality doubles, storage needed roughly doubles.
-  * Use `2Gi` for small local clusters (short retention), `50Gi`+ for production depending on retention and cardinality.
-* **Risk:** Underprovisioned PVC will cause Prometheus to run out of disk; expansion may be possible but slower.
+**Defaults**
 
-**Example**
+* CPU: `100m`
+* Memory: `256Mi`
 
-```bash
-export PROM_STORAGE_SIZE="50Gi"
-```
+**When to change**
+Increase when **VictoriaMetrics** shows:
 
----
+* Slow PromQL queries
+* High CPU usage
+* OOM kills
+* Large retention or high cardinality
 
-## `PROM_STORAGE_CLASS`
+**Concrete guidance**
 
-* **What it is:** StorageClass used by the Prometheus PVC.
-* **Helm mapping:** `prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.storageClassName`
-* **Default in this repo:** empty (cluster default)
-* **Type / format:** StorageClass name string
-* **When to change:**
+* Small dev cluster: defaults are fine
+* Medium cluster: `500m` CPU, `2–4Gi` memory
+* Large / prod: `1000–4000m` CPU, `8–32Gi` memory
 
-  * Set to a high-performance class (`managed-premium`, `premium-rwo`) for production to reduce IO latency for WAL/TSDB.
-  * Use default or ephemeral storage for CI/kind.
-* **Risk:** Using slow storage will impact WAL replay and query performance; using ephemeral `emptyDir` loses data on pod restart.
+**Failure mode if too small**
 
-**Example**
-
-```bash
-export PROM_STORAGE_CLASS="managed-premium"
-```
+* OOM restarts
+* Slow or failing PromQL queries
+* Data gaps during WAL replay
 
 ---
 
-## `PROM_CPU_REQUEST` / `PROM_CPU_LIMIT`
+## 4. `VMAGENT_RES_CPU`, `VMAGENT_RES_MEM` (vmagent resources)
 
-* **What they are:** CPU request/limit for the Prometheus pod.
-* **Helm mapping:** `prometheus.prometheusSpec.resources.requests.cpu` and `.limits.cpu`
-* **Defaults in this repo:** `PROM_CPU_REQUEST=500m`, `PROM_CPU_LIMIT=2000m` (examples)
-* **Type / format:** Kubernetes CPU quantities (e.g., `500m`, `2000m`)
-* **When to change:**
+**What they are**
+CPU and memory for the scraper + remote-write agent.
 
-  * Increase requests/limits when CPU is consistently high (scraping, rule evaluation, queries). Example: increase to `2000m` request for heavy workloads.
-  * Matches expected traffic and cardinality; large cardinality systems require more CPU.
-* **Risk:** Too low request leads to throttling; too low limit causes OOMKill or OOMIf memory bound.
+**Defaults**
 
-**Example**
+* CPU: `100m`
+* Memory: `256Mi`
 
-```bash
-export PROM_CPU_REQUEST="500m"
-export PROM_CPU_LIMIT="2000m"
-```
+**When to change**
+Increase when:
 
----
+* Scraping many pods/services
+* Remote-write backlog grows
+* vmagent logs show queue pressure or OOMs
 
-## `PROM_MEM_REQUEST` / `PROM_MEM_LIMIT`
+**Concrete guidance**
 
-* **What they are:** Memory request/limit for the Prometheus pod.
-* **Helm mapping:** `prometheus.prometheusSpec.resources.requests.memory` and `.limits.memory`
-* **Defaults in this repo:** `PROM_MEM_REQUEST=1Gi`, `PROM_MEM_LIMIT=8Gi` (examples)
-* **Type / format:** Kubernetes memory quantities (e.g., `1Gi`, `8Gi`)
-* **When to change:**
+* Dev / few targets: defaults
+* 100–500 targets: `250–500m` CPU, `512Mi–1Gi` memory
+* Large clusters: scale further based on scrape count
 
-  * Increase memory when Prometheus OOMs, when query latency rises, or when WAL memory pressure is observed.
-  * For high-cardinality or long-retention, increase to multiple tens of GB (production often uses 16Gi–64Gi depending on scale).
-* **Risk:** Insufficient memory results in OOMs and restart loops, data gaps and failed queries.
+**Failure mode if too small**
 
-**Example**
-
-```bash
-export PROM_MEM_REQUEST="1Gi"
-export PROM_MEM_LIMIT="8Gi"
-```
+* Dropped samples
+* Delayed ingestion
+* Remote-write queue growth
 
 ---
 
-## `PROM_WAL_COMPRESSION` (or `walCompression` controlled by generator)
+## 5. `VM_SCRAPE_INTERVAL`
 
-* **What it is:** Enables compression of the Prometheus WAL (reduces WAL IO and disk usage).
-* **Helm mapping:** `prometheus.prometheusSpec.walCompression`
-* **Default in this repo:** forced **true** (generator sets `walCompression: true`).
-* **Type / format:** boolean (`true`/`false`)
-* **When to change:**
+**What it is**
+How often vmagent scrapes `/metrics` from targets.
 
-  * Keep **true** for almost all environments. Do not disable unless debugging a rare compression bug or running an extremely old Prometheus that lacks support.
-* **Risk:** Disabling increases WAL write amplification and disk consumption; enabling has negligible downside on modern versions.
+**Default**
+`15s`
 
-**Example**
+**When to change**
 
-```bash
-export PROM_WAL_COMPRESSION="true"
-```
+* Increase interval if:
 
----
+  * Cardinality is high
+  * Victoria CPU or WAL IO is under pressure
+* Decrease only if you *need* higher resolution and can afford the cost
 
-## `FAIL_ON_MISCONFIG` (monitoring generator helper)
+**Concrete values**
 
-* **What it is:** Controls whether the generator should fail the apply if ServiceMonitor → Service bindings are invalid.
-* **Default in this repo:** `false`
-* **Type / format:** boolean (`true`/`false`)
-* **When to change:**
+* Standard observability: `15s`
+* High cardinality / cost control: `30s` or `1m`
+* Tight SLOs (rare): `10s`
 
-  * Set to `true` in CI or production deploy jobs to fail early on misconfiguration.
-  * Keep `false` locally to allow iterative testing.
-* **Risk:** If `true`, `apply` will abort on binding mismatches; good for gatekeeping.
+**Failure mode if misconfigured**
 
-**Example**
-
-```bash
-export FAIL_ON_MISCONFIG="true"
-```
+* Too short → high CPU, WAL churn
+* Too long → slow alert detection
 
 ---
 
-## Practical guidance / tuning checklist (concrete)
+## 6. `VM_SCRAPE_TIMEOUT`
 
-1. **Dev / local (kind):**
+**What it is**
+Maximum time allowed for a single scrape request.
 
-   * `PROM_REPLICAS=1`
-   * `PROM_SCRAPE_INTERVAL=15s`
-   * `PROM_RETENTION=1d` or `2d`
-   * `PROM_STORAGE_SIZE=2Gi`
-   * `PROM_WAL_COMPRESSION=true`
-   * Resource requests small: `PROM_CPU_REQUEST=250m`, `PROM_MEM_REQUEST=512Mi`.
+**Default**
+`10s`
 
-2. **Staging / small cluster:**
+**When to change**
 
-   * `PROM_REPLICAS=1`
-   * `PROM_SCRAPE_INTERVAL=15s`
-   * `PROM_RETENTION=7d`
-   * `PROM_STORAGE_SIZE=50Gi` (estimate based on cardinality)
-   * `PROM_CPU_REQUEST=500m`, `PROM_MEM_REQUEST=2Gi`
+* Increase if targets are slow or return large payloads
+* Leave unchanged for normal services
 
-3. **Production / high-cardinality:**
+**Concrete values**
 
-   * `PROM_REPLICAS=2` (with deduplication or Thanos)
-   * `PROM_SCRAPE_INTERVAL=15s` or `30s` (if cardinality huge)
-   * `PROM_RETENTION=14d` or `30d`
-   * `PROM_STORAGE_SIZE=200Gi+` (depends on ingestion; use sizing calculator)
-   * `PROM_CPU_REQUEST=2000m+`, `PROM_MEM_REQUEST=16Gi+`
-   * `PROM_WAL_COMPRESSION=true`
-   * Use a fast `PROM_STORAGE_CLASS` (SSD/premium)
+* Normal services: `10s`
+* Slow exporters: `20s`
 
-4. **If Prometheus shows load/slow queries:**
+**Failure mode if too low**
 
-   * First: increase `PROM_CPU_REQUEST` & `PROM_MEM_REQUEST`.
-   * Second: increase `PROM_SCRAPE_INTERVAL` from `15s` → `30s`.
-   * Third: reduce label cardinality (remove dynamic labels from metrics/histograms or add relabeling to drop `collection`).
+* Frequent scrape failures
+* Missing samples
 
 ---
 
-## Exact Helm keys to check / set in generated values file
+## 7. `VMAGENT_IMAGE`, `VM_IMAGE` (lowest leverage)
 
-```yaml
-prometheus:
-  prometheusSpec:
-    replicaCount: <PROM_REPLICAS>
-    scrapeInterval: "<PROM_SCRAPE_INTERVAL>"
-    evaluationInterval: "<PROM_EVALUATION_INTERVAL>"
-    walCompression: <PROM_WAL_COMPRESSION>        # boolean
-    retention: "<PROM_RETENTION>"
-    storageSpec:
-      volumeClaimTemplate:
-        spec:
-          storageClassName: "<PROM_STORAGE_CLASS or omitted>"
-          resources:
-            requests:
-              storage: "<PROM_STORAGE_SIZE>"
-    resources:
-      requests:
-        cpu: "<PROM_CPU_REQUEST>"
-        memory: "<PROM_MEM_REQUEST>"
-      limits:
-        cpu: "<PROM_CPU_LIMIT>"
-        memory: "<PROM_MEM_LIMIT>"
-```
+**What they are**
+Pinned container images for vmagent and VictoriaMetrics.
+
+**Defaults**
+
+* `victoriametrics/vmagent:v1.99.0`
+* `victoriametrics/victoria-metrics:v1.99.0`
+
+**When to change**
+
+* Version upgrades
+* Security patches
+* Controlled testing in staging
+
+**Rules**
+
+* Always pin exact versions
+* Never use `:latest`
+* Upgrade in staging before prod
 
 ---
 
-Use the above variables to make Prometheus configuration explicit and deterministic. Change values only for one of these three reasons: (a) capacity / resource pressure, (b) SLO / detection latency requirements, (c) cardinality or storage retention requirements. Adjust pairing of interval ↔ retention ↔ storage_size together (changing one typically requires re-evaluating the others).
+## Summary (mental model)
+
+* **Empty TSDB?** → check `REMOTE_WRITE_URL`
+* **Metrics duplicated?** → check `VMAGENT_REPLICAS`
+* **Queries slow / OOMs?** → raise `VM_RES_MEM` first
+* **Samples delayed or dropped?** → raise vmagent resources
+* **Too expensive?** → increase `VM_SCRAPE_INTERVAL`
+
+---

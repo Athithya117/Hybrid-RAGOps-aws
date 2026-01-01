@@ -243,20 +243,15 @@ make deploy-clickhouse
 make deploy-vector
 
 
-export PROM_REPLICAS=1                       # HA replicas for Prometheus on AKS
-export PROM_STORAGE_SIZE=2Gi               # PVC size for Prometheus in production
-export PROM_STORAGE_CLASS=managed-premium    # StorageClass for Prometheus PVCs on AKS
-export PROM_CPU_REQUEST=500m                 # Production CPU request for Prometheus
-export PROM_CPU_LIMIT=2000m                  # Production CPU limit for Prometheus
-export PROM_MEM_REQUEST=1Gi                  # Production memory request for Prometheus
-export PROM_MEM_LIMIT=8Gi                    # Production memory limit for Prometheus
 
-export ALERTMANAGER_SLACK_WEBHOOK=...        # Optional: Slack webhook URL for Alertmanager
-
-export GRAFANA_PERSISTENCE=true              # Enable Grafana PVC on AKS
-export GRAFANA_PERSISTENCE_SIZE=20Gi         # Grafana PVC size on AKS
-export GRAFANA_STORAGE_CLASS=managed-standard # Grafana StorageClass on AKS
-
+export VMAGENT_REPLICAS="${VMAGENT_REPLICAS:-1}"                                      # vmagent replica count; increase only for HA if you handle dupes/deduplication.
+export VM_RES_CPU="${VM_RES_CPU:-100m}"                                               # victoria container cpu request/limit; raise when ingestion/query CPU saturated.
+export VM_RES_MEM="${VM_RES_MEM:-256Mi}"                                              # victoria memory request/limit; raise to avoid OOM for larger TSDB.
+export VMAGENT_RES_CPU="${VMAGENT_RES_CPU:-100m}"                                     # vmagent cpu; increase when scraping or remote-write CPU is high.
+export VMAGENT_RES_MEM="${VMAGENT_RES_MEM:-256Mi}"                                    # vmagent memory; increase if vmagent OOMs or persistent-queue grows.
+# scrape & timing (affects ingestion rate / storage)
+export VM_SCRAPE_INTERVAL="${VM_SCRAPE_INTERVAL:-15s}"                                 # global scrape interval; increase (longer) if cardinality/CPU/WAL pressure.
+export VM_SCRAPE_TIMEOUT="${VM_SCRAPE_TIMEOUT:-10s}"                                   # per-scrape timeout;
 make deploy-vm
 
 ```

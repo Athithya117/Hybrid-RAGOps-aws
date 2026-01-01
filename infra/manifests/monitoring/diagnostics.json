@@ -1,9 +1,0 @@
-{
-  "status": "fail",
-  "errors": [
-    "Apply completed with errors: vmsingle rollout failed or timed out; vmagent rollout failed or timed out"
-  ],
-  "warnings": [],
-  "endpoints": {},
-  "timestamp": 1767141582
-}
