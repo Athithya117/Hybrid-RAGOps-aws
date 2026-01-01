@@ -13,6 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Iterable
 import yaml
+import urllib.request
+import urllib.error
+import base64
 
 ALLOWED_LOG_LEVELS = {"DEBUG", "INFO", "WARN", "ERROR"}
 LEVEL_TO_INT = {"DEBUG": logging.DEBUG, "INFO": logging.INFO, "WARN": logging.WARNING, "ERROR": logging.ERROR}
@@ -82,18 +85,56 @@ ALERTING_GROUP_WAIT = os.getenv("ALERTING_GROUP_WAIT", "30s")
 ALERTING_GROUP_INTERVAL = os.getenv("ALERTING_GROUP_INTERVAL", "5m")
 ALERTING_REPEAT_INTERVAL = os.getenv("ALERTING_REPEAT_INTERVAL", "3h")
 
+# Default mapping from alert names -> published runbook filenames (adjustable via RUNBOOK_MAP env)
+DEFAULT_RUNBOOK_OVERRIDES = {
+    "VmagentNoRemoteWrite": "vmagent-discovery-empty.html",
+    "RetrieverErrorBudgetFastBurn": "retriever-not-ready.html",
+    "QdrantErrorBudgetFastBurn": "qdrant-dead-replicas.html",
+}
+
+def parse_runbook_map_env() -> Dict[str, str]:
+    s = os.getenv("RUNBOOK_MAP", "").strip()
+    if not s:
+        return {}
+    try:
+        obj = json.loads(s)
+        if isinstance(obj, dict):
+            return {k: v for k, v in obj.items()}
+    except Exception:
+        pass
+    res: Dict[str, str] = {}
+    parts = [p.strip() for p in s.split(",") if p.strip()]
+    for p in parts:
+        if "=" in p:
+            k, v = p.split("=", 1)
+            res[k.strip()] = v.strip()
+    return res
+
+RUNBOOK_OVERRIDES = {**DEFAULT_RUNBOOK_OVERRIDES, **parse_runbook_map_env()}
+
 def run_cmd(cmd: List[str], timeout: int = 60) -> Tuple[int, str, str]:
     try:
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=timeout)
-        out = (proc.stdout or b"").decode("utf-8", errors="replace").strip()
-        err = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=timeout, text=True)
+        out = (proc.stdout or "").strip()
+        err = (proc.stderr or "").strip()
         LOG.debug("run_cmd finished rc=%s cmd=%s out_len=%d err_len=%d", proc.returncode, " ".join(cmd), len(out), len(err))
         return proc.returncode, out, err
     except subprocess.TimeoutExpired as e:
-        out = (getattr(e, "stdout", None) or b"").decode("utf-8", errors="replace") if getattr(e, "stdout", None) else ""
-        err = (getattr(e, "stderr", None) or b"").decode("utf-8", errors="replace") if getattr(e, "stderr", None) else f"timeout after {timeout}s"
+        out = getattr(e, "stdout", "") or ""
+        err = getattr(e, "stderr", "") or f"timeout after {timeout}s"
         LOG.error("run_cmd timeout cmd=%s", " ".join(cmd))
         return 124, out.strip(), err.strip()
+
+def kubectl_apply_from_str(manifest_yaml: str) -> None:
+    if not shutil.which("kubectl"):
+        raise RuntimeError("kubectl required to apply secrets")
+    proc = subprocess.run(["kubectl", "apply", "-f", "-"], input=manifest_yaml, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    out = (proc.stdout or "").strip()
+    err = (proc.stderr or "").strip()
+    if proc.returncode != 0:
+        LOG.error("kubectl apply secret failed stdout=%s stderr=%s", out, err)
+        raise RuntimeError(f"kubectl apply failed: {err or out}")
+    LOG.info("kubectl applied secret via stdin")
 
 def atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,8 +202,29 @@ def runbook_url_for(alert_name: str) -> str:
     base = RUNBOOK_BASE_URL.rstrip("/") if RUNBOOK_BASE_URL else ""
     if not base:
         return ""
+    if alert_name in RUNBOOK_OVERRIDES:
+        fn = RUNBOOK_OVERRIDES[alert_name]
+        if not fn.endswith(".html"):
+            fn = fn + ".html"
+        return f"{base}/{fn}"
     filename = f"{alertname_to_kebab(alert_name)}.html"
     return f"{base}/{filename}"
+
+def http_head_ok(url: str, timeout: int = 5) -> bool:
+    try:
+        req = urllib.request.Request(url, method="HEAD")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return 200 <= resp.getcode() < 400
+    except urllib.error.HTTPError as e:
+        if e.code == 405:
+            try:
+                with urllib.request.urlopen(url, timeout=timeout) as resp2:
+                    return 200 <= resp2.getcode() < 400
+            except Exception:
+                return False
+        return False
+    except Exception:
+        return False
 
 def _add_runbook_if_present(annotations: Dict[str, Any], alert_name: str) -> None:
     rb = runbook_url_for(alert_name)
@@ -278,12 +340,45 @@ def build_slo_rules() -> Dict[str, Any]:
     })
     for grp in groups:
         for r in grp.get("rules", []):
-            anns = r.get("annotations", {})
+            anns = r.get("annotations", {}) or {}
             summary = r.get("alert") or r.get("record") or "alert"
             anns["summary"] = anns.get("summary") or summary
             _add_runbook_if_present(anns, r.get("alert") or summary)
             r["annotations"] = anns
     return {"groups": groups}
+
+def check_required_runbooks_exist(rules_obj: Dict[str, Any]) -> None:
+    if not RUNBOOK_BASE_URL:
+        LOG.debug("RUNBOOK_BASE_URL not set; skipping runbook existence checks")
+        return
+    if not ENABLE_PAGERDUTY:
+        LOG.debug("ENABLE_PAGERDUTY disabled; skipping runbook existence checks")
+        return
+    paging = parse_csv_to_list(ALERTING_PAGING_SEVERITY_LEVELS)
+    if not paging:
+        LOG.debug("No paging severities configured; skipping runbook existence checks")
+        return
+    missing = []
+    groups = rules_obj.get("groups", [])
+    for grp in groups:
+        for r in grp.get("rules", []):
+            labels = r.get("labels", {}) or {}
+            sev = labels.get("severity", "").lower()
+            alert_name = r.get("alert")
+            if not alert_name:
+                continue
+            if sev in paging:
+                url = runbook_url_for(alert_name)
+                if not url:
+                    missing.append((alert_name, "no-url-generated"))
+                    continue
+                ok = http_head_ok(url, timeout=6)
+                if not ok:
+                    missing.append((alert_name, url))
+    if missing:
+        msg_lines = [f"{name}:{reason}" for name, reason in missing]
+        LOG.error("runbook existence check failed for paging alerts: %s", "; ".join(msg_lines))
+        raise RuntimeError("Missing or inaccessible runbook pages for paging alerts: " + ", ".join(f"{n} ({u})" for n, u in missing))
 
 def build_vmalert_objects(rules_text: str) -> List[Dict[str, Any]]:
     ns = VM_NAMESPACE
@@ -344,16 +439,13 @@ def choose_preferred_receiver(receivers: Iterable[Dict[str, Any]]) -> str:
 
 def build_alertmanager_cm() -> Dict[str, Any]:
     ns = VM_NAMESPACE
-    paging = parse_csv_to_list(ALERTING_PAGING_SEVERITY_LEVELS)
-    slack = parse_csv_to_list(ALERTING_SLACK_SEVERITY_LEVELS)
     receivers: List[Dict[str, Any]] = []
     if ENABLE_PAGERDUTY and PAGERDUTY_ROUTING_KEY:
         receivers.append({"name": "pagerduty", "pagerduty_configs": [{"routing_key": PAGERDUTY_ROUTING_KEY, "send_resolved": True, "details": {"runbook": "{{ .CommonAnnotations.runbook }}", "description": "{{ .CommonAnnotations.summary }}", "client": "{{ template \"pagerduty.default.client\" . }}"} }]})
     if ENABLE_SLACK and ALERTMANAGER_SLACK_WEBHOOK:
-        slack_config = {"api_url": ALERTMANAGER_SLACK_WEBHOOK, "send_resolved": True}
-        if ALERT_DEFAULT_CHANNEL:
-            slack_config["channel"] = ALERT_DEFAULT_CHANNEL
-        receivers.append({"name": "slack", "slack_configs": [slack_config]})
+        # Use webhook_configs to avoid schema mismatch across Alertmanager versions
+        slack_webhook = {"url": ALERTMANAGER_SLACK_WEBHOOK, "send_resolved": True}
+        receivers.append({"name": "slack", "webhook_configs": [slack_webhook]})
     if DEFAULT_WEBHOOK:
         receivers.append({"name": "default", "webhook_configs": [{"url": DEFAULT_WEBHOOK}]})
     if not receivers:
@@ -366,24 +458,23 @@ def build_alertmanager_cm() -> Dict[str, Any]:
         "repeat_interval": ALERTING_REPEAT_INTERVAL,
         "receiver": preferred,
     }
-    planes = ["ingestion", "safety", "slo"]
-    combined = []
-    for s in paging:
+    combined: List[str] = []
+    for s in parse_csv_to_list(ALERTING_PAGING_SEVERITY_LEVELS):
         if s not in combined:
             combined.append(s)
-    for s in slack:
+    for s in parse_csv_to_list(ALERTING_SLACK_SEVERITY_LEVELS):
         if s not in combined:
             combined.append(s)
     route_children: List[Dict[str, Any]] = []
-    for plane in planes:
+    for plane in ["ingestion", "safety", "slo"]:
         for sev in combined:
             sev_l = sev.lower()
             receiver = None
-            if sev_l in paging and ENABLE_PAGERDUTY and PAGERDUTY_ROUTING_KEY:
+            if sev_l in parse_csv_to_list(ALERTING_PAGING_SEVERITY_LEVELS) and ENABLE_PAGERDUTY and PAGERDUTY_ROUTING_KEY:
                 receiver = "pagerduty"
-            elif sev_l in slack and ENABLE_SLACK and ALERTMANAGER_SLACK_WEBHOOK:
+            elif sev_l in parse_csv_to_list(ALERTING_SLACK_SEVERITY_LEVELS) and ENABLE_SLACK and ALERTMANAGER_SLACK_WEBHOOK:
                 receiver = "slack"
-            elif sev_l in paging and not ENABLE_PAGERDUTY and ENABLE_SLACK and ALERTMANAGER_SLACK_WEBHOOK:
+            elif sev_l in parse_csv_to_list(ALERTING_PAGING_SEVERITY_LEVELS) and not ENABLE_PAGERDUTY and ENABLE_SLACK and ALERTMANAGER_SLACK_WEBHOOK:
                 receiver = "slack"
             if receiver:
                 route_children.append({"match": {"plane": plane, "severity": sev_l}, "receiver": receiver, "continue": False})
@@ -451,6 +542,7 @@ def build_notifier_secret_manifest() -> Dict[str, Any]:
 def render_all() -> None:
     validate_inputs()
     rules_obj = build_slo_rules()
+    check_required_runbooks_exist(rules_obj)
     rules_text = yaml.safe_dump(rules_obj, sort_keys=False)
     vmalert_objs = build_vmalert_objects(rules_text)
     alertmgr_cm = build_alertmanager_cm()
@@ -470,14 +562,6 @@ def render_all() -> None:
         multi_alertmgr.append(yaml.safe_dump(o, sort_keys=False))
     atomic_write(alertmgr_deploy_path, "\n---\n".join(multi_alertmgr) + "\n")
     atomic_write(alertmgr_cm_path, yaml.safe_dump(alertmgr_cm, sort_keys=False))
-    if CREATE_NOTIFIER_SECRET:
-        secret = build_notifier_secret_manifest()
-        if secret:
-            secret_path = OUT_DIR / f"{NOTIFIER_SECRET_NAME}-secret.yaml"
-            atomic_write(secret_path, yaml.safe_dump(secret, sort_keys=False))
-            LOG.info("notifier secret rendered to disk %s", str(secret_path))
-        else:
-            LOG.info("CREATE_NOTIFIER_SECRET set but no notifier envs present; skipping secret emission")
     LOG.info("render complete out_dir=%s files=%s", str(OUT_DIR), [str(slo_path), str(vmalert_path), str(alertmgr_deploy_path), str(alertmgr_cm_path)])
 
 def promtool_check(rules_path: Path) -> None:
@@ -508,6 +592,15 @@ def kubectl_delete(path: Path) -> None:
     else:
         LOG.info("kubectl delete succeeded file=%s", str(path))
 
+def apply_secret_directly() -> None:
+    secret = build_notifier_secret_manifest()
+    if not secret:
+        LOG.info("no notifier secret content to apply; skipping")
+        return
+    manifest_yaml = yaml.safe_dump(secret, sort_keys=False)
+    LOG.info("applying notifier secret directly into cluster as %s", NOTIFIER_SECRET_NAME)
+    kubectl_apply_from_str(manifest_yaml)
+
 def generate(args: argparse.Namespace) -> None:
     LOG.info("generate started")
     render_all()
@@ -529,9 +622,7 @@ def apply(args: argparse.Namespace) -> None:
     vmalert_manifest = OUT_DIR / "vmalert-deployment.yaml"
     slo = OUT_DIR / "slo.rules.yaml"
     if CREATE_NOTIFIER_SECRET:
-        secret_path = OUT_DIR / f"{NOTIFIER_SECRET_NAME}-secret.yaml"
-        if secret_path.exists():
-            kubectl_apply(secret_path)
+        apply_secret_directly()
     kubectl_apply(alertmgr_deploy)
     kubectl_apply(alertmgr_cm)
     kubectl_apply(vmalert_manifest)
@@ -549,15 +640,12 @@ def delete(args: argparse.Namespace) -> None:
     LOG.info("delete started")
     if not args.confirm:
         raise RuntimeError("--confirm required to delete")
-    files = ["alertmanager-deployment.yaml", "alertmanager-config.yaml", "vmalert-deployment.yaml", "slo.rules.yaml", f"{NOTIFIER_SECRET_NAME}-secret.yaml"]
+    files = ["alertmanager-deployment.yaml", "alertmanager-config.yaml", "vmalert-deployment.yaml", "slo.rules.yaml"]
     for f in files:
         p = OUT_DIR / f
         if p.exists() and shutil.which("kubectl"):
             try:
-                if is_k8s_manifest(p):
-                    kubectl_delete(p)
-                else:
-                    LOG.info("skipping kubectl delete for non-K8s file %s", str(p))
+                kubectl_delete(p)
             except Exception as e:
                 LOG.warning("kubectl delete failed for %s: %s", p, e)
     if OUT_DIR.exists():
