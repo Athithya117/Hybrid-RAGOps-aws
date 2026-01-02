@@ -1,0 +1,146 @@
+groups:
+- name: recording-rules
+  rules:
+  - record: retrieval_errors_rate_1h
+    expr: sum(rate(retrieval_errors_total[1h]))
+    annotations:
+      summary: retrieval_errors_rate_1h
+      runbook: https://defaultsa515.z13.web.core.windows.net/retrieval-errors-rate-1h.html
+  - record: retrieval_requests_rate_1h
+    expr: sum(rate(retrieval_requests_total[1h]))
+    annotations:
+      summary: retrieval_requests_rate_1h
+      runbook: https://defaultsa515.z13.web.core.windows.net/retrieval-requests-rate-1h.html
+  - record: retrieval_errors_rate_6h
+    expr: sum(rate(retrieval_errors_total[6h]))
+    annotations:
+      summary: retrieval_errors_rate_6h
+      runbook: https://defaultsa515.z13.web.core.windows.net/retrieval-errors-rate-6h.html
+  - record: retrieval_requests_rate_6h
+    expr: sum(rate(retrieval_requests_total[6h]))
+    annotations:
+      summary: retrieval_requests_rate_6h
+      runbook: https://defaultsa515.z13.web.core.windows.net/retrieval-requests-rate-6h.html
+  - record: qdrant_rest_fail_rate_1h
+    expr: sum(rate(rest_responses_fail_total[1h]))
+    annotations:
+      summary: qdrant_rest_fail_rate_1h
+      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-rest-fail-rate-1h.html
+  - record: qdrant_rest_total_rate_1h
+    expr: sum(rate(rest_responses_total[1h]))
+    annotations:
+      summary: qdrant_rest_total_rate_1h
+      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-rest-total-rate-1h.html
+- name: ingestion-truth
+  rules:
+  - alert: VmagentDiscoveryEmpty
+    expr: vm_promscrape_discovery_kubernetes_objects{role="pod"} == 0
+    for: 2m
+    labels:
+      severity: critical
+      plane: ingestion
+      service: vmagent
+    annotations:
+      summary: VmagentDiscoveryEmpty
+      runbook: https://defaultsa515.z13.web.core.windows.net/vmagent-discovery-empty.html
+  - alert: VmagentNoRemoteWrite
+    expr: increase(vm_persistentqueue_bytes_written_total[5m]) == 0
+    for: 5m
+    labels:
+      severity: critical
+      plane: ingestion
+      service: vmagent
+    annotations:
+      summary: VmagentNoRemoteWrite
+      runbook: https://defaultsa515.z13.web.core.windows.net/vmagent-discovery-empty.html
+- name: service-safety
+  rules:
+  - alert: RetrieverNotReady
+    expr: service_ready{service="retrieval"} == 0
+    for: 2m
+    labels:
+      severity: critical
+      plane: safety
+      service: retriever
+    annotations:
+      summary: RetrieverNotReady
+      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-not-ready.html
+  - alert: QdrantDeadReplicas
+    expr: collection_dead_replicas > 0
+    for: 2m
+    labels:
+      severity: critical
+      plane: safety
+      service: qdrant
+    annotations:
+      summary: QdrantDeadReplicas
+      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-dead-replicas.html
+  - alert: QdrantSnapshotStuck
+    expr: snapshot_creation_running > 0
+    for: 30m
+    labels:
+      severity: warning
+      plane: safety
+      service: qdrant
+    annotations:
+      summary: QdrantSnapshotStuck
+      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-snapshot-stuck.html
+- name: retriever-slo
+  rules:
+  - alert: RetrieverErrorBudgetFastBurn
+    expr: (retrieval_errors_rate_1h / max(retrieval_requests_rate_1h, 1)) / (1 - 0.999)
+      > 2
+    for: 10m
+    labels:
+      severity: critical
+      plane: slo
+      service: retriever
+    annotations:
+      summary: RetrieverErrorBudgetFastBurn
+      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-not-ready.html
+  - alert: RetrieverErrorBudgetSlowBurn
+    expr: (retrieval_errors_rate_6h / max(retrieval_requests_rate_6h, 1)) / (1 - 0.999)
+      > 1.2
+    for: 30m
+    labels:
+      severity: warning
+      plane: slo
+      service: retriever
+    annotations:
+      summary: RetrieverErrorBudgetSlowBurn
+      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-error-budget-slow-burn.html
+  - alert: RetrieverHighP95Latency
+    expr: histogram_quantile(0.95, sum(rate(retrieval_request_duration_seconds_bucket[5m]))
+      by (le)) > 0.5
+    for: 5m
+    labels:
+      severity: warning
+      plane: slo
+      service: retriever
+    annotations:
+      summary: RetrieverHighP95Latency
+      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-high-p95-latency.html
+- name: qdrant-slo
+  rules:
+  - alert: QdrantErrorBudgetFastBurn
+    expr: (qdrant_rest_fail_rate_1h / max(qdrant_rest_total_rate_1h, 1)) / (1 - 0.999)
+      > 2
+    for: 10m
+    labels:
+      severity: critical
+      plane: slo
+      service: qdrant
+    annotations:
+      summary: QdrantErrorBudgetFastBurn
+      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-dead-replicas.html
+  - alert: QdrantHighP95Latency
+    expr: histogram_quantile(0.95, sum(rate(rest_responses_duration_seconds_bucket[5m]))
+      by (le)) > 0.8
+    for: 5m
+    labels:
+      severity: warning
+      plane: slo
+      service: qdrant
+    annotations:
+      summary: QdrantHighP95Latency
+      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-high-p95-latency.html

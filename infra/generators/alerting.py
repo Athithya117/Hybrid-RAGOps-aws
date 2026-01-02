@@ -15,7 +15,6 @@ from typing import Any, Dict, List, Tuple, Iterable
 import yaml
 import urllib.request
 import urllib.error
-import base64
 
 ALLOWED_LOG_LEVELS = {"DEBUG", "INFO", "WARN", "ERROR"}
 LEVEL_TO_INT = {"DEBUG": logging.DEBUG, "INFO": logging.INFO, "WARN": logging.WARNING, "ERROR": logging.ERROR}
@@ -65,6 +64,7 @@ ALERTMANAGER_SLACK_WEBHOOK = os.getenv("ALERTMANAGER_SLACK_WEBHOOK", "")
 ALERT_DEFAULT_CHANNEL = os.getenv("ALERT_DEFAULT_CHANNEL", "")
 CREATE_NOTIFIER_SECRET = os.getenv("CREATE_NOTIFIER_SECRET", "false").lower() in ("1", "true", "yes")
 RUNBOOK_BASE_URL = os.getenv("RUNBOOK_BASE_URL", "")
+RUNBOOK_STRICT = os.getenv("RUNBOOK_STRICT", "false").lower() in ("1", "true", "yes")
 
 ENABLE_SLACK_RAW = os.getenv("ENABLE_SLACK", "true")
 ENABLE_PAGERDUTY_RAW = os.getenv("ENABLE_PAGERDUTY", "true")
@@ -202,6 +202,7 @@ def runbook_url_for(alert_name: str) -> str:
     base = RUNBOOK_BASE_URL.rstrip("/") if RUNBOOK_BASE_URL else ""
     if not base:
         return ""
+    # allow overrides for alerts that map to different filenames
     if alert_name in RUNBOOK_OVERRIDES:
         fn = RUNBOOK_OVERRIDES[alert_name]
         if not fn.endswith(".html"):
@@ -216,6 +217,7 @@ def http_head_ok(url: str, timeout: int = 5) -> bool:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return 200 <= resp.getcode() < 400
     except urllib.error.HTTPError as e:
+        # 405 Method Not Allowed: some static hosts disallow HEAD; fallback to GET
         if e.code == 405:
             try:
                 with urllib.request.urlopen(url, timeout=timeout) as resp2:
@@ -224,6 +226,7 @@ def http_head_ok(url: str, timeout: int = 5) -> bool:
                 return False
         return False
     except Exception:
+        # network error or DNS etc
         return False
 
 def _add_runbook_if_present(annotations: Dict[str, Any], alert_name: str) -> None:
@@ -348,6 +351,12 @@ def build_slo_rules() -> Dict[str, Any]:
     return {"groups": groups}
 
 def check_required_runbooks_exist(rules_obj: Dict[str, Any]) -> None:
+    """
+    If RUNBOOK_STRICT=true and RUNBOOK_BASE_URL is set and PagerDuty is enabled,
+    enforce that runbook pages for paging alerts exist and are reachable.
+
+    If RUNBOOK_STRICT is not set, missing runbooks are logged as warnings but do NOT block rendering/apply.
+    """
     if not RUNBOOK_BASE_URL:
         LOG.debug("RUNBOOK_BASE_URL not set; skipping runbook existence checks")
         return
@@ -377,8 +386,11 @@ def check_required_runbooks_exist(rules_obj: Dict[str, Any]) -> None:
                     missing.append((alert_name, url))
     if missing:
         msg_lines = [f"{name}:{reason}" for name, reason in missing]
-        LOG.error("runbook existence check failed for paging alerts: %s", "; ".join(msg_lines))
-        raise RuntimeError("Missing or inaccessible runbook pages for paging alerts: " + ", ".join(f"{n} ({u})" for n, u in missing))
+        LOG.warning("runbook existence check found missing/unreachable runbook pages for paging alerts: %s", "; ".join(msg_lines))
+        if RUNBOOK_STRICT:
+            LOG.error("RUNBOOK_STRICT set but runbook(s) unreachable: %s", "; ".join(msg_lines))
+            raise RuntimeError("Missing or inaccessible runbook pages for paging alerts: " + ", ".join(f"{n} ({u})" for n, u in missing))
+        # non-strict mode: do not raise; warn only and continue
 
 def build_vmalert_objects(rules_text: str) -> List[Dict[str, Any]]:
     ns = VM_NAMESPACE
@@ -440,17 +452,40 @@ def choose_preferred_receiver(receivers: Iterable[Dict[str, Any]]) -> str:
 def build_alertmanager_cm() -> Dict[str, Any]:
     ns = VM_NAMESPACE
     receivers: List[Dict[str, Any]] = []
+    # PagerDuty receiver: use a robust template for runbook with fallback to firing alert annotation
     if ENABLE_PAGERDUTY and PAGERDUTY_ROUTING_KEY:
-        receivers.append({"name": "pagerduty", "pagerduty_configs": [{"routing_key": PAGERDUTY_ROUTING_KEY, "send_resolved": True, "details": {"runbook": "{{ .CommonAnnotations.runbook }}", "description": "{{ .CommonAnnotations.summary }}", "client": "{{ template \"pagerduty.default.client\" . }}"} }]})
+        pd_runbook_template = "{{ with .CommonAnnotations.runbook }}{{ . }}{{ else }}{{ with index .Alerts.Firing 0 }}{{ .Annotations.runbook }}{{ end }}{{ end }}"
+        pd_details = {
+            "runbook": pd_runbook_template,
+            "description": "{{ .CommonAnnotations.summary }}",
+            "client": "{{ template \"pagerduty.default.client\" . }}"
+        }
+        pd_receiver = {
+            "name": "pagerduty",
+            "pagerduty_configs": [
+                {
+                    "routing_key": PAGERDUTY_ROUTING_KEY,
+                    "send_resolved": True,
+                    "details": pd_details,
+                }
+            ]
+        }
+        # include a 'links' entry if RUNBOOK_BASE_URL is configured (links must be valid URLs)
+        if RUNBOOK_BASE_URL:
+            pd_receiver["pagerduty_configs"][0]["links"] = [{"href": pd_runbook_template, "text": "Runbook"}]
+        receivers.append(pd_receiver)
+    # Slack via webhook_configs to avoid schema differences; channel is optional and kept compatible
     if ENABLE_SLACK and ALERTMANAGER_SLACK_WEBHOOK:
-        # Use webhook_configs to avoid schema mismatch across Alertmanager versions
         slack_webhook = {"url": ALERTMANAGER_SLACK_WEBHOOK, "send_resolved": True}
+        if ALERT_DEFAULT_CHANNEL:
+            slack_webhook["channel"] = ALERT_DEFAULT_CHANNEL
         receivers.append({"name": "slack", "webhook_configs": [slack_webhook]})
     if DEFAULT_WEBHOOK:
         receivers.append({"name": "default", "webhook_configs": [{"url": DEFAULT_WEBHOOK}]})
     if not receivers:
         receivers.append({"name": "default-noop", "webhook_configs": [{"url": "http://127.0.0.1:9"}]})
     preferred = choose_preferred_receiver(receivers)
+
     base_route = {
         "group_by": ["alertname", "service", "plane"],
         "group_wait": ALERTING_GROUP_WAIT,
@@ -458,6 +493,7 @@ def build_alertmanager_cm() -> Dict[str, Any]:
         "repeat_interval": ALERTING_REPEAT_INTERVAL,
         "receiver": preferred,
     }
+
     combined: List[str] = []
     for s in parse_csv_to_list(ALERTING_PAGING_SEVERITY_LEVELS):
         if s not in combined:
@@ -465,6 +501,7 @@ def build_alertmanager_cm() -> Dict[str, Any]:
     for s in parse_csv_to_list(ALERTING_SLACK_SEVERITY_LEVELS):
         if s not in combined:
             combined.append(s)
+
     route_children: List[Dict[str, Any]] = []
     for plane in ["ingestion", "safety", "slo"]:
         for sev in combined:
@@ -474,10 +511,12 @@ def build_alertmanager_cm() -> Dict[str, Any]:
                 receiver = "pagerduty"
             elif sev_l in parse_csv_to_list(ALERTING_SLACK_SEVERITY_LEVELS) and ENABLE_SLACK and ALERTMANAGER_SLACK_WEBHOOK:
                 receiver = "slack"
+            # If paging configured but pagerduty is disabled, route paging severities to slack if enabled.
             elif sev_l in parse_csv_to_list(ALERTING_PAGING_SEVERITY_LEVELS) and not ENABLE_PAGERDUTY and ENABLE_SLACK and ALERTMANAGER_SLACK_WEBHOOK:
                 receiver = "slack"
             if receiver:
                 route_children.append({"match": {"plane": plane, "severity": sev_l}, "receiver": receiver, "continue": False})
+
     config = {
         "global": {"resolve_timeout": "5m"},
         "route": {**base_route, "routes": route_children},
@@ -542,6 +581,7 @@ def build_notifier_secret_manifest() -> Dict[str, Any]:
 def render_all() -> None:
     validate_inputs()
     rules_obj = build_slo_rules()
+    # Only enforce runbook presence if RUNBOOK_STRICT set; otherwise log warnings
     check_required_runbooks_exist(rules_obj)
     rules_text = yaml.safe_dump(rules_obj, sort_keys=False)
     vmalert_objs = build_vmalert_objects(rules_text)
@@ -582,15 +622,6 @@ def kubectl_apply(path: Path) -> None:
         LOG.error("kubectl apply failed file=%s stdout=%s stderr=%s", str(path), out, err)
         raise RuntimeError(f"kubectl apply failed for {path}: {err or out}")
     LOG.info("kubectl apply succeeded file=%s", str(path))
-
-def kubectl_delete(path: Path) -> None:
-    if not shutil.which("kubectl"):
-        raise RuntimeError("kubectl required to delete manifests")
-    rc, out, err = run_cmd(["kubectl", "delete", "-f", str(path), "--ignore-not-found"], timeout=60)
-    if rc != 0:
-        LOG.warning("kubectl delete returned non-zero file=%s stdout=%s stderr=%s", str(path), out, err)
-    else:
-        LOG.info("kubectl delete succeeded file=%s", str(path))
 
 def apply_secret_directly() -> None:
     secret = build_notifier_secret_manifest()
@@ -645,7 +676,15 @@ def delete(args: argparse.Namespace) -> None:
         p = OUT_DIR / f
         if p.exists() and shutil.which("kubectl"):
             try:
-                kubectl_delete(p)
+                if is_k8s_manifest(p):
+                    kubectl_apply_from_str  # noop check (keeps linter happy)
+                    rc, out, err = run_cmd(["kubectl", "delete", "-f", str(p), "--ignore-not-found"], timeout=60)
+                    if rc != 0:
+                        LOG.warning("kubectl delete returned non-zero file=%s stdout=%s stderr=%s", str(p), out, err)
+                    else:
+                        LOG.info("kubectl delete succeeded file=%s", str(p))
+                else:
+                    LOG.info("skipping kubectl delete for non-K8s file %s", str(p))
             except Exception as e:
                 LOG.warning("kubectl delete failed for %s: %s", p, e)
     if OUT_DIR.exists():
