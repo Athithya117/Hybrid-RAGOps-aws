@@ -5,62 +5,72 @@ metadata:
   namespace: monitoring
 data:
   slo.rules.yaml: "groups:\n- name: recording-rules\n  rules:\n  - record: retrieval_errors_rate_1h\n\
-    \    expr: sum(rate(retrieval_errors_total[1h]))\n    annotations:\n      summary:\
-    \ retrieval_errors_rate_1h\n      runbook: https://defaultsa515.z13.web.core.windows.net/retrieval-errors-rate-1h.html\n\
-    \  - record: retrieval_requests_rate_1h\n    expr: sum(rate(retrieval_requests_total[1h]))\n\
-    \    annotations:\n      summary: retrieval_requests_rate_1h\n      runbook: https://defaultsa515.z13.web.core.windows.net/retrieval-requests-rate-1h.html\n\
-    \  - record: retrieval_errors_rate_6h\n    expr: sum(rate(retrieval_errors_total[6h]))\n\
-    \    annotations:\n      summary: retrieval_errors_rate_6h\n      runbook: https://defaultsa515.z13.web.core.windows.net/retrieval-errors-rate-6h.html\n\
-    \  - record: retrieval_requests_rate_6h\n    expr: sum(rate(retrieval_requests_total[6h]))\n\
-    \    annotations:\n      summary: retrieval_requests_rate_6h\n      runbook: https://defaultsa515.z13.web.core.windows.net/retrieval-requests-rate-6h.html\n\
-    \  - record: qdrant_rest_fail_rate_1h\n    expr: sum(rate(rest_responses_fail_total[1h]))\n\
-    \    annotations:\n      summary: qdrant_rest_fail_rate_1h\n      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-rest-fail-rate-1h.html\n\
-    \  - record: qdrant_rest_total_rate_1h\n    expr: sum(rate(rest_responses_total[1h]))\n\
-    \    annotations:\n      summary: qdrant_rest_total_rate_1h\n      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-rest-total-rate-1h.html\n\
-    - name: ingestion-truth\n  rules:\n  - alert: VmagentDiscoveryEmpty\n    expr:\
-    \ vm_promscrape_discovery_kubernetes_objects{role=\"pod\"} == 0\n    for: 2m\n\
-    \    labels:\n      severity: critical\n      plane: ingestion\n      service:\
-    \ vmagent\n    annotations:\n      summary: VmagentDiscoveryEmpty\n      runbook:\
-    \ https://defaultsa515.z13.web.core.windows.net/vmagent-discovery-empty.html\n\
+    \    expr: sum(rate(retrieval_errors_total[1h]))\n  - record: retrieval_requests_rate_1h\n\
+    \    expr: sum(rate(retrieval_requests_total[1h]))\n  - record: retrieval_errors_rate_6h\n\
+    \    expr: sum(rate(retrieval_errors_total[6h]))\n  - record: retrieval_requests_rate_6h\n\
+    \    expr: sum(rate(retrieval_requests_total[6h]))\n  - record: qdrant_rest_fail_rate_1h\n\
+    \    expr: sum(rate(rest_responses_fail_total[1h]))\n  - record: qdrant_rest_total_rate_1h\n\
+    \    expr: sum(rate(rest_responses_total[1h]))\n- name: ingestion-truth\n  rules:\n\
+    \  - alert: VmagentDiscoveryEmpty\n    expr: vm_promscrape_discovery_kubernetes_objects{role=\"\
+    pod\"} == 0\n    for: 2m\n    labels:\n      severity: critical\n      plane:\
+    \ ingestion\n      service: vmagent\n    annotations:\n      summary: vmagent\
+    \ pod discovery returned zero objects\n      description: Verify vmagent is running\
+    \ and able to list Kubernetes endpoints.\n        Check vmagent logs for discovery\
+    \ errors and RBAC permissions.\n      runbook: https://defaultsa515.z13.web.core.windows.net/vmagent-discovery-empty.html\n\
     \  - alert: VmagentNoRemoteWrite\n    expr: increase(vm_persistentqueue_bytes_written_total[5m])\
     \ == 0\n    for: 5m\n    labels:\n      severity: critical\n      plane: ingestion\n\
-    \      service: vmagent\n    annotations:\n      summary: VmagentNoRemoteWrite\n\
-    \      runbook: https://defaultsa515.z13.web.core.windows.net/vmagent-discovery-empty.html\n\
+    \      service: vmagent\n    annotations:\n      summary: vmagent reports no remote-write\
+    \ bytes to Victoria in the last 5m\n      description: Confirm vmagent can establish\
+    \ remote-write connections and that\n        VictoriaMetrics is reachable at DATASOURCE_URL.\
+    \ Check persistent queue metrics\n        and network connectivity.\n      runbook:\
+    \ https://defaultsa515.z13.web.core.windows.net/vmagent-no-remote-write.html\n\
     - name: service-safety\n  rules:\n  - alert: RetrieverNotReady\n    expr: service_ready{service=\"\
     retrieval\"} == 0\n    for: 2m\n    labels:\n      severity: critical\n      plane:\
-    \ safety\n      service: retriever\n    annotations:\n      summary: RetrieverNotReady\n\
-    \      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-not-ready.html\n\
-    \  - alert: QdrantDeadReplicas\n    expr: collection_dead_replicas > 0\n    for:\
+    \ safety\n      service: retriever\n    annotations:\n      summary: Retriever\
+    \ service reports not ready\n      description: Check retriever deployment, readiness\
+    \ probes, recent events, and\n        downstream dependencies.\n      runbook:\
+    \ https://defaultsa515.z13.web.core.windows.net/retriever-not-ready.html\n  -\
+    \ alert: QdrantDeadReplicas\n    expr: collection_dead_replicas > 0\n    for:\
     \ 2m\n    labels:\n      severity: critical\n      plane: safety\n      service:\
-    \ qdrant\n    annotations:\n      summary: QdrantDeadReplicas\n      runbook:\
-    \ https://defaultsa515.z13.web.core.windows.net/qdrant-dead-replicas.html\n  -\
-    \ alert: QdrantSnapshotStuck\n    expr: snapshot_creation_running > 0\n    for:\
-    \ 30m\n    labels:\n      severity: warning\n      plane: safety\n      service:\
-    \ qdrant\n    annotations:\n      summary: QdrantSnapshotStuck\n      runbook:\
-    \ https://defaultsa515.z13.web.core.windows.net/qdrant-snapshot-stuck.html\n-\
-    \ name: retriever-slo\n  rules:\n  - alert: RetrieverErrorBudgetFastBurn\n   \
+    \ qdrant\n    annotations:\n      summary: Qdrant reports dead replicas for at\
+    \ least one collection\n      description: Inspect qdrant cluster health, pod\
+    \ logs, and storage errors. Follow\n        cluster recovery steps in runbook.\n\
+    \      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-dead-replicas.html\n\
+    \  - alert: QdrantSnapshotStuck\n    expr: snapshot_creation_running > 0\n   \
+    \ for: 30m\n    labels:\n      severity: warning\n      plane: safety\n      service:\
+    \ qdrant\n    annotations:\n      summary: Qdrant snapshot running for > 30m\n\
+    \      description: Investigate snapshot process and storage backend latency.\
+    \ Consider\n        cancelling or throttling snapshot according to runbook.\n\
+    \      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-snapshot-stuck.html\n\
+    - name: retriever-slo\n  rules:\n  - alert: RetrieverErrorBudgetFastBurn\n   \
     \ expr: (retrieval_errors_rate_1h / max(retrieval_requests_rate_1h, 1)) / (1 -\
     \ 0.999)\n      > 2\n    for: 10m\n    labels:\n      severity: critical\n   \
-    \   plane: slo\n      service: retriever\n    annotations:\n      summary: RetrieverErrorBudgetFastBurn\n\
-    \      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-not-ready.html\n\
+    \   plane: slo\n      service: retriever\n    annotations:\n      summary: Retriever\
+    \ error budget fast burn (1h)\n      description: Fast burn detected; investigate\
+    \ retriever errors, recent deploys,\n        and backend failures.\n      runbook:\
+    \ https://defaultsa515.z13.web.core.windows.net/retriever-error-budget-fast-burn.html\n\
     \  - alert: RetrieverErrorBudgetSlowBurn\n    expr: (retrieval_errors_rate_6h\
     \ / max(retrieval_requests_rate_6h, 1)) / (1 - 0.999)\n      > 1.2\n    for: 30m\n\
     \    labels:\n      severity: warning\n      plane: slo\n      service: retriever\n\
-    \    annotations:\n      summary: RetrieverErrorBudgetSlowBurn\n      runbook:\
-    \ https://defaultsa515.z13.web.core.windows.net/retriever-error-budget-slow-burn.html\n\
+    \    annotations:\n      summary: Retriever error budget slow burn (6h)\n    \
+    \  description: Slow burn in error budget; review trends and mitigations in runbook.\n\
+    \      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-error-budget-slow-burn.html\n\
     \  - alert: RetrieverHighP95Latency\n    expr: histogram_quantile(0.95, sum(rate(retrieval_request_duration_seconds_bucket[5m]))\n\
     \      by (le)) > 0.5\n    for: 5m\n    labels:\n      severity: warning\n   \
-    \   plane: slo\n      service: retriever\n    annotations:\n      summary: RetrieverHighP95Latency\n\
-    \      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-high-p95-latency.html\n\
+    \   plane: slo\n      service: retriever\n    annotations:\n      summary: Retriever\
+    \ p95 latency above threshold\n      description: High p95 latency observed; check\
+    \ retriever CPU/memory, GC, and\n        downstream latency.\n      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-high-p95-latency.html\n\
     - name: qdrant-slo\n  rules:\n  - alert: QdrantErrorBudgetFastBurn\n    expr:\
     \ (qdrant_rest_fail_rate_1h / max(qdrant_rest_total_rate_1h, 1)) / (1 - 0.999)\n\
     \      > 2\n    for: 10m\n    labels:\n      severity: critical\n      plane:\
-    \ slo\n      service: qdrant\n    annotations:\n      summary: QdrantErrorBudgetFastBurn\n\
-    \      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-dead-replicas.html\n\
+    \ slo\n      service: qdrant\n    annotations:\n      summary: Qdrant error budget\
+    \ fast burn (1h)\n      description: High error-rate for Qdrant; inspect cluster\
+    \ health and storage\n        errors.\n      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-error-budget-fast-burn.html\n\
     \  - alert: QdrantHighP95Latency\n    expr: histogram_quantile(0.95, sum(rate(rest_responses_duration_seconds_bucket[5m]))\n\
     \      by (le)) > 0.8\n    for: 5m\n    labels:\n      severity: warning\n   \
-    \   plane: slo\n      service: qdrant\n    annotations:\n      summary: QdrantHighP95Latency\n\
-    \      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-high-p95-latency.html\n"
+    \   plane: slo\n      service: qdrant\n    annotations:\n      summary: Qdrant\
+    \ p95 latency above threshold\n      description: Qdrant latency high; check indexing\
+    \ operations, storage I/O, and\n        cluster load.\n      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-high-p95-latency.html\n"
 
 ---
 apiVersion: apps/v1

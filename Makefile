@@ -94,8 +94,8 @@ deploy-alert-manager:
 
 
 deploy-models: deploy-dense deploy-sparse deploy-reranker
-deploy-inference-svc: deploy-retriever deploy-frontend
-deploy-observability-stack:	deploy-prometheus deploy-clickhouse deploy-vector deploy-runbooks 
+deploy-inference-svcs: deploy-retriever deploy-frontend
+deploy-observability-stack:	deploy-prometheus deploy-clickhouse deploy-vector deploy-dashboards
 
 
 run-indexing-cronjob-kind:

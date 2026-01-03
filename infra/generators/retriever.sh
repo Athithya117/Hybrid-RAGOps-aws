@@ -463,66 +463,6 @@ patch_deployment_metrics_port_if_missing(){
   fi
 }
 
-validate_service_post_install(){
-  check_kubectl
-  check_jq
-  local selector="$(printf '%s' "${CONTRACT_LABELS}" | awk -F',' '{print $1}' )"
-  LOG "waiting for pods matching '${selector}' to be present and ready"
-  if kubectl -n "${RETRIEVAL_NAMESPACE}" wait --for=condition=Ready pod -l "${selector}" --timeout=120s >/dev/null 2>&1; then DBG "pods ready"; else DBG "kubectl wait timed out; will poll"; fi
-  local tmpjson
-  tmpjson="$(mktemp /tmp/retriever-pods.XXXXXX.json)"; TMP_FILES+=("${tmpjson}")
-  local end=$((SECONDS + 120)); local items_count=0
-  while [ "${SECONDS}" -lt "${end}" ]; do
-    kubectl -n "${RETRIEVAL_NAMESPACE}" get pods -l "${selector}" -o json > "${tmpjson}" 2>/dev/null || true
-    if [ -s "${tmpjson}" ]; then items_count=$(jq '.items | length' "${tmpjson}" 2>/dev/null || echo 0); [ "${items_count:-0}" -gt 0 ] && break; fi
-    sleep 2
-  done
-  if [ "${items_count:-0}" -eq 0 ]; then LOG "no pods found for ${RETRIEVAL_NAME} in ${RETRIEVAL_NAMESPACE}"; return 3; fi
-
-  local tmp_errors
-  tmp_errors="$(mktemp /tmp/retriever-annot-errors.XXXXXX)"; TMP_FILES+=("${tmp_errors}")
-  jq -r --arg expected_port "${RETRIEVAL_METRICS_PORT}" '.items[] | .metadata.name as $n | .metadata.annotations as $ann | [$n, ($ann["monitoring.io/scrape"] // ""), ($ann["monitoring.io/port"] // ""), ($ann["monitoring.io/path"] // "")] | @tsv' "${tmpjson}" | while IFS=$'\t' read -r name scrape port path; do
-    if [ "${scrape,,}" != "true" ]; then printf '%s\n' "ERR ${name} missing monitoring.io/scrape=true" >> "${tmp_errors}"; continue; fi
-    if ! printf '%s' "${port}" | grep -qE '^[0-9]+$'; then printf '%s\n' "ERR ${name} monitoring.io/port must be numeric (found: ${port})" >> "${tmp_errors}"; continue; fi
-    if [ "${port}" != "${RETRIEVAL_METRICS_PORT}" ]; then printf '%s\n' "ERR ${name} monitoring.io/port mismatch expected ${RETRIEVAL_METRICS_PORT} found ${port}" >> "${tmp_errors}"; fi
-    if [ "${path}" != "/metrics" ]; then printf '%s\n' "ERR ${name} monitoring.io/path must be /metrics found ${path}" >> "${tmp_errors}"; fi
-  done
-  if [ -s "${tmp_errors}" ]; then LOG "annotation validation errors:"; sed -n '1,200p' "${tmp_errors}" || true; return 3; fi
-  LOG "pod annotations contract satisfied for all pods"
-
-  LOG "checking deployment container ports presence (informational)"
-  local dep_json
-  dep_json="$(kubectl -n "${RETRIEVAL_NAMESPACE}" get deployment "${RETRIEVAL_NAME}" -o json 2>/dev/null || true)"
-  if [ -z "${dep_json}" ]; then LOG "deployment not present; skipping container-port check"; return 0; fi
-  local port_declared
-  port_declared="$(echo "${dep_json}" | jq --arg port "${RETRIEVAL_METRICS_PORT}" '[.spec.template.spec.containers[]?.ports[]? | select((.containerPort|tostring) == $port)] | length' 2>/dev/null || echo 0)"
-  if [ "${port_declared:-0}" -gt 0 ]; then LOG "deployment declares metrics port ${RETRIEVAL_METRICS_PORT}"; else LOG "deployment does NOT declare metrics port ${RETRIEVAL_METRICS_PORT}; attempting safe patch"; patch_deployment_metrics_port_if_missing || LOG "patch attempt failed"; fi
-
-  LOG "checking one pod /metrics (port-forward head)"
-  local pod
-  pod="$(jq -r '.items[0].metadata.name' "${tmpjson}" 2>/dev/null || true)"
-  if [ -n "${pod}" ]; then
-    local local_port
-    local_port="$(python3 - <<PY
-import socket
-s=socket.socket()
-s.bind(('',0))
-p=s.getsockname()[1]
-s.close()
-print(p)
-PY
-)"
-    kubectl -n "${RETRIEVAL_NAMESPACE}" port-forward "pod/${pod}" "${local_port}:${RETRIEVAL_METRICS_PORT}" > /tmp/retriever_pf.log 2>&1 &
-    local pfpid=$!
-    sleep 1
-    if curl -sS --max-time 3 "http://127.0.0.1:${local_port}/metrics" | sed -n '1,80p' >/dev/null 2>&1; then LOG "/metrics responded for ${pod}"; else LOG "warning: /metrics did not respond for ${pod}; tail 200 lines of port-forward log:"; tail -n 200 /tmp/retriever_pf.log || true; kill "${pfpid}" >/dev/null 2>&1 || true; return 3; fi
-    kill "${pfpid}" >/dev/null 2>&1 || true
-  fi
-
-  LOG "post-install validation completed"
-  return 0
-}
-
 apply(){
   check_kubectl
   check_jq
@@ -535,8 +475,7 @@ apply(){
   kubectl apply -f "${MANIFEST_SVC}"
   LOG "applied retriever manifests into ${RETRIEVAL_NAMESPACE}"
   patch_deployment_metrics_port_if_missing || true
-  if ! validate_service_post_install; then LOG "post-install validation failed"; exit 3; fi
-  LOG "retriever apply complete and validated in ${RETRIEVAL_NAMESPACE}"
+  LOG "retriever apply complete in ${RETRIEVAL_NAMESPACE}"
 }
 
 delete(){

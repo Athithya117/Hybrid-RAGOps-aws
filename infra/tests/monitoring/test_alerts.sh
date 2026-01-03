@@ -1,23 +1,20 @@
 #!/usr/bin/env bash
-NS="${NS:-monitoring}"
-VICTORIA_SVC="${VICTORIA_SVC:-victoria-metrics}"
-VMALERT_SVC="${VMALERT_SVC:-vmalert}"
-ALERTM_SVC="${ALERTM_SVC:-alertmanager}"
-ENABLE_PAGERDUTY="${ENABLE_PAGERDUTY:-true}"
-ENABLE_SLACK="${ENABLE_SLACK:-true}"
-ALERTING_PAGING_SEVERITY_LEVELS="${ALERTING_PAGING_SEVERITY_LEVELS:-critical}"
-ALERTING_SLACK_SEVERITY_LEVELS="${ALERTING_SLACK_SEVERITY_LEVELS:-warning,critical}"
-TMPDIR="$(mktemp -d /tmp/test_alerts.XXXXXX)"
-LOG_TS() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+python3 infra/generators/alerting.py --delete --confirm && python3 infra/generators/alerting.py --apply
+NS=${NS:-monitoring}
+VICTORIA_SVC=${VICTORIA_SVC:-victoria-metrics}
+VMALERT_SVC=${VMALERT_SVC:-vmalert}
+ALERTM_SVC=${ALERTM_SVC:-alertmanager}
+TMPDIR="$(mktemp -d /tmp/test_alerts.XXXX)"
+VICTORIA_LOG="${TMPDIR}/victoria.log"
+VMALERT_LOG="${TMPDIR}/vmalert.log"
+ALERTM_LOG="${TMPDIR}/alertm.log"
 PIDS=()
 UUID="$(cat /proc/sys/kernel/random/uuid)"
-JSON_TOOL="jq"
-command -v curl >/dev/null 2>&1 || { echo "$(LOG_TS) ERROR curl required"; exit 2; }
-command -v python3 >/dev/null 2>&1 || { echo "$(LOG_TS) ERROR python3 required"; exit 2; }
-command -v ${JSON_TOOL} >/dev/null 2>&1 || { echo "$(LOG_TS) WARN ${JSON_TOOL} not found; outputs will be raw JSON"; JSON_TOOL=""; }
+command -v jq >/dev/null 2>&1 || { echo "ERROR: jq required"; rm -rf "${TMPDIR}"; exit 2; }
+command -v curl >/dev/null 2>&1 || { echo "ERROR: curl required"; rm -rf "${TMPDIR}"; exit 3; }
 
 find_free_port() {
-  python3 - <<'PY'
+  python3 - <<PY
 import socket
 s=socket.socket()
 s.bind(('',0))
@@ -31,77 +28,92 @@ kill_matching_pf() {
 }
 
 cleanup() {
-  echo "$(LOG_TS) INFO cleanup: killing port-forwards"
-  for p in "${PIDS[@]}"; do
-    kill "${p}" 2>/dev/null || true
-  done
-  sleep 0.3
-  for p in "${PIDS[@]}"; do
-    kill -9 "${p}" 2>/dev/null || true
-  done
-  echo "$(LOG_TS) INFO preserving logs at ${TMPDIR}"
+  for p in "${PIDS[@]}"; do kill "${p}" 2>/dev/null || true; done
+  rm -rf "${TMPDIR}"
+}
+trap cleanup EXIT
+
+ALERTING_PAGING_SEVERITY_LEVELS="${ALERTING_PAGING_SEVERITY_LEVELS:-critical}"
+ALERTING_SLACK_SEVERITY_LEVELS="${ALERTING_SLACK_SEVERITY_LEVELS:-warning,critical}"
+
+parse_csv_to_array() {
+  local raw="$1"
+  echo "$raw" | tr ',' '\n' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | awk 'NF{print tolower($0)}' | awk '!seen[$0]++'
 }
 
-trap 'cleanup' EXIT
+pick_n() {
+  local n="$1"; shift
+  local arr=("$@")
+  local out=()
+  for v in "${arr[@]}"; do
+    out+=("$v")
+    if [ "${#out[@]}" -ge "$n" ]; then break; fi
+  done
+  echo "${out[@]}"
+}
 
-echo "$(LOG_TS) INFO tmpdir=${TMPDIR} test_run=${UUID}"
-
-echo "$(LOG_TS) INFO cleaning any previous port-forwards for services"
-kill_matching_pf "${VICTORIA_SVC}"
-kill_matching_pf "${VMALERT_SVC}"
-kill_matching_pf "${ALERTM_SVC}"
-sleep 1
-
-VICTORIA_LOCAL="$(find_free_port)"
-VMALERT_LOCAL="$(find_free_port)"
-ALERTM_LOCAL="$(find_free_port)"
-
-echo "$(LOG_TS) INFO starting port-forwards victoria=${VICTORIA_LOCAL} vmalert=${VMALERT_LOCAL} alertm=${ALERTM_LOCAL}"
-kubectl -n "${NS}" port-forward "svc/${VICTORIA_SVC}" "${VICTORIA_LOCAL}:8428" &
-PIDS+=($!)
-kubectl -n "${NS}" port-forward "svc/${VMALERT_SVC}" "${VMALERT_LOCAL}:8080" &
-PIDS+=($!)
-kubectl -n "${NS}" port-forward "svc/${ALERTM_SVC}" "${ALERTM_LOCAL}:9093" &
-PIDS+=($!)
-
-wait_for_http() {
-  url="$1"; timeout="${2:-20}"; start=$(date +%s)
+wait_for_pf() {
+  local log="$1"
+  local timeout="${2:-12}"
+  local start ts
+  start=$(date +%s)
   while true; do
-    if curl -sS -m2 "$url" >/dev/null 2>&1; then
+    ts=$(date +%s)
+    if grep -q "Forwarding from" "${log}" 2>/dev/null; then
       return 0
     fi
-    now=$(date +%s)
-    if [ $((now - start)) -ge "$timeout" ]; then
+    if [ $((ts - start)) -ge "$timeout" ]; then
       return 1
     fi
     sleep 1
   done
 }
 
-echo "$(LOG_TS) INFO waiting for Alertmanager to answer /api/v2/status"
-if ! wait_for_http "http://127.0.0.1:${ALERTM_LOCAL}/api/v2/status" 20; then
-  echo "$(LOG_TS) ERROR Alertmanager not responding at http://127.0.0.1:${ALERTM_LOCAL}/api/v2/status"
-  echo "$(LOG_TS) INFO tailing recent port-forward and container logs for debugging"
-  ps -ef | egrep "kubectl .*port-forward" || true
-  kubectl -n "${NS}" get pods -o wide || true
-  kubectl -n "${NS}" logs -l app=alertmanager --tail=120 2>/dev/null || true
-  exit 3
-fi
+wait_for_http() {
+  local url="$1" local timeout="${2:-15}" local start ts
+  start=$(date +%s)
+  while true; do
+    ts=$(date +%s)
+    if [ $((ts - start)) -ge "$timeout" ]; then
+      return 1
+    fi
+    if curl -sS -m2 "${url}" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+}
 
-echo "$(LOG_TS) INFO waiting for vmalert /metrics"
-if ! wait_for_http "http://127.0.0.1:${VMALERT_LOCAL}/metrics" 20; then
-  echo "$(LOG_TS) ERROR vmalert not responding at http://127.0.0.1:${VMALERT_LOCAL}/metrics"
-  kubectl -n "${NS}" get pods -o wide || true
-  kubectl -n "${NS}" logs -l app=vmalert --tail=120 2>/dev/null || true
-  exit 4
-fi
+echo "$(date -Iseconds) INFO cleanup any previous port-forwards"
+kill_matching_pf "${VICTORIA_SVC}"
+kill_matching_pf "${VMALERT_SVC}"
+kill_matching_pf "${ALERTM_SVC}"
+sleep 1
 
-echo "$(LOG_TS) INFO pushing synthetic metrics (compact)"
-MET_FILE="${TMPDIR}/metrics.txt"
-NOW_MS="$(date +%s000)"
+VICTORIA_LOCAL=$(find_free_port)
+VMALERT_LOCAL=$(find_free_port)
+ALERTM_LOCAL=$(find_free_port)
+
+echo "$(date -Iseconds) INFO starting port-forwards on local ports victoria=${VICTORIA_LOCAL} vmalert=${VMALERT_LOCAL} alertm=${ALERTM_LOCAL}"
+kubectl -n "${NS}" port-forward "svc/${VICTORIA_SVC}" "${VICTORIA_LOCAL}:8428" >"${VICTORIA_LOG}" 2>&1 & PIDS+=($!)
+if ! wait_for_pf "${VICTORIA_LOG}" 10; then echo "$(date -Iseconds) ERROR victoria port-forward failed; tail ${VICTORIA_LOG}"; tail -n 80 "${VICTORIA_LOG}"; exit 4; fi
+kubectl -n "${NS}" port-forward "svc/${VMALERT_SVC}" "${VMALERT_LOCAL}:8080" >"${VMALERT_LOG}" 2>&1 & PIDS+=($!)
+if ! wait_for_pf "${VMALERT_LOG}" 10; then echo "$(date -Iseconds) ERROR vmalert port-forward failed; tail ${VMALERT_LOG}"; tail -n 80 "${VMALERT_LOG}"; exit 5; fi
+kubectl -n "${NS}" port-forward "svc/${ALERTM_SVC}" "${ALERTM_LOCAL}:9093" >"${ALERTM_LOG}" 2>&1 & PIDS+=($!)
+if ! wait_for_pf "${ALERTM_LOG}" 12; then echo "$(date -Iseconds) ERROR alertmanager port-forward failed; tail ${ALERTM_LOG}"; tail -n 80 "${ALERTM_LOG}"; exit 6; fi
+
+echo "$(date -Iseconds) INFO waiting for Alertmanager to answer /api/v2/status"
+if ! wait_for_http "http://127.0.0.1:${ALERTM_LOCAL}/api/v2/status" 20; then echo "$(date -Iseconds) ERROR Alertmanager not responding; tail ${ALERTM_LOG}"; tail -n 120 "${ALERTM_LOG}"; exit 7; fi
+
+echo "$(date -Iseconds) INFO waiting for vmalert /metrics"
+if ! wait_for_http "http://127.0.0.1:${VMALERT_LOCAL}/metrics" 20; then echo "$(date -Iseconds) ERROR vmalert not responding; tail ${VMALERT_LOG}"; tail -n 120 "${VMALERT_LOG}"; exit 8; fi
+
+sleep 1
+
+NOW_MS=$(date +%s000)
 T1=$((NOW_MS - 120000))
 T2=$((NOW_MS - 60000))
-cat > "${MET_FILE}" <<__EOF__
+cat > "${TMPDIR}/metrics.txt" <<__EOF__
 retrieval_requests_total{service="retrieval",test_run="${UUID}"} 100 ${T1}
 retrieval_errors_total{service="retrieval",test_run="${UUID}"} 60 ${T1}
 retrieval_requests_total{service="retrieval",test_run="${UUID}"} 200 ${T2}
@@ -109,118 +121,102 @@ retrieval_errors_total{service="retrieval",test_run="${UUID}"} 140 ${T2}
 retrieval_requests_total{service="retrieval",test_run="${UUID}"} 300 ${NOW_MS}
 retrieval_errors_total{service="retrieval",test_run="${UUID}"} 220 ${NOW_MS}
 __EOF__
-curl -sS --data-binary @"${MET_FILE}" "http://127.0.0.1:${VICTORIA_LOCAL}/api/v1/import/prometheus" -o "${TMPDIR}/victoria_push.json" || { echo "$(LOG_TS) ERROR push to Victoria failed"; exit 5; }
-if [ -n "${JSON_TOOL}" ]; then
-  echo "$(LOG_TS) INFO victoria push status:"; cat "${TMPDIR}/victoria_push.json" | ${JSON_TOOL} -c '.status'
-else
-  echo "$(LOG_TS) INFO victoria push raw:"; head -c 800 "${TMPDIR}/victoria_push.json"
-fi
 
-echo "$(LOG_TS) INFO posting synthetic sanity alert to Alertmanager"
-curl -sS -XPOST "http://127.0.0.1:${ALERTM_LOCAL}/api/v2/alerts" -H "Content-Type: application/json" -d "[{\"labels\":{\"alertname\":\"SanityWarm\",\"severity\":\"info\",\"plane\":\"slo\",\"service\":\"sanity\",\"test_run\":\"${UUID}\"},\"annotations\":{\"summary\":\"sanity warm\"}}]" || true
+echo "$(date -Iseconds) INFO pushing synthetic metrics (compact)"
+curl -sS --data-binary @"${TMPDIR}/metrics.txt" "http://127.0.0.1:${VICTORIA_LOCAL}/api/v1/import/prometheus" -o "${TMPDIR}/victoria_push.json" || { echo "$(date -Iseconds) ERROR push failed"; tail -n 200 "${VICTORIA_LOG}"; exit 9; }
+jq -c '.status' "${TMPDIR}/victoria_push.json" 2>/dev/null || echo '"unknown"'
 
-sleep 1
+paging_arr=($(parse_csv_to_array "${ALERTING_PAGING_SEVERITY_LEVELS}"))
+slack_arr=($(parse_csv_to_array "${ALERTING_SLACK_SEVERITY_LEVELS}"))
 
-post_alert() {
-  name="$1"; plane="$2"; sev="$3"; svc="$4"
-  payload="[ {\"labels\":{\"alertname\":\"${name}\",\"plane\":\"${plane}\",\"severity\":\"${sev}\",\"service\":\"${svc}\",\"test_run\":\"${UUID}\"},\"annotations\":{\"summary\":\"synthetic ${name}\"}} ]"
-  echo "$(LOG_TS) INFO posting alert ${name} -> http://127.0.0.1:${ALERTM_LOCAL}/api/v2/alerts"
-  curl -sS -XPOST "http://127.0.0.1:${ALERTM_LOCAL}/api/v2/alerts" -H "Content-Type: application/json" -d "${payload}" || true
-}
-
-post_alert "qdrant-paging" "safety" "critical" "qdrant"
-post_alert "retriever-paging" "safety" "critical" "retriever"
-post_alert "test-channel1-nonpaging" "slo" "warning" "test-channel1"
-post_alert "test-channel2-nonpaging" "slo" "warning" "test-channel2"
-
-sleep 4
-
-echo "$(LOG_TS) INFO vmalert metrics (filtered)"
-curl -s "http://127.0.0.1:${VMALERT_LOCAL}/metrics" | egrep "vmalert_alerts_(firing|pending)|vmalert_alerts_sent_total" | sed -n '1,80p'
-
-echo "$(LOG_TS) INFO Alertmanager alerts for test_run (compact)"
-if [ -n "${JSON_TOOL}" ]; then
-  curl -s "http://127.0.0.1:${ALERTM_LOCAL}/api/v2/alerts" | ${JSON_TOOL} -c "[.[] | select(.labels.test_run==\"${UUID}\")]" | sed -n '1,200p'
-else
-  curl -s "http://127.0.0.1:${ALERTM_LOCAL}/api/v2/alerts" | sed -n '1,400p'
-fi
-
-determine_expected_receiver() {
-  plane="$1"; sev="$2"
-  sev_l="$(echo "${sev}" | tr '[:upper:]' '[:lower:]')"
-  IFS=',' read -r -a paging_arr <<< "${ALERTING_PAGING_SEVERITY_LEVELS}"
-  IFS=',' read -r -a slack_arr <<< "${ALERTING_SLACK_SEVERITY_LEVELS}"
-  for s in "${paging_arr[@]}"; do
-    s_trim="$(echo "$s" | xargs | tr '[:upper:]' '[:lower:]')"
-    if [ "$sev_l" = "$s_trim" ]; then
-      if [ "$(echo "${ENABLE_PAGERDUTY}" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
-        echo "pagerduty"; return
-      fi
-      if [ "$(echo "${ENABLE_SLACK}" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
-        echo "slack"; return
-      fi
-    fi
+unique_slack_arr=()
+for s in "${slack_arr[@]}"; do
+  skip=0
+  for p in "${paging_arr[@]}"; do
+    if [ "$s" = "$p" ]; then skip=1; break; fi
   done
-  for s in "${slack_arr[@]}"; do
-    s_trim="$(echo "$s" | xargs | tr '[:upper:]' '[:lower:]')"
-    if [ "$sev_l" = "$s_trim" ]; then
-      if [ "$(echo "${ENABLE_SLACK}" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
-        echo "slack"; return
-      fi
-    fi
-  done
-  echo "default"
-}
-
-echo "$(LOG_TS) INFO verifying receiver routing and presence"
-AM_JSON="$(curl -s "http://127.0.0.1:${ALERTM_LOCAL}/api/v2/alerts")"
-FAIL=0
-for pair in "qdrant-paging|safety|critical|qdrant" "retriever-paging|safety|critical|retriever" "test-channel1-nonpaging|slo|warning|test-channel1" "test-channel2-nonpaging|slo|warning|test-channel2"; do
-  name="$(printf '%s' "$pair" | cut -d'|' -f1)"
-  plane="$(printf '%s' "$pair" | cut -d'|' -f2)"
-  sev="$(printf '%s' "$pair" | cut -d'|' -f3)"
-  svc="$(printf '%s' "$pair" | cut -d'|' -f4)"
-  if [ -n "${JSON_TOOL}" ]; then
-    item="$(echo "${AM_JSON}" | ${JSON_TOOL} -c ".[] | select(.labels.alertname==\"${name}\" and .labels.service==\"${svc}\")" 2>/dev/null | head -n1)"
-  else
-    item="$(echo "${AM_JSON}" | grep -A6 "\"alertname\":\"${name}\"" | head -n20 || true)"
-  fi
-  if [ -z "${item}" ]; then
-    echo "$(LOG_TS) ERROR alert ${name} not present in Alertmanager"
-    FAIL=1
-    continue
-  fi
-  if [ -n "${JSON_TOOL}" ]; then
-    got_recv="$(echo "${item}" | ${JSON_TOOL} -r -c '(.receivers[0].name // "")')"
-  else
-    got_recv="$(echo "${item}" | sed -n '1,120p' | grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n1 | sed 's/.*: *"//;s/"$//')"
-  fi
-  expected="$(determine_expected_receiver "${plane}" "${sev}")"
-  echo "$(LOG_TS) INFO alert=${name} severity=${sev} plane=${plane} receiver=${got_recv:-'(none)'} expected=${expected}"
-  if [ "${expected}" != "default" ] && [ "${got_recv}" != "${expected}" ]; then
-    echo "$(LOG_TS) ERROR unexpected receiver for ${name}: got='${got_recv}' want='${expected}'"
-    FAIL=1
-  fi
+  if [ "$skip" -eq 0 ]; then unique_slack_arr+=("$s"); fi
 done
 
-echo "$(LOG_TS) INFO verify Victoria ingestion for test_run (compact)"
-QRES="$(curl -sG "http://127.0.0.1:${VICTORIA_LOCAL}/api/v1/query" --data-urlencode "query=retrieval_requests_total{test_run=\"${UUID}\"}")"
-if [ -n "${JSON_TOOL}" ]; then
-  present="$(echo "${QRES}" | ${JSON_TOOL} -c '.data.result | length' 2>/dev/null || echo 0)"
-  if [ "${present}" -gt 0 ]; then
-    echo "$(LOG_TS) INFO Victoria ingestion OK (result_count=${present})"
-  else
-    echo "$(LOG_TS) ERROR Victoria did not ingest test series"
-    FAIL=1
-  fi
+paging_choice=($(pick_n 2 "${paging_arr[@]}"))
+if [ "${#paging_choice[@]}" -lt 2 ]; then
+  fallback=("critical" "critical")
+  paging_choice=("${paging_choice[@]}" "${fallback[@]}")
+  paging_choice=($(pick_n 2 "${paging_choice[@]}"))
+fi
+
+nonpaging_choice=($(pick_n 2 "${unique_slack_arr[@]}"))
+if [ "${#nonpaging_choice[@]}" -lt 2 ]; then
+  addf=("warning" "info")
+  nonpaging_choice=("${nonpaging_choice[@]}" "${addf[@]}")
+  nonpaging_choice=($(pick_n 2 "${nonpaging_choice[@]}"))
+fi
+
+declare -a ALERTS
+ALERTS+=("paging|${paging_choice[0]}|safety|qdrant")
+ALERTS+=("paging|${paging_choice[1]}|safety|retriever")
+ALERTS+=("nonpaging|${nonpaging_choice[0]}|slo|test-channel1")
+ALERTS+=("nonpaging|${nonpaging_choice[1]}|slo|test-channel2")
+
+post_and_check() {
+  local mode="$1"; local severity="$2"; local plane="$3"; local service="$4"
+  local labels_json annotations_json out match recv rb
+  labels_json=$(jq -n --arg an "${service}-${mode}" --arg pl "${plane}" --arg sv "${severity}" --arg svc "${service}" --arg tid "${UUID}" '{"alertname":$an,"plane":$pl,"severity":$sv,"service":$svc,"test_run":$tid}')
+  annotations_json=$(jq -n --arg sum "synthetic ${service} ${mode}" '{"summary":$sum}')
+  payload=$(jq -n --argjson labels "${labels_json}" --argjson ann "${annotations_json}" '[{labels:$labels,annotations:$ann}]')
+  curl -sS -XPOST "http://127.0.0.1:${ALERTM_LOCAL}/api/v2/alerts" -H "Content-Type: application/json" -d "${payload}" >/dev/null || true
+  local attempts=0 max=12
+  while [ $attempts -lt $max ]; do
+    sleep 1
+    out=$(curl -sS "http://127.0.0.1:${ALERTM_LOCAL}/api/v2/alerts")
+    match=$(echo "${out}" | jq -c --arg svc "${service}" --arg an "${service}-${mode}" '.[] | select(.labels.service==$svc and .labels.alertname==$an)' 2>/dev/null || true)
+    if [ -n "${match}" ]; then
+      recv=$(echo "${match}" | jq -r '.receivers[0].name // empty')
+      rb=$(echo "${match}" | jq -r '.annotations.runbook // empty')
+      echo "$(date -Iseconds) INFO found alert ${service}-${mode} severity=${severity} plane=${plane} receiver=${recv:-<empty>} runbook_present=${rb:+yes}"
+      if [ "${mode}" = "paging" ]; then
+        if [ -n "${PAGERDUTY_INTEGRATION_KEY:-}${PAGERDUTY_ROUTING_KEY:-}" ]; then
+          if [ "${recv}" != "pagerduty" ]; then
+            echo "$(date -Iseconds) ERROR expected pagerduty receiver but got='${recv}'"
+            return 11
+          fi
+        fi
+      else
+        if [ -n "${ALERTMANAGER_SLACK_WEBHOOK:-}" ]; then
+          if [ "${recv}" != "slack" ]; then
+            echo "$(date -Iseconds) ERROR expected slack receiver but got='${recv}'"
+            return 12
+          fi
+        fi
+      fi
+      return 0
+    fi
+    attempts=$((attempts+1))
+  done
+  echo "$(date -Iseconds) ERROR alert ${service}-${mode} did not appear in Alertmanager"
+  return 10
+}
+
+echo "$(date -Iseconds) INFO posting sanity alert to ensure pipelines warm"
+curl -sS -XPOST "http://127.0.0.1:${ALERTM_LOCAL}/api/v2/alerts" -H "Content-Type: application/json" -d "[{\"labels\":{\"alertname\":\"SanityWarm-${UUID}\",\"plane\":\"slo\",\"severity\":\"info\",\"service\":\"sanity\"},\"annotations\":{\"summary\":\"sanity\"}}]" >/dev/null || true
+sleep 3
+
+fail=0
+for a in "${ALERTS[@]}"; do
+  IFS='|' read -r kind sev plane svc <<<"$a"
+  post_and_check "$kind" "$sev" "$plane" "$svc" || fail=1
+done
+
+echo "$(date -Iseconds) INFO verify Victoria ingested series for test_run (compact)"
+curl -sG "http://127.0.0.1:${VICTORIA_LOCAL}/api/v1/query" --data-urlencode "query=retrieval_requests_total{test_run=\"${UUID}\"}" | jq -c '.data' 2>/dev/null || echo '{"vm":"no-jq-output"}'
+
+for p in "${PIDS[@]}"; do kill "${p}" 2>/dev/null || true; done
+rm -rf "${TMPDIR}"
+
+if [ "$fail" -eq 0 ]; then
+  echo "$(date -Iseconds) INFO all checks passed"
+  exit 0
 else
-  echo "$(LOG_TS) INFO Victoria query (raw):"; echo "${QRES}" | head -c 400
+  echo "$(date -Iseconds) ERROR one or more checks failed"
+  exit 20
 fi
-
-if [ "${FAIL}" -ne 0 ]; then
-  echo "$(LOG_TS) ERROR TESTS FAILED"
-  exit 10
-fi
-
-echo "$(LOG_TS) INFO ALL CHECKS PASSED; logs preserved in ${TMPDIR}"
-exit 0

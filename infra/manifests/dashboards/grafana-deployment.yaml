@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+    managed-by: dashboards.py
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+      managed-by: dashboards.py
+  template:
+    metadata:
+      labels:
+        app: grafana
+        managed-by: dashboards.py
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:10.3.5
+        env:
+        - name: GF_SECURITY_ADMIN_USER
+          valueFrom:
+            secretKeyRef:
+              name: grafana-admin-secret
+              key: admin-user
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-admin-secret
+              key: admin-password
+        - name: GF_PATHS_DATA
+          value: /var/lib/grafana/
+        - name: GF_PATHS_PROVISIONING
+          value: /etc/grafana/provisioning
+        ports:
+        - containerPort: 3000
+          name: http
+        volumeMounts:
+        - name: dashboards
+          mountPath: /var/lib/grafana/dashboards
+        - name: provisioning
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: dashboards
+        configMap:
+          name: grafana-dashboards
+      - name: provisioning
+        configMap:
+          name: grafana-provisioning
+      - name: datasources
+        configMap:
+          name: grafana-datasources

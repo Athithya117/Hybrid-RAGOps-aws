@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+make deploy-qdrant
 LOG(){ printf '%s %s\n' "$(date -Iseconds)" "$*"; }
 ERR(){ printf '%s ERROR %s\n' "$(date -Iseconds)" "$*" >&2; }
 

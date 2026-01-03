@@ -1,0 +1,70 @@
+{
+  "id": null,
+  "uid": "platform-platform-overview",
+  "title": "Platform Overview",
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Total ingestion health (composite)",
+      "datasource": "VictoriaMetrics",
+      "targets": [
+        {
+          "expr": "max(vm_promscrape_discovery_kubernetes_objects{role='pod'})",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1
+    },
+    {
+      "type": "timeseries",
+      "title": "Services not ready",
+      "datasource": "VictoriaMetrics",
+      "targets": [
+        {
+          "expr": "count(service_ready==0)",
+          "refId": "B"
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "Active SLO burners",
+      "datasource": "VictoriaMetrics",
+      "targets": [
+        {
+          "expr": "count(firing_alerts{plane='slo',severity='critical'})",
+          "refId": "C"
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "id": 3
+    }
+  ],
+  "schemaVersion": 36,
+  "version": 1,
+  "_meta": {
+    "generator": "dashboards.py",
+    "rendered_at": "2026-01-03T00:14:06.534432Z"
+  }
+}

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+  labels:
+    managed-by: dashboards.py
+data:
+  datasources.yaml: "apiVersion: 1\ndatasources:\n- name: VictoriaMetrics\n  type:\
+    \ prometheus\n  access: proxy\n  url: http://victoria-metrics.monitoring.svc:8428\n\
+    \  isDefault: true\n  editable: false\n- name: ClickHouse\n  type: clickhouse\n\
+    \  access: proxy\n  url: http://clickhouse.clickhouse.svc:8123\n  isDefault: false\n\
+    \  editable: false\n"

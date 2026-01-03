@@ -13,8 +13,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Iterable
 import yaml
-import urllib.request
-import urllib.error
 
 ALLOWED_LOG_LEVELS = {"DEBUG", "INFO", "WARN", "ERROR"}
 LEVEL_TO_INT = {"DEBUG": logging.DEBUG, "INFO": logging.INFO, "WARN": logging.WARNING, "ERROR": logging.ERROR}
@@ -64,20 +62,6 @@ ALERTMANAGER_SLACK_WEBHOOK = os.getenv("ALERTMANAGER_SLACK_WEBHOOK", "")
 ALERT_DEFAULT_CHANNEL = os.getenv("ALERT_DEFAULT_CHANNEL", "")
 CREATE_NOTIFIER_SECRET = os.getenv("CREATE_NOTIFIER_SECRET", "false").lower() in ("1", "true", "yes")
 RUNBOOK_BASE_URL = os.getenv("RUNBOOK_BASE_URL", "")
-RUNBOOK_STRICT = os.getenv("RUNBOOK_STRICT", "false").lower() in ("1", "true", "yes")
-
-ENABLE_SLACK_RAW = os.getenv("ENABLE_SLACK", "true")
-ENABLE_PAGERDUTY_RAW = os.getenv("ENABLE_PAGERDUTY", "true")
-def parse_bool_raw(s: str) -> bool:
-    if not s:
-        return False
-    if s.lower() in ("1", "true", "yes", "on"):
-        return True
-    if s.lower() in ("0", "false", "no", "off"):
-        return False
-    return False
-ENABLE_SLACK = parse_bool_raw(ENABLE_SLACK_RAW)
-ENABLE_PAGERDUTY = parse_bool_raw(ENABLE_PAGERDUTY_RAW)
 
 ALERTING_SLACK_SEVERITY_LEVELS = os.getenv("ALERTING_SLACK_SEVERITY_LEVELS", "warning,critical")
 ALERTING_PAGING_SEVERITY_LEVELS = os.getenv("ALERTING_PAGING_SEVERITY_LEVELS", "critical")
@@ -85,56 +69,18 @@ ALERTING_GROUP_WAIT = os.getenv("ALERTING_GROUP_WAIT", "30s")
 ALERTING_GROUP_INTERVAL = os.getenv("ALERTING_GROUP_INTERVAL", "5m")
 ALERTING_REPEAT_INTERVAL = os.getenv("ALERTING_REPEAT_INTERVAL", "3h")
 
-# Default mapping from alert names -> published runbook filenames (adjustable via RUNBOOK_MAP env)
-DEFAULT_RUNBOOK_OVERRIDES = {
-    "VmagentNoRemoteWrite": "vmagent-discovery-empty.html",
-    "RetrieverErrorBudgetFastBurn": "retriever-not-ready.html",
-    "QdrantErrorBudgetFastBurn": "qdrant-dead-replicas.html",
-}
-
-def parse_runbook_map_env() -> Dict[str, str]:
-    s = os.getenv("RUNBOOK_MAP", "").strip()
-    if not s:
-        return {}
-    try:
-        obj = json.loads(s)
-        if isinstance(obj, dict):
-            return {k: v for k, v in obj.items()}
-    except Exception:
-        pass
-    res: Dict[str, str] = {}
-    parts = [p.strip() for p in s.split(",") if p.strip()]
-    for p in parts:
-        if "=" in p:
-            k, v = p.split("=", 1)
-            res[k.strip()] = v.strip()
-    return res
-
-RUNBOOK_OVERRIDES = {**DEFAULT_RUNBOOK_OVERRIDES, **parse_runbook_map_env()}
-
 def run_cmd(cmd: List[str], timeout: int = 60) -> Tuple[int, str, str]:
     try:
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=timeout, text=True)
-        out = (proc.stdout or "").strip()
-        err = (proc.stderr or "").strip()
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=timeout)
+        out = (proc.stdout or b"").decode("utf-8", errors="replace").strip()
+        err = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
         LOG.debug("run_cmd finished rc=%s cmd=%s out_len=%d err_len=%d", proc.returncode, " ".join(cmd), len(out), len(err))
         return proc.returncode, out, err
     except subprocess.TimeoutExpired as e:
-        out = getattr(e, "stdout", "") or ""
-        err = getattr(e, "stderr", "") or f"timeout after {timeout}s"
+        out = (getattr(e, "stdout", None) or b"").decode("utf-8", errors="replace") if getattr(e, "stdout", None) else ""
+        err = (getattr(e, "stderr", None) or b"").decode("utf-8", errors="replace") if getattr(e, "stderr", None) else f"timeout after {timeout}s"
         LOG.error("run_cmd timeout cmd=%s", " ".join(cmd))
         return 124, out.strip(), err.strip()
-
-def kubectl_apply_from_str(manifest_yaml: str) -> None:
-    if not shutil.which("kubectl"):
-        raise RuntimeError("kubectl required to apply secrets")
-    proc = subprocess.run(["kubectl", "apply", "-f", "-"], input=manifest_yaml, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
-    out = (proc.stdout or "").strip()
-    err = (proc.stderr or "").strip()
-    if proc.returncode != 0:
-        LOG.error("kubectl apply secret failed stdout=%s stderr=%s", out, err)
-        raise RuntimeError(f"kubectl apply failed: {err or out}")
-    LOG.info("kubectl applied secret via stdin")
 
 def atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -179,17 +125,10 @@ def validate_inputs() -> None:
         if not v:
             LOG.error("required env missing %s", k)
             raise RuntimeError(f"{k} must be set")
-    if ENABLE_PAGERDUTY and not PAGERDUTY_ROUTING_KEY:
-        LOG.error("ENABLE_PAGERDUTY requested but no PAGERDUTY_ROUTING_KEY present")
-        raise RuntimeError("ENABLE_PAGERDUTY=true requires PAGERDUTY_ROUTING_KEY")
-    if ENABLE_SLACK and not ALERTMANAGER_SLACK_WEBHOOK:
-        LOG.error("ENABLE_SLACK requested but no ALERTMANAGER_SLACK_WEBHOOK present")
-        raise RuntimeError("ENABLE_SLACK=true requires ALERTMANAGER_SLACK_WEBHOOK")
-    paging = parse_csv_to_list(ALERTING_PAGING_SEVERITY_LEVELS)
-    slack = parse_csv_to_list(ALERTING_SLACK_SEVERITY_LEVELS)
-    if not paging and not slack:
-        LOG.error("no severity levels defined for paging or slack")
-        raise RuntimeError("At least one of ALERTING_PAGING_SEVERITY_LEVELS or ALERTING_SLACK_SEVERITY_LEVELS must be non-empty")
+    if RUNBOOK_BASE_URL:
+        if not re.match(r"^https?://", RUNBOOK_BASE_URL):
+            LOG.error("RUNBOOK_BASE_URL invalid %s", RUNBOOK_BASE_URL)
+            raise RuntimeError("RUNBOOK_BASE_URL must be an absolute URL starting with http:// or https://")
     LOG.info("inputs validated")
 
 def alertname_to_kebab(name: str) -> str:
@@ -200,39 +139,8 @@ def alertname_to_kebab(name: str) -> str:
 
 def runbook_url_for(alert_name: str) -> str:
     base = RUNBOOK_BASE_URL.rstrip("/") if RUNBOOK_BASE_URL else ""
-    if not base:
-        return ""
-    # allow overrides for alerts that map to different filenames
-    if alert_name in RUNBOOK_OVERRIDES:
-        fn = RUNBOOK_OVERRIDES[alert_name]
-        if not fn.endswith(".html"):
-            fn = fn + ".html"
-        return f"{base}/{fn}"
     filename = f"{alertname_to_kebab(alert_name)}.html"
-    return f"{base}/{filename}"
-
-def http_head_ok(url: str, timeout: int = 5) -> bool:
-    try:
-        req = urllib.request.Request(url, method="HEAD")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return 200 <= resp.getcode() < 400
-    except urllib.error.HTTPError as e:
-        # 405 Method Not Allowed: some static hosts disallow HEAD; fallback to GET
-        if e.code == 405:
-            try:
-                with urllib.request.urlopen(url, timeout=timeout) as resp2:
-                    return 200 <= resp2.getcode() < 400
-            except Exception:
-                return False
-        return False
-    except Exception:
-        # network error or DNS etc
-        return False
-
-def _add_runbook_if_present(annotations: Dict[str, Any], alert_name: str) -> None:
-    rb = runbook_url_for(alert_name)
-    if rb:
-        annotations["runbook"] = rb
+    return f"{base}/{filename}" if base else ""
 
 def build_slo_rules() -> Dict[str, Any]:
     sst = SLO_SUCCESS_TARGET
@@ -259,14 +167,22 @@ def build_slo_rules() -> Dict[str, Any]:
                 "expr": 'vm_promscrape_discovery_kubernetes_objects{role="pod"} == 0',
                 "for": "2m",
                 "labels": {"severity": "critical", "plane": "ingestion", "service": "vmagent"},
-                "annotations": {},
+                "annotations": {
+                    "summary": "vmagent pod discovery returned zero objects",
+                    "description": "Verify vmagent is running and able to list Kubernetes endpoints. Check vmagent logs for discovery errors and RBAC permissions.",
+                    "runbook": runbook_url_for("VmagentDiscoveryEmpty"),
+                },
             },
             {
                 "alert": "VmagentNoRemoteWrite",
                 "expr": "increase(vm_persistentqueue_bytes_written_total[5m]) == 0",
                 "for": "5m",
                 "labels": {"severity": "critical", "plane": "ingestion", "service": "vmagent"},
-                "annotations": {},
+                "annotations": {
+                    "summary": "vmagent reports no remote-write bytes to Victoria in the last 5m",
+                    "description": "Confirm vmagent can establish remote-write connections and that VictoriaMetrics is reachable at DATASOURCE_URL. Check persistent queue metrics and network connectivity.",
+                    "runbook": runbook_url_for("VmagentNoRemoteWrite"),
+                },
             },
         ],
     })
@@ -278,21 +194,33 @@ def build_slo_rules() -> Dict[str, Any]:
                 "expr": 'service_ready{service="retrieval"} == 0',
                 "for": "2m",
                 "labels": {"severity": "critical", "plane": "safety", "service": "retriever"},
-                "annotations": {},
+                "annotations": {
+                    "summary": "Retriever service reports not ready",
+                    "description": "Check retriever deployment, readiness probes, recent events, and downstream dependencies.",
+                    "runbook": runbook_url_for("RetrieverNotReady"),
+                },
             },
             {
                 "alert": "QdrantDeadReplicas",
                 "expr": "collection_dead_replicas > 0",
                 "for": "2m",
                 "labels": {"severity": "critical", "plane": "safety", "service": "qdrant"},
-                "annotations": {},
+                "annotations": {
+                    "summary": "Qdrant reports dead replicas for at least one collection",
+                    "description": "Inspect qdrant cluster health, pod logs, and storage errors. Follow cluster recovery steps in runbook.",
+                    "runbook": runbook_url_for("QdrantDeadReplicas"),
+                },
             },
             {
                 "alert": "QdrantSnapshotStuck",
                 "expr": "snapshot_creation_running > 0",
                 "for": "30m",
                 "labels": {"severity": "warning", "plane": "safety", "service": "qdrant"},
-                "annotations": {},
+                "annotations": {
+                    "summary": "Qdrant snapshot running for > 30m",
+                    "description": "Investigate snapshot process and storage backend latency. Consider cancelling or throttling snapshot according to runbook.",
+                    "runbook": runbook_url_for("QdrantSnapshotStuck"),
+                },
             },
         ],
     })
@@ -304,21 +232,33 @@ def build_slo_rules() -> Dict[str, Any]:
                 "expr": f"(retrieval_errors_rate_1h / max(retrieval_requests_rate_1h, 1)) / (1 - {sst}) > {fast_mul}",
                 "for": "10m",
                 "labels": {"severity": "critical", "plane": "slo", "service": "retriever"},
-                "annotations": {},
+                "annotations": {
+                    "summary": "Retriever error budget fast burn (1h)",
+                    "description": "Fast burn detected; investigate retriever errors, recent deploys, and backend failures.",
+                    "runbook": runbook_url_for("RetrieverErrorBudgetFastBurn"),
+                },
             },
             {
                 "alert": "RetrieverErrorBudgetSlowBurn",
                 "expr": f"(retrieval_errors_rate_6h / max(retrieval_requests_rate_6h, 1)) / (1 - {sst}) > {slow_mul}",
                 "for": "30m",
                 "labels": {"severity": "warning", "plane": "slo", "service": "retriever"},
-                "annotations": {},
+                "annotations": {
+                    "summary": "Retriever error budget slow burn (6h)",
+                    "description": "Slow burn in error budget; review trends and mitigations in runbook.",
+                    "runbook": runbook_url_for("RetrieverErrorBudgetSlowBurn"),
+                },
             },
             {
                 "alert": "RetrieverHighP95Latency",
                 "expr": f"histogram_quantile({sq}, sum(rate(retrieval_request_duration_seconds_bucket[5m])) by (le)) > {RETRIEVER_LATENCY_THRESHOLD_SECONDS}",
                 "for": "5m",
                 "labels": {"severity": "warning", "plane": "slo", "service": "retriever"},
-                "annotations": {},
+                "annotations": {
+                    "summary": "Retriever p95 latency above threshold",
+                    "description": "High p95 latency observed; check retriever CPU/memory, GC, and downstream latency.",
+                    "runbook": runbook_url_for("RetrieverHighP95Latency"),
+                },
             },
         ],
     })
@@ -330,67 +270,26 @@ def build_slo_rules() -> Dict[str, Any]:
                 "expr": f"(qdrant_rest_fail_rate_1h / max(qdrant_rest_total_rate_1h, 1)) / (1 - {sst}) > {fast_mul}",
                 "for": "10m",
                 "labels": {"severity": "critical", "plane": "slo", "service": "qdrant"},
-                "annotations": {},
+                "annotations": {
+                    "summary": "Qdrant error budget fast burn (1h)",
+                    "description": "High error-rate for Qdrant; inspect cluster health and storage errors.",
+                    "runbook": runbook_url_for("QdrantErrorBudgetFastBurn"),
+                },
             },
             {
                 "alert": "QdrantHighP95Latency",
                 "expr": f"histogram_quantile({sq}, sum(rate(rest_responses_duration_seconds_bucket[5m])) by (le)) > {QDRANT_LATENCY_THRESHOLD_SECONDS}",
                 "for": "5m",
                 "labels": {"severity": "warning", "plane": "slo", "service": "qdrant"},
-                "annotations": {},
+                "annotations": {
+                    "summary": "Qdrant p95 latency above threshold",
+                    "description": "Qdrant latency high; check indexing operations, storage I/O, and cluster load.",
+                    "runbook": runbook_url_for("QdrantHighP95Latency"),
+                },
             },
         ],
     })
-    for grp in groups:
-        for r in grp.get("rules", []):
-            anns = r.get("annotations", {}) or {}
-            summary = r.get("alert") or r.get("record") or "alert"
-            anns["summary"] = anns.get("summary") or summary
-            _add_runbook_if_present(anns, r.get("alert") or summary)
-            r["annotations"] = anns
     return {"groups": groups}
-
-def check_required_runbooks_exist(rules_obj: Dict[str, Any]) -> None:
-    """
-    If RUNBOOK_STRICT=true and RUNBOOK_BASE_URL is set and PagerDuty is enabled,
-    enforce that runbook pages for paging alerts exist and are reachable.
-
-    If RUNBOOK_STRICT is not set, missing runbooks are logged as warnings but do NOT block rendering/apply.
-    """
-    if not RUNBOOK_BASE_URL:
-        LOG.debug("RUNBOOK_BASE_URL not set; skipping runbook existence checks")
-        return
-    if not ENABLE_PAGERDUTY:
-        LOG.debug("ENABLE_PAGERDUTY disabled; skipping runbook existence checks")
-        return
-    paging = parse_csv_to_list(ALERTING_PAGING_SEVERITY_LEVELS)
-    if not paging:
-        LOG.debug("No paging severities configured; skipping runbook existence checks")
-        return
-    missing = []
-    groups = rules_obj.get("groups", [])
-    for grp in groups:
-        for r in grp.get("rules", []):
-            labels = r.get("labels", {}) or {}
-            sev = labels.get("severity", "").lower()
-            alert_name = r.get("alert")
-            if not alert_name:
-                continue
-            if sev in paging:
-                url = runbook_url_for(alert_name)
-                if not url:
-                    missing.append((alert_name, "no-url-generated"))
-                    continue
-                ok = http_head_ok(url, timeout=6)
-                if not ok:
-                    missing.append((alert_name, url))
-    if missing:
-        msg_lines = [f"{name}:{reason}" for name, reason in missing]
-        LOG.warning("runbook existence check found missing/unreachable runbook pages for paging alerts: %s", "; ".join(msg_lines))
-        if RUNBOOK_STRICT:
-            LOG.error("RUNBOOK_STRICT set but runbook(s) unreachable: %s", "; ".join(msg_lines))
-            raise RuntimeError("Missing or inaccessible runbook pages for paging alerts: " + ", ".join(f"{n} ({u})" for n, u in missing))
-        # non-strict mode: do not raise; warn only and continue
 
 def build_vmalert_objects(rules_text: str) -> List[Dict[str, Any]]:
     ns = VM_NAMESPACE
@@ -437,55 +336,33 @@ def build_vmalert_objects(rules_text: str) -> List[Dict[str, Any]]:
 
 def choose_preferred_receiver(receivers: Iterable[Dict[str, Any]]) -> str:
     names = [r.get("name") for r in receivers]
-    preferred_order = []
-    if ENABLE_PAGERDUTY and "pagerduty" in names:
-        preferred_order.append("pagerduty")
-    if ENABLE_SLACK and "slack" in names:
-        preferred_order.append("slack")
     if "default" in names:
-        preferred_order.append("default")
-    for cand in ("pagerduty", "slack", "default", "default-noop"):
-        if cand in preferred_order:
-            return cand
-    return names[0] if names else "default-noop"
+        return "default"
+    if "slack" in names:
+        return "slack"
+    if "pagerduty" in names:
+        return "pagerduty"
+    if names:
+        return names[0]
+    return "default-noop"
 
 def build_alertmanager_cm() -> Dict[str, Any]:
     ns = VM_NAMESPACE
+    paging = parse_csv_to_list(ALERTING_PAGING_SEVERITY_LEVELS)
+    slack = parse_csv_to_list(ALERTING_SLACK_SEVERITY_LEVELS)
     receivers: List[Dict[str, Any]] = []
-    # PagerDuty receiver: use a robust template for runbook with fallback to firing alert annotation
-    if ENABLE_PAGERDUTY and PAGERDUTY_ROUTING_KEY:
-        pd_runbook_template = "{{ with .CommonAnnotations.runbook }}{{ . }}{{ else }}{{ with index .Alerts.Firing 0 }}{{ .Annotations.runbook }}{{ end }}{{ end }}"
-        pd_details = {
-            "runbook": pd_runbook_template,
-            "description": "{{ .CommonAnnotations.summary }}",
-            "client": "{{ template \"pagerduty.default.client\" . }}"
-        }
-        pd_receiver = {
-            "name": "pagerduty",
-            "pagerduty_configs": [
-                {
-                    "routing_key": PAGERDUTY_ROUTING_KEY,
-                    "send_resolved": True,
-                    "details": pd_details,
-                }
-            ]
-        }
-        # include a 'links' entry if RUNBOOK_BASE_URL is configured (links must be valid URLs)
-        if RUNBOOK_BASE_URL:
-            pd_receiver["pagerduty_configs"][0]["links"] = [{"href": pd_runbook_template, "text": "Runbook"}]
-        receivers.append(pd_receiver)
-    # Slack via webhook_configs to avoid schema differences; channel is optional and kept compatible
-    if ENABLE_SLACK and ALERTMANAGER_SLACK_WEBHOOK:
-        slack_webhook = {"url": ALERTMANAGER_SLACK_WEBHOOK, "send_resolved": True}
-        if ALERT_DEFAULT_CHANNEL:
-            slack_webhook["channel"] = ALERT_DEFAULT_CHANNEL
-        receivers.append({"name": "slack", "webhook_configs": [slack_webhook]})
     if DEFAULT_WEBHOOK:
         receivers.append({"name": "default", "webhook_configs": [{"url": DEFAULT_WEBHOOK}]})
+    if PAGERDUTY_ROUTING_KEY:
+        receivers.append({"name": "pagerduty", "pagerduty_configs": [{"routing_key": PAGERDUTY_ROUTING_KEY, "send_resolved": True, "details": {"runbook": "{{ .CommonAnnotations.runbook }}"}}]})
+    if ALERTMANAGER_SLACK_WEBHOOK:
+        slack_config = {"api_url": ALERTMANAGER_SLACK_WEBHOOK, "send_resolved": True}
+        if ALERT_DEFAULT_CHANNEL:
+            slack_config["channel"] = ALERT_DEFAULT_CHANNEL
+        receivers.append({"name": "slack", "slack_configs": [slack_config]})
     if not receivers:
         receivers.append({"name": "default-noop", "webhook_configs": [{"url": "http://127.0.0.1:9"}]})
     preferred = choose_preferred_receiver(receivers)
-
     base_route = {
         "group_by": ["alertname", "service", "plane"],
         "group_wait": ALERTING_GROUP_WAIT,
@@ -493,30 +370,26 @@ def build_alertmanager_cm() -> Dict[str, Any]:
         "repeat_interval": ALERTING_REPEAT_INTERVAL,
         "receiver": preferred,
     }
-
-    combined: List[str] = []
-    for s in parse_csv_to_list(ALERTING_PAGING_SEVERITY_LEVELS):
-        if s not in combined:
-            combined.append(s)
-    for s in parse_csv_to_list(ALERTING_SLACK_SEVERITY_LEVELS):
-        if s not in combined:
-            combined.append(s)
-
+    planes = ["ingestion", "safety", "slo"]
+    ordered_sevs: List[str] = []
+    for s in paging:
+        if s not in ordered_sevs:
+            ordered_sevs.append(s)
+    for s in slack:
+        if s not in ordered_sevs:
+            ordered_sevs.append(s)
     route_children: List[Dict[str, Any]] = []
-    for plane in ["ingestion", "safety", "slo"]:
-        for sev in combined:
-            sev_l = sev.lower()
-            receiver = None
-            if sev_l in parse_csv_to_list(ALERTING_PAGING_SEVERITY_LEVELS) and ENABLE_PAGERDUTY and PAGERDUTY_ROUTING_KEY:
-                receiver = "pagerduty"
-            elif sev_l in parse_csv_to_list(ALERTING_SLACK_SEVERITY_LEVELS) and ENABLE_SLACK and ALERTMANAGER_SLACK_WEBHOOK:
-                receiver = "slack"
-            # If paging configured but pagerduty is disabled, route paging severities to slack if enabled.
-            elif sev_l in parse_csv_to_list(ALERTING_PAGING_SEVERITY_LEVELS) and not ENABLE_PAGERDUTY and ENABLE_SLACK and ALERTMANAGER_SLACK_WEBHOOK:
-                receiver = "slack"
-            if receiver:
-                route_children.append({"match": {"plane": plane, "severity": sev_l}, "receiver": receiver, "continue": False})
-
+    for sev in ordered_sevs:
+        sev_l = sev.lower()
+        receiver = None
+        if sev_l in paging and PAGERDUTY_ROUTING_KEY:
+            receiver = "pagerduty"
+        elif sev_l in slack and ALERTMANAGER_SLACK_WEBHOOK:
+            receiver = "slack"
+        if not receiver:
+            continue
+        for plane in planes:
+            route_children.append({"match": {"plane": plane, "severity": sev_l}, "receiver": receiver, "continue": False})
     config = {
         "global": {"resolve_timeout": "5m"},
         "route": {**base_route, "routes": route_children},
@@ -581,8 +454,6 @@ def build_notifier_secret_manifest() -> Dict[str, Any]:
 def render_all() -> None:
     validate_inputs()
     rules_obj = build_slo_rules()
-    # Only enforce runbook presence if RUNBOOK_STRICT set; otherwise log warnings
-    check_required_runbooks_exist(rules_obj)
     rules_text = yaml.safe_dump(rules_obj, sort_keys=False)
     vmalert_objs = build_vmalert_objects(rules_text)
     alertmgr_cm = build_alertmanager_cm()
@@ -602,6 +473,14 @@ def render_all() -> None:
         multi_alertmgr.append(yaml.safe_dump(o, sort_keys=False))
     atomic_write(alertmgr_deploy_path, "\n---\n".join(multi_alertmgr) + "\n")
     atomic_write(alertmgr_cm_path, yaml.safe_dump(alertmgr_cm, sort_keys=False))
+    if CREATE_NOTIFIER_SECRET:
+        secret = build_notifier_secret_manifest()
+        if secret:
+            secret_path = OUT_DIR / f"{NOTIFIER_SECRET_NAME}-secret.yaml"
+            atomic_write(secret_path, yaml.safe_dump(secret, sort_keys=False))
+            LOG.info("notifier secret rendered to disk %s", str(secret_path))
+        else:
+            LOG.info("CREATE_NOTIFIER_SECRET set but no notifier envs present; skipping secret emission")
     LOG.info("render complete out_dir=%s files=%s", str(OUT_DIR), [str(slo_path), str(vmalert_path), str(alertmgr_deploy_path), str(alertmgr_cm_path)])
 
 def promtool_check(rules_path: Path) -> None:
@@ -623,14 +502,14 @@ def kubectl_apply(path: Path) -> None:
         raise RuntimeError(f"kubectl apply failed for {path}: {err or out}")
     LOG.info("kubectl apply succeeded file=%s", str(path))
 
-def apply_secret_directly() -> None:
-    secret = build_notifier_secret_manifest()
-    if not secret:
-        LOG.info("no notifier secret content to apply; skipping")
-        return
-    manifest_yaml = yaml.safe_dump(secret, sort_keys=False)
-    LOG.info("applying notifier secret directly into cluster as %s", NOTIFIER_SECRET_NAME)
-    kubectl_apply_from_str(manifest_yaml)
+def kubectl_delete(path: Path) -> None:
+    if not shutil.which("kubectl"):
+        raise RuntimeError("kubectl required to delete manifests")
+    rc, out, err = run_cmd(["kubectl", "delete", "-f", str(path), "--ignore-not-found"], timeout=60)
+    if rc != 0:
+        LOG.warning("kubectl delete returned non-zero file=%s stdout=%s stderr=%s", str(path), out, err)
+    else:
+        LOG.info("kubectl delete succeeded file=%s", str(path))
 
 def generate(args: argparse.Namespace) -> None:
     LOG.info("generate started")
@@ -653,7 +532,9 @@ def apply(args: argparse.Namespace) -> None:
     vmalert_manifest = OUT_DIR / "vmalert-deployment.yaml"
     slo = OUT_DIR / "slo.rules.yaml"
     if CREATE_NOTIFIER_SECRET:
-        apply_secret_directly()
+        secret_path = OUT_DIR / f"{NOTIFIER_SECRET_NAME}-secret.yaml"
+        if secret_path.exists():
+            kubectl_apply(secret_path)
     kubectl_apply(alertmgr_deploy)
     kubectl_apply(alertmgr_cm)
     kubectl_apply(vmalert_manifest)
@@ -671,18 +552,13 @@ def delete(args: argparse.Namespace) -> None:
     LOG.info("delete started")
     if not args.confirm:
         raise RuntimeError("--confirm required to delete")
-    files = ["alertmanager-deployment.yaml", "alertmanager-config.yaml", "vmalert-deployment.yaml", "slo.rules.yaml"]
+    files = ["alertmanager-deployment.yaml", "alertmanager-config.yaml", "vmalert-deployment.yaml", "slo.rules.yaml", f"{NOTIFIER_SECRET_NAME}-secret.yaml"]
     for f in files:
         p = OUT_DIR / f
         if p.exists() and shutil.which("kubectl"):
             try:
                 if is_k8s_manifest(p):
-                    kubectl_apply_from_str  # noop check (keeps linter happy)
-                    rc, out, err = run_cmd(["kubectl", "delete", "-f", str(p), "--ignore-not-found"], timeout=60)
-                    if rc != 0:
-                        LOG.warning("kubectl delete returned non-zero file=%s stdout=%s stderr=%s", str(p), out, err)
-                    else:
-                        LOG.info("kubectl delete succeeded file=%s", str(p))
+                    kubectl_delete(p)
                 else:
                     LOG.info("skipping kubectl delete for non-K8s file %s", str(p))
             except Exception as e:

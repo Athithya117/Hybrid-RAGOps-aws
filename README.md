@@ -280,3 +280,32 @@ export LOGS_TTL_DAYS=2
 
 make deploy-clickhouse
 
+export GRAFANA_ADMIN_PASSWORD='grafana' # Grafana admin password (secret) — rotate regularly / change per environment
+export GRAFANA_ADMIN_USER='admin' # Grafana admin username (secret) — change when onboarding or rotating admin
+export GRAFANA_API_KEY='' # Grafana API key — used for API validation; set in CI or automated checks
+export GRAFANA_API_URL='' # Grafana API base URL — set for remote API validations or CI post-deploy checks
+export GRAFANA_USE_PVC='false' # Feature flag: persist Grafana data on PVC; set true for stateful installations
+export GRAFANA_REPLICAS='1' # Grafana replicas (scale horizontally for HA or load); change to scale
+export GRAFANA_IMAGE='grafana/grafana:10.3.5' # Grafana container image (pin for deterministic upgrades)
+export GRAFANA_CPU_REQ='100m' # Grafana CPU request — tune if Grafana is CPU-starved
+export GRAFANA_MEM_REQ='128Mi' # Grafana memory request — increase if OOM or heavy dashboards
+export GRAFANA_CPU_LIMIT='500m' # Grafana CPU limit — allow bursts as needed
+export GRAFANA_MEM_LIMIT='512Mi' # Grafana memory limit — upper bound to avoid OOM on host
+export GRAFANA_PVC_SIZE='5Gi' # PVC size for Grafana data (if GRAFANA_USE_PVC=true) — adjust to retention/plugins
+export METRICS_DATASOURCE='VictoriaMetrics' # Logical metrics datasource name used in dashboards
+export METRICS_DATASOURCE_URL='http://victoria-metrics.monitoring.svc:8428' # Metrics backend endpoint — change per cluster
+export CLICKHOUSE_DATASOURCE='ClickHouse' # Logical ClickHouse datasource name used in dashboard links
+export CLICKHOUSE_URL='http://clickhouse.clickhouse.svc:8123' # ClickHouse HTTP endpoint for explore links
+export DATASOURCE_URL='http://victoria-metrics.monitoring.svc:8428' # Backend URL used for recording-rule sanity checks
+export CI='false' # CI toggle: when true the generator fails hard on validation errors (use in pipelines)
+export GRAFANA_NAMESPACE='monitoring' # Namespace where Grafana / ConfigMaps are created
+export GRAFANA_PROVISIONING_NAMESPACE='monitoring' # Namespace Grafana expects provisioning ConfigMaps in
+export DEFAULT_NAMESPACE='monitoring' # Default namespace injected into dashboard variables
+export DASHBOARD_SERVICES='retriever,qdrant' # Comma list of per-service dashboards to render
+export GRAFANA_DASHBOARD_UID_PREFIX='platform-' # UID prefix for generated dashboards (avoid collisions)
+export RUNBOOK_BASE_URL='https://defaultsa515.z13.web.core.windows.net' # Base runbook URL used in dashboard headers/links
+export MAX_PANELS_PER_DASHBOARD='48' # Safety cap to avoid oversized dashboards (prevents runaway renders)
+export SLO_SUCCESS_TARGET='0.999' # SLO success target used in dashboard headers/alerts — change for different SLOs
+export SLO_LATENCY_QUANTILE='0.95' # Latency quantile used in SLO panels (allowed: 0.95 or 0.99)
+export RETRIEVER_LATENCY_THRESHOLD_SECONDS='0.5' # Retriever latency threshold (p95) shown in dashboards
+export QDRANT_LATENCY_THRESHOLD_SECONDS='0.8' # Qdrant latency threshold (p95) shown in dashboards
