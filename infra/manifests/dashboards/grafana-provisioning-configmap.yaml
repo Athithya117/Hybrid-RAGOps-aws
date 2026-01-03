@@ -4,7 +4,7 @@ metadata:
   name: grafana-provisioning
   namespace: monitoring
   labels:
-    managed-by: dashboards.py
+    managed-by: dashboard.py
 data:
   providers.yaml: "- name: platform-dashboards\n  orgId: 1\n  folder: Platform\n \
     \ type: file\n  disableDeletion: false\n  options:\n    path: /var/lib/grafana/dashboards\n"

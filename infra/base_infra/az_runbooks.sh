@@ -136,5 +136,6 @@ for f in "${RUNBOOKS_SRC_DIR}"/*; do
   esac
 done
 rm -rf .runbooks_build
+echo "RUNBOOK_BASE_URL=$RUNBOOK_BASE_URL"
 RUNBOOK_BASE_URL="$(az storage account show --name "$AZURE_STORAGE_ACCOUNT_NAME" --query "primaryEndpoints.web" -o tsv | sed 's:/*$::')" && [ -n "$RUNBOOK_BASE_URL" ] && sed -i '/^export RUNBOOK_BASE_URL=/d' ~/.bashrc && echo "export RUNBOOK_BASE_URL=$RUNBOOK_BASE_URL" >> ~/.bashrc
 exit 0

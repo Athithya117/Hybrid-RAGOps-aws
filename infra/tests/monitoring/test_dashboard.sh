@@ -1,4 +1,6 @@
-
+make deploy-qdrant 
+make deploy-retriever
+make deploy-vm
 
 export PAGERDUTY_INTEGRATION_KEY=$PAGERDUTY_INTEGRATION_KEY   # Set when PagerDuty receiver required; empty fully disables PD in build_alertmanager_cm()
 export ALERTMANAGER_SLACK_WEBHOOK=$ALERTMANAGER_SLACK_WEBHOOK     # Set when Slack receiver required; empty disables Slack receiver entirely
@@ -20,3 +22,5 @@ export VMALERT_RES_CPU="200m"                                     # Increase wit
 export VMALERT_RES_MEM="256Mi"                                    # Increase with complex PromQL or large rule files
 
 bash infra/tests/monitoring/test_alerts.sh
+
+python3 infra/generators/dashboards.py --delete && python3 infra/generators/dashboards.py --apply

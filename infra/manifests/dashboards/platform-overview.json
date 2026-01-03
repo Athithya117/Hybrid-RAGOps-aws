@@ -3,68 +3,163 @@
   "uid": "platform-platform-overview",
   "title": "Platform Overview",
   "templating": {
-    "list": []
+    "list": [
+      {
+        "type": "custom",
+        "name": "service",
+        "label": "Service",
+        "options": [
+          {
+            "text": "retriever",
+            "value": "retriever"
+          },
+          {
+            "text": "qdrant",
+            "value": "qdrant"
+          }
+        ],
+        "current": {
+          "text": "retriever",
+          "value": "retriever"
+        },
+        "multi": true,
+        "includeAll": false
+      },
+      {
+        "type": "custom",
+        "name": "namespace",
+        "label": "Namespace",
+        "options": [
+          {
+            "text": "monitoring",
+            "value": "monitoring"
+          }
+        ],
+        "current": {
+          "text": "monitoring",
+          "value": "monitoring"
+        },
+        "multi": false,
+        "includeAll": false
+      }
+    ]
   },
   "panels": [
     {
-      "type": "timeseries",
-      "title": "Total ingestion health (composite)",
-      "datasource": "VictoriaMetrics",
-      "targets": [
-        {
-          "expr": "max(vm_promscrape_discovery_kubernetes_objects{role='pod'})",
-          "refId": "A"
-        }
-      ],
+      "type": "text",
+      "title": "Platform Overview",
       "gridPos": {
-        "h": 4,
+        "h": 2,
         "w": 24,
         "x": 0,
         "y": 0
+      },
+      "options": {
+        "content": "Platform overview. Use the service selector to focus."
       },
       "id": 1
     },
     {
       "type": "timeseries",
-      "title": "Services not ready",
+      "title": "P95 Latency",
       "datasource": "VictoriaMetrics",
       "targets": [
         {
-          "expr": "count(service_ready==0)",
+          "expr": "histogram_quantile(0.95, sum(rate({__name__=~\".*_request_duration_seconds_bucket|.*_query_duration_seconds_bucket\",service=~\"$service\"}[5m])) by (le))",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 2
+      },
+      "id": 2,
+      "repeat": "service"
+    },
+    {
+      "type": "timeseries",
+      "title": "Error rate",
+      "datasource": "VictoriaMetrics",
+      "targets": [
+        {
+          "expr": "sum(rate({__name__=~\".*_errors_total|.*_error_total\",service=~\"$service\"}[5m])) / max(sum(rate({__name__=~\".*_requests_total|.*_request_total\",service=~\"$service\"}[5m])),1)",
           "refId": "B"
         }
       ],
       "gridPos": {
-        "h": 4,
+        "h": 8,
         "w": 12,
-        "x": 0,
-        "y": 4
+        "x": 12,
+        "y": 2
       },
-      "id": 2
+      "id": 3,
+      "repeat": "service"
     },
     {
-      "type": "timeseries",
-      "title": "Active SLO burners",
+      "type": "stat",
+      "title": "Service readiness",
       "datasource": "VictoriaMetrics",
       "targets": [
         {
-          "expr": "count(firing_alerts{plane='slo',severity='critical'})",
+          "expr": "avg(service_ready{service=~\"$service\"})",
           "refId": "C"
         }
       ],
       "gridPos": {
-        "h": 4,
+        "h": 3,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "id": 4,
+      "repeat": "service"
+    },
+    {
+      "type": "stat",
+      "title": "Requests/s",
+      "datasource": "VictoriaMetrics",
+      "targets": [
+        {
+          "expr": "sum(rate({__name__=~\".*_requests_total|.*_request_total\",service=~\"$service\"}[1m]))",
+          "refId": "D"
+        }
+      ],
+      "gridPos": {
+        "h": 3,
         "w": 12,
         "x": 12,
-        "y": 4
+        "y": 10
       },
-      "id": 3
+      "id": 5,
+      "repeat": "service"
+    },
+    {
+      "type": "text",
+      "title": "Logs",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "options": {
+        "content": "Open logs for selected service"
+      },
+      "links": [
+        {
+          "title": "Open Logs",
+          "url": "/explore?left=%7B%22datasource%22%3A%22ClickHouse%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22sql%22%3A%22SELECT+ts%2C+level%2C+message%2C+fields+FROM+logs.kube_logs+WHERE+service+%3D+%27%24%7Bservice%7D%27+AND+namespace+%3D+%27monitoring%27+AND+ts+BETWEEN+toDateTime64%28%24__from+%2F+1000%2C+3%29+AND+toDateTime64%28%24__to+%2F+1000%2C+3%29+ORDER+BY+ts+DESC+LIMIT+500%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22%24__from%22%2C%22to%22%3A%22%24__to%22%7D%7D"
+        }
+      ],
+      "id": 6
     }
   ],
   "schemaVersion": 36,
   "version": 1,
   "_meta": {
-    "generator": "dashboards.py",
-    "rendered_at": "2026-01-03T00:14:06.534432Z"
+    "generator": "dashboard.py",
+    "rendered_at": "2026-01-03T03:43:22.043507Z"
   }
 }

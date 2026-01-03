@@ -177,6 +177,19 @@ data:
             target_label: __address__
           - target_label: __metrics_path__
             replacement: /metrics
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            action: replace
+            target_label: service
+            regex: (.+)
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: replace
+            target_label: service
+            regex: (.+)
+          - source_labels: [__meta_kubernetes_pod_label_team]
+            action: replace
+            target_label: service
+            regex: (.+)
+
       - job_name: k8s-pods-retriever
         kubernetes_sd_configs:
           - role: pod
@@ -197,6 +210,19 @@ data:
             target_label: __address__
           - target_label: __metrics_path__
             replacement: /metrics
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            action: replace
+            target_label: service
+            regex: (.+)
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: replace
+            target_label: service
+            regex: (.+)
+          - source_labels: [__meta_kubernetes_pod_label_team]
+            action: replace
+            target_label: service
+            regex: (.+)
+
       - job_name: k8s-pods-annotated
         kubernetes_sd_configs:
           - role: pod
@@ -214,6 +240,18 @@ data:
             target_label: __address__
           - target_label: __metrics_path__
             replacement: /metrics
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            action: replace
+            target_label: service
+            regex: (.+)
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: replace
+            target_label: service
+            regex: (.+)
+          - source_labels: [__meta_kubernetes_pod_label_team]
+            action: replace
+            target_label: service
+            regex: (.+)
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -355,7 +393,6 @@ EOF
       -e "s|__VM_RES_MEM__|${VM_RES_MEM}|g" \
       "${MANIFEST}.tmp" > "${MANIFEST}.tmp2" && mv "${MANIFEST}.tmp2" "${MANIFEST}.tmp"
 
-  # build the expected literal pattern safely (avoid accidental expansion of $1/$2)
   PAT="$(printf "replacement: '%s'" '$1:$2')"
   if grep -Fq "${PAT}" "${MANIFEST}.tmp" 2>/dev/null ; then
     LOG "detected replacement literal ${PAT}"
@@ -364,7 +401,6 @@ EOF
     exit 1
   fi
 
-  # ensure no unexpected backslashes remain that could corrupt the replacement
   if grep -q "\\\\" "${MANIFEST}.tmp"; then
     ERR "ERROR: manifest contains backslash characters that may invalidate scrape addresses; aborting"
     exit 1
@@ -377,6 +413,18 @@ EOF
 apply(){
   validate_numeric_envs
   kubectl create namespace "${VM_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1
+  if kubectl -n "${VM_NAMESPACE}" get configmap vmagent-scrape >/dev/null 2>&1; then
+    LOG "found vmagent-scrape configmap, syncing into vmagent-config"
+    tmpf="$(mktemp /tmp/vmagent-scrape.XXXXXX.yml)"
+    TMPFILES+=("${tmpf}")
+    kubectl -n "${VM_NAMESPACE}" get configmap vmagent-scrape -o jsonpath='{.data.scrape\.yml}' | awk 'NR==1{print}; NR>1{print}' > "${tmpf}" || true
+    if [ -s "${tmpf}" ]; then
+      kubectl -n "${VM_NAMESPACE}" create configmap vmagent-config --from-file=scrape.yml="${tmpf}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+      LOG "synchronized vmagent-scrape -> vmagent-config"
+    else
+      LOG "vmagent-scrape exists but empty; continuing"
+    fi
+  fi
   render_manifest
   kubectl apply -f "${MANIFEST}"
   kubectl -n "${VM_NAMESPACE}" rollout restart deployment vmagent >/dev/null 2>&1 || true
@@ -385,7 +433,6 @@ apply(){
   LOG "monitoring apply complete into ${VM_NAMESPACE}"
 }
 
-# Improved probe: checks vm_promscrape_series_fetched OR remote-write bytes sent
 probe_vmagent_targets(){
   local tries=0 max=20
   while [ $tries -lt $max ]; do
@@ -496,7 +543,6 @@ validate_end_to_end(){
 
 delete(){
   kubectl -n "${VM_NAMESPACE}" delete -f "${MANIFEST}" --ignore-not-found || true
-  # best-effort cleanup of cluster-scoped RBAC created by this manifest
   kubectl delete clusterrole vmagent-clusterrole --ignore-not-found || true
   kubectl delete clusterrolebinding vmagent-clusterrolebinding --ignore-not-found || true
   LOG "monitoring deleted (best-effort)"

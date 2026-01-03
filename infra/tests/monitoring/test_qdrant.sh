@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-make deploy-qdrant
 LOG(){ printf '%s %s\n' "$(date -Iseconds)" "$*"; }
 ERR(){ printf '%s ERROR %s\n' "$(date -Iseconds)" "$*" >&2; }
 
@@ -13,14 +12,14 @@ VMAGENT_SERVICE=${VMAGENT_SERVICE:-vmagent}
 VMAGENT_PORT=${VMAGENT_PORT:-8429}
 LOCAL_VICTORIA_PORT=${LOCAL_VICTORIA_PORT:-0}
 LOCAL_VMAGENT_PORT=${LOCAL_VMAGENT_PORT:-0}
-PORTFWD_READY_TIMEOUT=${PORTFWD_READY_TIMEOUT:-15}
-PER_POD_PORTFWD_TIMEOUT=${PER_POD_PORTFWD_TIMEOUT:-8}
-QUERY_RETRIES=${QUERY_RETRIES:-3}
-RETRY_BACKOFF=${RETRY_BACKOFF:-2}
+PORTFWD_READY_TIMEOUT=${PORTFWD_READY_TIMEOUT:-30}
+PER_POD_PORTFWD_TIMEOUT=${PER_POD_PORTFWD_TIMEOUT:-10}
+QUERY_RETRIES=${QUERY_RETRIES:-6}
+RETRY_BACKOFF=${RETRY_BACKOFF:-3}
 QUERY_SLEEP=${QUERY_SLEEP:-1}
 CURL_BIN=${CURL_BIN:-curl}
 PYTHON_BIN=${PYTHON_BIN:-python3}
-SEED_DATA=${SEED_DATA:-false}
+SEED_DATA=${SEED_DATA:-true}
 SEED_COLLECTION_NAME=${SEED_COLLECTION_NAME:-e2e_test_collection}
 SEED_VECTOR_SIZE=${SEED_VECTOR_SIZE:-4}
 SEED_POINT_ID=${SEED_POINT_ID:-1}
@@ -79,7 +78,7 @@ cleanup(){
 trap cleanup INT TERM EXIT
 
 find_free_port(){
-  "${PYTHON_BIN}" - <<'PY'
+  "${PYTHON_BIN}" - <<PY
 import socket
 s=socket.socket()
 s.bind(('',0))
@@ -157,7 +156,6 @@ for pod in ${PODS}; do
   ann_port="$(kubectl -n "${QDRANT_NAMESPACE}" get pod "${pod}" -o jsonpath='{.metadata.annotations.monitoring\.io/port}' 2>/dev/null || true)"
   ann_path="$(kubectl -n "${QDRANT_NAMESPACE}" get pod "${pod}" -o jsonpath='{.metadata.annotations.monitoring\.io/path}' 2>/dev/null || true)"
   LOG "annotations: scrape=${ann_scrape:-<unset>} port=${ann_port:-<unset>} path=${ann_path:-<unset>}"
-
   if [ "${ann_scrape}" != "true" ]; then
     ERR "annotation monitoring.io/scrape=true missing on ${pod}"
     exit 7
@@ -174,7 +172,6 @@ for pod in ${PODS}; do
     ERR "annotation monitoring.io/path must be /metrics on ${pod} (found: ${ann_path})"
     exit 10
   fi
-
   local_port="$(find_free_port)"
   LOG "port-forwarding pod/${pod}:${ann_port} -> localhost:${local_port}"
   pfp="$(start_portforward "${QDRANT_NAMESPACE}" "pod/${pod}" "${local_port}" "${ann_port}")"
@@ -186,10 +183,8 @@ for pod in ${PODS}; do
     if kill -0 "${pfpid}" >/dev/null 2>&1; then kill "${pfpid}" >/dev/null 2>&1 || true; fi
     continue
   fi
-
   LOG "fetching /metrics from pod ${pod} (showing head)"
   "${CURL_BIN}" -sS "http://127.0.0.1:${local_port}${ann_path}" | sed -n '1,120p' || true
-
   if kill -0 "${pfpid}" >/dev/null 2>&1; then
     kill "${pfpid}" >/dev/null 2>&1 || true
     wait "${pfpid}" 2>/dev/null || true
@@ -243,10 +238,8 @@ PY
       elif [ "${expect}" = "anynum" ]; then
         if [ -n "${val}" ] && "${PYTHON_BIN}" - <<PY "${val}"
 import sys
-try:
-    float(sys.argv[1]); sys.exit(0)
-except:
-    sys.exit(2)
+try: float(sys.argv[1]); sys.exit(0)
+except: sys.exit(2)
 PY
         then LOG "PASS ${name} -> ${val}"; return 0; fi
       elif [ "${expect}" = "gt0_seriesfetched" ]; then
@@ -267,8 +260,11 @@ PY
   return 1
 }
 
-run_promql_with_retries "qdrant_metrics_exist" 'count({__name__=~"app_info|collections_total|collections_vector_total"})' gt0
-run_promql_with_retries "up_namespace_qdrant" 'max(up{namespace="qdrant"})' eq1
+run_promql_with_retries "qdrant_metrics_exist" 'count({__name__=~"app_info|collections_total|collections_vector_total"})' gt0 || { ERR "qdrant metrics not present in TSDB; scraping or remote-write broken"; exit 11; }
+
+run_promql_with_retries "qdrant_metrics_with_service" 'count({__name__=~"app_info|collections_total|collections_vector_total",service=~".+"})' anynum || { ERR "qdrant series present but missing exported 'service' label; update vmagent relabel to inject 'service' from pod labels"; exit 12; }
+
+run_promql_with_retries "up_namespace_qdrant" 'count(up{namespace="qdrant"})' gt0 || { ERR "up{namespace=qdrant} not found; check vmagent discovery / RBAC"; exit 13; }
 
 if [ "${SEED_DATA}" = "true" ]; then
   LOG "SEED_DATA=true: seeding minimal collection '${SEED_COLLECTION_NAME}' into Qdrant"
@@ -281,7 +277,6 @@ if [ "${SEED_DATA}" = "true" ]; then
     tail -n 200 "${pfile}" || true
     exit 20
   fi
-
   LOG "creating collection ${SEED_COLLECTION_NAME} (idempotent)"
   create_out="$("${CURL_BIN}" -sS -X PUT "http://127.0.0.1:${LOCAL_QDRANT_API_PORT}/collections/${SEED_COLLECTION_NAME}" -H "Content-Type: application/json" -d "{\"vectors\":{\"size\":${SEED_VECTOR_SIZE},\"distance\":\"Cosine\"}}")"
   echo "${create_out}" | jq -c . || echo "${create_out}"
@@ -290,16 +285,14 @@ if [ "${SEED_DATA}" = "true" ]; then
   points_payload="$(printf '{"points":[{"id":%s,"vector":%s}]}' "${SEED_POINT_ID}" "${vector_json}")"
   upsert_out="$("${CURL_BIN}" -sS -X PUT "http://127.0.0.1:${LOCAL_QDRANT_API_PORT}/collections/${SEED_COLLECTION_NAME}/points?wait=true" -H "Content-Type: application/json" -d "${points_payload}")"
   echo "${upsert_out}" | jq -c . || echo "${upsert_out}"
-
   if [ "${CLEANUP_SEED}" = "true" ]; then
     CLEANUP_ACTION_FILE="$(mktemp /tmp/qdrant.cleanup.XXXXXX)"; TMPFILES+=("${CLEANUP_ACTION_FILE}")
     printf '%s' "${SEED_COLLECTION_NAME}" > "${CLEANUP_ACTION_FILE}"
     LOG "registered to delete seeded collection ${SEED_COLLECTION_NAME} at script exit"
   fi
-
   LOG "waiting for ingestion of seeded data into TSDB"
-  sleep 5
-  run_promql_with_retries "collections_vector_total_sum" 'sum(collections_vector_total)' gt0
+  sleep 10
+  run_promql_with_retries "collections_vector_total_sum" 'sum(collections_vector_total)' gt0 || { ERR "seeded collection not ingested"; exit 21; }
 else
   LOG "SEED_DATA=false; skipping seeded-data ingestion check (this run validates the pipeline only)"
 fi

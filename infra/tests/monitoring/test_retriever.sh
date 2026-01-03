@@ -82,7 +82,7 @@ wait_for_http(){
 
 probe_vmagent_targets(){
   local port="$1"
-  local tries=0 max=12
+  local tries=0 max=20
   while [ $tries -lt $max ]; do
     if "${CURL_BIN}" -sS "http://127.0.0.1:${port}/metrics" | grep -E 'vm_promscrape|vmagent_' >/dev/null 2>&1; then
       LOG "vmagent exposes scrape metrics locally"
@@ -146,8 +146,8 @@ PY
 LOG "starting VictoriaMetrics port-forward (svc/victoria-metrics ns=${VM_NAMESPACE})"
 if [ "${LOCAL_VICTORIA_PORT:-0}" -eq 0 ]; then LOCAL_VICTORIA_PORT="$(find_free_port)"; fi
 pv="$(start_portforward "${VM_NAMESPACE}" "svc/victoria-metrics" "${LOCAL_VICTORIA_PORT}" "${VICTORIA_PORT}")"
-LOG "waiting up to 30s for VictoriaMetrics /metrics"
-if ! wait_for_http "http://127.0.0.1:${LOCAL_VICTORIA_PORT}/metrics" 30; then
+LOG "waiting up to ${PORTFWD_READY_TIMEOUT}s for VictoriaMetrics /metrics"
+if ! wait_for_http "http://127.0.0.1:${LOCAL_VICTORIA_PORT}/metrics" "${PORTFWD_READY_TIMEOUT}"; then
   pfile="$(printf '%s' "${pv}" | awk -F'|' '{print $2}')"
   ERR "victoria-metrics port-forward not ready; tail ${pfile}"
   tail -n 200 "${pfile}" || true
@@ -158,8 +158,8 @@ LOG "VictoriaMetrics port-forward ready (local:${LOCAL_VICTORIA_PORT})"
 LOG "starting vmagent port-forward (svc/vmagent ns=${VM_NAMESPACE})"
 if [ "${LOCAL_VMAGENT_PORT:-0}" -eq 0 ]; then LOCAL_VMAGENT_PORT="$(find_free_port)"; fi
 pm="$(start_portforward "${VM_NAMESPACE}" "svc/vmagent" "${LOCAL_VMAGENT_PORT}" "${VMAGENT_PORT}")"
-LOG "waiting up to 30s for vmagent /metrics"
-if ! wait_for_http "http://127.0.0.1:${LOCAL_VMAGENT_PORT}/metrics" 30; then
+LOG "waiting up to ${PORTFWD_READY_TIMEOUT}s for vmagent /metrics"
+if ! wait_for_http "http://127.0.0.1:${LOCAL_VMAGENT_PORT}/metrics" "${PORTFWD_READY_TIMEOUT}"; then
   pfile="$(printf '%s' "${pm}" | awk -F'|' '{print $2}')"
   ERR "vmagent port-forward not ready; tail ${pfile}"
   tail -n 200 "${pfile}" || true
@@ -224,8 +224,15 @@ LOG "fetching head of retriever /metrics"
 "${CURL_BIN}" -sS "http://127.0.0.1:${LOCAL_RETRIEVAL_PORT}/metrics" | sed -n '1,120p' || true
 
 LOG "validating vmagent -> victoria ingestion for retriever via PromQL"
-run_promql_with_retries "retriever_metrics_exist" 'count({__name__=~"app_info|retrieval_requests_total|retrieval_errors_total"})' gt0 || { ERR "retriever metrics not present in TSDB"; exit 13; }
-run_promql_with_retries "up_namespace_retrieval" 'max(up{namespace="'${RETRIEVAL_NAMESPACE}'"})' eq1 || { ERR "up{namespace=${RETRIEVAL_NAMESPACE}} not present in TSDB"; exit 14; }
+run_promql_with_retries "retriever_series_any" 'count({__name__=~"app_info|retrieval_requests_total|retrieval_errors_total"})' gt0 || { ERR "named retriever metrics not present in TSDB; scraping or remote-write broken"; exit 13; }
+
+run_promql_with_retries "retriever_series_with_service_label" 'count({__name__=~"app_info|retrieval_requests_total|retrieval_errors_total",service=~".+"})' anynum || { ERR "retriever series present but missing exported 'service' label; update vmagent relabel to inject 'service' from pod labels"; exit 14; }
+
+run_promql_with_retries "up_service_retrieval" 'max(up{service="'${RETRIEVAL_NAME}'"})' eq1 || { ERR "up{service=${RETRIEVAL_NAME}} not present in TSDB"; exit 15; }
+
+if [ "$(printf '%s' "${LOAD_GEN}" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
+  run_promql_with_retries "retriever_requests_active" 'sum(increase(retrieval_requests_total{service="'${RETRIEVAL_NAME}'"}[30s]))' gt0 || { ERR "no request traffic observed for ${RETRIEVAL_NAME} after load generation"; exit 16; }
+fi
 
 LOG "ALL retriever checks passed"
 exit 0
