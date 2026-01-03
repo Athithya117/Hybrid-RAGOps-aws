@@ -4,7 +4,7 @@ metadata:
   name: grafana-datasources
   namespace: monitoring
   labels:
-    managed-by: dashboard.py
+    managed-by: dashboards.py
 data:
   datasources.yaml: "apiVersion: 1\ndatasources:\n- name: VictoriaMetrics\n  type:\
     \ prometheus\n  access: proxy\n  url: http://victoria-metrics.monitoring.svc:8428\n\

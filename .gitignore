@@ -37,6 +37,7 @@ commands/
 commands
 models
 alerts/
+dashboards
 
 *.onnx
 *.pt

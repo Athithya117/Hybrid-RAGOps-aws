@@ -147,10 +147,6 @@ docker-login:
 	echo "$$DOCKER_PASSWORD" | docker login -u "$$DOCKER_USERNAME" --password-stdin
 
 push:
-	git config --global http.postBuffer 524288000
-	git config --global http.maxRequestBuffer 1000M
-	git config --global http.lowSpeedLimit 0
-	git config --global http.lowSpeedTime 999999
 	git add .
 	git commit -m "new"
 	git push origin main --force

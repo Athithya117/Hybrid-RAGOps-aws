@@ -22,20 +22,32 @@ spec:
       - name: grafana
         image: grafana/grafana:10.3.5
         env:
-        - name: GF_SECURITY_ADMIN_USER
+        - name: GF_DATABASE_TYPE
+          value: postgres
+        - name: GF_DATABASE_HOST
+          value: grafana-postgres.monitoring.svc.cluster.local:5432
+        - name: GF_DATABASE_NAME
           valueFrom:
             secretKeyRef:
-              name: grafana-admin-secret
-              key: admin-user
+              name: grafana-postgres-secret
+              key: postgres-db
+        - name: GF_DATABASE_USER
+          valueFrom:
+            secretKeyRef:
+              name: grafana-postgres-secret
+              key: postgres-user
+        - name: GF_DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-postgres-secret
+              key: postgres-password
+        - name: GF_SECURITY_ADMIN_USER
+          value: user
         - name: GF_SECURITY_ADMIN_PASSWORD
           valueFrom:
             secretKeyRef:
               name: grafana-admin-secret
               key: admin-password
-        - name: GF_PATHS_DATA
-          value: /var/lib/grafana/
-        - name: GF_PATHS_PROVISIONING
-          value: /etc/grafana/provisioning
         ports:
         - containerPort: 3000
           name: http
@@ -59,6 +71,14 @@ spec:
             port: 3000
           initialDelaySeconds: 5
           periodSeconds: 10
+          timeoutSeconds: 3
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 20
+          timeoutSeconds: 5
       volumes:
       - name: dashboards
         configMap:
