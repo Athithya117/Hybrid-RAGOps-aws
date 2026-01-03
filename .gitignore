@@ -35,7 +35,9 @@ infra/pulumi_azure/Pulumi.staging.yaml
 infra/pulumi_azure/Pulumi.prod.yaml
 commands/
 commands
-models/
+models
+alerts/
+
 *.onnx
 *.pt
 *.bin

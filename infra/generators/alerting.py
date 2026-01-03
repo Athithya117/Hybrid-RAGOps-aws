@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 import argparse
 import json
@@ -77,8 +76,13 @@ def run_cmd(cmd: List[str], timeout: int = 60) -> Tuple[int, str, str]:
         LOG.debug("run_cmd finished rc=%s cmd=%s out_len=%d err_len=%d", proc.returncode, " ".join(cmd), len(out), len(err))
         return proc.returncode, out, err
     except subprocess.TimeoutExpired as e:
-        out = (getattr(e, "stdout", None) or b"").decode("utf-8", errors="replace") if getattr(e, "stdout", None) else ""
-        err = (getattr(e, "stderr", None) or b"").decode("utf-8", errors="replace") if getattr(e, "stderr", None) else f"timeout after {timeout}s"
+        out_b = getattr(e, "stdout", None) or b""
+        err_b = getattr(e, "stderr", None) or None
+        out = out_b.decode("utf-8", errors="replace") if isinstance(out_b, (bytes, bytearray)) else str(out_b) if out_b is not None else ""
+        if err_b is not None:
+            err = err_b.decode("utf-8", errors="replace") if isinstance(err_b, (bytes, bytearray)) else str(err_b)
+        else:
+            err = f"timeout after {timeout}s"
         LOG.error("run_cmd timeout cmd=%s", " ".join(cmd))
         return 124, out.strip(), err.strip()
 
@@ -103,7 +107,7 @@ def parse_csv_to_list(s: str) -> List[str]:
     if not s:
         return []
     parts = [p.strip().lower() for p in s.split(",") if p.strip()]
-    uniq = []
+    uniq: List[str] = []
     for p in parts:
         if p not in uniq:
             uniq.append(p)
@@ -464,11 +468,11 @@ def render_all() -> None:
     alertmgr_deploy_path = OUT_DIR / "alertmanager-deployment.yaml"
     alertmgr_cm_path = OUT_DIR / "alertmanager-config.yaml"
     atomic_write(slo_path, rules_text)
-    multi_vmalert = []
+    multi_vmalert: List[str] = []
     for o in vmalert_objs:
         multi_vmalert.append(yaml.safe_dump(o, sort_keys=False))
     atomic_write(vmalert_path, "\n---\n".join(multi_vmalert) + "\n")
-    multi_alertmgr = []
+    multi_alertmgr: List[str] = []
     for o in alertmgr_objs:
         multi_alertmgr.append(yaml.safe_dump(o, sort_keys=False))
     atomic_write(alertmgr_deploy_path, "\n---\n".join(multi_alertmgr) + "\n")
@@ -586,7 +590,6 @@ def parse_args() -> argparse.Namespace:
     g.add_argument("--generate", action="store_true")
     g.add_argument("--validate", action="store_true")
     g.add_argument("--apply", action="store_true")
-    g.add_argument("--apple", action="store_true")
     g.add_argument("--delete", action="store_true")
     p.add_argument("--confirm", action="store_true", help="required for --delete")
     return p.parse_args()
@@ -595,13 +598,17 @@ def main() -> None:
     args = parse_args()
     try:
         if args.generate:
-            generate(args); return
+            generate(args)
+            return
         if args.validate:
-            validate(args); return
-        if args.apply or args.apple:
-            apply(args); return
+            validate(args)
+            return
+        if args.apply:
+            apply(args)
+            return
         if args.delete:
-            delete(args); return
+            delete(args)
+            return
     except Exception as e:
         LOG.error("ERROR: %s", str(e))
         sys.exit(3)

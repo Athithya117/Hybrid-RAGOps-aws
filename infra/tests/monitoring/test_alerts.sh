@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 python3 infra/generators/alerting.py --delete --confirm && python3 infra/generators/alerting.py --apply
+
 NS=${NS:-monitoring}
 VICTORIA_SVC=${VICTORIA_SVC:-victoria-metrics}
 VMALERT_SVC=${VMALERT_SVC:-vmalert}
