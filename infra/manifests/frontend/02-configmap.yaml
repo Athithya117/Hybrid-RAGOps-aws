@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: inference
+data:
+  QUERY_URL: http://retrieval-svc.inference.svc.cluster.local:8001
+  FRONTEND_URL: https://ui.athithya.site
+  FRONTEND_BASE: https://ui.athithya.site
+  FRONTEND_HOST: ui.athithya.site
+  FRONTEND_SCHEME: https
+  FRONTEND_HOSTNAME: ui.athithya.site
+  PORT: '8000'
+  ENV: STAGING
+  AUTH_MODE: external-id
+  OAUTH_REDIRECT_BASE: https://ui.athithya.site
+  GOOGLE_REDIRECT_URI: https://ui.athithya.site/auth/callback/google
+  MS_REDIRECT_URI: https://ui.athithya.site/auth/callback/microsoft
+  GITHUB_REDIRECT_URI: https://ui.athithya.site/auth/callback/github
+  OIDC_ISSUER: ''
+  OIDC_JWKS_URI: ''
+  OIDC_AUDIENCE: ''
+  SPA_CLIENT_ID: ''
+  AZURE_TENANT_ID: b8a65a11-9d1c-4d48-b9f6-dabfc67f2e4b
+  MS_TENANT_ID: b8a65a11-9d1c-4d48-b9f6-dabfc67f2e4b
+  JWKS_REFRESH_INTERVAL_SECONDS: '900'
+  ENABLE_CORS: 'false'
+  CORS_ALLOWED_ORIGINS: https://ui.athithya.site
+  LOG_LEVEL: INFO
+  ENABLE_GOOGLE_AUTH: 'true'
+  ENABLE_MICROSOFT_AUTH: 'true'
+  ENABLE_GITHUB_AUTH: 'true'
+  GOOGLE_CLIENT_ID: 765767206738-bgml7k1ih306jmq841lkl55iaj8bikq4.apps.googleusercontent.com
+  MS_CLIENT_ID: 0d390f2e-97ad-44c6-ac34-9b6574310713
+  GITHUB_CLIENT_ID: Ov23liFnXdXltUPW34R7
+  GOOGLE_ALLOWED_DOMAINS: company.com,gmail.com
+  MICROSOFT_ALLOWED_DOMAINS: outlook.com,company.com,hotmail.com
+  MICROSOFT_ALLOWED_TENANT_IDS: b8a65a11-9d1c-4d48-b9f6-dabfc67f2e4b
+  GITHUB_ALLOWED_DOMAINS: ''
+  GITHUB_ALLOWED_ORGS: oauth-testing-1
+  JWT_EXP_SECONDS: '1800'
+  JWT_ISS: stateless-openid-auth
+  JWT_AUD: rag-ui
+  COOKIE_NAME: app_session
+  COOKIE_SAMESITE: lax
+  COOKIE_SECURE: 'true'
+  TEMP_DOMAIN: 'false'
+  CLOUDFLARE_TUNNEL_NAME: rag-frontend
+  HOST: 0.0.0.0
+  PORT_OVERRIDE: '8000'
+  DISPLAY_SOURCES_IN_UI: 'true'
+  DISPLAY_TOPK_IN_UI: 'true'

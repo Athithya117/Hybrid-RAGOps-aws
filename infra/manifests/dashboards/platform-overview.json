@@ -1,101 +1,70 @@
 {
-  "dashboard": {
-    "uid": "gen-2d9851e8a53c2043fd3e",
-    "title": "Platform Overview",
-    "schemaVersion": 36,
-    "version": 1,
-    "refresh": "30s",
-    "panels": [
-      {
-        "type": "timeseries",
-        "title": "Services not ready",
-        "targets": [
-          {
-            "expr": "count(service_ready == 0)",
-            "legendFormat": "not_ready"
-          }
-        ],
-        "gridPos": {
-          "h": 8,
-          "w": 24,
-          "x": 0,
-          "y": 0
-        },
-        "id": 86961
-      },
-      {
-        "type": "timeseries",
-        "title": "Total SLO burners (fast-burn firing)",
-        "targets": [
-          {
-            "expr": "count(firing_alerts{plane=\"slo\", severity=\"critical\"})",
-            "legendFormat": "fast_burns"
-          }
-        ],
-        "gridPos": {
-          "h": 8,
-          "w": 24,
-          "x": 0,
-          "y": 0
-        },
-        "id": 78179
-      },
-      {
-        "type": "timeseries",
-        "title": "Top 5 services by error-rate (5m)",
-        "targets": [
-          {
-            "expr": "topk(5,sum by (service)(rate(retrieval_errors_total[5m])) / sum by (service)(rate(retrieval_requests_total[5m])))",
-            "legendFormat": "top5"
-          }
-        ],
-        "gridPos": {
-          "h": 8,
-          "w": 24,
-          "x": 0,
-          "y": 0
-        },
-        "id": 98113
-      }
-    ],
-    "templating": {
-      "list": [
-        {
-          "name": "service",
-          "type": "query",
-          "label": "Service",
-          "query": "",
-          "current": {
-            "text": "all",
-            "value": ""
-          }
-        },
-        {
-          "name": "namespace",
-          "type": "query",
-          "label": "Namespace",
-          "query": "",
-          "current": {
-            "text": "all",
-            "value": ""
-          }
-        },
-        {
-          "name": "pod",
-          "type": "query",
-          "label": "Pod",
-          "query": "",
-          "current": {
-            "text": "all",
-            "value": ""
-          }
-        }
-      ]
-    },
-    "time": {
-      "from": "now-1h",
-      "to": "now"
-    }
+  "id": null,
+  "uid": "platform-platform-overview",
+  "title": "Platform Overview",
+  "templating": {
+    "list": []
   },
-  "overwrite": true
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Total discovery (pods)",
+      "datasource": "VictoriaMetrics",
+      "targets": [
+        {
+          "expr": "max(vm_promscrape_discovery_kubernetes_objects{role=\"pod\"})",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1
+    },
+    {
+      "type": "timeseries",
+      "title": "Services not ready (count)",
+      "datasource": "VictoriaMetrics",
+      "targets": [
+        {
+          "expr": "count(service_ready==0)",
+          "refId": "B"
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "vmagent scrape pool targets (up/down)",
+      "datasource": "VictoriaMetrics",
+      "targets": [
+        {
+          "expr": "vm_promscrape_scrape_pool_targets",
+          "refId": "C"
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "id": 3
+    }
+  ],
+  "schemaVersion": 36,
+  "version": 1,
+  "_meta": {
+    "generator": "dashboards.py",
+    "rendered_at": "2026-01-04T13:05:19.770438Z"
+  }
 }
