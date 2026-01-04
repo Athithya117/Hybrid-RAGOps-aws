@@ -56,17 +56,26 @@ mkdir -p "${RENDER_DIR}"
 : "${VICTORIA_SERVICE:=victoria-metrics}"
 : "${VICTORIA_PORT:=8428}"
 
+: "${MONITORING_POST_APPLY_CHECK:=true}"
+: "${MONITORING_POST_APPLY_TIMEOUT:=60}"
+: "${MONITORING_VICTORIA_CHECK_RETRIES:=6}"
+: "${MONITORING_VICTORIA_CHECK_BACKOFF:=3}"
+
 MANIFEST_NS="${RENDER_DIR}/10-retriever-namespace.yaml"
 MANIFEST_DEP="${RENDER_DIR}/11-retriever-deploy.yaml"
 MANIFEST_SVC="${RENDER_DIR}/12-retriever-svc.yaml"
 MANIFEST_CM="${RENDER_DIR}/13-retriever-configmap.yaml"
 
 TMP_FILES=()
-cleanup(){ local rc=$?; for f in "${TMP_FILES[@]:-}"; do [ -f "$f" ] && rm -f "$f" || true; done; [ -n "${PF_PID:-}" ] && kill "${PF_PID}" >/dev/null 2>&1 || true; exit $rc; }
+PFPIDS=()
+
+cleanup(){ local rc=$?; for pid in "${PFPIDS[@]:-}"; do if kill -0 "$pid" >/dev/null 2>&1; then kill "$pid" >/dev/null 2>&1 || true; wait "$pid" 2>/dev/null || true; fi; done; for f in "${TMP_FILES[@]:-}"; do [ -f "$f" ] && rm -f "$f" || true; done; exit $rc; }
 trap cleanup INT TERM EXIT
 
 check_kubectl(){ command -v kubectl >/dev/null 2>&1 || { LOG "kubectl required"; exit 2; } }
 check_jq(){ command -v jq >/dev/null 2>&1 || { LOG "jq required"; exit 2; } }
+check_curl(){ command -v curl >/dev/null 2>&1 || { LOG "curl required"; exit 2; } }
+check_python(){ command -v python3 >/dev/null 2>&1 || { LOG "python3 required"; exit 2; } }
 
 yaml_single_quote(){
   local v="$1"
@@ -119,11 +128,40 @@ atomic_write(){
   LOG "wrote ${dest}"
 }
 
+find_free_port(){
+  python3 - <<PY
+import socket,sys
+s=socket.socket()
+s.bind(('',0))
+p=s.getsockname()[1]
+s.close()
+print(p)
+PY
+}
+
+start_portforward(){
+  local ns="$1"
+  local target="$2"
+  local local_port="$3"
+  local remote_port="$4"
+  local logfile
+  logfile="$(mktemp /tmp/portforward.${target//[^a-zA-Z0-9_.-]/_}.XXXXXX.log)"
+  TMP_FILES+=("${logfile}")
+  kubectl -n "${ns}" port-forward "${target}" "${local_port}:${remote_port}" > "${logfile}" 2>&1 &
+  local pid=$!
+  PFPIDS+=("${pid}")
+  printf '%s|%s' "${pid}" "${logfile}"
+}
+
 render_manifests(){
   validate_numeric_ports
 
   if [ -z "${CONTRACT_ANNOTATIONS:-}" ]; then
     CONTRACT_ANNOTATIONS="monitoring.io/scrape=true,monitoring.io/port=${RETRIEVAL_METRICS_PORT},monitoring.io/path=/metrics"
+  fi
+
+  if ! printf '%s' "${CONTRACT_LABELS}" | grep -qE '(^|,)service='; then
+    CONTRACT_LABELS="${CONTRACT_LABELS},service=${RETRIEVAL_NAME}"
   fi
 
   local labels_yaml selector_yaml podlabels_yaml annots_yaml
@@ -463,9 +501,75 @@ patch_deployment_metrics_port_if_missing(){
   fi
 }
 
+_post_apply_monitoring_check(){
+  if [ "${MONITORING_POST_APPLY_CHECK}" != "true" ]; then return 0; fi
+  check_curl
+  check_kubectl
+  local start_ts end_ts elapsed podname
+  start_ts=$(date +%s)
+  end_ts=$((start_ts + MONITORING_POST_APPLY_TIMEOUT))
+  LOG "waiting for deployment ${RETRIEVAL_NAME} rollout to complete (timeout ${MONITORING_POST_APPLY_TIMEOUT}s)"
+  kubectl -n "${RETRIEVAL_NAMESPACE}" rollout status deployment "${RETRIEVAL_NAME}" --timeout="${MONITORING_POST_APPLY_TIMEOUT}s" || LOG "rollout status wait timed out or failed"
+  LOG "waiting for a ready pod"
+  while [ "$(date +%s)" -lt "${end_ts}" ]; do
+    podname="$(kubectl -n "${RETRIEVAL_NAMESPACE}" get pods -l "app=${RETRIEVAL_NAME}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+    if [ -n "${podname}" ]; then
+      if kubectl -n "${RETRIEVAL_NAMESPACE}" wait --for=condition=ready pod "${podname}" --timeout=5s >/dev/null 2>&1; then
+        LOG "pod ${podname} ready"
+        break
+      fi
+    fi
+    sleep 1
+  done
+  if [ -z "${podname}" ]; then LOG "no pod discovered for ${RETRIEVAL_NAME}; aborting monitoring check"; return 0; fi
+  LOG "probing pod metrics ${podname}"
+  local local_port pfinfo pfpid pflog
+  local_port="$(find_free_port)"
+  pfinfo="$(start_portforward "${RETRIEVAL_NAMESPACE}" "pod/${podname}" "${local_port}" "${RETRIEVAL_METRICS_PORT}")"
+  pfpid="$(printf '%s' "${pfinfo}" | awk -F'|' '{print $1}')"
+  pflog="$(printf '%s' "${pfinfo}" | awk -F'|' '{print $2}')"
+  local ok=0 tries=0
+  while [ "${tries}" -lt 10 ]; do
+    if curl -s --max-time 2 "http://127.0.0.1:${local_port}/metrics" >/dev/null 2>&1; then ok=1; break; fi
+    tries=$((tries+1)); sleep 1
+  done
+  if [ "${ok}" -ne 1 ]; then
+    LOG "warning: retriever /metrics not responding on pod ${podname}; see ${pflog}"
+    if kill -0 "${pfpid}" >/dev/null 2>&1; then kill "${pfpid}" >/dev/null 2>&1 || true; fi
+    return 0
+  fi
+  LOG "retriever /metrics responded locally"
+  if kill -0 "${pfpid}" >/dev/null 2>&1; then kill "${pfpid}" >/dev/null 2>&1 || true; fi
+
+  LOG "best-effort: checking VictoriaMetrics ingestion for retriever metrics"
+  local vport vpfinfo vpfpid vpflog promql resp tries rb
+  vport="$(find_free_port)"
+  vpfinfo="$(start_portforward "${VM_NAMESPACE}" "svc/${VICTORIA_SERVICE}" "${vport}" "${VICTORIA_PORT}")"
+  vpfpid="$(printf '%s' "${vpfinfo}" | awk -F'|' '{print $1}')"
+  vpflog="$(printf '%s' "${vpfinfo}" | awk -F'|' '{print $2}')"
+  tries=0; rb=${MONITORING_VICTORIA_CHECK_BACKOFF}
+  promql='count({__name__=~"app_info|retrieval_requests_total|retrieval_errors_total"})'
+  while [ "${tries}" -lt "${MONITORING_VICTORIA_CHECK_RETRIES}" ]; do
+    resp="$(curl -s -G --data-urlencode "query=${promql}" "http://127.0.0.1:${vport}/api/v1/query" 2>/dev/null || true)"
+    if [ -n "${resp}" ] && [ "$(echo "${resp}" | jq -r '.status' 2>/dev/null || echo "fail")" = "success" ]; then
+      countlen="$(echo "${resp}" | jq -r '.data.result | length' 2>/dev/null || echo "0")"
+      if [ "${countlen}" != "0" ]; then
+        LOG "victoria check: found retriever-relevant series count=${countlen}"
+        if kill -0 "${vpfpid}" >/dev/null 2>&1; then kill "${vpfpid}" >/dev/null 2>&1 || true; fi
+        return 0
+      fi
+    fi
+    tries=$((tries+1))
+    sleep $((rb * tries + 1))
+  done
+  LOG "warning: victoria returned no retriever series after checks; see ${vpflog}"
+  if kill -0 "${vpfpid}" >/dev/null 2>&1; then kill "${vpfpid}" >/dev/null 2>&1 || true; fi
+  return 0
+}
+
 apply(){
   check_kubectl
-  check_jq
+  check_jq || true
   validate_numeric_ports
   ensure_config_and_secrets
   render_manifests
@@ -476,6 +580,7 @@ apply(){
   LOG "applied retriever manifests into ${RETRIEVAL_NAMESPACE}"
   patch_deployment_metrics_port_if_missing || true
   LOG "retriever apply complete in ${RETRIEVAL_NAMESPACE}"
+  _post_apply_monitoring_check || true
 }
 
 delete(){

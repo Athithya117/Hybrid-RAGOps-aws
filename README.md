@@ -165,12 +165,13 @@ export INDEXING_PIPELINE_CPU_IMAGE_TAG="v12" # Set a consistent tag name for cla
 export AZURE_STORAGE_CONNECTION_STRING="$(python3 infra/base_infra/get_storage_conn_string.py)"
 
 make run-indexing-cronjob
+# open a new terminal and run `kubectl -n qdrant port-forward svc/qdrant 6333:6333`
 
 export PER_POD="true" # When true, perform per-pod Qdrant backup/restore using individual pod port-forwards; when false, operate via cluster/service endpoint
-make backup
+make qdrant-backup
 
-export BACKUP_ID="" # Optional explicit backup identifier to restore; leave empty to auto-select the latest backup manifest under the Azure prefix
-make restore
+export BACKUP_ID="20260104T113111Z-0d243e54" # Optional explicit backup identifier to restore; leave empty to auto-select the latest backup manifest under the Azure prefix
+make qdrant-restore
 
 export RETRIEVAL_IMAGE="docker.io/athithya5354/retrieval:v11"  # container image:tag; change to deploy a new build/tag
 export RETRIEVER_REPLICAS="1"                                 # number of pods; increase to scale, decrease to save cost

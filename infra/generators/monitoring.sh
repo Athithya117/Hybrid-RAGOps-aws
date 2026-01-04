@@ -222,36 +222,6 @@ data:
             action: replace
             target_label: service
             regex: (.+)
-
-      - job_name: k8s-pods-annotated
-        kubernetes_sd_configs:
-          - role: pod
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_annotation_monitoring_io_scrape]
-            action: keep
-            regex: "true"
-          - source_labels: [__meta_kubernetes_pod_ready]
-            action: keep
-            regex: "true"
-          - source_labels: [__meta_kubernetes_pod_ip,__meta_kubernetes_pod_annotation_monitoring_io_port]
-            action: replace
-            regex: (.+);(.+)
-            replacement: '$1:$2'
-            target_label: __address__
-          - target_label: __metrics_path__
-            replacement: /metrics
-          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
-            action: replace
-            target_label: service
-            regex: (.+)
-          - source_labels: [__meta_kubernetes_pod_label_app]
-            action: replace
-            target_label: service
-            regex: (.+)
-          - source_labels: [__meta_kubernetes_pod_label_team]
-            action: replace
-            target_label: service
-            regex: (.+)
 ---
 apiVersion: apps/v1
 kind: Deployment

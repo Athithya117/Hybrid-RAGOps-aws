@@ -7,6 +7,7 @@ metadata:
 
     app: 'retrieval'
     team: 'search'
+    service: 'retrieval'
 spec:
   replicas: 1
   selector:
@@ -14,12 +15,14 @@ spec:
 
       app: 'retrieval'
       team: 'search'
+      service: 'retrieval'
   template:
     metadata:
       labels:
 
         app: 'retrieval'
         team: 'search'
+        service: 'retrieval'
       annotations:
 
         'monitoring.io/scrape': 'true'

@@ -1,0 +1,13 @@
+{
+  "generated_at": "2026-01-04T10:20:14.198341Z",
+  "image": "athithya5354/reranker:amd64-arm64-v1",
+  "namespace": "models",
+  "replicas": 1,
+  "files": {
+    "namespace": "infra/manifests/reranker/00-namespace.yaml",
+    "sa_role": "infra/manifests/reranker/01-sa-role.yaml",
+    "deployment": "infra/manifests/reranker/02-deployment.yaml",
+    "service": "infra/manifests/reranker/03-service.yaml",
+    "hpa": "infra/manifests/reranker/04-hpa.yaml"
+  }
+}

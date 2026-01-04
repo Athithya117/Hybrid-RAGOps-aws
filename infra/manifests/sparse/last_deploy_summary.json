@@ -1,0 +1,13 @@
+{
+  "generated_at": "2026-01-04T10:20:13.570065Z",
+  "image": "athithya5354/sparse:amd64-arm64-v2",
+  "namespace": "models",
+  "replicas": 1,
+  "files": {
+    "namespace": "infra/manifests/sparse/00-namespace.yaml",
+    "sa_role": "infra/manifests/sparse/01-sa-role.yaml",
+    "deployment": "infra/manifests/sparse/02-deployment.yaml",
+    "service": "infra/manifests/sparse/03-service.yaml",
+    "hpa": "infra/manifests/sparse/04-hpa.yaml"
+  }
+}
