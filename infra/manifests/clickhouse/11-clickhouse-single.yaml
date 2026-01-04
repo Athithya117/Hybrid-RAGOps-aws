@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ch-single
+  namespace: observability
+spec:
+  serviceName: clickhouse
+  replicas: 1
+  selector:
+    matchLabels: &id001
+      app: clickhouse
+  template:
+    metadata:
+      labels: *id001
+    spec:
+      containers:
+      - name: clickhouse
+        image: clickhouse/clickhouse-server:23.12.6
+        ports:
+        - containerPort: 8123
+          name: http
+        - containerPort: 9000
+          name: tcp
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/clickhouse
+        resources:
+          requests:
+            cpu: '1'
+            memory: 4Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi

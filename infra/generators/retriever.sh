@@ -3,7 +3,7 @@ set -euo pipefail
 LOG(){ printf '%s %s\n' "$(date -Iseconds)" "$*"; }
 DBG(){ if [ "${VERBOSE:-0}" != "0" ]; then printf '%s %s\n' "$(date -Iseconds)" "$*"; fi; }
 
-: "${RENDER_DIR:=${PWD}/infra/manifests}"
+: "${RENDER_DIR:=${PWD}/infra/manifests/retriever}"
 mkdir -p "${RENDER_DIR}"
 
 : "${RETRIEVAL_NAMESPACE:=inference}"

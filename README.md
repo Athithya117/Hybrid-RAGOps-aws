@@ -258,15 +258,6 @@ make deploy-alert-manager
 
 
 ```sh
-export K8S_CLUSTER=aks                        # set to aks for production behavior
-export VECTOR_REPLICAS=1                      # logical replica control (future-proof)
-export VECTOR_REQ_CPU=200m                    # vector CPU request
-export VECTOR_REQ_MEM=512Mi                   # vector memory request
-export VECTOR_LIMIT_CPU=1000m                 # vector CPU limit
-export VECTOR_LIMIT_MEM=1Gi                   # vector memory limit
-export VECTOR_DROP_NAMESPACES="kube-system,models,indexing"
-export VECTOR_LOG_LEVELS=info,warn,error
-make deploy-vector
 
 export CLICKHOUSE_REPLICAS=1                  # clickhouse statefulset replicas
 export CLICKHOUSE_PVC_SIZE=10Gi              # clickhouse PVC size
@@ -279,6 +270,18 @@ export CLICKHOUSE_PASSWORD=vectorpass         # clickhouse password (replace wit
 export LOGS_TTL_DAYS=2
 
 make deploy-clickhouse
+
+export K8S_CLUSTER=aks                        # set to aks for production behavior
+export VECTOR_REPLICAS=1                      # logical replica control (future-proof)
+export VECTOR_REQ_CPU=200m                    # vector CPU request
+export VECTOR_REQ_MEM=512Mi                   # vector memory request
+export VECTOR_LIMIT_CPU=1000m                 # vector CPU limit
+export VECTOR_LIMIT_MEM=1Gi                   # vector memory limit
+export VECTOR_DROP_NAMESPACES="kube-system,models,indexing"
+export VECTOR_LOG_LEVELS=info,warn,error
+make deploy-vector
+
+
 
 export GRAFANA_ADMIN_PASSWORD='grafana' # Grafana admin password (secret) — rotate regularly / change per environment
 export GRAFANA_ADMIN_USER='admin' # Grafana admin username (secret) — change when onboarding or rotating admin

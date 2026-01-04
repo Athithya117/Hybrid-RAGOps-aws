@@ -1,1 +1,0 @@
-SELECT ts, level, message, fields FROM logs.kube_logs WHERE service = '$service' AND namespace = '$namespace' AND ts BETWEEN toDateTime64($__from / 1000, 3) AND toDateTime64($__to / 1000, 3) ORDER BY ts DESC LIMIT 500

@@ -1,0 +1,10 @@
+{
+  "namespace": "observability",
+  "service": "clickhouse",
+  "app_label": "clickhouse",
+  "statefulset": "ch-single",
+  "db": "logs",
+  "table": "kube_logs",
+  "user": "vector",
+  "secret": "clickhouse-credentials"
+}

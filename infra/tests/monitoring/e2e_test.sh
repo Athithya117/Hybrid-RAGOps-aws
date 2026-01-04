@@ -1,4 +1,4 @@
-# make lc
+
 make deploy-vm 
 make deploy-qdrant
 make deploy-retriever
