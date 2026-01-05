@@ -3,6 +3,7 @@ set -euo pipefail
 LOG(){ printf '%s %s\n' "$(date -Iseconds)" "$*"; }
 ERR(){ printf '%s ERROR %s\n' "$(date -Iseconds)" "$*" >&2; }
 
+# ---- config (backward compatible defaults) ----
 VM_NAMESPACE=${VM_NAMESPACE:-monitoring}
 VMAGENT_PORT=${VMAGENT_PORT:-8429}
 VICTORIA_PORT=${VICTORIA_PORT:-8428}
@@ -24,6 +25,8 @@ MANIFEST_DIR="${PWD}/infra/manifests"
 MANIFEST="${MANIFEST_DIR}/00-monitoring.yaml"
 mkdir -p "${MANIFEST_DIR}"
 
+# compatibility toggles
+ENABLE_VMAGENT_SELF_SCRAPE=${ENABLE_VMAGENT_SELF_SCRAPE:-true}  # <- new: enable vmagent self-scrape job
 LOCAL_VICTORIA_PORT=${LOCAL_VICTORIA_PORT:-0}
 LOCAL_VMAGENT_PORT=${LOCAL_VMAGENT_PORT:-0}
 PORTFWD_READY_TIMEOUT=${PORTFWD_READY_TIMEOUT:-30}
@@ -222,6 +225,40 @@ data:
             action: replace
             target_label: service
             regex: (.+)
+EOF
+
+# Append vmagent self-scrape job optionally (keeps backward-compatible if disabled)
+if [ "${ENABLE_VMAGENT_SELF_SCRAPE}" = "true" ] ; then
+cat >> "${MANIFEST}.tmp" <<'EOF'
+
+      - job_name: k8s-pods-vmagent-self
+        kubernetes_sd_configs:
+          - role: endpoints
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: vmagent
+          - source_labels: [__meta_kubernetes_namespace]
+            action: keep
+            regex: __VM_NAMESPACE__
+          - target_label: __metrics_path__
+            replacement: /metrics
+          - source_labels: [__meta_kubernetes_endpoint_port_name,__meta_kubernetes_endpoint_port]
+            # use the endpoint port if available; prefer numeric port annotation if present
+            action: replace
+            regex: (.+);(.+)
+            replacement: '$2'
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: replace
+            target_label: service
+            regex: (.+)
+            replacement: vmagent
+EOF
+fi
+
+cat >> "${MANIFEST}.tmp" <<'EOF'
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -363,6 +400,7 @@ EOF
       -e "s|__VM_RES_MEM__|${VM_RES_MEM}|g" \
       "${MANIFEST}.tmp" > "${MANIFEST}.tmp2" && mv "${MANIFEST}.tmp2" "${MANIFEST}.tmp"
 
+  # sanity checks (same as before)
   PAT="$(printf "replacement: '%s'" '$1:$2')"
   if grep -Fq "${PAT}" "${MANIFEST}.tmp" 2>/dev/null ; then
     LOG "detected replacement literal ${PAT}"
@@ -383,6 +421,8 @@ EOF
 apply(){
   validate_numeric_envs
   kubectl create namespace "${VM_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1
+
+  # if a vmagent-scrape configmap exists (operator/user-provided), sync it
   if kubectl -n "${VM_NAMESPACE}" get configmap vmagent-scrape >/dev/null 2>&1; then
     LOG "found vmagent-scrape configmap, syncing into vmagent-config"
     tmpf="$(mktemp /tmp/vmagent-scrape.XXXXXX.yml)"
@@ -395,14 +435,18 @@ apply(){
       LOG "vmagent-scrape exists but empty; continuing"
     fi
   fi
+
   render_manifest
   kubectl apply -f "${MANIFEST}"
+
+  # restart vmagent to pick up any config changes if present
   kubectl -n "${VM_NAMESPACE}" rollout restart deployment vmagent >/dev/null 2>&1 || true
   LOG "waiting for vmagent availability (120s)"
   if kubectl -n "${VM_NAMESPACE}" wait --for=condition=Available deployment/vmagent --timeout=120s >/dev/null 2>&1; then LOG "vmagent available"; else LOG "warning: vmagent not marked available after 120s"; fi
   LOG "monitoring apply complete into ${VM_NAMESPACE}"
 }
 
+# probe vmagent local metrics/remote-write evidence (unchanged logic)
 probe_vmagent_targets(){
   local tries=0 max=20
   while [ $tries -lt $max ]; do
@@ -476,6 +520,7 @@ PY
   return 1
 }
 
+# validate end-to-end includes an in-cluster connectivity sanity probe from vmagent pod -> Victoria
 validate_end_to_end(){
   LOG "starting VictoriaMetrics port-forward (svc/victoria-metrics ns=${VM_NAMESPACE})"
   if [ "${LOCAL_VICTORIA_PORT:-0}" -eq 0 ]; then LOCAL_VICTORIA_PORT="$(find_free_port)"; fi
@@ -505,6 +550,20 @@ validate_end_to_end(){
   if ! probe_vmagent_targets; then
     ERR "vmagent does not appear to report scrape/remote-write metrics locally; cannot proceed"
     return 4
+  fi
+
+  # run a conservative in-cluster connectivity check: attempt to curl Victoria from vmagent pod (non-fatal)
+  LOG "checking in-cluster connectivity from vmagent to Victoria (non-fatal check)"
+  pod="$(kubectl -n "${VM_NAMESPACE}" get pods -l app=vmagent -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  if [ -n "${pod}" ]; then
+    if kubectl -n "${VM_NAMESPACE}" exec "${pod}" -- sh -c "curl -sS -I --max-time 5 ${REMOTE_WRITE_URL%/api/v1/write}/" >/dev/null 2>&1; then
+      LOG "vmagent pod can reach Victoria remote-write endpoint (${REMOTE_WRITE_URL})"
+    else
+      LOG "warning: vmagent pod cannot reach Victoria remote-write endpoint (${REMOTE_WRITE_URL}); DNS/connectivity issues may delay remote-write. Check cluster DNS/NetworkPolicy/CoreDNS."
+      LOG "you can run: kubectl -n ${VM_NAMESPACE} exec ${pod} -- curl -svS ${REMOTE_WRITE_URL%/api/v1/write}/"
+    fi
+  else
+    LOG "warning: cannot find vmagent pod for in-cluster connectivity check"
   fi
 
   LOG "validated vmagent & victoria basic connectivity; now ensure kubernetes discovery works (vmagent must have RBAC)"

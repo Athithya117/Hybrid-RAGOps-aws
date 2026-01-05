@@ -1,0 +1,6 @@
+{
+  "generated_at": "2026-01-05T13:49:20.742405Z",
+  "image": "docker.io/athithya5354/retrieval:v11",
+  "namespace": "inference",
+  "replicas": 1
+}

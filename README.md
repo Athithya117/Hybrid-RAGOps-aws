@@ -189,16 +189,17 @@ export LLM_MAX_TOKENS="512"                                   # max tokens per r
 export LLM_TEMPERATURE="0.2"                                  # sampling temperature 0.0–1.0; higher = creative, lower = deterministic
 export MAX_PROMPT_TOKENS="6000"                               # safety cap for prompt construction; raise only if you need larger context
 
-export LLM_SYSTEM_PROMPT="You are a clear concise assistant. Provide a short explanatory answer in 2-3 sentences. When you cite evidence, use only numeric tags like [1],[2]. Do NOT output filenames, URLs, raw page numbers."  
-                                                             # system role prompt; controls assistant policy/tone—change to alter model behavior/safety
-export LLM_USER_PROMPT_TEMPLATE="Summarize the following retrieved passages and answer the question in 2-3 sentences.
+export LLM_SYSTEM_PROMPT="You are an assistant that must base all factual claims ONLY on the provided numbered passages. Each factual sentence MUST end with a citation in the exact format [n], where n corresponds to one of the numbered passage blocks. Use ONLY the provided passage numbers. Do NOT output filenames, URLs, page numbers, or any other metadata. Do NOT invent citations."
 
-QUESTION: {question}
+export LLM_USER_PROMPT_TEMPLATE="Summarize the following retrieved passages and answer the question in 2-3 sentences.
 
 PASSAGES:
 {passages}
 
-Answer:"                                                           # user prompt template; change task framing but keep {question} and {passages}
+QUESTION: {question}
+
+Answer:"
+
 
 export RERANKER_MODE="AUTO"                                   # DISABLE|ALWAYS|AUTO; controls when reranker runs
 export RERANK_TOPK="20"                                       # candidates sent to reranker; increase for quality (cost ↑)
@@ -313,3 +314,41 @@ export SLO_SUCCESS_TARGET='0.999' # SLO success target used in dashboard headers
 export SLO_LATENCY_QUANTILE='0.95' # Latency quantile used in SLO panels (allowed: 0.95 or 0.99)
 export RETRIEVER_LATENCY_THRESHOLD_SECONDS='0.5' # Retriever latency threshold (p95) shown in dashboards
 export QDRANT_LATENCY_THRESHOLD_SECONDS='0.8' # Qdrant latency threshold (p95) shown in dashboards
+
+
+
+
+
+export FRONTEND_HOSTNAME="ui.example.com"                    # public hostname (example: ui.mycompany.com)
+export ENABLE_GOOGLE_AUTH="true"                             # enable Google auth (example: true/false)
+export GOOGLE_ALLOWED_DOMAINS="company.com,gmail.com"        # allowed domains (example: company.com,gmail.com)
+export GOOGLE_CLIENT_ID=""                                   # example: 1234567890-abc.apps.googleusercontent.com
+export GOOGLE_CLIENT_SECRET=""                               # example: GOCSPX-xxxxxxxxxxxxxxxx
+
+export JWT_SECRET=""                                         # example: random-32+char-secret
+export SESSION_SECRET=""                                     # example: random-32+char-secret
+export JWT_EXP_SECONDS=1800                                  # token expiry seconds (example: 1800)
+export DISPLAY_SOURCES_IN_UI="true"                          # show sources in UI (example: true)
+export DISPLAY_TOPK_IN_UI="true"                             # show top-K results (example: true)
+
+export ENABLE_MICROSOFT_AUTH="true"                          # enable Microsoft auth (example: true/false)
+export MS_CLIENT_ID=""                                       # example: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+export MS_CLIENT_SECRET=""                                   # example: ~AbCdEfGhIjKlMnOpQrStUvWxYz
+export MICROSOFT_ALLOWED_DOMAINS="outlook.com,company.com"   # allowed domains (example: outlook.com,company.com)
+export MICROSOFT_ALLOWED_TENANT_IDS=""                       # example: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+export MS_TENANT_ID=""                                       # example: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+export ENABLE_GITHUB_AUTH="true"                             # enable GitHub auth (example: true/false)
+export GITHUB_CLIENT_ID=""                                   # example: Ov23liFnXdXltUPW34R7
+export GITHUB_CLIENT_SECRET=""                               # example: 40-char-github-secret
+export GITHUB_ALLOWED_ORGS="my-org"                          # allowed orgs (example: my-org,another-org)
+
+export FRONTEND_AND_AUTH_IMAGE="athithya5354/frontend-and-auth:v10"      # or create by running `make frontend-image`
+export FRONTEND_AND_AUTH_REPLICAS=1                          # replica count (example: 1)
+
+export CLOUDFLARED_VERSION="2025.11.1"                       # cloudflared version (example: 2025.11.1)
+export CLOUDFLARED_TUNNEL_REPLICAS=1                         # tunnel replicas (example: 1)
+make cloudflare-setup
+# export CLOUDFLARE_TUNNEL_KEY
+make deploy-cloudflared
+make deloy-frontend

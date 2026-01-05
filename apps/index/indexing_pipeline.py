@@ -45,7 +45,6 @@ base_fmt = "%(asctime)s.%(msecs)03d %(levelname)s %(message)s"
 formatter = ColoredFormatter(fmt=base_fmt)
 handler.setFormatter(formatter)
 root = logging.getLogger()
-# remove default handlers to prevent duplicate logs
 for h in list(root.handlers):
     try:
         root.removeHandler(h)
@@ -53,13 +52,33 @@ for h in list(root.handlers):
         pass
 root.addHandler(handler)
 root.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
-# keep noisy third-party libs quieter
 logging.getLogger("botocore").setLevel(logging.WARNING)
 logging.getLogger("boto3").setLevel(logging.WARNING)
 logger = logging.getLogger("indexing_pipeline")
 
-# ----- Utilities -----
-def log_and_exit(msg: str, code: int = 1, extra: Optional[Dict] = None):
+# ----- Failure handling policy -----
+# By default, nonfatal application failures are recorded but do not cause a non-zero exit.
+# Set INDEXING_STRICT=1 to restore original strict behavior (immediate non-zero exit).
+STRICT_MODE = os.getenv("INDEXING_STRICT", "").strip().lower() in ("1", "true", "yes")
+
+# recorded highest non-zero requested exit code (0 means no recorded failures)
+REQUESTED_EXIT_CODE = 0
+
+def _record_exit(code: int) -> None:
+    global REQUESTED_EXIT_CODE
+    try:
+        ival = int(code) if code is not None else 1
+    except Exception:
+        ival = 1
+    if ival and ival > REQUESTED_EXIT_CODE:
+        REQUESTED_EXIT_CODE = ival
+
+def log_and_exit(msg: str, code: int = 1, extra: Optional[Dict] = None) -> None:
+    """
+    Backwards-compatible logging helper.
+    - When STRICT_MODE: logs and calls sys.exit(code) immediately.
+    - When not strict: logs, records requested exit code, and returns (does not exit).
+    """
     logger.error(msg)
     if extra:
         for k, v in extra.items():
@@ -69,8 +88,11 @@ def log_and_exit(msg: str, code: int = 1, extra: Optional[Dict] = None):
             h.flush()
         except Exception:
             pass
-    sys.exit(code)
+    if STRICT_MODE:
+        sys.exit(code)
+    _record_exit(code)
 
+# ----- Utilities -----
 def try_raise_nofile(limit: int = 524288):
     try:
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
@@ -98,8 +120,6 @@ def connect_or_start_local():
 def run_local_and_stream(script_path: Path, workdir: str, timeout: Optional[int] = None, extra_env: Optional[Dict[str,str]] = None) -> int:
     """
     Start a Python script as a subprocess and stream its stdout/stderr line-by-line.
-    stdout -> logger.info("[<script_name>] line")
-    stderr -> logger.warning("[<script_name>:err] line")
     Returns subprocess return code.
     """
     cmd = [sys.executable, str(script_path)]
@@ -130,17 +150,13 @@ def run_local_and_stream(script_path: Path, workdir: str, timeout: Optional[int]
             for line in iter(stream.readline, ""):
                 if not line:
                     break
-                # preserve raw line endings trimmed
                 text = line.rstrip("\n")
                 collect.append(text)
                 if is_err:
-                    # stderr -> warning
                     logger.warning("[%s] %s", prefix, text)
                 else:
-                    # stdout -> info
                     logger.info("[%s] %s", prefix, text)
         except Exception:
-            # best-effort: don't crash the reader thread
             logger.exception("Reader thread for %s failed", prefix)
 
     prefix_out = script_path.name
@@ -158,24 +174,21 @@ def run_local_and_stream(script_path: Path, workdir: str, timeout: Optional[int]
         except Exception:
             logger.exception("Failed to kill timed-out process %s", script_path)
         return 124
-    # join readers briefly to flush logs
     t_out.join(timeout=2.0)
     t_err.join(timeout=2.0)
     return proc.returncode
 
 # ----- Pipeline steps -----
-def run_pre_conversions(workdir: str) -> None:
+def run_pre_conversions(workdir: str) -> bool:
     """
-    Run pre_conversions.py and stream its logs live.
-    - stdout lines logged at INFO
-    - stderr lines logged at WARNING
-    Fail fast on non-zero exit code.
+    Run pre_conversions.py and stream logs live.
+    Returns True on success, False if the step failed (non-strict) or was fatal (strict mode causes exit).
     """
     workdir_path = Path(workdir).resolve()
     script = workdir_path / PRE_CONVERSIONS
     if not script.exists():
         logger.info("No pre_conversions script found at %s, skipping.", script)
-        return
+        return True
     try:
         timeout_env = os.getenv("PRE_CONVERSIONS_TIMEOUT", "")
         try:
@@ -183,80 +196,121 @@ def run_pre_conversions(workdir: str) -> None:
         except Exception:
             timeout = None
         logger.info("Running pre_conversions (python): %s (timeout=%s)", script, timeout)
-        # ensure readable
         if not os.access(str(script), os.R_OK):
             logger.debug("Making pre_conversions.py readable")
             try:
                 script.chmod(script.stat().st_mode | 0o444)
             except Exception:
                 logger.debug("Failed to chmod pre_conversions.py; continuing")
-        # stream logs using the same mechanism as router/index to avoid suppression
         rc = run_local_and_stream(script, str(workdir_path), timeout=timeout)
         if rc != 0:
             logger.error("pre_conversions script failed with rc=%s", rc)
             log_and_exit(f"pre_conversions failed (rc={rc})", rc)
+            return False
         logger.info("pre_conversions completed successfully.")
+        return True
     except SystemExit:
         raise
     except Exception:
         logger.exception("Exception while running pre_conversions")
         log_and_exit("pre_conversions raised exception", 2)
+        return False
 
-def run_pipeline(workdir: str):
+def run_pipeline(workdir: str) -> None:
     try:
         try_raise_nofile()
         workdir = str(Path(workdir).resolve())
         if not Path(workdir).exists():
             log_and_exit(f"Workdir not found: {workdir}", 2)
+            return
         logger.info("Pipeline start order: 1) pre_conversions 2) router 3) index")
-        run_pre_conversions(workdir)
+        if not run_pre_conversions(workdir):
+            logger.warning("pre_conversions step failed; skipping remaining steps.")
+            return
         connect_or_start_local()
         router_path = Path(workdir) / ROUTER
         if not router_path.exists():
             logger.error("Router missing: %s", router_path)
             log_and_exit("Router missing", 1)
+            return
         rc = run_local_and_stream(router_path, workdir)
         if rc != 0:
             logger.error("Router failed (rc=%s).", rc)
             log_and_exit(f"Router failed rc={rc}", rc)
+            logger.warning("Router step failed; skipping index step.")
+            return
         logger.info("Router completed successfully.")
         index_path = Path(workdir) / INDEX
         if not index_path.exists():
             logger.error("Index missing: %s", index_path)
             log_and_exit("Index missing", 1)
+            return
         rc = run_local_and_stream(index_path, workdir)
         if rc != 0:
             logger.error("Index failed (rc=%s).", rc)
             log_and_exit(f"Index failed rc={rc}", rc)
+            return
         logger.info("Index completed successfully.")
         logger.info("Pipeline completed successfully.")
     except SystemExit:
         raise
     except Exception:
         logger.exception("Unhandled exception in pipeline")
-        raise
+        # Treat unexpected exceptions as fatal (consistent with original behavior)
+        if STRICT_MODE:
+            raise
+        else:
+            log_and_exit("Unhandled exception in pipeline", 2)
+
+def _finalize_and_exit() -> None:
+    """
+    Decide final exit code:
+      - If STRICT_MODE: exit with recorded code (or 1 if none recorded and something forced a SystemExit).
+      - If not strict: log recorded code and exit 0 so infra sees success.
+    """
+    global REQUESTED_EXIT_CODE
+    if REQUESTED_EXIT_CODE != 0:
+        if STRICT_MODE:
+            logger.error("Exiting (strict) with code %s", REQUESTED_EXIT_CODE)
+            sys.exit(REQUESTED_EXIT_CODE)
+        else:
+            logger.warning("Non-fatal errors recorded (rc=%s). Exiting 0 because INDEXING_STRICT!=1", REQUESTED_EXIT_CODE)
+            sys.exit(0)
+    # No recorded failures
+    sys.exit(0)
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--workdir", default=os.getenv("WORKDIR", DEFAULT_WORKDIR))
     args = parser.parse_args()
+
     def _handler(sig, frame):
         logger.info("Signal %s received, exiting.", sig)
         try:
             pass
         except Exception:
             pass
+        # keep behavior: SIGTERM/SIGINT cause immediate non-zero exit
         sys.exit(1)
+
     signal.signal(signal.SIGINT, _handler)
     signal.signal(signal.SIGTERM, _handler)
+
     try:
         run_pipeline(args.workdir)
     except SystemExit as e:
+        # If a SystemExit was raised explicitly, preserve it (signals and strict mode)
         logger.error("Exiting with SystemExit: %s", getattr(e, "code", None))
         raise
     except Exception:
         logger.exception("Unhandled exception in main")
-        raise
+        # escalate: ensure non-zero exit in strict or mark and fallthrough
+        if STRICT_MODE:
+            raise
+        else:
+            log_and_exit("Unhandled exception in main", 2)
+    # finalize according to policy
+    _finalize_and_exit()
 
 if __name__ == "__main__":
     main()

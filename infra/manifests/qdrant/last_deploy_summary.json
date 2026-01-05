@@ -5,6 +5,6 @@
   "values_file":"infra/manifests/qdrant/values.yaml",
   "chart_version":"1.16.0",
   "image":"qdrant/qdrant:v1.16.0",
-  "generated_at":"2026-01-04T12:00:02Z",
+  "generated_at":"2026-01-05T01:57:56Z",
   "secrets_created":false
 }

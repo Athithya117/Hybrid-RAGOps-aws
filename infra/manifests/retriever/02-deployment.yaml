@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: retrieval-deployment
+  namespace: inference
+  labels: &id001
+    app.kubernetes.io/name: retrieval
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/managed-by: retriever-generator
+    app.kubernetes.io/instance: retrieval
+    env: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: retrieval
+  template:
+    metadata:
+      labels: *id001
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8001'
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: retrieval-sa
+      containers:
+      - name: retrieval
+        image: docker.io/athithya5354/retrieval:v11
+        ports:
+        - containerPort: 8001
+        envFrom:
+        - configMapRef:
+            name: retrieval-config
+        - secretRef:
+            name: retrieval-secret
+        env:
+        - name: PORT
+          value: '8001'
+        - name: ENV
+          value: STAGING
+        - name: LOG_LEVEL
+          value: INFO
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8001
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8001
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: 8001
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 60
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 250m
+            memory: 512Mi
