@@ -18,14 +18,14 @@ spec:
     metadata:
       labels: *id001
       annotations:
-        prometheus.io/scrape: 'true'
-        prometheus.io/port: '8001'
-        prometheus.io/path: /metrics
+        monitoring.io/scrape: 'true'
+        monitoring.io/port: '8001'
+        monitoring.io/path: /metrics
     spec:
       serviceAccountName: retrieval-sa
       containers:
       - name: retrieval
-        image: docker.io/athithya5354/retrieval:v11
+        image: docker.io/athithya5354/retrieval:v21
         ports:
         - containerPort: 8001
         envFrom:

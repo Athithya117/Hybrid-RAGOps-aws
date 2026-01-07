@@ -62,6 +62,12 @@ if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
   done
 fi
 
+echo "conntrack: current/ max (if available)"
+sudo sysctl net.netfilter.nf_conntrack_count net.netfilter.nf_conntrack_max || true
+echo "setting nf_conntrack_max=131072 (best-effort, requires sudo)"
+sudo sysctl -w net.netfilter.nf_conntrack_max=131072 || true
+
+
 # Create cluster (single control-plane only)
 echo "[INFO] Creating cluster '${CLUSTER_NAME}' (single control-plane)"
 cat <<EOF | kind create cluster --name "${CLUSTER_NAME}" --config=-

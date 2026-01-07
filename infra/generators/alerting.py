@@ -1,3 +1,4 @@
+# infra/generators/alerting.py
 from __future__ import annotations
 import argparse
 import json
@@ -8,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Iterable
@@ -54,6 +56,8 @@ SLO_FAST_BURN_MULTIPLIER = os.getenv("SLO_FAST_BURN_MULTIPLIER", "2")
 SLO_SLOW_BURN_MULTIPLIER = os.getenv("SLO_SLOW_BURN_MULTIPLIER", "1.2")
 RETRIEVER_LATENCY_THRESHOLD_SECONDS = os.getenv("RETRIEVER_LATENCY_THRESHOLD_SECONDS", "0.5")
 QDRANT_LATENCY_THRESHOLD_SECONDS = os.getenv("QDRANT_LATENCY_THRESHOLD_SECONDS", "0.8")
+# NEW: minimum request-rate floor to avoid low-traffic false positives
+SLO_MIN_REQUEST_RATE = os.getenv("SLO_MIN_REQUEST_RATE", "50")
 DEFAULT_WEBHOOK = os.getenv("DEFAULT_WEBHOOK", "")
 NOTIFIER_SECRET_NAME = os.getenv("NOTIFIER_SECRET_NAME", "alertmanager-notifiers")
 PAGERDUTY_ROUTING_KEY = os.getenv("PAGERDUTY_ROUTING_KEY", "") or os.getenv("PAGERDUTY_INTEGRATION_KEY", "")
@@ -61,6 +65,8 @@ ALERTMANAGER_SLACK_WEBHOOK = os.getenv("ALERTMANAGER_SLACK_WEBHOOK", "")
 ALERT_DEFAULT_CHANNEL = os.getenv("ALERT_DEFAULT_CHANNEL", "")
 CREATE_NOTIFIER_SECRET = os.getenv("CREATE_NOTIFIER_SECRET", "false").lower() in ("1", "true", "yes")
 RUNBOOK_BASE_URL = os.getenv("RUNBOOK_BASE_URL", "")
+# Optional validator flag (enable in CI to require HEAD 200 for every runbook link)
+RUNBOOK_VALIDATE = os.getenv("RUNBOOK_VALIDATE", "false").lower() in ("1", "true", "yes")
 
 ALERTING_SLACK_SEVERITY_LEVELS = os.getenv("ALERTING_SLACK_SEVERITY_LEVELS", "warning,critical")
 ALERTING_PAGING_SEVERITY_LEVELS = os.getenv("ALERTING_PAGING_SEVERITY_LEVELS", "critical")
@@ -114,6 +120,7 @@ def parse_csv_to_list(s: str) -> List[str]:
     return uniq
 
 def validate_inputs() -> None:
+    # SLO success target
     try:
         sst = float(SLO_SUCCESS_TARGET)
         if not (0.0 < sst < 1.0):
@@ -121,9 +128,41 @@ def validate_inputs() -> None:
     except Exception:
         LOG.error("invalid SLO_SUCCESS_TARGET %s", SLO_SUCCESS_TARGET)
         raise RuntimeError("SLO_SUCCESS_TARGET must be float between 0 and 1, e.g. 0.999")
+    # quantile
     if SLO_LATENCY_QUANTILE not in ("0.95", "0.99"):
         LOG.error("invalid SLO_LATENCY_QUANTILE %s", SLO_LATENCY_QUANTILE)
         raise RuntimeError("SLO_LATENCY_QUANTILE must be '0.95' or '0.99'")
+
+    # Validate multipliers and ensure fast > slow
+    try:
+        fastf = float(SLO_FAST_BURN_MULTIPLIER)
+        slowf = float(SLO_SLOW_BURN_MULTIPLIER)
+        if not (fastf > 0 and slowf > 0 and fastf > slowf):
+            LOG.error("invalid burn multipliers fast=%s slow=%s", SLO_FAST_BURN_MULTIPLIER, SLO_SLOW_BURN_MULTIPLIER)
+            raise ValueError()
+    except Exception:
+        LOG.error("invalid SLO_FAST_BURN_MULTIPLIER/SLO_SLOW_BURN_MULTIPLIER %s %s", SLO_FAST_BURN_MULTIPLIER, SLO_SLOW_BURN_MULTIPLIER)
+        raise RuntimeError("SLO_FAST_BURN_MULTIPLIER and SLO_SLOW_BURN_MULTIPLIER must be positive floats and fast > slow")
+
+    # Validate latency thresholds
+    try:
+        rt = float(RETRIEVER_LATENCY_THRESHOLD_SECONDS)
+        qt = float(QDRANT_LATENCY_THRESHOLD_SECONDS)
+        if rt < 0 or qt < 0:
+            raise ValueError()
+    except Exception:
+        LOG.error("invalid latency thresholds retriever=%s qdrant=%s", RETRIEVER_LATENCY_THRESHOLD_SECONDS, QDRANT_LATENCY_THRESHOLD_SECONDS)
+        raise RuntimeError("RETRIEVER_LATENCY_THRESHOLD_SECONDS and QDRANT_LATENCY_THRESHOLD_SECONDS must be non-negative numbers")
+
+    # Validate SLO_MIN_REQUEST_RATE
+    try:
+        minreq = float(SLO_MIN_REQUEST_RATE)
+        if minreq < 0:
+            raise ValueError()
+    except Exception:
+        LOG.error("invalid SLO_MIN_REQUEST_RATE %s", SLO_MIN_REQUEST_RATE)
+        raise RuntimeError("SLO_MIN_REQUEST_RATE must be a non-negative number (e.g., 50)")
+
     required = {"VMALERT_IMAGE": VMALERT_IMAGE, "DATASOURCE_URL": DATASOURCE_URL, "NOTIFIER_URL": NOTIFIER_URL}
     for k, v in required.items():
         if not v:
@@ -145,6 +184,51 @@ def runbook_url_for(alert_name: str) -> str:
     base = RUNBOOK_BASE_URL.rstrip("/") if RUNBOOK_BASE_URL else ""
     filename = f"{alertname_to_kebab(alert_name)}.html"
     return f"{base}/{filename}" if base else ""
+
+def maybe_runbook(alert_name: str) -> Dict[str, str]:
+    """
+    Return {'runbook': url} if RUNBOOK_BASE_URL configured, otherwise {}.
+    This prevents emitting runbook: "" which downstream systems display poorly.
+    """
+    url = runbook_url_for(alert_name)
+    if url:
+        return {"runbook": url}
+    return {}
+
+def validate_runbooks(rules_obj: Dict[str, Any]) -> None:
+    """
+    If RUNBOOK_VALIDATE is enabled, verify that every non-empty runbook URL returns HTTP 200.
+    This is intended for CI validation (set RUNBOOK_VALIDATE=true in CI).
+    """
+    if not RUNBOOK_VALIDATE:
+        LOG.info("RUNBOOK_VALIDATE not enabled; skipping runbook HEAD checks")
+        return
+    if not RUNBOOK_BASE_URL:
+        LOG.warning("RUNBOOK_BASE_URL not set but RUNBOOK_VALIDATE enabled; skipping checks")
+        return
+    checks: List[Tuple[str, str]] = []
+    for g in rules_obj.get("groups", []):
+        for r in g.get("rules", []):
+            anns = r.get("annotations", {})
+            runbook_url = anns.get("runbook", "")
+            if runbook_url:
+                checks.append((r.get("alert", "<unknown>"), runbook_url))
+    if not checks:
+        LOG.info("no runbook URLs found to validate")
+        return
+    for name, url in checks:
+        try:
+            req = urllib.request.Request(url, method="HEAD")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                status = getattr(resp, "status", None) or getattr(resp, "getcode", lambda: None)()
+                if status != 200:
+                    LOG.error("runbook HEAD returned %s for %s -> %s", status, name, url)
+                    raise RuntimeError(f"runbook HEAD returned {status} for {name} -> {url}")
+                LOG.debug("runbook HEAD ok for %s -> %s", name, url)
+        except Exception as e:
+            LOG.error("runbook URL check failed for %s url=%s err=%s", name, url, e)
+            raise RuntimeError(f"runbook URL check failed for {name}: {e}")
+    LOG.info("all runbook HEAD checks passed")
 
 def build_slo_rules() -> Dict[str, Any]:
     sst = SLO_SUCCESS_TARGET
@@ -171,22 +255,20 @@ def build_slo_rules() -> Dict[str, Any]:
                 "expr": 'vm_promscrape_discovery_kubernetes_objects{role="pod"} == 0',
                 "for": "2m",
                 "labels": {"severity": "critical", "plane": "ingestion", "service": "vmagent"},
-                "annotations": {
+                "annotations": dict({
                     "summary": "vmagent pod discovery returned zero objects",
                     "description": "Verify vmagent is running and able to list Kubernetes endpoints. Check vmagent logs for discovery errors and RBAC permissions.",
-                    "runbook": runbook_url_for("VmagentDiscoveryEmpty"),
-                },
+                }, **maybe_runbook("VmagentDiscoveryEmpty")),
             },
             {
                 "alert": "VmagentNoRemoteWrite",
                 "expr": "increase(vm_persistentqueue_bytes_written_total[5m]) == 0",
                 "for": "5m",
                 "labels": {"severity": "critical", "plane": "ingestion", "service": "vmagent"},
-                "annotations": {
+                "annotations": dict({
                     "summary": "vmagent reports no remote-write bytes to Victoria in the last 5m",
                     "description": "Confirm vmagent can establish remote-write connections and that VictoriaMetrics is reachable at DATASOURCE_URL. Check persistent queue metrics and network connectivity.",
-                    "runbook": runbook_url_for("VmagentNoRemoteWrite"),
-                },
+                }, **maybe_runbook("VmagentNoRemoteWrite")),
             },
         ],
     })
@@ -198,33 +280,30 @@ def build_slo_rules() -> Dict[str, Any]:
                 "expr": 'service_ready{service="retrieval"} == 0',
                 "for": "2m",
                 "labels": {"severity": "critical", "plane": "safety", "service": "retriever"},
-                "annotations": {
+                "annotations": dict({
                     "summary": "Retriever service reports not ready",
                     "description": "Check retriever deployment, readiness probes, recent events, and downstream dependencies.",
-                    "runbook": runbook_url_for("RetrieverNotReady"),
-                },
+                }, **maybe_runbook("RetrieverNotReady")),
             },
             {
                 "alert": "QdrantDeadReplicas",
                 "expr": "collection_dead_replicas > 0",
                 "for": "2m",
                 "labels": {"severity": "critical", "plane": "safety", "service": "qdrant"},
-                "annotations": {
+                "annotations": dict({
                     "summary": "Qdrant reports dead replicas for at least one collection",
                     "description": "Inspect qdrant cluster health, pod logs, and storage errors. Follow cluster recovery steps in runbook.",
-                    "runbook": runbook_url_for("QdrantDeadReplicas"),
-                },
+                }, **maybe_runbook("QdrantDeadReplicas")),
             },
             {
                 "alert": "QdrantSnapshotStuck",
                 "expr": "snapshot_creation_running > 0",
                 "for": "30m",
                 "labels": {"severity": "warning", "plane": "safety", "service": "qdrant"},
-                "annotations": {
+                "annotations": dict({
                     "summary": "Qdrant snapshot running for > 30m",
                     "description": "Investigate snapshot process and storage backend latency. Consider cancelling or throttling snapshot according to runbook.",
-                    "runbook": runbook_url_for("QdrantSnapshotStuck"),
-                },
+                }, **maybe_runbook("QdrantSnapshotStuck")),
             },
         ],
     })
@@ -233,36 +312,33 @@ def build_slo_rules() -> Dict[str, Any]:
         "rules": [
             {
                 "alert": "RetrieverErrorBudgetFastBurn",
-                "expr": f"(retrieval_errors_rate_1h / max(retrieval_requests_rate_1h, 1)) / (1 - {sst}) > {fast_mul}",
+                "expr": f"((retrieval_errors_rate_1h / clamp_min(retrieval_requests_rate_1h, 1)) / (1 - {sst}) > {fast_mul}) and (retrieval_requests_rate_1h > {SLO_MIN_REQUEST_RATE})",
                 "for": "10m",
                 "labels": {"severity": "critical", "plane": "slo", "service": "retriever"},
-                "annotations": {
+                "annotations": dict({
                     "summary": "Retriever error budget fast burn (1h)",
                     "description": "Fast burn detected; investigate retriever errors, recent deploys, and backend failures.",
-                    "runbook": runbook_url_for("RetrieverErrorBudgetFastBurn"),
-                },
+                }, **maybe_runbook("RetrieverErrorBudgetFastBurn")),
             },
             {
                 "alert": "RetrieverErrorBudgetSlowBurn",
-                "expr": f"(retrieval_errors_rate_6h / max(retrieval_requests_rate_6h, 1)) / (1 - {sst}) > {slow_mul}",
+                "expr": f"((retrieval_errors_rate_6h / clamp_min(retrieval_requests_rate_6h, 1)) / (1 - {sst}) > {slow_mul}) and (retrieval_requests_rate_6h > {SLO_MIN_REQUEST_RATE})",
                 "for": "30m",
                 "labels": {"severity": "warning", "plane": "slo", "service": "retriever"},
-                "annotations": {
+                "annotations": dict({
                     "summary": "Retriever error budget slow burn (6h)",
                     "description": "Slow burn in error budget; review trends and mitigations in runbook.",
-                    "runbook": runbook_url_for("RetrieverErrorBudgetSlowBurn"),
-                },
+                }, **maybe_runbook("RetrieverErrorBudgetSlowBurn")),
             },
             {
                 "alert": "RetrieverHighP95Latency",
                 "expr": f"histogram_quantile({sq}, sum(rate(retrieval_request_duration_seconds_bucket[5m])) by (le)) > {RETRIEVER_LATENCY_THRESHOLD_SECONDS}",
                 "for": "5m",
                 "labels": {"severity": "warning", "plane": "slo", "service": "retriever"},
-                "annotations": {
+                "annotations": dict({
                     "summary": "Retriever p95 latency above threshold",
                     "description": "High p95 latency observed; check retriever CPU/memory, GC, and downstream latency.",
-                    "runbook": runbook_url_for("RetrieverHighP95Latency"),
-                },
+                }, **maybe_runbook("RetrieverHighP95Latency")),
             },
         ],
     })
@@ -271,25 +347,23 @@ def build_slo_rules() -> Dict[str, Any]:
         "rules": [
             {
                 "alert": "QdrantErrorBudgetFastBurn",
-                "expr": f"(qdrant_rest_fail_rate_1h / max(qdrant_rest_total_rate_1h, 1)) / (1 - {sst}) > {fast_mul}",
+                "expr": f"((qdrant_rest_fail_rate_1h / clamp_min(qdrant_rest_total_rate_1h, 1)) / (1 - {sst}) > {fast_mul}) and (qdrant_rest_total_rate_1h > {SLO_MIN_REQUEST_RATE})",
                 "for": "10m",
                 "labels": {"severity": "critical", "plane": "slo", "service": "qdrant"},
-                "annotations": {
+                "annotations": dict({
                     "summary": "Qdrant error budget fast burn (1h)",
                     "description": "High error-rate for Qdrant; inspect cluster health and storage errors.",
-                    "runbook": runbook_url_for("QdrantErrorBudgetFastBurn"),
-                },
+                }, **maybe_runbook("QdrantErrorBudgetFastBurn")),
             },
             {
                 "alert": "QdrantHighP95Latency",
                 "expr": f"histogram_quantile({sq}, sum(rate(rest_responses_duration_seconds_bucket[5m])) by (le)) > {QDRANT_LATENCY_THRESHOLD_SECONDS}",
                 "for": "5m",
                 "labels": {"severity": "warning", "plane": "slo", "service": "qdrant"},
-                "annotations": {
+                "annotations": dict({
                     "summary": "Qdrant p95 latency above threshold",
                     "description": "Qdrant latency high; check indexing operations, storage I/O, and cluster load.",
-                    "runbook": runbook_url_for("QdrantHighP95Latency"),
-                },
+                }, **maybe_runbook("QdrantHighP95Latency")),
             },
         ],
     })
@@ -458,6 +532,12 @@ def build_notifier_secret_manifest() -> Dict[str, Any]:
 def render_all() -> None:
     validate_inputs()
     rules_obj = build_slo_rules()
+    # If RUNBOOK_VALIDATE is enabled, validate runbook URLs before rendering files (fail fast)
+    try:
+        validate_runbooks(rules_obj)
+    except Exception:
+        # re-raise so CI/validate fails; render_all is used by generate/validate/apply
+        raise
     rules_text = yaml.safe_dump(rules_obj, sort_keys=False)
     vmalert_objs = build_vmalert_objects(rules_text)
     alertmgr_cm = build_alertmanager_cm()
@@ -521,6 +601,7 @@ def generate(args: argparse.Namespace) -> None:
 
 def validate(args: argparse.Namespace) -> None:
     LOG.info("validate started")
+    # render_all performs validate_inputs and optionally validate_runbooks (per RUNBOOK_VALIDATE)
     render_all()
     slo = OUT_DIR / "slo.rules.yaml"
     if not slo.exists():

@@ -19,7 +19,7 @@ PORT_BASE="${PORT_BASE:-7000}"
 AZ_CONTAINER="${QDRANT_AZURE_CONTAINER:-qdrant-backups}"
 AZ_PREFIX="${QDRANT_AZURE_PREFIX:-qdrant/backups}"
 
-PER_POD="${QDRANT_PER_POD:-false}"
+PER_POD="${QDRANT_PER_POD:-true}"
 BACKUP_ID="${BACKUP_ID:-}"
 
 require_cmd() {

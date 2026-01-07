@@ -158,25 +158,46 @@ ALERTS+=("paging|${paging_choice[0]}|safety|qdrant")
 ALERTS+=("paging|${paging_choice[1]}|safety|retriever")
 ALERTS+=("nonpaging|${nonpaging_choice[0]}|slo|test-channel1")
 ALERTS+=("nonpaging|${nonpaging_choice[1]}|slo|test-channel2")
-
 post_and_check() {
   local mode="$1"; local severity="$2"; local plane="$3"; local service="$4"
-  local labels_json annotations_json out match recv rb
-  labels_json=$(jq -n --arg an "${service}-${mode}" --arg pl "${plane}" --arg sv "${severity}" --arg svc "${service}" --arg tid "${UUID}" '{"alertname":$an,"plane":$pl,"severity":$sv,"service":$svc,"test_run":$tid}')
-  annotations_json=$(jq -n --arg sum "synthetic ${service} ${mode}" '{"summary":$sum}')
+  local labels_json annotations_json out match recv rb runbook_file runbook_url
+  local alertname="${service}-${mode}"
+  labels_json=$(jq -n --arg an "${alertname}" --arg pl "${plane}" --arg sv "${severity}" --arg svc "${service}" --arg tid "${UUID}" '{"alertname":$an,"plane":$pl,"severity":$sv,"service":$svc,"test_run":$tid}')
+
+  # compute kebab-case filename for runbook, same logic as alerting.py.alertname_to_kebab
+  runbook_file=$(python3 - <<'PY'
+import sys,re
+n = sys.argv[1]
+s1 = re.sub("([a-z0-9])([A-Z])", r"\1-\2", n)
+s2 = re.sub("([A-Z]+)([A-Z][a-z0-9])", r"\1-\2", s1)
+k = re.sub(r"[^a-zA-Z0-9\-]+", "-", s2).strip("-").lower()
+print(k + ".html")
+PY
+  "$alertname")
+
+  if [ -n "${RUNBOOK_BASE_URL:-}" ]; then
+    runbook_url="${RUNBOOK_BASE_URL%/}/${runbook_file}"
+  else
+    # fallback used only for local test; replace with your canonical runbook base as needed
+    runbook_url="https://example.runbook/test"
+  fi
+
+  annotations_json=$(jq -n --arg sum "synthetic ${service} ${mode}" --arg rb "${runbook_url}" '{"summary":$sum,"runbook":$rb}')
   payload=$(jq -n --argjson labels "${labels_json}" --argjson ann "${annotations_json}" '[{labels:$labels,annotations:$ann}]')
+
   curl -sS -XPOST "http://127.0.0.1:${ALERTM_LOCAL}/api/v2/alerts" -H "Content-Type: application/json" -d "${payload}" >/dev/null || true
-  local attempts=0 max=12
+
+  local attempts=0 max=20
   while [ $attempts -lt $max ]; do
     sleep 1
     out=$(curl -sS "http://127.0.0.1:${ALERTM_LOCAL}/api/v2/alerts")
-    match=$(echo "${out}" | jq -c --arg svc "${service}" --arg an "${service}-${mode}" '.[] | select(.labels.service==$svc and .labels.alertname==$an)' 2>/dev/null || true)
+    match=$(echo "${out}" | jq -c --arg svc "${service}" --arg an "${alertname}" '.[] | select(.labels.service==$svc and .labels.alertname==$an)' 2>/dev/null || true)
     if [ -n "${match}" ]; then
       recv=$(echo "${match}" | jq -r '.receivers[0].name // empty')
       rb=$(echo "${match}" | jq -r '.annotations.runbook // empty')
-      echo "$(date -Iseconds) INFO found alert ${service}-${mode} severity=${severity} plane=${plane} receiver=${recv:-<empty>} runbook_present=${rb:+yes}"
+      echo "$(date -Iseconds) INFO found alert ${alertname} severity=${severity} plane=${plane} receiver=${recv:-<empty>} runbook_present=${rb:+yes} runbook=${rb:-<empty>}"
       if [ "${mode}" = "paging" ]; then
-        if [ -n "${PAGERDUTY_INTEGRATION_KEY:-}${PAGERDUTY_ROUTING_KEY:-}" ]; then
+        if [ "${PAGERDUTY_INTEGRATION_KEY:-}${PAGERDUTY_ROUTING_KEY:-}" != "" ]; then
           if [ "${recv}" != "pagerduty" ]; then
             echo "$(date -Iseconds) ERROR expected pagerduty receiver but got='${recv}'"
             return 11
@@ -194,7 +215,7 @@ post_and_check() {
     fi
     attempts=$((attempts+1))
   done
-  echo "$(date -Iseconds) ERROR alert ${service}-${mode} did not appear in Alertmanager"
+  echo "$(date -Iseconds) ERROR alert ${alertname} did not appear in Alertmanager"
   return 10
 }
 

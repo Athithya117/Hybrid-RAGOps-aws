@@ -17,6 +17,8 @@ from urllib.parse import urlparse
 from qdrant_client import QdrantClient
 from qdrant_client.models import Prefetch, FusionQuery, Fusion, SparseVector
 from fastapi import FastAPI, HTTPException, Response, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, conint
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 import query_helpers as helpers
@@ -37,16 +39,23 @@ SPARSE_BATCH_FALLBACK = int(os.getenv("SPARSE_BATCH_FALLBACK", "8"))
 API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
 LLM_MODEL = os.getenv("LLM_MODEL", "llama-3.1-8b-instant")
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
-LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
+LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))
 
 LLM_SYSTEM_PROMPT = os.getenv(
-    "LLM_SYSTEM_PROMPT",
-    "You are a clear concise assistant. Provide a short explanatory answer in 2-3 sentences. When you cite evidence, use only numeric tags like [1],[2]. Do NOT output filenames, URLs, or raw page numbers."
-)
+    "You are an assistant that must base all factual claims ONLY on the provided numbered passages. Each factual sentence MUST end with a citation in the exact format [n], where n corresponds to one of the numbered passage blocks. Use ONLY the provided passage numbers. Do NOT output filenames, URLs, page numbers, or any other metadata. Do NOT invent citations.")
+
 LLM_USER_PROMPT_TEMPLATE = os.getenv(
     "LLM_USER_PROMPT_TEMPLATE",
-    "Summarize the following retrieved passages and answer the question in 2-3 sentences.\n\nQUESTION: {question}\n\nPASSAGES:\n{passages}\n\nAnswer:"
+    """Summarize the following retrieved passages and answer the question in 2-3 sentences.
+
+PASSAGES:
+{passages}
+
+QUESTION: {question}
+
+Answer:"""
 )
+
 
 MAX_PROMPT_TOKENS = int(os.getenv("MAX_PROMPT_TOKENS", "6000"))
 
@@ -68,7 +77,7 @@ SERVICE_NAME = "retrieval"
 LABELS = ["service", "env", "endpoint", "status_code"]
 REQUEST_COUNT = Counter("retrieval_requests_total", "Total HTTP requests served by retrieval", LABELS)
 REQUEST_LATENCY = Histogram("retrieval_request_duration_seconds", "Request latency (seconds) observed by retrieval", LABELS, buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0))
-ERROR_COUNT = Counter("retrieval_errors_total", "Retrieval error counts", ["service", "env", "endpoint", "error_type"])
+ERROR_COUNT = Counter("retrieval_errors_total", "Retrieval error counts", LABELS)
 SERVICE_READY = Gauge("service_ready", "Service readiness (1=ready, 0=not ready)", ["service", "env"])
 SERVICE_READY.labels(service=SERVICE_NAME, env=ENV).set(0)
 DENSE_EMBED_COUNT = Counter("dense_embed_requests_total", "Dense embed requests", ["service", "env"])
@@ -543,6 +552,33 @@ async def _shutdown_event():
     _json_log("info", "shutdown.complete", status="stopping")
     SERVICE_READY.labels(service=SERVICE_NAME, env=ENV).set(0)
 
+# --- NEW: capture Pydantic/FastAPI validation errors (happens before route handler) ---
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    endpoint = getattr(request.url, "path", str(request.url))
+    status_code = 422
+    try:
+        REQUEST_COUNT.labels(service=SERVICE_NAME, env=ENV, endpoint=endpoint, status_code=str(status_code)).inc()
+        ERROR_COUNT.labels(service=SERVICE_NAME, env=ENV, endpoint=endpoint, status_code=str(status_code)).inc()
+    except Exception:
+        pass
+    _json_log("warning", "request.validation_error", endpoint=endpoint, error=str(exc))
+    # fastapi default content style is acceptable; returning errors array
+    return JSONResponse(status_code=422, content=json.loads(json.dumps({"detail": exc.errors()})))
+
+# --- NEW: catch-all to ensure we increment counters for unexpected exceptions not handled in handler ---
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    endpoint = getattr(request.url, "path", str(request.url))
+    status_code = 500
+    try:
+        REQUEST_COUNT.labels(service=SERVICE_NAME, env=ENV, endpoint=endpoint, status_code=str(status_code)).inc()
+        ERROR_COUNT.labels(service=SERVICE_NAME, env=ENV, endpoint=endpoint, status_code=str(status_code)).inc()
+    except Exception:
+        pass
+    _json_log("error", "unhandled.exception", endpoint=endpoint, error=str(exc), stack=_escape_stack(exc))
+    return JSONResponse(status_code=500, content={"detail": "internal server error"})
+
 async def generate_handler(req: GenerateRequest) -> GenerateResponse:
     endpoint = "/generate"
     start = time.time()
@@ -555,6 +591,10 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
             msg = "retrieval backend (qdrant) unavailable; check QDRANT_URL/QDRANT_API_KEY"
             _json_log("error", "generate.failed", error=msg)
             status_code = 503
+            try:
+                ERROR_COUNT.labels(service=SERVICE_NAME, env=ENV, endpoint=endpoint, status_code=str(status_code)).inc()
+            except Exception:
+                pass
             return GenerateResponse(answer=msg)
         try:
             results = await hybrid_query(
@@ -573,6 +613,10 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
         except Exception as e:
             _json_log("error", "retrieval.failed", error=str(e))
             status_code = 500
+            try:
+                ERROR_COUNT.labels(service=SERVICE_NAME, env=ENV, endpoint=endpoint, status_code=str(status_code)).inc()
+            except Exception:
+                pass
             return GenerateResponse(answer=f"retrieval failed: {e}")
         RETRIEVED_DOCS.labels(service=SERVICE_NAME, env=ENV).observe(len(results))
         try:
@@ -670,7 +714,10 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
             REQUEST_COUNT.labels(**{"service": SERVICE_NAME, "env": ENV, "endpoint": endpoint, "status_code": str(status_code)}).inc()
             REQUEST_LATENCY.labels(**{"service": SERVICE_NAME, "env": ENV, "endpoint": endpoint, "status_code": str(status_code)}).observe(elapsed)
             if status_code >= 400:
-                ERROR_COUNT.labels(service=SERVICE_NAME, env=ENV, endpoint=endpoint, error_type=str(status_code)).inc()
+                try:
+                    ERROR_COUNT.labels(service=SERVICE_NAME, env=ENV, endpoint=endpoint, status_code=str(status_code)).inc()
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -695,7 +742,7 @@ async def _call_llm_via_http(system: str, user_prompt: str, model: str, max_toke
                 ch = j.get("choices")
                 if isinstance(ch, list) and ch:
                     first = ch[0]
-                    msg = first.get("message") or {}
+                    msg = first.get("message") or first.get("text")
                     c = msg.get("content") or first.get("text")
                     if isinstance(c, str) and c.strip():
                         return c.strip()

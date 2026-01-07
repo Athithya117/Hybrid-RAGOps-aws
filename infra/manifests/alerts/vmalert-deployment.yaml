@@ -43,29 +43,30 @@ data:
     \ Consider\n        cancelling or throttling snapshot according to runbook.\n\
     \      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-snapshot-stuck.html\n\
     - name: retriever-slo\n  rules:\n  - alert: RetrieverErrorBudgetFastBurn\n   \
-    \ expr: (retrieval_errors_rate_1h / max(retrieval_requests_rate_1h, 1)) / (1 -\
-    \ 0.999)\n      > 2\n    for: 10m\n    labels:\n      severity: critical\n   \
-    \   plane: slo\n      service: retriever\n    annotations:\n      summary: Retriever\
-    \ error budget fast burn (1h)\n      description: Fast burn detected; investigate\
-    \ retriever errors, recent deploys,\n        and backend failures.\n      runbook:\
-    \ https://defaultsa515.z13.web.core.windows.net/retriever-error-budget-fast-burn.html\n\
-    \  - alert: RetrieverErrorBudgetSlowBurn\n    expr: (retrieval_errors_rate_6h\
-    \ / max(retrieval_requests_rate_6h, 1)) / (1 - 0.999)\n      > 1.2\n    for: 30m\n\
-    \    labels:\n      severity: warning\n      plane: slo\n      service: retriever\n\
-    \    annotations:\n      summary: Retriever error budget slow burn (6h)\n    \
-    \  description: Slow burn in error budget; review trends and mitigations in runbook.\n\
-    \      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-error-budget-slow-burn.html\n\
+    \ expr: ((retrieval_errors_rate_1h / clamp_min(retrieval_requests_rate_1h, 1))\
+    \ /\n      (1 - 0.999) > 2) and (retrieval_requests_rate_1h > 50)\n    for: 10m\n\
+    \    labels:\n      severity: critical\n      plane: slo\n      service: retriever\n\
+    \    annotations:\n      summary: Retriever error budget fast burn (1h)\n    \
+    \  description: Fast burn detected; investigate retriever errors, recent deploys,\n\
+    \        and backend failures.\n      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-error-budget-fast-burn.html\n\
+    \  - alert: RetrieverErrorBudgetSlowBurn\n    expr: ((retrieval_errors_rate_6h\
+    \ / clamp_min(retrieval_requests_rate_6h, 1)) /\n      (1 - 0.999) > 1.2) and\
+    \ (retrieval_requests_rate_6h > 50)\n    for: 30m\n    labels:\n      severity:\
+    \ warning\n      plane: slo\n      service: retriever\n    annotations:\n    \
+    \  summary: Retriever error budget slow burn (6h)\n      description: Slow burn\
+    \ in error budget; review trends and mitigations in runbook.\n      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-error-budget-slow-burn.html\n\
     \  - alert: RetrieverHighP95Latency\n    expr: histogram_quantile(0.95, sum(rate(retrieval_request_duration_seconds_bucket[5m]))\n\
     \      by (le)) > 0.5\n    for: 5m\n    labels:\n      severity: warning\n   \
     \   plane: slo\n      service: retriever\n    annotations:\n      summary: Retriever\
     \ p95 latency above threshold\n      description: High p95 latency observed; check\
     \ retriever CPU/memory, GC, and\n        downstream latency.\n      runbook: https://defaultsa515.z13.web.core.windows.net/retriever-high-p95-latency.html\n\
     - name: qdrant-slo\n  rules:\n  - alert: QdrantErrorBudgetFastBurn\n    expr:\
-    \ (qdrant_rest_fail_rate_1h / max(qdrant_rest_total_rate_1h, 1)) / (1 - 0.999)\n\
-    \      > 2\n    for: 10m\n    labels:\n      severity: critical\n      plane:\
-    \ slo\n      service: qdrant\n    annotations:\n      summary: Qdrant error budget\
-    \ fast burn (1h)\n      description: High error-rate for Qdrant; inspect cluster\
-    \ health and storage\n        errors.\n      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-error-budget-fast-burn.html\n\
+    \ ((qdrant_rest_fail_rate_1h / clamp_min(qdrant_rest_total_rate_1h, 1)) /\n  \
+    \    (1 - 0.999) > 2) and (qdrant_rest_total_rate_1h > 50)\n    for: 10m\n   \
+    \ labels:\n      severity: critical\n      plane: slo\n      service: qdrant\n\
+    \    annotations:\n      summary: Qdrant error budget fast burn (1h)\n      description:\
+    \ High error-rate for Qdrant; inspect cluster health and storage\n        errors.\n\
+    \      runbook: https://defaultsa515.z13.web.core.windows.net/qdrant-error-budget-fast-burn.html\n\
     \  - alert: QdrantHighP95Latency\n    expr: histogram_quantile(0.95, sum(rate(rest_responses_duration_seconds_bucket[5m]))\n\
     \      by (le)) > 0.8\n    for: 5m\n    labels:\n      severity: warning\n   \
     \   plane: slo\n      service: qdrant\n    annotations:\n      summary: Qdrant\

@@ -74,7 +74,7 @@ def load_config() -> Dict[str, Any]:
     cfg["ALLOW_MISSING_SECRETS"] = os.getenv("ALLOW_MISSING_SECRETS", "false").lower() in ("1", "true", "yes")
 
     # core
-    cfg["IMAGE"] = os.getenv("QUERY_IMAGE", os.getenv("RETRIEVAL_IMAGE", "docker.io/athithya5354/retrieval:v11"))
+    cfg["IMAGE"] = os.getenv("QUERY_IMAGE", os.getenv("RETRIEVAL_IMAGE", "docker.io/athithya5354/retrieval:v21"))
     cfg["NAMESPACE"] = os.getenv("QUERY_NAMESPACE", os.getenv("RETRIEVAL_NAMESPACE", "inference"))
     cfg["SERVICE_NAME"] = os.getenv("QUERY_SERVICE_NAME", os.getenv("RETRIEVAL_NAME", "retrieval"))
     cfg["PORT"] = int(os.getenv("QUERY_PORT", os.getenv("RETRIEVAL_HTTP_PORT", "8001")))
@@ -299,10 +299,11 @@ def render_deployment(cfg: Dict[str, Any]) -> str:
         },
     }
 
+    # NOTE: changed annotations to monitoring.io/* so vmagent's relabel rules will pick up the pod.
     pod_annotations = {
-        "prometheus.io/scrape": "true",
-        "prometheus.io/port": str(cfg["METRICS_PORT"]),
-        "prometheus.io/path": "/metrics",
+        "monitoring.io/scrape": "true",
+        "monitoring.io/port": str(cfg["METRICS_PORT"]),
+        "monitoring.io/path": "/metrics",
     }
 
     pod_template = {

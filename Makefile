@@ -69,7 +69,7 @@ deploy-qdrant:
 	bash infra/generators/qdrant_cluster.sh --apply
 
 deploy-retriever:
-	bash infra/generators/retriever.sh --apply
+	python3 infra/generators/retriever.py --apply
 
 deploy-frontend:
 	python3 infra/generators/frontend_auth.py --apply --confirm
