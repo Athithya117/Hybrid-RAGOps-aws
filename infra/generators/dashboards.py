@@ -15,38 +15,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import urllib.parse
 import yaml
 
-GRAFANA_IMAGE = os.getenv("GRAFANA_IMAGE", "grafana/grafana:10.3.5")
-POSTGRES_IMAGE = os.getenv("POSTGRES_IMAGE", "postgres:15.4")
-GRAFANA_NAMESPACE = os.getenv("GRAFANA_NAMESPACE", "monitoring")
-GRAFANA_REPLICAS = os.getenv("GRAFANA_REPLICAS", "1")
-GRAFANA_USE_PVC = os.getenv("GRAFANA_USE_PVC", "false")
-GRAFANA_PVC_SIZE = os.getenv("GRAFANA_PVC_SIZE", "5Gi")
-GRAFANA_CPU_REQ = os.getenv("GRAFANA_CPU_REQ", "100m")
-GRAFANA_MEM_REQ = os.getenv("GRAFANA_MEM_REQ", "128Mi")
-GRAFANA_CPU_LIMIT = os.getenv("GRAFANA_CPU_LIMIT", "500m")
-GRAFANA_MEM_LIMIT = os.getenv("GRAFANA_MEM_LIMIT", "512Mi")
-GRAFANA_PROVISIONING_NAMESPACE = os.getenv("GRAFANA_PROVISIONING_NAMESPACE", GRAFANA_NAMESPACE)
-GRAFANA_DASHBOARD_UID_PREFIX = os.getenv("GRAFANA_DASHBOARD_UID_PREFIX", "platform-")
-DASHBOARD_SERVICES = os.getenv("DASHBOARD_SERVICES", "retriever,qdrant")
-MAX_PANELS_PER_DASHBOARD = os.getenv("MAX_PANELS_PER_DASHBOARD", "48")
-METRICS_DATASOURCE = os.getenv("METRICS_DATASOURCE", "VictoriaMetrics")
-METRICS_DATASOURCE_URL = os.getenv("METRICS_DATASOURCE_URL", "http://victoria-metrics.monitoring.svc:8428")
-CLICKHOUSE_DATASOURCE = os.getenv("CLICKHOUSE_DATASOURCE", "ClickHouse")
-CLICKHOUSE_URL = os.getenv("CLICKHOUSE_URL", "http://clickhouse.clickhouse.svc:8123")
-DEFAULT_NAMESPACE = os.getenv("DEFAULT_NAMESPACE", "monitoring")
-SLO_SUCCESS_TARGET = os.getenv("SLO_SUCCESS_TARGET", "0.999")
-SLO_LATENCY_QUANTILE = os.getenv("SLO_LATENCY_QUANTILE", "0.95")
-DATASOURCE_URL = os.getenv("DATASOURCE_URL", METRICS_DATASOURCE_URL)
-CI = os.getenv("CI", "false")
-GRAFANA_MANAGE_DEPLOYMENT = os.getenv("GRAFANA_MANAGE_DEPLOYMENT", "true")
-GRAFANA_ADMIN_USER = os.getenv("GRAFANA_ADMIN_USER", "admin")
-GRAFANA_ADMIN_PASSWORD = os.getenv("GRAFANA_ADMIN_PASSWORD", "")
-GRAFANA_EXTERNAL_DB = os.getenv("GRAFANA_EXTERNAL_DB", "false")
-GRAFANA_POSTGRES_USER = os.getenv("GRAFANA_POSTGRES_USER", "grafana")
-GRAFANA_POSTGRES_DB = os.getenv("GRAFANA_POSTGRES_DB", "grafana")
-GRAFANA_POSTGRES_PVC_SIZE = os.getenv("GRAFANA_POSTGRES_PVC_SIZE", "5Gi")
-GRAFANA_POSTGRES_PASSWORD = os.getenv("GRAFANA_POSTGRES_PASSWORD", "GfN9m2z!7xQpL3sV@8bR4tY1uE0kH6")
-
 LOG = logging.getLogger("dashboards")
 LOG.setLevel(logging.INFO)
 ch = logging.StreamHandler(sys.stdout)
@@ -57,6 +25,7 @@ LOG.addHandler(ch)
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "infra" / "manifests" / "dashboards"
+CLICKHOUSE_DS_UID = "clickhouse-logs"
 
 CLICKHOUSE_SQL_TEMPLATE = (
     "SELECT ts, level, message, fields FROM logs.kube_logs "
@@ -93,9 +62,9 @@ def atomic_write(path: Path, content: str) -> None:
                 pass
 
 def coerce_bool(v: Optional[str]) -> bool:
-    if not v:
+    if v is None:
         return False
-    return v.strip().lower() in ("1","true","yes","on")
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 def safe_int(v: str, default: int) -> int:
     try:
@@ -103,39 +72,59 @@ def safe_int(v: str, default: int) -> int:
     except Exception:
         return default
 
+def is_valid_image_ref(v: str) -> bool:
+    if not v or v.strip() == "":
+        return False
+    if " " in v:
+        return False
+    return True
+
+def is_valid_url(v: str) -> bool:
+    if not v:
+        return False
+    try:
+        p = urllib.parse.urlparse(v)
+        return p.scheme in ("http", "https") and p.netloc != ""
+    except Exception:
+        return False
+
 def load_env() -> Dict[str, str]:
     env: Dict[str, str] = {
-        "GRAFANA_IMAGE": GRAFANA_IMAGE,
-        "POSTGRES_IMAGE": POSTGRES_IMAGE,
-        "GRAFANA_NAMESPACE": GRAFANA_NAMESPACE,
-        "GRAFANA_REPLICAS": GRAFANA_REPLICAS,
-        "GRAFANA_USE_PVC": GRAFANA_USE_PVC,
-        "GRAFANA_PVC_SIZE": GRAFANA_PVC_SIZE,
-        "GRAFANA_CPU_REQ": GRAFANA_CPU_REQ,
-        "GRAFANA_MEM_REQ": GRAFANA_MEM_REQ,
-        "GRAFANA_CPU_LIMIT": GRAFANA_CPU_LIMIT,
-        "GRAFANA_MEM_LIMIT": GRAFANA_MEM_LIMIT,
-        "GRAFANA_PROVISIONING_NAMESPACE": GRAFANA_PROVISIONING_NAMESPACE,
-        "GRAFANA_DASHBOARD_UID_PREFIX": GRAFANA_DASHBOARD_UID_PREFIX,
-        "DASHBOARD_SERVICES": DASHBOARD_SERVICES,
-        "MAX_PANELS_PER_DASHBOARD": MAX_PANELS_PER_DASHBOARD,
-        "METRICS_DATASOURCE": METRICS_DATASOURCE,
-        "METRICS_DATASOURCE_URL": METRICS_DATASOURCE_URL,
-        "CLICKHOUSE_DATASOURCE": CLICKHOUSE_DATASOURCE,
-        "CLICKHOUSE_URL": CLICKHOUSE_URL,
-        "DEFAULT_NAMESPACE": DEFAULT_NAMESPACE,
-        "SLO_SUCCESS_TARGET": SLO_SUCCESS_TARGET,
-        "SLO_LATENCY_QUANTILE": SLO_LATENCY_QUANTILE,
-        "DATASOURCE_URL": DATASOURCE_URL,
-        "CI": CI,
-        "GRAFANA_MANAGE_DEPLOYMENT": GRAFANA_MANAGE_DEPLOYMENT,
-        "GRAFANA_ADMIN_USER": GRAFANA_ADMIN_USER,
-        "GRAFANA_ADMIN_PASSWORD": GRAFANA_ADMIN_PASSWORD,
-        "GRAFANA_EXTERNAL_DB": GRAFANA_EXTERNAL_DB,
-        "GRAFANA_POSTGRES_USER": GRAFANA_POSTGRES_USER,
-        "GRAFANA_POSTGRES_DB": GRAFANA_POSTGRES_DB,
-        "GRAFANA_POSTGRES_PASSWORD": GRAFANA_POSTGRES_PASSWORD,
-        "GRAFANA_POSTGRES_PVC_SIZE": GRAFANA_POSTGRES_PVC_SIZE,
+        "GRAFANA_IMAGE": os.getenv("GRAFANA_IMAGE", "grafana/grafana:10.3.5"),
+        "POSTGRES_IMAGE": os.getenv("POSTGRES_IMAGE", "postgres:15.4"),
+        "GRAFANA_NAMESPACE": os.getenv("GRAFANA_NAMESPACE", "monitoring"),
+        "GRAFANA_REPLICAS": os.getenv("GRAFANA_REPLICAS", "1"),
+        "GRAFANA_USE_PVC": os.getenv("GRAFANA_USE_PVC", "false"),
+        "GRAFANA_PVC_SIZE": os.getenv("GRAFANA_PVC_SIZE", "5Gi"),
+        "GRAFANA_CPU_REQ": os.getenv("GRAFANA_CPU_REQ", "100m"),
+        "GRAFANA_MEM_REQ": os.getenv("GRAFANA_MEM_REQ", "128Mi"),
+        "GRAFANA_CPU_LIMIT": os.getenv("GRAFANA_CPU_LIMIT", "500m"),
+        "GRAFANA_MEM_LIMIT": os.getenv("GRAFANA_MEM_LIMIT", "512Mi"),
+        "GRAFANA_PROVISIONING_NAMESPACE": os.getenv("GRAFANA_PROVISIONING_NAMESPACE", os.getenv("GRAFANA_NAMESPACE", "monitoring")),
+        "GRAFANA_DASHBOARD_UID_PREFIX": os.getenv("GRAFANA_DASHBOARD_UID_PREFIX", "platform-"),
+        "DASHBOARD_SERVICES": os.getenv("DASHBOARD_SERVICES", "retriever,qdrant"),
+        "MAX_PANELS_PER_DASHBOARD": os.getenv("MAX_PANELS_PER_DASHBOARD", "48"),
+        "METRICS_DATASOURCE": os.getenv("METRICS_DATASOURCE", "VictoriaMetrics"),
+        "METRICS_DATASOURCE_URL": os.getenv("METRICS_DATASOURCE_URL", "http://victoria-metrics.monitoring.svc:8428"),
+        "CLICKHOUSE_DATASOURCE": os.getenv("CLICKHOUSE_DATASOURCE", "ClickHouse"),
+        "CLICKHOUSE_URL": os.getenv("CLICKHOUSE_URL", ""),
+        "DEFAULT_NAMESPACE": os.getenv("DEFAULT_NAMESPACE", "monitoring"),
+        "SLO_SUCCESS_TARGET": os.getenv("SLO_SUCCESS_TARGET", "0.999"),
+        "SLO_LATENCY_QUANTILE": os.getenv("SLO_LATENCY_QUANTILE", "0.95"),
+        "DATASOURCE_URL": os.getenv("DATASOURCE_URL", os.getenv("METRICS_DATASOURCE_URL", "http://victoria-metrics.monitoring.svc:8428")),
+        "CI": os.getenv("CI", "false"),
+        "GRAFANA_MANAGE_DEPLOYMENT": os.getenv("GRAFANA_MANAGE_DEPLOYMENT", "true"),
+        "GRAFANA_ADMIN_USER": os.getenv("GRAFANA_ADMIN_USER", "admin"),
+        "GRAFANA_ADMIN_PASSWORD": os.getenv("GRAFANA_ADMIN_PASSWORD", ""),
+        "GRAFANA_EXTERNAL_DB": os.getenv("GRAFANA_EXTERNAL_DB", "false"),
+        "GRAFANA_POSTGRES_USER": os.getenv("GRAFANA_POSTGRES_USER", "grafana"),
+        "GRAFANA_POSTGRES_DB": os.getenv("GRAFANA_POSTGRES_DB", "grafana"),
+        "GRAFANA_POSTGRES_PVC_SIZE": os.getenv("GRAFANA_POSTGRES_PVC_SIZE", "5Gi"),
+        "GRAFANA_POSTGRES_PASSWORD": os.getenv("GRAFANA_POSTGRES_PASSWORD", "GfN9m2z!7xQpL3sV@8bR4tY1uE0kH6"),
+        "GRAFANA_INSTALL_PLUGINS": os.getenv("GRAFANA_INSTALL_PLUGINS", ""),
+        "GRAFANA_PLUGINS_PREINSTALL": os.getenv("GRAFANA_PLUGINS_PREINSTALL", ""),
+        "GRAFANA_PLUGINS_PREINSTALL_SYNC": os.getenv("GRAFANA_PLUGINS_PREINSTALL_SYNC", ""),
+        "GRAFANA_ALLOW_UNSIGNED_PLUGINS": os.getenv("GRAFANA_ALLOW_UNSIGNED_PLUGINS", ""),
     }
     for k in list(env.keys()):
         v = os.getenv(k)
@@ -143,18 +132,94 @@ def load_env() -> Dict[str, str]:
             env[k] = v
     return env
 
-def validate_env(env: Dict[str, str]) -> None:
+def validate_env_strict(env: Dict[str, str]) -> None:
+    errors: List[str] = []
+    def add(err: str) -> None:
+        errors.append(err)
+
+    if not is_valid_image_ref(env.get("GRAFANA_IMAGE", "")):
+        add("GRAFANA_IMAGE must be a valid image reference (e.g. grafana/grafana:10.3.5)")
+
     try:
+        replicas = int(env.get("GRAFANA_REPLICAS", "1"))
+        if replicas < 1 or replicas > 10:
+            add("GRAFANA_REPLICAS must be an integer between 1 and 10")
+    except Exception:
+        add("GRAFANA_REPLICAS must be an integer")
+
+    if env.get("GRAFANA_USE_PVC", "").strip().lower() not in ("true", "false", "1", "0", "yes", "no"):
+        add("GRAFANA_USE_PVC must be one of: true|false")
+
+    pvc = env.get("GRAFANA_PVC_SIZE", "")
+    if pvc and not pvc.endswith(("Gi","Mi","G","M")):
+        add("GRAFANA_PVC_SIZE should use Kubernetes quantity (e.g. 5Gi)")
+
+    try:
+        _ = float(env.get("SLO_SUCCESS_TARGET", "0.999"))
         sst = float(env.get("SLO_SUCCESS_TARGET", "0.999"))
         if not (0.0 < sst < 1.0):
-            raise ValueError()
+            add("SLO_SUCCESS_TARGET must be a float between 0 and 1 (exclusive)")
     except Exception:
-        raise RuntimeError("SLO_SUCCESS_TARGET must be a float between 0 and 1")
-    if env.get("SLO_LATENCY_QUANTILE", "0.95") not in ("0.95", "0.99"):
-        raise RuntimeError("SLO_LATENCY_QUANTILE must be '0.95' or '0.99'")
+        add("SLO_SUCCESS_TARGET must be a float between 0 and 1")
+
+    if env.get("SLO_LATENCY_QUANTILE", "") not in ("0.95","0.99"):
+        add("SLO_LATENCY_QUANTILE must be '0.95' or '0.99'")
+
+    if not is_valid_url(env.get("METRICS_DATASOURCE_URL","")):
+        add("METRICS_DATASOURCE_URL must be a valid http(s) URL")
+
+    ch_url = env.get("CLICKHOUSE_URL", "") or ""
+    if ch_url and not is_valid_url(ch_url):
+        add("CLICKHOUSE_URL when provided must be a valid http(s) URL (e.g. http://clickhouse.svc:8123)")
+
+    if env.get("GRAFANA_EXTERNAL_DB", "").strip().lower() not in ("true","false","1","0","yes","no"):
+        add("GRAFANA_EXTERNAL_DB must be one of: true|false")
+
+    if coerce_bool(env.get("GRAFANA_EXTERNAL_DB","false")):
+        if not (os.getenv("GF_DATABASE_URL") or (os.getenv("GF_DATABASE_HOST") and os.getenv("GF_DATABASE_NAME") and os.getenv("GF_DATABASE_USER") and os.getenv("GF_DATABASE_PASSWORD"))):
+            add("GRAFANA_EXTERNAL_DB=true requires GF_DATABASE_URL or GF_DATABASE_HOST/NAME/USER/PASSWORD")
+
+    if not env.get("GRAFANA_POSTGRES_PASSWORD") and not coerce_bool(env.get("GRAFANA_EXTERNAL_DB","false")):
+        add("GRAFANA_POSTGRES_PASSWORD must be set when using in-cluster Postgres (GRAFANA_EXTERNAL_DB=false)")
+
+    gp_pre = env.get("GRAFANA_PLUGINS_PREINSTALL", "").strip()
+    gp_install = env.get("GRAFANA_INSTALL_PLUGINS", "").strip()
+    gp_sync = env.get("GRAFANA_PLUGINS_PREINSTALL_SYNC", "").strip()
+    if gp_pre and gp_install:
+        add("Only one of GRAFANA_PLUGINS_PREINSTALL or GRAFANA_INSTALL_PLUGINS may be set (prefer GRAFANA_PLUGINS_PREINSTALL)")
+    if gp_sync and (gp_pre or gp_install):
+        add("GRAFANA_PLUGINS_PREINSTALL_SYNC must be used alone (choose preinstall or preinstall_sync, not both)")
+
+    if gp_pre:
+        parts = [p.strip() for p in gp_pre.split(",") if p.strip()]
+        for p in parts:
+            if " " in p:
+                add(f"Invalid plugin identifier in GRAFANA_PLUGINS_PREINSTALL: '{p}'")
+    if gp_install:
+        parts = [p.strip() for p in gp_install.split(",") if p.strip()]
+        for p in parts:
+            if ";" in p:
+                url, folder = p.split(";",1)
+                if not (url.startswith("http://") or url.startswith("https://")):
+                    add("GF_INSTALL_PLUGINS entry with URL must start with http(s)://")
+                if folder.strip() == "":
+                    add("GF_INSTALL_PLUGINS line with URL must include the target folder after ';'")
+            else:
+                if " " in p:
+                    add(f"Invalid GF_INSTALL_PLUGINS token: '{p}'")
+
+    allow_unsigned = env.get("GRAFANA_ALLOW_UNSIGNED_PLUGINS", "").strip()
+    if allow_unsigned:
+        ids = [s.strip() for s in allow_unsigned.split(",") if s.strip()]
+        for i in ids:
+            if " " in i:
+                add(f"Invalid plugin id in GRAFANA_ALLOW_UNSIGNED_PLUGINS: '{i}'")
+
+    if errors:
+        raise RuntimeError("ENV validation failed:\n  " + "\n  ".join(errors))
 
 def validate_db_config(env: Dict[str, str]) -> None:
-    external = coerce_bool(env.get("GRAFANA_EXTERNAL_DB", "false"))
+    external = coerce_bool(env.get("GRAFANA_EXTERNAL_DB","false"))
     if external:
         if not (os.getenv("GF_DATABASE_URL") or (os.getenv("GF_DATABASE_HOST") and os.getenv("GF_DATABASE_NAME") and os.getenv("GF_DATABASE_USER") and os.getenv("GF_DATABASE_PASSWORD"))):
             raise RuntimeError("GRAFANA_EXTERNAL_DB=true requires GF_DATABASE_URL or GF_DATABASE_HOST/NAME/USER/PASSWORD")
@@ -162,9 +227,62 @@ def validate_db_config(env: Dict[str, str]) -> None:
         if not env.get("GRAFANA_POSTGRES_PASSWORD"):
             raise RuntimeError("GRAFANA_POSTGRES_PASSWORD must be set for in-cluster Postgres")
 
+def autodiscover_clickhouse_url(env: Dict[str, str]) -> str:
+    explicit = env.get("CLICKHOUSE_URL", "") or os.getenv("CLICKHOUSE_URL", "")
+    if explicit:
+        if is_valid_url(explicit):
+            return explicit
+        return ""
+    rc, out, err = run_cmd(["kubectl", "get", "svc", "-A", "-o", "json"], timeout=10)
+    if rc != 0 or not out:
+        return ""
+    try:
+        j = json.loads(out)
+        items = j.get("items", []) or []
+        preferred_ns = ["observability", "monitoring", "default"]
+        found = []
+        for svc in items:
+            name = svc.get("metadata", {}).get("name", "")
+            ns = svc.get("metadata", {}).get("namespace", "")
+            ports = svc.get("spec", {}).get("ports", []) or []
+            port_nums = [p.get("port") for p in ports if p.get("port")]
+            if "clickhouse" in name.lower() and 8123 in port_nums:
+                found.append((ns, name))
+        if not found:
+            for svc in items:
+                name = svc.get("metadata", {}).get("name", "")
+                ns = svc.get("metadata", {}).get("namespace", "")
+                ports = svc.get("spec", {}).get("ports", []) or []
+                port_nums = [p.get("port") for p in ports if p.get("port")]
+                if "clickhouse" in name.lower() and port_nums:
+                    found.append((ns, name))
+        if not found:
+            return ""
+        for ns_choice in preferred_ns:
+            for ns, name in found:
+                if ns == ns_choice:
+                    return f"http://{name}.{ns}.svc:8123"
+        ns, name = found[0]
+        return f"http://{name}.{ns}.svc:8123"
+    except Exception:
+        return ""
+
 def render_clickhouse_left(service: str, env: Dict[str, str]) -> str:
     template = os.getenv("CLICKHOUSE_SQL_TEMPLATE", CLICKHOUSE_SQL_TEMPLATE)
-    left_obj = {"datasource": env["CLICKHOUSE_DATASOURCE"], "queries": [{"refId": "A", "sql": template.replace("$service", service).replace("$namespace", env.get("DEFAULT_NAMESPACE","monitoring"))}], "range": {"from": "$__from", "to": "$__to"}}
+    sql = template.replace("$service", service)
+    query_obj = {
+        "refId": "A",
+        "datasource": {"type": "vertamedia-clickhouse-datasource", "uid": CLICKHOUSE_DS_UID},
+        "editorType": "sql",
+        "format": 1,
+        "queryType": "table",
+        "rawSql": sql
+    }
+    left_obj = {
+        "datasource": CLICKHOUSE_DS_UID,
+        "queries": [query_obj],
+        "range": {"from": "now-6h", "to": "now"}
+    }
     raw = json.dumps(left_obj, separators=(",", ":"), ensure_ascii=False)
     return urllib.parse.quote_plus(raw)
 
@@ -175,16 +293,9 @@ def make_stat_panel(title: str, expr: str, datasource: str, gridPos: Dict[str, i
     return make_metric_panel(title, expr, datasource, gridPos, refId, panel_type="stat")
 
 def _log_panel_summary(panels: List[Dict[str, Any]]) -> None:
-    for p in panels:
-        title = p.get("title", "<no-title>")
-        targets = p.get("targets", [])
-        expr = ""
-        if targets and isinstance(targets, list):
-            expr = targets[0].get("expr", "") if isinstance(targets[0], dict) else ""
-        LOG.info(" panel: %s | expr: %s", title, expr)
+    return
 
 def build_service_dashboard(service: str, env: Dict[str, str]) -> Dict[str, Any]:
-    LOG.info("Building service dashboard: %s", service)
     metrics_ds = env["METRICS_DATASOURCE"]
     slo_q = env.get("SLO_LATENCY_QUANTILE", "0.95")
     panels: List[Dict[str, Any]] = []
@@ -198,25 +309,19 @@ def build_service_dashboard(service: str, env: Dict[str, str]) -> Dict[str, Any]
     }
     hdr["id"] = next_panel_id; next_panel_id += 1
     panels.append(hdr)
-
     if service == "retriever":
         p_sr = make_stat_panel("Service Ready", 'max(service_ready{service="retrieval"})', metrics_ds, {"h": 3, "w": 6, "x": 0, "y": 2}, chr(next_ref_ord)); next_ref_ord += 1
         p_sr["id"] = next_panel_id; next_panel_id += 1
-
         p_rps = make_stat_panel("Requests/s", "sum(rate(retrieval_requests_total[1m])) or sum(rate(http_requests_total{service=~\"retriev.*|retrieval.*\"}[1m]))", metrics_ds, {"h": 3, "w": 6, "x": 6, "y": 2}, chr(next_ref_ord)); next_ref_ord += 1
         p_rps["id"] = next_panel_id; next_panel_id += 1
-
         p_p95 = make_metric_panel("P95 Latency (s)", f"histogram_quantile({slo_q}, sum by (le) (rate(retrieval_request_duration_seconds_bucket[5m])))", metrics_ds, {"h": 6, "w": 12, "x": 0, "y": 5}, chr(next_ref_ord)); next_ref_ord += 1
         p_p95["id"] = next_panel_id; next_panel_id += 1
-
         p_err_expr = '( sum(rate(retrieval_errors_total[5m])) / clamp_min(sum(rate(retrieval_requests_total[5m])), 1) ) * 100'
         p_err = make_metric_panel("Error Rate", p_err_expr, metrics_ds, {"h": 3, "w": 6, "x": 18, "y": 2}, chr(next_ref_ord)); next_ref_ord += 1
         p_err["fieldConfig"] = {"defaults": {"unit": "percent"}}
         p_err["id"] = next_panel_id; next_panel_id += 1
-
         p_docs = make_metric_panel("Retrieved Docs (rate)", "sum(rate(retrieved_docs_count_count[1m])) or sum(rate(retrieved_docs_count[1m])) or vector(0)", metrics_ds, {"h": 3, "w": 6, "x": 12, "y": 8}, chr(next_ref_ord)); next_ref_ord += 1
         p_docs["id"] = next_panel_id; next_panel_id += 1
-
         repl_expr = (
             '('
             ' count(kube_pod_info{namespace="inference", pod=~"retrieval.*"})'
@@ -227,7 +332,6 @@ def build_service_dashboard(service: str, env: Dict[str, str]) -> Dict[str, Any]
         p_repl = make_stat_panel("Replicas (kube-state-metrics / up / deployment)", repl_expr, metrics_ds, {"h": 3, "w": 6, "x": 12, "y": 5}, chr(next_ref_ord)); next_ref_ord += 1
         p_repl["id"] = next_panel_id; next_panel_id += 1
         p_repl["description"] = "Preferred: kube_pod_info from kube-state-metrics; fallbacks: up() by instance, controller replica count."
-
         p_total_increase = make_stat_panel(
             "Requests (5m increase)",
             'sum(increase(retrieval_requests_total[5m])) or sum(increase(http_requests_total{service=~"retriev.*|retrieval.*"}[5m])) or vector(0)',
@@ -236,7 +340,6 @@ def build_service_dashboard(service: str, env: Dict[str, str]) -> Dict[str, Any]
             chr(next_ref_ord)
         ); next_ref_ord += 1
         p_total_increase["id"] = next_panel_id; next_panel_id += 1
-
         p_total_counter = make_stat_panel(
             "Total Requests (counter)",
             'sum(retrieval_requests_total) or sum(http_requests_total{service=~"retriev.*|retrieval.*"}) or vector(0)',
@@ -245,7 +348,6 @@ def build_service_dashboard(service: str, env: Dict[str, str]) -> Dict[str, Any]
             chr(next_ref_ord)
         ); next_ref_ord += 1
         p_total_counter["id"] = next_panel_id; next_panel_id += 1
-
         p_fail_total_counter = make_stat_panel(
             "Total Failures (counter)",
             'sum(retrieval_errors_total) or vector(0)',
@@ -254,16 +356,12 @@ def build_service_dashboard(service: str, env: Dict[str, str]) -> Dict[str, Any]
             chr(next_ref_ord)
         ); next_ref_ord += 1
         p_fail_total_counter["id"] = next_panel_id; next_panel_id += 1
-
         panels.extend([p_sr, p_rps, p_p95, p_err, p_repl, p_docs, p_total_increase, p_total_counter, p_fail_total_counter])
-
     elif service == "qdrant":
         p_up = make_stat_panel("Qdrant Up", 'max(up{job=~"qdrant.*"}) or max(up{instance=~".*:6333"})', metrics_ds, {"h": 3, "w": 6, "x": 0, "y": 2}, chr(next_ref_ord)); next_ref_ord += 1
         p_up["id"] = next_panel_id; next_panel_id += 1
-
         p_req = make_stat_panel("Requests/s", "sum(rate(rest_responses_total[1m])) or sum(rate(rest_responses_total[5m])) or vector(0)", metrics_ds, {"h": 3, "w": 6, "x": 6, "y": 2}, chr(next_ref_ord)); next_ref_ord += 1
         p_req["id"] = next_panel_id; next_panel_id += 1
-
         qdrant_p95_expr = (
             '('
             'histogram_quantile(0.95, sum by (le) (rate(rest_responses_duration_seconds_bucket[5m])))'
@@ -273,17 +371,14 @@ def build_service_dashboard(service: str, env: Dict[str, str]) -> Dict[str, Any]
         )
         p_p95 = make_metric_panel("P95 Latency (s)", qdrant_p95_expr, metrics_ds, {"h": 6, "w": 12, "x": 0, "y": 5}, chr(next_ref_ord)); next_ref_ord += 1
         p_p95["id"] = next_panel_id; next_panel_id += 1
-
         q_num = 'sum(rate(rest_responses_total{status=~"4..|5.."}[5m]))'
         q_den = '( ( sum(rate(rest_responses_total[5m])) ) or vector(1) )'
         p_err_expr = f'({q_num}) / clamp_min({q_den}, 1) * 100'
         p_err = make_metric_panel("Error Rate", p_err_expr, metrics_ds, {"h": 3, "w": 6, "x": 18, "y": 2}, chr(next_ref_ord)); next_ref_ord += 1
         p_err["fieldConfig"] = {"defaults": {"unit": "percent"}}
         p_err["id"] = next_panel_id; next_panel_id += 1
-
         p_vec = make_stat_panel("Total Vectors", "sum(collections_vector_total) or vector(0)", metrics_ds, {"h": 3, "w": 6, "x": 12, "y": 2}, chr(next_ref_ord)); next_ref_ord += 1
         p_vec["id"] = next_panel_id; next_panel_id += 1
-
         repl_expr = (
             '('
             ' count(kube_pod_info{namespace="qdrant", pod=~"qdrant.*"})'
@@ -293,7 +388,6 @@ def build_service_dashboard(service: str, env: Dict[str, str]) -> Dict[str, Any]
         )
         p_repl = make_stat_panel("Replicas (kube-state-metrics / up / sts)", repl_expr, metrics_ds, {"h": 3, "w": 6, "x": 12, "y": 8}, chr(next_ref_ord)); next_ref_ord += 1
         p_repl["id"] = next_panel_id; next_panel_id += 1
-
         p_q_fail_total_counter = make_stat_panel(
             "Total Failures (counter)",
             'sum(rest_responses_total{status=~"4..|5.."}) or vector(0)',
@@ -302,7 +396,6 @@ def build_service_dashboard(service: str, env: Dict[str, str]) -> Dict[str, Any]
             chr(next_ref_ord)
         ); next_ref_ord += 1
         p_q_fail_total_counter["id"] = next_panel_id; next_panel_id += 1
-
         p_q_total_increase = make_stat_panel(
             "Requests (5m increase)",
             'sum(increase(rest_responses_total[5m])) or vector(0)',
@@ -311,7 +404,6 @@ def build_service_dashboard(service: str, env: Dict[str, str]) -> Dict[str, Any]
             chr(next_ref_ord)
         ); next_ref_ord += 1
         p_q_total_increase["id"] = next_panel_id; next_panel_id += 1
-
         p_q_total_counter = make_stat_panel(
             "Total Requests (counter)",
             'sum(rest_responses_total) or vector(0)',
@@ -320,34 +412,17 @@ def build_service_dashboard(service: str, env: Dict[str, str]) -> Dict[str, Any]
             chr(next_ref_ord)
         ); next_ref_ord += 1
         p_q_total_counter["id"] = next_panel_id; next_panel_id += 1
-
         panels.extend([p_up, p_req, p_p95, p_err, p_q_fail_total_counter, p_vec, p_repl, p_q_total_increase, p_q_total_counter])
-
     else:
         default_p95 = make_metric_panel("P95 Latency (fallback)", f"histogram_quantile({slo_q}, sum by (le) (rate({service}_request_duration_seconds_bucket[5m])))", metrics_ds, {"h": 6, "w": 12, "x": 0, "y": 2}, chr(next_ref_ord)); next_ref_ord += 1
         default_p95["id"] = next_panel_id; next_panel_id += 1
         default_err = make_metric_panel("Error rate (fallback)", f"(sum(rate({service}_errors_total[5m])) or vector(0)) / clamp_min((sum(rate({service}_requests_total[5m])) or vector(1)),1) * 100", metrics_ds, {"h": 6, "w": 12, "x": 12, "y": 2}, chr(next_ref_ord)); next_ref_ord += 1
         default_err["id"] = next_panel_id; next_panel_id += 1
         panels.extend([default_p95, default_err])
-
-    left_enc = render_clickhouse_left(service, env)
-    logs_panel = {
-        "type": "text",
-        "title": "Logs",
-        "gridPos": {"h": 3, "w": 24, "x": 0, "y": 18},
-        "options": {"content": "Open logs for this service using Explore"},
-        "links": [{"title": "Open Logs", "url": f"/explore?left={left_enc}"}]
-    }
-    logs_panel["id"] = next_panel_id; next_panel_id += 1
-    panels.append(logs_panel)
-
-    LOG.info("Dashboard '%s' panels (count=%d):", service, len(panels))
     _log_panel_summary(panels)
-
     mp = safe_int(env.get("MAX_PANELS_PER_DASHBOARD", "48"), 48)
     if len(panels) > mp:
         raise RuntimeError(f"dashboard for {service} would exceed MAX_PANELS_PER_DASHBOARD ({len(panels)} > {mp})")
-
     uid = f"{env.get('GRAFANA_DASHBOARD_UID_PREFIX','platform-')}{service}"
     if service == "retriever":
         ns_default = "inference"
@@ -355,75 +430,82 @@ def build_service_dashboard(service: str, env: Dict[str, str]) -> Dict[str, Any]
         ns_default = "qdrant"
     else:
         ns_default = env.get("DEFAULT_NAMESPACE","monitoring")
-
     vars_list = [
         {"type": "custom", "name": "service", "options": [{"text": service, "value": service}], "current": {"text": service, "value": service}, "multi": False}
     ]
     vars_list.append({"type": "custom", "name": "namespace", "options": [{"text": ns_default, "value": ns_default}], "current": {"text": ns_default, "value": ns_default}, "multi": False})
-
     dash = {"id": None, "uid": uid, "title": f"Service Overview — {service}", "templating": {"list": vars_list}, "panels": panels, "schemaVersion": 36, "version": 1}
     dash["_meta"] = {"generator": "dashboards.py", "rendered_at": datetime.utcnow().isoformat() + "Z"}
     return dash
 
-def build_ingestion_dashboard(env: Dict[str, str]) -> Dict[str, Any]:
-    LOG.info("Building ingestion dashboard")
+def build_platform_observability_dashboard(env: Dict[str, str]) -> Dict[str, Any]:
     metrics_ds = env["METRICS_DATASOURCE"]
     panels: List[Dict[str, Any]] = []
     next_ref_ord = ord("A")
     next_panel_id = 1
-
-    p1 = make_metric_panel("vmagent discovery objects (pods)", 'vm_promscrape_discovery_kubernetes_objects{role="pod"}', metrics_ds, {"h": 6, "w": 24, "x": 0, "y": 0}, chr(next_ref_ord)); next_ref_ord += 1
-    p1["id"] = next_panel_id; next_panel_id += 1
-    p2 = make_metric_panel("vmagent remote-write bytes (increase 5m)", "increase(vmagent_remotewrite_sent_bytes_total[5m])", metrics_ds, {"h": 6, "w": 24, "x": 0, "y": 6}, chr(next_ref_ord)); next_ref_ord += 1
-    p2["id"] = next_panel_id; next_panel_id += 1
-    p3 = make_metric_panel("vmagent series fetched (last)", "vm_promscrape_series_fetched", metrics_ds, {"h": 6, "w": 24, "x": 0, "y": 12}, chr(next_ref_ord)); next_ref_ord += 1
-    p3["id"] = next_panel_id; next_panel_id += 1
-
-    panels.extend([p1, p2, p3])
-
-    left_enc = render_clickhouse_left("vmagent", env)
-    link_panel = {
-        "type": "text",
-        "title": "Logs",
-        "gridPos": {"h": 3, "w": 24, "x": 0, "y": 18},
-        "options": {"content": "Open vmagent logs via Explore"},
-        "links": [{"title": "Open Logs", "url": f"/explore?left={left_enc}"}]
+    p_a = make_stat_panel("A — vmagent cluster up", 'max(up{job="vmagent-self"})', metrics_ds, {"h": 8, "w": 8, "x": 0, "y": 0}, chr(next_ref_ord)); next_ref_ord += 1
+    p_a["fieldConfig"] = {"defaults": {"unit": "none", "min": 0, "max": 1}}
+    p_a["id"] = next_panel_id; next_panel_id += 1
+    panels.append(p_a)
+    p_b = {
+        "type": "table",
+        "title": "B — Victoria: job up (by job)",
+        "datasource": metrics_ds,
+        "targets": [{"expr": "max by(job) (up)", "refId": chr(next_ref_ord)}],
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+        "options": {"showHeader": True, "columns": []}
     }
-    link_panel["id"] = next_panel_id; next_panel_id += 1
-    panels.append(link_panel)
-
-    LOG.info("Ingestion dashboard panels (count=%d):", len(panels))
+    next_ref_ord += 1
+    p_b["id"] = next_panel_id; next_panel_id += 1
+    panels.append(p_b)
+    p_c = make_metric_panel("C — vmagent scrape targets (clickhouse | vector)", 'vm_promscrape_scrape_pool_targets{scrape_job=~"clickhouse-exporter|vector-prometheus-exporter"}', metrics_ds, {"h": 8, "w": 8, "x": 16, "y": 0}, chr(next_ref_ord))
+    next_ref_ord += 1
+    p_c["id"] = next_panel_id; next_panel_id += 1
+    panels.append(p_c)
+    p_d1 = make_metric_panel("D1 — Vector: global ingest rate (events/s)", "sum(rate(vector_buffer_sent_events_total[1m]))", metrics_ds, {"h": 8, "w": 8, "x": 0, "y": 8}, chr(next_ref_ord))
+    next_ref_ord += 1
+    p_d1["fieldConfig"] = {"defaults": {"unit": "events/s"}}
+    p_d1["id"] = next_panel_id; next_panel_id += 1
+    panels.append(p_d1)
+    p_d2 = make_metric_panel("D2 — Vector: per-sink events (by component_id)", "sum by(component_id) (rate(vector_buffer_sent_events_total[1m]))", metrics_ds, {"h": 8, "w": 8, "x": 8, "y": 8}, chr(next_ref_ord))
+    next_ref_ord += 1
+    p_d2["fieldConfig"] = {"defaults": {"unit": "events/s"}}
+    p_d2["id"] = next_panel_id; next_panel_id += 1
+    panels.append(p_d2)
+    p_e = make_stat_panel("E — ClickHouse exporter up", 'max(up{job="clickhouse-exporter"})', metrics_ds, {"h": 8, "w": 8, "x": 16, "y": 8}, chr(next_ref_ord))
+    next_ref_ord += 1
+    p_e["id"] = next_panel_id; next_panel_id += 1
+    panels.append(p_e)
+    p_e2 = make_metric_panel("E2 — ClickHouse example metric (active_timers)", "clickhouse_active_timers_in_query_profiler", metrics_ds, {"h": 8, "w": 8, "x": 0, "y": 16}, chr(next_ref_ord))
+    next_ref_ord += 1
+    p_e2["id"] = next_panel_id; next_panel_id += 1
+    panels.append(p_e2)
+    p_g = make_metric_panel("G — vmagent remote-write errors (increase 5m)", "increase(vmagent_remotewrite_errors_total[5m])", metrics_ds, {"h": 8, "w": 8, "x": 8, "y": 16}, chr(next_ref_ord))
+    next_ref_ord += 1
+    p_g["id"] = next_panel_id; next_panel_id += 1
+    panels.append(p_g)
+    p_h = make_stat_panel("H — Vector transform errors (5m rate)", "sum(rate(vector_component_errors_total[5m]))", metrics_ds, {"h": 8, "w": 8, "x": 16, "y": 16}, chr(next_ref_ord))
+    next_ref_ord += 1
+    p_h["id"] = next_panel_id; next_panel_id += 1
+    panels.append(p_h)
+    variables = [
+        {"type": "datasource", "name": "datasource", "label": "Datasource (Victoria/Prometheus)", "query": "prometheus", "refresh": 2},
+        {"type": "constant", "name": "ns", "label": "Namespace", "query": "observability", "hide": 0}
+    ]
     _log_panel_summary(panels)
-
-    uid = f"{env.get('GRAFANA_DASHBOARD_UID_PREFIX','platform-')}ingestion"
-    dash = {"id": None, "uid": uid, "title": "Ingestion Health", "templating": {"list": [
-        {"type": "custom", "name": "namespace", "options": [{"text": env.get("DEFAULT_NAMESPACE","monitoring"), "value": env.get("DEFAULT_NAMESPACE","monitoring")}], "current": {"text": env.get("DEFAULT_NAMESPACE","monitoring"), "value": env.get("DEFAULT_NAMESPACE","monitoring")}}]}, "panels": panels, "schemaVersion": 36, "version": 1}
-    dash["_meta"] = {"generator": "dashboards.py", "rendered_at": datetime.utcnow().isoformat() + "Z"}
-    return dash
-
-def build_platform_overview(env: Dict[str, str]) -> Dict[str, Any]:
-    LOG.info("Building platform overview dashboard")
-    metrics_ds = env["METRICS_DATASOURCE"]
-    panels: List[Dict[str, Any]] = []
-    next_ref_ord = ord("A")
-    next_panel_id = 1
-
-    p1 = make_metric_panel("Total discovery (pods)", 'max(vm_promscrape_discovery_kubernetes_objects{role="pod"})', metrics_ds, {"h": 4, "w": 24, "x": 0, "y": 0}, chr(next_ref_ord)); next_ref_ord += 1
-    p1["id"] = next_panel_id; next_panel_id += 1
-
-    p2 = make_metric_panel("Services not ready (count)", 'count(service_ready==0)', metrics_ds, {"h": 4, "w": 12, "x": 0, "y": 4}, chr(next_ref_ord)); next_ref_ord += 1
-    p2["id"] = next_panel_id; next_panel_id += 1
-
-    p3 = make_metric_panel("vmagent scrape pool targets (up/down)", 'vm_promscrape_scrape_pool_targets', metrics_ds, {"h": 4, "w": 12, "x": 12, "y": 4}, chr(next_ref_ord)); next_ref_ord += 1
-    p3["id"] = next_panel_id; next_panel_id += 1
-
-    panels.extend([p1, p2, p3])
-
-    LOG.info("Platform overview panels (count=%d):", len(panels))
-    _log_panel_summary(panels)
-
-    uid = f"{env.get('GRAFANA_DASHBOARD_UID_PREFIX','platform-')}platform-overview"
-    dash = {"id": None, "uid": uid, "title": "Platform Overview", "templating": {"list": []}, "panels": panels, "schemaVersion": 36, "version": 1}
+    mp = safe_int(env.get("MAX_PANELS_PER_DASHBOARD", "48"), 48)
+    if len(panels) > mp:
+        raise RuntimeError(f"platform observability dashboard would exceed MAX_PANELS_PER_DASHBOARD ({len(panels)} > {mp})")
+    uid = "platform-observability-overview"
+    dash = {
+        "id": None,
+        "uid": uid,
+        "title": "Platform Observability — Proven (VMagent / Victoria / Vector / ClickHouse)",
+        "templating": {"list": variables},
+        "panels": panels,
+        "schemaVersion": 36,
+        "version": 1
+    }
     dash["_meta"] = {"generator": "dashboards.py", "rendered_at": datetime.utcnow().isoformat() + "Z"}
     return dash
 
@@ -459,14 +541,17 @@ def build_datasources_cm(env: Dict[str, str]) -> Dict[str, Any]:
         "isDefault": True,
         "editable": False
     })
-    if env.get("CLICKHOUSE_URL"):
+    clickhouse_url = env.get("CLICKHOUSE_URL", "") or ""
+    if clickhouse_url:
         ds.append({
-            "name": env["CLICKHOUSE_DATASOURCE"],
-            "type": "clickhouse",
+            "name": env.get("CLICKHOUSE_DATASOURCE", "ClickHouse"),
+            "uid": CLICKHOUSE_DS_UID,
+            "type": "vertamedia-clickhouse-datasource",
             "access": "proxy",
-            "url": env["CLICKHOUSE_URL"],
+            "url": clickhouse_url,
             "isDefault": False,
-            "editable": False
+            "editable": False,
+            "jsonData": {"protocol": "http", "defaultDatabase": "logs"}
         })
     provider = {"apiVersion": 1, "datasources": ds}
     ns = env["GRAFANA_PROVISIONING_NAMESPACE"]
@@ -477,7 +562,7 @@ def build_postgres_secret(env: Dict[str, str]) -> Dict[str, Any]:
     s = {
         "apiVersion": "v1",
         "kind": "Secret",
-        "metadata": {"name": "grafana-postgres-secret", "namespace": ns, "labels": {"managed-by": "dashboards.py"}},
+        "metadata": {"name": "grafana-postgres-secret", "namespace": ns, "labels": {"managed-by":"dashboards.py"}},
         "stringData": {
             "postgres-user": env.get("GRAFANA_POSTGRES_USER", "grafana"),
             "postgres-password": env.get("GRAFANA_POSTGRES_PASSWORD"),
@@ -492,7 +577,7 @@ def build_postgres_service(env: Dict[str, str]) -> Dict[str, Any]:
         "apiVersion": "v1",
         "kind": "Service",
         "metadata": {"name": "grafana-postgres", "namespace": ns, "labels": {"app": "grafana-postgres", "managed-by": "dashboards.py"}},
-        "spec": {"ports": [{"port": 5432, "name": "postgres", "protocol": "TCP"}], "selector": {"app": "grafana-postgres"}, "clusterIP": "None"}
+        "spec": {"ports": [{"port": 5432, "name": "postgres", "protocol": "TCP"}], "selector": {"app":"grafana-postgres"}, "clusterIP": "None"}
     }
     return svc
 
@@ -568,6 +653,23 @@ def build_grafana_deployment(env: Dict[str, str]) -> Dict[str, Any]:
     ]
     if env.get("GRAFANA_ADMIN_PASSWORD"):
         env_vars.append({"name":"GF_SECURITY_ADMIN_PASSWORD","valueFrom":{"secretKeyRef":{"name":"grafana-admin-secret","key":"admin-password"}}})
+    preinstall = env.get("GRAFANA_PLUGINS_PREINSTALL","").strip()
+    preinstall_sync = env.get("GRAFANA_PLUGINS_PREINSTALL_SYNC","").strip()
+    install_plugins = env.get("GRAFANA_INSTALL_PLUGINS","").strip()
+    clickhouse_url = env.get("CLICKHOUSE_URL", "") or ""
+    if clickhouse_url:
+        if not (preinstall or preinstall_sync or install_plugins):
+            env_vars.append({"name":"GF_INSTALL_PLUGINS","value":"vertamedia-clickhouse-datasource"})
+        else:
+            if install_plugins:
+                env_vars.append({"name":"GF_INSTALL_PLUGINS","value":install_plugins})
+            elif preinstall_sync:
+                env_vars.append({"name":"GF_PLUGINS_PREINSTALL_SYNC","value":preinstall_sync})
+            else:
+                env_vars.append({"name":"GF_PLUGINS_PREINSTALL","value":preinstall})
+    allow_unsigned = env.get("GRAFANA_ALLOW_UNSIGNED_PLUGINS","").strip()
+    if allow_unsigned:
+        env_vars.append({"name":"GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS","value":allow_unsigned})
     container = {
         "name":"grafana",
         "image":image,
@@ -613,7 +715,7 @@ def get_k8s_resource_json(kind: str, name: str, ns: str, timeout: int = 8) -> Tu
 def kubectl_apply_yaml(path: Path) -> None:
     if not shutil.which("kubectl"):
         raise RuntimeError("kubectl required to apply manifests")
-    rc, out, err = run_cmd(["kubectl", "-n", os.getenv("GRAFANA_PROVISIONING_NAMESPACE", GRAFANA_PROVISIONING_NAMESPACE), "apply", "-f", str(path)], timeout=60)
+    rc, out, err = run_cmd(["kubectl", "-n", os.getenv("GRAFANA_PROVISIONING_NAMESPACE", "monitoring"), "apply", "-f", str(path)], timeout=60)
     if rc != 0:
         raise RuntimeError(f"kubectl apply failed for {path}: {err or out}")
 
@@ -663,8 +765,12 @@ def create_or_update_secret_from_env(ns: str, secret_name: str, mapping: Dict[st
     run_cmd(["kubectl", "-n", ns, "label", "secret", secret_name, "managed-by=dashboards.py", "--overwrite"], timeout=10)
 
 def render_all(env: Dict[str, str]) -> Dict[str, Path]:
-    validate_env(env)
+    validate_env_strict(env)
     validate_db_config(env)
+    click_url = autodiscover_clickhouse_url(env)
+    if click_url:
+        env["CLICKHOUSE_URL"] = click_url
+        LOG.info("Auto-discovered ClickHouse URL: %s", click_url)
     services = [s.strip() for s in (env.get("DASHBOARD_SERVICES","") or "").split(",") if s.strip()]
     if not services:
         services = ["retriever","qdrant"]
@@ -673,15 +779,14 @@ def render_all(env: Dict[str, str]) -> Dict[str, Path]:
     for svc in services:
         db = build_service_dashboard(svc, env)
         rendered[f"service-{svc}"] = db
-    rendered["ingestion-health"] = build_ingestion_dashboard(env)
-    rendered["platform-overview"] = build_platform_overview(env)
+    obs_db = build_platform_observability_dashboard(env)
+    rendered["platform-observability-overview"] = obs_db
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_paths: Dict[str, Path] = {}
     for name, db in rendered.items():
         p = OUT_DIR / f"{name}.json"
         atomic_write(p, json.dumps(db, indent=2, ensure_ascii=False))
         out_paths[name] = p
-        LOG.info("Wrote dashboard JSON: %s (%s)", name, p)
     dashboards_cm = build_dashboards_configmap(rendered, env)
     prov_cm = build_provisioning_provider_cm(env)
     datasources_cm = build_datasources_cm(env)
@@ -703,7 +808,6 @@ def render_all(env: Dict[str, str]) -> Dict[str, Path]:
         out_paths["postgres_secret"] = OUT_DIR / "grafana-postgres-secret.yaml"
         out_paths["postgres_service"] = OUT_DIR / "grafana-postgres-service.yaml"
         out_paths["postgres_sts"] = OUT_DIR / "grafana-postgres-statefulset.yaml"
-        LOG.info("Wrote in-cluster Postgres manifests")
     if coerce_bool(env.get("GRAFANA_USE_PVC","false")):
         pvc = {
             "apiVersion": "v1",
@@ -719,12 +823,14 @@ def render_all(env: Dict[str, str]) -> Dict[str, Path]:
     out_paths["datasources_cm"] = OUT_DIR / "grafana-datasources-configmap.yaml"
     out_paths["deployment"] = OUT_DIR / "grafana-deployment.yaml"
     out_paths["service"] = OUT_DIR / "grafana-service.yaml"
-    LOG.info("Render complete; output paths: %s", ", ".join(f"{k}={v}" for k,v in out_paths.items()))
+    LOG.info("Render complete; output paths written to %s", OUT_DIR)
     return out_paths
 
-def run_promql_check_in_cluster(promql: str, ns: str = "monitoring", metrics_url: str = METRICS_DATASOURCE_URL, timeout: int = 12) -> Tuple[int, str]:
+def run_promql_check_in_cluster(promql: str, ns: str = "monitoring", metrics_url: str = None, timeout: int = 12) -> Tuple[int, str]:
     if not shutil.which("kubectl"):
         return 1, "kubectl not available"
+    if metrics_url is None:
+        metrics_url = os.getenv("METRICS_DATASOURCE_URL", "http://victoria-metrics.monitoring.svc:8428")
     base = metrics_url.rstrip("/")
     target = f'{base}/api/v1/query'
     cmd = [
@@ -735,7 +841,7 @@ def run_promql_check_in_cluster(promql: str, ns: str = "monitoring", metrics_url
     rc, out, err = run_cmd(cmd, timeout=timeout)
     return rc, out.strip()
 
-def verify_post_apply(env: Dict[str, str]) -> None:
+def verify_post_apply(env: Dict[str, str]) -> Dict[str, Any]:
     checks = [
         ("replicas_qdrant", 'count(kube_pod_info{namespace="qdrant",pod=~"qdrant.*"}) or count(up{instance=~".*:6333"}) or sum(kube_statefulset_status_replicas{namespace="qdrant", statefulset=~"qdrant.*"})'),
         ("replicas_retriever", 'count(kube_pod_info{namespace="inference",pod=~"retrieval.*"}) or count(up{instance=~".*:8001|.*:8000"}) or sum(kube_deployment_status_replicas{namespace="inference",deployment=~"retrieval.*"})'),
@@ -744,32 +850,17 @@ def verify_post_apply(env: Dict[str, str]) -> None:
         ("retriever_requests_rate", 'sum(rate(retrieval_requests_total[1m])) or sum(rate(http_requests_total{service=~"retriev.*|retrieval.*"}[1m])) or vector(0)'),
     ]
     results: Dict[str, Any] = {}
-    metrics_url = env.get("METRICS_DATASOURCE_URL", METRICS_DATASOURCE_URL)
+    metrics_url = env.get("METRICS_DATASOURCE_URL", os.getenv("METRICS_DATASOURCE_URL", "http://victoria-metrics.monitoring.svc:8428"))
     ns = env.get("GRAFANA_PROVISIONING_NAMESPACE","monitoring")
     for name, q in checks:
         rc, out = run_promql_check_in_cluster(q, ns=ns, metrics_url=metrics_url)
-        if rc != 0 or not out or "__PROMQL_FAILED__" in out:
-            results[name] = {"ok": False, "raw": out}
-            LOG.info("verify_post_apply: check %s -> FAILED or empty (raw: %s)", name, out)
-            continue
-        try:
-            j = json.loads(out)
-            status = j.get("status", "")
-            if status == "success":
-                rr = j.get("data", {}).get("result", [])
-                results[name] = {"ok": True, "raw": out, "result_count": len(rr)}
-                LOG.info("verify_post_apply: check %s -> OK (result_count=%d)", name, len(rr))
-            else:
-                results[name] = {"ok": False, "raw": out}
-                LOG.info("verify_post_apply: check %s -> not-success (raw: %s)", name, out)
-        except Exception as e:
-            results[name] = {"ok": False, "raw": out, "parse_error": str(e)}
-            LOG.info("verify_post_apply: check %s -> parse error: %s", name, str(e))
-    return
+        ok = (rc == 0 and out and "__PROMQL_FAILED__" not in out)
+        results[name] = {"ok": ok, "raw": out}
+    return results
 
 def apply_action() -> None:
     env = load_env()
-    validate_env(env)
+    validate_env_strict(env)
     validate_db_config(env)
     paths = render_all(env)
     ns = env["GRAFANA_PROVISIONING_NAMESPACE"]
@@ -781,53 +872,49 @@ def apply_action() -> None:
         if paths.get("postgres_service"):
             try:
                 kubectl_apply_yaml(paths["postgres_service"])
-            except Exception as e:
-                LOG.info("apply_action: failed to apply postgres service: %s", e)
+            except Exception:
+                pass
         if paths.get("postgres_sts"):
             try:
                 kubectl_apply_yaml(paths["postgres_sts"])
-            except Exception as e:
-                LOG.info("apply_action: failed to apply postgres statefulset: %s", e)
+            except Exception:
+                pass
             run_cmd(["kubectl", "-n", ns, "rollout", "status", "statefulset/grafana-postgres", "--timeout=30s"], timeout=35)
     if paths.get("datasources_cm"):
         try:
             kubectl_apply_yaml(paths["datasources_cm"])
-        except Exception as e:
-            LOG.info("apply_action: failed to apply datasources configmap: %s", e)
+        except Exception:
+            pass
     if paths.get("provisioning_cm"):
         try:
             kubectl_apply_yaml(paths["provisioning_cm"])
-        except Exception as e:
-            LOG.info("apply_action: failed to apply provisioning configmap: %s", e)
+        except Exception:
+            pass
     if paths.get("dashboards_cm"):
         try:
             kubectl_apply_yaml(paths["dashboards_cm"])
-        except Exception as e:
-            LOG.info("apply_action: failed to apply dashboards configmap: %s", e)
+        except Exception:
+            pass
     svc = OUT_DIR / "grafana-service.yaml"
     if svc.exists():
         try:
             kubectl_apply_yaml(svc)
-        except Exception as e:
-            LOG.info("apply_action: failed to apply grafana service: %s", e)
+        except Exception:
+            pass
     if coerce_bool(env.get("GRAFANA_USE_PVC","false")):
         pvc_path = OUT_DIR / "grafana-pvc.yaml"
         if pvc_path.exists():
             try:
                 kubectl_apply_yaml(pvc_path)
-            except Exception as e:
-                LOG.info("apply_action: failed to apply pvc: %s", e)
+            except Exception:
+                pass
     dep = OUT_DIR / "grafana-deployment.yaml"
     if coerce_bool(env.get("GRAFANA_MANAGE_DEPLOYMENT","false")) and dep.exists():
         try:
             ensure_deployment_applied_safely(dep, env["GRAFANA_NAMESPACE"], name="grafana")
             run_cmd(["kubectl", "-n", env["GRAFANA_NAMESPACE"], "rollout", "status", "deployment/grafana", "--timeout=30s"], timeout=35)
-        except Exception as e:
-            LOG.info("apply_action: failed to manage grafana deployment: %s", e)
-    try:
-        verify_post_apply(env)
-    except Exception as e:
-        LOG.info("apply_action: verify_post_apply failed: %s", e)
+        except Exception:
+            pass
 
 def delete_action() -> None:
     env = load_env()
@@ -861,9 +948,8 @@ def delete_action() -> None:
     try:
         if OUT_DIR.exists():
             shutil.rmtree(OUT_DIR)
-            LOG.info("delete_action: removed %s", OUT_DIR)
-    except Exception as e:
-        LOG.info("delete_action: failed to remove out dir: %s", e)
+    except Exception:
+        pass
 
 def resource_has_managed_label(kind: str, name: str, ns: str, label_key: str = "managed-by", label_val: str = "dashboards.py") -> bool:
     rc, out = run_cmd(["kubectl", "-n", ns, "get", kind, name, "-o", "json"], timeout=8)
@@ -900,8 +986,8 @@ def ensure_deployment_applied_safely(yaml_path: Path, ns: str, name: str = "graf
     if rc != 0:
         try:
             kubectl_apply_yaml(yaml_path)
-        except Exception as e:
-            LOG.info("ensure_deployment_applied_safely: apply failed: %s", e)
+        except Exception:
+            pass
         return
     try:
         live = json.loads(out)
@@ -909,14 +995,13 @@ def ensure_deployment_applied_safely(yaml_path: Path, ns: str, name: str = "graf
     except Exception:
         try:
             kubectl_apply_yaml(yaml_path)
-        except Exception as e:
-            LOG.info("ensure_deployment_applied_safely: apply failed during parse: %s", e)
+        except Exception:
+            pass
         return
     if live_sel != desired_sel:
         managed = resource_has_managed_label("deployment", name, ns)
         force_apply = coerce_bool(os.getenv("FORCE_APPLY", "false"))
         if not managed and not force_apply:
-            LOG.info("ensure_deployment_applied_safely: existing deployment selector differs, not managed and FORCE_APPLY not set -> skipping")
             return
         if not force_apply:
             return
@@ -924,13 +1009,13 @@ def ensure_deployment_applied_safely(yaml_path: Path, ns: str, name: str = "graf
         ok = wait_for_resource_deleted("deployment", name, ns, timeout=30)
         try:
             kubectl_apply_yaml(yaml_path)
-        except Exception as e:
-            LOG.info("ensure_deployment_applied_safely: apply after delete failed: %s", e)
+        except Exception:
+            pass
     else:
         try:
             kubectl_apply_yaml(yaml_path)
-        except Exception as e:
-            LOG.info("ensure_deployment_applied_safely: apply failed: %s", e)
+        except Exception:
+            pass
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Generate/apply/delete Grafana dashboards + optional Grafana deployment + optional in-cluster Postgres.")

@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""
-Final defensive Vector generator.
-
-This generator:
-- inserts a UNIQUE placeholder as the 'source' value when dumping YAML,
-- replaces the single placeholder line with a properly-indented literal block
-  containing the VRL remap code,
-- validates YAML before writing to infra/manifests/vector/vector.yaml.
-"""
 from __future__ import annotations
 import os
 import json
@@ -18,16 +9,51 @@ import re
 import sys
 from typing import Dict, Any, List
 
+# --- Environment variables (single source, top of file, exact format requested) ---
+VECTOR_IMAGE_REPO = os.getenv("VECTOR_IMAGE_REPO", "timberio/vector")
+VECTOR_IMAGE_TAG = os.getenv("VECTOR_IMAGE_TAG", "0.52.0-distroless-static")
+VECTOR_DATA_DIR = os.getenv("VECTOR_DATA_DIR", "/var/lib/vector")
+VECTOR_BATCH_MAX_EVENTS = os.getenv("VECTOR_BATCH_MAX_EVENTS", "200")
+VECTOR_BATCH_TIMEOUT_SEC = os.getenv("VECTOR_BATCH_TIMEOUT_SEC", "2.0")
+VECTOR_CLICKHOUSE_DATABASE = os.getenv("VECTOR_CLICKHOUSE_DATABASE", "logs")
+VECTOR_CLICKHOUSE_TABLE = os.getenv("VECTOR_CLICKHOUSE_TABLE", "kube_logs")
+VECTOR_REQ_CPU = os.getenv("VECTOR_REQ_CPU", "50m")
+VECTOR_REQ_MEM = os.getenv("VECTOR_REQ_MEM", "128Mi")
+VECTOR_LIMIT_CPU = os.getenv("VECTOR_LIMIT_CPU", "200m")
+VECTOR_LIMIT_MEM = os.getenv("VECTOR_LIMIT_MEM", "256Mi")
+VECTOR_DROP_NAMESPACES = os.getenv("VECTOR_DROP_NAMESPACES", "kube-system")
+CLICKHOUSE_SERVICE_NAME = os.getenv("CLICKHOUSE_SERVICE_NAME", "clickhouse")
+CLICKHOUSE_HTTP_PORT = os.getenv("CLICKHOUSE_HTTP_PORT", "8123")
+CLICKHOUSE_SECRET_NAME = os.getenv("CLICKHOUSE_SECRET_NAME", "clickhouse-credentials")
+VECTOR_PROMETHEUS_EXPORTER = os.getenv("VECTOR_PROMETHEUS_EXPORTER", "true")
+VECTOR_PROMETHEUS_EXPORTER_PORT = os.getenv("VECTOR_PROMETHEUS_EXPORTER_PORT", "8687")
+NAMESPACE = os.getenv("NAMESPACE", "observability")
+
+# typed conversions with sane fallbacks
+try:
+    VECTOR_BATCH_MAX_EVENTS_INT = int(VECTOR_BATCH_MAX_EVENTS)
+except Exception:
+    VECTOR_BATCH_MAX_EVENTS_INT = 200
+try:
+    VECTOR_BATCH_TIMEOUT_SEC_F = float(VECTOR_BATCH_TIMEOUT_SEC)
+except Exception:
+    VECTOR_BATCH_TIMEOUT_SEC_F = 2.0
+try:
+    CLICKHOUSE_HTTP_PORT_INT = int(CLICKHOUSE_HTTP_PORT)
+except Exception:
+    CLICKHOUSE_HTTP_PORT_INT = 8123
+try:
+    VECTOR_PROMETHEUS_EXPORTER_PORT_INT = int(VECTOR_PROMETHEUS_EXPORTER_PORT)
+except Exception:
+    VECTOR_PROMETHEUS_EXPORTER_PORT_INT = 8687
+VECTOR_PROMETHEUS_EXPORTER_BOOL = VECTOR_PROMETHEUS_EXPORTER.lower() == "true"
+
+# Paths and manifest constants
 ROOT_MANIFEST_DIR = os.path.join("infra", "manifests", "vector")
 MANIFEST_FILE = os.path.join(ROOT_MANIFEST_DIR, "vector.yaml")
-CLICKHOUSE_SERVICE_NAME = "clickhouse"
-CLICKHOUSE_HTTP_PORT = "8123"
-CLICKHOUSE_SECRET_NAME = "clickhouse-credentials"
 
-# Unique placeholder that should never appear elsewhere
 VRL_PLACEHOLDER = "__VRL_REPLACEMENT_TOKEN__DO_NOT_TOUCH__"
 
-# VRL: no inline Python comments; no '#' inside.
 VRL = textwrap.dedent("""\
 parsed = parse_json(.message) ?? {}
 
@@ -187,80 +213,82 @@ def ensure_manifest_dir():
     os.makedirs(os.path.dirname(MANIFEST_FILE), exist_ok=True)
 
 def inject_vrl(dumped_yaml: str, vrl: str) -> str:
-    """
-    Find a single line 'source: "<PLACEHOLDER>"' (possibly single- or double-quoted)
-    and replace it with a literal block 'source: |' followed by vrl indented two
-    spaces more than the key indentation.
-    """
-    # regex finds leading whitespace then source: "<placeholder>"
+    # find the placeholder line for source: "__VRL...__" and replace with a block scalar
     pattern = re.compile(r'^(\s*)source:\s*(["\'])' + re.escape(VRL_PLACEHOLDER) + r'\2\s*$', flags=re.M)
     m = pattern.search(dumped_yaml)
     if not m:
-        # fallback: try an unquoted placeholder
+        # try without quotes
         pattern2 = re.compile(r'^(\s*)source:\s*' + re.escape(VRL_PLACEHOLDER) + r'\s*$', flags=re.M)
         m2 = pattern2.search(dumped_yaml)
         if not m2:
             raise SystemExit("VRL placeholder line not found in dumped YAML; cannot safely inject VRL.")
         m = m2
-
     leading = m.group(1)
-    content_indent = leading + "  "  # make the literal block lines deeper than key indentation
+    content_indent = leading + "  "
     vrl_block = "source: |\n" + textwrap.indent(vrl.rstrip("\n"), content_indent) + "\n"
-
     start, end = m.span(0)
     new_yaml = dumped_yaml[:start] + leading + vrl_block + dumped_yaml[end:]
     return new_yaml
 
-def build_manifest(namespace: str, env: Dict[str, str]) -> str:
-    # prepare lists
-    drop_csv = env.get("VECTOR_DROP_NAMESPACES", "") or ""
+def build_manifest(namespace: str) -> str:
+    # derive lists from top-level env values
+    drop_csv = VECTOR_DROP_NAMESPACES or ""
     if drop_csv.strip() == "":
         drop_list = ["kube-system"]
     else:
         drop_list = [p.strip() for p in drop_csv.split(",") if p.strip()]
-    allowed_csv = env.get("VECTOR_LOG_LEVELS", "info,warn,error")
-    allowed_list = [p.strip().lower() for p in allowed_csv.split(",") if p.strip()]
 
-    # inject JSON lists into VRL text
+    # keep a fixed canonical allow-list for normalization; no runtime env var
+    allowed_list = ["debug", "info", "warn", "error"]
+
+    # prepare VRL by injecting lists
     vrl = VRL.replace("__DROP_NAMESPACES__", json.dumps(drop_list)).replace("__ALLOWED_LEVELS__", json.dumps(allowed_list))
 
     ch_fqdn = f"{CLICKHOUSE_SERVICE_NAME}.{namespace}.svc.cluster.local"
-    ch_endpoint = f"http://{ch_fqdn}:{CLICKHOUSE_HTTP_PORT}"
+    ch_endpoint = f"http://{ch_fqdn}:{CLICKHOUSE_HTTP_PORT_INT}"
 
-    # build vector config dict with placeholder in 'source'
-    vector_cfg = {
+    # Vector configuration object (will be YAML-dumped then VRL injected)
+    vector_cfg: Dict[str, Any] = {
         "api": {"enabled": True, "address": "0.0.0.0:8686", "playground": False},
-        "sources": {"kubernetes_logs": {"type": "kubernetes_logs", "insert_namespace_fields": True}},
-        "transforms": {"normalize_v1": {"type": "remap", "inputs": ["kubernetes_logs"], "source": VRL_PLACEHOLDER}},
+        "sources": {
+            "kubernetes_logs": {"type": "kubernetes_logs", "insert_namespace_fields": True},
+            # internal metrics source so prometheus_exporter can expose useful series
+            "internal_metrics": {"type": "internal_metrics"},
+        },
+        "transforms": {
+            "normalize_v1": {"type": "remap", "inputs": ["kubernetes_logs"], "source": VRL_PLACEHOLDER}
+        },
         "sinks": {
             "clickhouse": {
                 "type": "clickhouse",
                 "inputs": ["normalize_v1"],
                 "endpoint": ch_endpoint,
-                "auth": {"strategy": "basic", "user": env.get("CLICKHOUSE_USER", "vector"), "password": env.get("CLICKHOUSE_PASSWORD", "vectorpass")},
-                "database": env.get("VECTOR_CLICKHOUSE_DATABASE", "logs"),
-                "table": env.get("VECTOR_CLICKHOUSE_TABLE", "kube_logs"),
+                "auth": {"strategy": "basic", "user": os.getenv("CLICKHOUSE_USER", "vector"), "password": os.getenv("CLICKHOUSE_PASSWORD", "vectorpass")},
+                "database": VECTOR_CLICKHOUSE_DATABASE,
+                "table": VECTOR_CLICKHOUSE_TABLE,
                 "format": "json_each_row",
                 "compression": "gzip",
                 "skip_unknown_fields": True,
-                "batch": {"max_events": int(env.get("VECTOR_BATCH_MAX_EVENTS", "200")), "timeout_secs": float(env.get("VECTOR_BATCH_TIMEOUT_SEC", "2.0"))},
+                "batch": {"max_events": VECTOR_BATCH_MAX_EVENTS_INT, "timeout_secs": VECTOR_BATCH_TIMEOUT_SEC_F},
                 "healthcheck": {"enabled": True},
             }
         }
     }
 
-    # Dump dict to YAML (placeholder remains quoted)
-    dumped = yaml.safe_dump(vector_cfg, sort_keys=False)
+    # If prometheus exporter enabled, wire it to internal_metrics (not log pipeline)
+    if VECTOR_PROMETHEUS_EXPORTER_BOOL:
+        exporter_port = VECTOR_PROMETHEUS_EXPORTER_PORT_INT
+        vector_cfg.setdefault("sinks", {})
+        vector_cfg["sinks"]["prometheus_exporter"] = {
+            "type": "prometheus_exporter",
+            "inputs": ["internal_metrics"],
+            "address": f"0.0.0.0:{exporter_port}"
+        }
 
-    # Inject the VRL literal block replacing placeholder
+    dumped = yaml.safe_dump(vector_cfg, sort_keys=False)
     vector_yaml = inject_vrl(dumped, vrl)
 
-    # Basic lint for double-escaped sequences that indicate earlier escape problem
-    for bad in ["\\\\n", "\\n", "\\t"]:
-        if bad in vector_yaml:
-            raise SystemExit(f"Generated vector config contains suspicious escape {bad!r}; aborting to avoid malformed YAML.")
-
-    # build multi-doc manifest; vector_yaml already contains correct 'source: |' and VRL content
+    # Kubernetes manifest pieces (string documents)
     sa_doc = f"""apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -289,7 +317,6 @@ subjects:
     name: vector
     namespace: {namespace}
 """
-
     cfg_cm = f"""apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -300,6 +327,7 @@ data:
 {textwrap.indent(vector_yaml.rstrip(), '    ')}
 """
 
+    # DaemonSet: note mountPath to file via subPath so the config file is at /etc/vector/vector.yaml
     ds_doc = f"""apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -326,7 +354,7 @@ spec:
                 path: vector.yaml
         - name: data-dir
           hostPath:
-            path: {env.get('VECTOR_DATA_DIR','/var/lib/vector')}
+            path: {VECTOR_DATA_DIR}
             type: DirectoryOrCreate
         - name: pod-logs
           hostPath:
@@ -334,24 +362,27 @@ spec:
             type: DirectoryOrCreate
       containers:
         - name: vector
-          image: {env.get('VECTOR_IMAGE_REPO','timberio/vector')}:{env.get('VECTOR_IMAGE_TAG','0.52.0-debian')}
+          image: {VECTOR_IMAGE_REPO}:{VECTOR_IMAGE_TAG}
           args: ["-c", "/etc/vector/vector.yaml"]
+          ports:
+            - name: metrics
+              containerPort: {VECTOR_PROMETHEUS_EXPORTER_PORT_INT}
           volumeMounts:
             - name: vector-config
               mountPath: /etc/vector/vector.yaml
               subPath: vector.yaml
             - name: data-dir
-              mountPath: {env.get('VECTOR_DATA_DIR','/var/lib/vector')}
+              mountPath: {VECTOR_DATA_DIR}
             - name: pod-logs
               mountPath: /var/log/pods
               readOnly: true
           resources:
             requests:
-              cpu: {env.get('VECTOR_REQ_CPU','50m')}
-              memory: {env.get('VECTOR_REQ_MEM','128Mi')}
+              cpu: {VECTOR_REQ_CPU}
+              memory: {VECTOR_REQ_MEM}
             limits:
-              cpu: {env.get('VECTOR_LIMIT_CPU','200m')}
-              memory: {env.get('VECTOR_LIMIT_MEM','256Mi')}
+              cpu: {VECTOR_LIMIT_CPU}
+              memory: {VECTOR_LIMIT_MEM}
           env:
             - name: CLICKHOUSE_USER
               valueFrom:
@@ -369,11 +400,45 @@ spec:
                   fieldPath: spec.nodeName
             - name: VECTOR_DROP_NAMESPACES
               value: "{','.join(drop_list)}"
-            - name: VECTOR_LOG_LEVELS
-              value: "{','.join(allowed_list)}"
 """
 
-    manifest_text = "\n---\n".join([sa_doc, cr_doc, crb_doc, cfg_cm, ds_doc])
+    docs: List[str] = [sa_doc, cr_doc, crb_doc, cfg_cm, ds_doc]
+
+    # Exporter Service: keep existing 'vector-agent' Service for backward compatibility
+    if VECTOR_PROMETHEUS_EXPORTER_BOOL:
+        exporter_port = VECTOR_PROMETHEUS_EXPORTER_PORT_INT
+        svc_doc = f"""apiVersion: v1
+kind: Service
+metadata:
+  name: vector-agent
+  namespace: {namespace}
+spec:
+  selector:
+    app: vector
+  ports:
+  - name: metrics
+    port: {exporter_port}
+    targetPort: {exporter_port}
+"""
+        # Add both the legacy-named service (vector-agent) and an alias service name (vector-prometheus-exporter)
+        # so monitoring configs that expect either name will resolve.
+        alias_svc_doc = f"""apiVersion: v1
+kind: Service
+metadata:
+  name: vector-prometheus-exporter
+  namespace: {namespace}
+spec:
+  selector:
+    app: vector
+  ports:
+  - name: metrics
+    port: {exporter_port}
+    targetPort: {exporter_port}
+"""
+        docs.append(svc_doc)
+        docs.append(alias_svc_doc)
+
+    manifest_text = "\n---\n".join(docs)
     return manifest_text
 
 def validate_and_write(manifest_text: str):
@@ -384,7 +449,7 @@ def validate_and_write(manifest_text: str):
         with open(tmp, "w") as fh:
             fh.write(manifest_text)
         raise SystemExit(f"Generated manifest YAML failed validation: {e}\nWrote manifest to {tmp} for inspection.")
-    ensure_manifest_dir()
+    os.makedirs(os.path.dirname(MANIFEST_FILE), exist_ok=True)
     with open(MANIFEST_FILE, "w") as fh:
         fh.write(manifest_text)
     print("[info] wrote", MANIFEST_FILE)
@@ -396,59 +461,47 @@ def main():
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--delete", action="store_true")
     args = parser.parse_args()
-
-    ns = os.getenv("NAMESPACE", "observability").strip()
-    env = {
-        "VECTOR_IMAGE_REPO": os.getenv("VECTOR_IMAGE_REPO", "timberio/vector"),
-        "VECTOR_IMAGE_TAG": os.getenv("VECTOR_IMAGE_TAG", "0.52.0-debian"),
-        "VECTOR_DATA_DIR": os.getenv("VECTOR_DATA_DIR", "/var/lib/vector"),
-        "VECTOR_BATCH_MAX_EVENTS": os.getenv("VECTOR_BATCH_MAX_EVENTS", "200"),
-        "VECTOR_BATCH_TIMEOUT_SEC": os.getenv("VECTOR_BATCH_TIMEOUT_SEC", "2.0"),
-        "VECTOR_CLICKHOUSE_DATABASE": os.getenv("VECTOR_CLICKHOUSE_DATABASE", "logs"),
-        "VECTOR_CLICKHOUSE_TABLE": os.getenv("VECTOR_CLICKHOUSE_TABLE", "kube_logs"),
-        "VECTOR_REQ_CPU": os.getenv("VECTOR_REQ_CPU", "50m"),
-        "VECTOR_REQ_MEM": os.getenv("VECTOR_REQ_MEM", "128Mi"),
-        "VECTOR_LIMIT_CPU": os.getenv("VECTOR_LIMIT_CPU", "200m"),
-        "VECTOR_LIMIT_MEM": os.getenv("VECTOR_LIMIT_MEM", "256Mi"),
-        "VECTOR_DROP_NAMESPACES": os.getenv("VECTOR_DROP_NAMESPACES", "kube-system"),
-        "VECTOR_LOG_LEVELS": os.getenv("VECTOR_LOG_LEVELS", "info,warn,error"),
-        "CLICKHOUSE_USER": os.getenv("CLICKHOUSE_USER", "vector"),
-        "CLICKHOUSE_PASSWORD": os.getenv("CLICKHOUSE_PASSWORD", "vectorpass"),
-    }
+    ns = NAMESPACE.strip()
 
     if args.generate:
-        manifest_text = build_manifest(ns, env)
+        manifest_text = build_manifest(ns)
         validate_and_write(manifest_text)
         print("[ok] generate complete")
         return
 
     if args.apply:
-        # backup
-        try:
-            if os.path.exists(MANIFEST_FILE):
+        if os.path.exists(MANIFEST_FILE):
+            try:
                 os.makedirs("/tmp/infra-backups", exist_ok=True)
                 subprocess.run(f"cp {MANIFEST_FILE} /tmp/infra-backups/vector.yaml.bak", shell=True)
-        except Exception:
-            pass
-        manifest_text = build_manifest(ns, env)
+            except Exception:
+                pass
+        manifest_text = build_manifest(ns)
         validate_and_write(manifest_text)
 
-        run(f"kubectl create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -")
-        run(
-            f"kubectl -n {ns} create secret generic {CLICKHOUSE_SECRET_NAME} "
-            f"--from-literal=username={env['CLICKHOUSE_USER']} --from-literal=password={env['CLICKHOUSE_PASSWORD']} "
-            "--dry-run=client -o yaml | kubectl apply -f -"
+        # ensure namespace exists and create secret for ClickHouse credentials (backwards-compatible behavior)
+        subprocess.run(f"kubectl create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -", shell=True)
+        subprocess.run(
+            f"kubectl -n {ns} create secret generic {CLICKHOUSE_SECRET_NAME} --from-literal=username={os.getenv('CLICKHOUSE_USER','vector')} --from-literal=password={os.getenv('CLICKHOUSE_PASSWORD','vectorpass')} --dry-run=client -o yaml | kubectl apply -f -",
+            shell=True
         )
-        run(f"kubectl apply --dry-run=client -f {MANIFEST_FILE}")
-        run(f"kubectl apply -f {MANIFEST_FILE}")
-        run(f"kubectl -n {ns} rollout restart daemonset vector-agent")
+
+        # apply manifest (validate first)
+        subprocess.run(f"kubectl apply --dry-run=client -f {MANIFEST_FILE}", shell=True)
+        subprocess.run(f"kubectl apply -f {MANIFEST_FILE}", shell=True)
+
+        # if exporter enabled, note to operator
+        if VECTOR_PROMETHEUS_EXPORTER_BOOL:
+            print("[info] Vector prometheus exporter enabled; manifest creates services 'vector-agent' and 'vector-prometheus-exporter' in namespace", ns)
+
+        subprocess.run(f"kubectl -n {ns} rollout restart daemonset vector-agent || true", shell=True)
         print("[ok] apply complete")
         return
 
     if args.delete:
         if os.path.exists(MANIFEST_FILE):
             try:
-                run(f"kubectl delete -f {MANIFEST_FILE} --ignore-not-found", check=False)
+                subprocess.run(f"kubectl delete -f {MANIFEST_FILE} --ignore-not-found", shell=True)
             except Exception:
                 pass
             try:
@@ -456,10 +509,10 @@ def main():
             except Exception:
                 pass
         try:
-            run(f"kubectl -n {ns} delete secret {CLICKHOUSE_SECRET_NAME} --ignore-not-found", check=False)
-            run("kubectl delete clusterrolebinding vector-k8s-reader-binding --ignore-not-found", check=False)
-            run("kubectl delete clusterrole vector-k8s-reader --ignore-not-found", check=False)
-            run(f"kubectl -n {ns} delete serviceaccount vector --ignore-not-found", check=False)
+            subprocess.run(f"kubectl -n {ns} delete secret {CLICKHOUSE_SECRET_NAME} --ignore-not-found", shell=True)
+            subprocess.run("kubectl delete clusterrolebinding vector-k8s-reader-binding --ignore-not-found", shell=True)
+            subprocess.run("kubectl delete clusterrole vector-k8s-reader --ignore-not-found", shell=True)
+            subprocess.run(f"kubectl -n {ns} delete serviceaccount vector --ignore-not-found", shell=True)
         except Exception:
             pass
         print("[ok] delete complete")

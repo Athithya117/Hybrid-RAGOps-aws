@@ -24,8 +24,10 @@ from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTEN
 import query_helpers as helpers
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(stream=sys.stdout, level=getattr(logging, LOG_LEVEL, logging.INFO))
-logger = logging.getLogger("inference_pipeline.query")
+logging.basicConfig(stream=sys.stderr, level=getattr(logging, LOG_LEVEL, logging.INFO))
+root_logger = logging.getLogger("inference_pipeline.query")
+# Ensure library logging doesn't propagate unexpectedly (keeps stderr deterministic)
+root_logger.propagate = False
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant.qdrant.svc.cluster.local:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
@@ -40,27 +42,11 @@ API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv(
 LLM_MODEL = os.getenv("LLM_MODEL", "llama-3.1-8b-instant")
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "512"))
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))
-
-LLM_SYSTEM_PROMPT = os.getenv(
-    "You are an assistant that must base all factual claims ONLY on the provided numbered passages. Each factual sentence MUST end with a citation in the exact format [n], where n corresponds to one of the numbered passage blocks. Use ONLY the provided passage numbers. Do NOT output filenames, URLs, page numbers, or any other metadata. Do NOT invent citations.")
-
-LLM_USER_PROMPT_TEMPLATE = os.getenv(
-    "LLM_USER_PROMPT_TEMPLATE",
-    """Summarize the following retrieved passages and answer the question in 2-3 sentences.
-
-PASSAGES:
-{passages}
-
-QUESTION: {question}
-
-Answer:"""
-)
-
-
+LLM_SYSTEM_PROMPT = os.getenv("LLM_SYSTEM_PROMPT", "You are an assistant that must base all factual claims ONLY on the provided numbered passages. Each factual sentence MUST end with a citation in the exact format [n].")
+LLM_USER_PROMPT_TEMPLATE = os.getenv("LLM_USER_PROMPT_TEMPLATE", "Summarize the following retrieved passages and answer the question in 2-3 sentences.\n\nPASSAGES:\n{passages}\n\nQUESTION: {question}\n\nAnswer:")
 MAX_PROMPT_TOKENS = int(os.getenv("MAX_PROMPT_TOKENS", "6000"))
-
 RERANKER_MODE = os.getenv("RERANKER_MODE", helpers.RERANKER_MODE if hasattr(helpers, "RERANKER_MODE") else "AUTO").upper()
-RERANK_TOPK = int(os.getenv("RERANK_TOPK", os.getenv("RERANKER_TOP_K", str(getattr(helpers, "RERANK_TOPK", 20)))))
+RERANK_TOPK = int(os.getenv("RERANK_TOPK", str(getattr(helpers, "RERANK_TOPK", 20))))
 RERANKER_TOP_K = RERANK_TOPK
 RERANK_AUTO_THRESHOLD = float(os.getenv("RERANK_AUTO_THRESHOLD", str(getattr(helpers, "RERANK_AUTO_THRESHOLD", 0.75))))
 RERANK_THRESHOLD = int(os.getenv("RERANK_THRESHOLD", str(getattr(helpers, "RERANK_THRESHOLD", 30))))
@@ -70,41 +56,46 @@ MAX_CHUNKS_TO_LLM = int(os.getenv("MAX_CHUNKS_TO_LLM", str(getattr(helpers, "MAX
 QUERY_TOPK_DENSE = int(os.getenv("QUERY_TOPK_DENSE", str(getattr(helpers, "QUERY_TOPK_DENSE", 200))))
 QUERY_TOPK_SPARSE = int(os.getenv("QUERY_TOPK_SPARSE", str(getattr(helpers, "QUERY_TOPK_SPARSE", 200))))
 RRF_TOP_N = int(os.getenv("RRF_TOP_N", str(getattr(helpers, "RRF_TOP_N", 10))))
-
 ENV = os.getenv("ENV", "STAGING").upper()
-SERVICE_NAME = "retrieval"
-
+SERVICE_NAME = os.getenv("SERVICE_NAME", "retrieval").strip()
+if not SERVICE_NAME:
+    raise RuntimeError("SERVICE_NAME must be set and non-empty at process start")
 LABELS = ["service", "env", "endpoint", "status_code"]
 REQUEST_COUNT = Counter("retrieval_requests_total", "Total HTTP requests served by retrieval", LABELS)
-REQUEST_LATENCY = Histogram("retrieval_request_duration_seconds", "Request latency (seconds) observed by retrieval", LABELS, buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0))
+REQUEST_LATENCY = Histogram("retrieval_request_duration_seconds", "Request latency (seconds) observed by retrieval", LABELS, buckets=(0.005,0.01,0.025,0.05,0.1,0.25,0.5,1.0,2.5,5.0,10.0))
 ERROR_COUNT = Counter("retrieval_errors_total", "Retrieval error counts", LABELS)
 SERVICE_READY = Gauge("service_ready", "Service readiness (1=ready, 0=not ready)", ["service", "env"])
 SERVICE_READY.labels(service=SERVICE_NAME, env=ENV).set(0)
 DENSE_EMBED_COUNT = Counter("dense_embed_requests_total", "Dense embed requests", ["service", "env"])
-DENSE_EMBED_LATENCY = Histogram("dense_embed_duration_seconds", "Dense embed latency", ["service", "env"], buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0))
+DENSE_EMBED_LATENCY = Histogram("dense_embed_duration_seconds", "Dense embed latency", ["service", "env"], buckets=(0.001,0.005,0.01,0.025,0.05,0.1,0.25,0.5,1.0,2.5,5.0))
 SPARSE_EMBED_COUNT = Counter("sparse_embed_requests_total", "Sparse embed requests", ["service", "env"])
-SPARSE_EMBED_LATENCY = Histogram("sparse_embed_duration_seconds", "Sparse embed latency", ["service", "env"], buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5))
+SPARSE_EMBED_LATENCY = Histogram("sparse_embed_duration_seconds", "Sparse embed latency", ["service", "env"], buckets=(0.001,0.005,0.01,0.025,0.05,0.1,0.25,0.5,1.0,2.5))
 QDRANT_QUERY_COUNT = Counter("qdrant_query_total", "Qdrant queries issued", ["service", "env"])
-QDRANT_QUERY_LATENCY = Histogram("qdrant_query_duration_seconds", "Qdrant query latency", ["service", "env"], buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0))
+QDRANT_QUERY_LATENCY = Histogram("qdrant_query_duration_seconds", "Qdrant query latency", ["service", "env"], buckets=(0.001,0.005,0.01,0.025,0.05,0.1,0.25,0.5,1.0,2.5,5.0))
 LLM_CALL_COUNT = Counter("llm_calls_total", "LLM calls", ["service", "env"])
-LLM_CALL_LATENCY = Histogram("llm_call_duration_seconds", "LLM call latency", ["service", "env"], buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0))
+LLM_CALL_LATENCY = Histogram("llm_call_duration_seconds", "LLM call latency", ["service", "env"], buckets=(0.01,0.05,0.1,0.25,0.5,1.0,2.5,5.0,10.0))
 PRESIGN_COUNT = Counter("presign_requests_total", "Presign requests", ["service", "env"])
 PRESIGN_LATENCY = Histogram("presign_duration_seconds", "Presign latency", ["service", "env"])
-RETRIEVED_DOCS = Histogram("retrieved_docs_count", "Number of docs retrieved per request", ["service", "env"], buckets=(0, 1, 2, 5, 10, 20, 50))
-RERANK_LATENCY = Histogram("rerank_duration_seconds", "Reranker latency", ["service", "env"], buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5))
-
+RETRIEVED_DOCS = Histogram("retrieved_docs_count", "Number of docs retrieved per request", ["service", "env"], buckets=(0,1,2,5,10,20,50))
+RERANK_LATENCY = Histogram("rerank_duration_seconds", "Reranker latency", ["service", "env"], buckets=(0.001,0.005,0.01,0.025,0.05,0.1,0.25,0.5,1.0,2.5))
 dense_client: Optional["AsyncDenseClient"] = None
 sparse_client: Optional["AsyncSparseClient"] = None
 reranker_client: Optional["AsyncRerankerClient"] = None
 qdrant_client: Optional[QdrantClient] = None
-
 ui_helpers = helpers
 SHUTDOWN = False
 background_task: Optional[asyncio.Task] = None
 health_state = {"qdrant": False, "dense": False, "sparse": False, "reranker": False, "ready": False}
 
+# Logging level numeric mapping for source-side gating
+_LEVEL_ORDER = {"debug": 10, "info": 20, "warn": 30, "error": 40}
+# Normalize the configured LOG_LEVEL into canonical lower-case (fallback to info)
+_configured_log_level = LOG_LEVEL.lower()
+if _configured_log_level not in _LEVEL_ORDER:
+    _configured_log_level = "info"
+
 def iso_ts():
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 def _escape_stack(exc: Exception) -> str:
     if exc is None:
@@ -113,15 +104,49 @@ def _escape_stack(exc: Exception) -> str:
     return tb.replace("\n", "\\n")
 
 def _json_log(level: str, evt: str, **kw):
-    entry = {"timestamp": iso_ts(), "level": level.upper(), "message": evt, "service": SERVICE_NAME, "env": ENV}
-    if level.lower() == "info":
-        payload = {k: v for k, v in kw.items() if k in ("status", "service", "env")}
-        if payload:
-            entry["fields"] = payload
-        logger.log(getattr(logging, level.upper(), logging.INFO), json.dumps(entry, ensure_ascii=False, separators=(",", ":")))
-        return
-    entry["fields"] = kw if kw else {}
-    logger.log(getattr(logging, level.upper(), logging.INFO), json.dumps(entry, ensure_ascii=False, separators=(",", ":")))
+    if not isinstance(evt, str):
+        try:
+            evt = str(evt)
+        except Exception:
+            evt = ""
+    lvl = (level or "").strip().lower()
+    if lvl == "warning":
+        lvl = "warn"
+    if lvl == "err" or lvl == "fatal" or lvl == "critical":
+        lvl = "error"
+    if lvl not in ("debug", "info", "warn", "error"):
+        lvl = "info"
+
+    # Enforce source-side LOG_LEVEL gating (critical fix for contract)
+    try:
+        if _LEVEL_ORDER.get(lvl, 20) < _LEVEL_ORDER.get(_configured_log_level, 20):
+            # suppressed due to configured LOG_LEVEL
+            return
+    except Exception:
+        # Fail-safe: if mapping fails, allow log to proceed
+        pass
+
+    event: Dict[str, Any] = {
+        "timestamp": iso_ts(),
+        "level": lvl,
+        "message": evt,
+        "service": SERVICE_NAME,
+        "env": ENV,
+    }
+    if kw:
+        for k, v in kw.items():
+            if k in ("timestamp", "level", "message", "service"):
+                continue
+            event[k] = v
+    try:
+        sys.stdout.write(json.dumps(event, separators=(",", ":"), ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+    except Exception as e:
+        try:
+            # Fallback: write a concise error to stderr via python logging
+            root_logger.error("failed_to_emit_json_log: %s", str(e))
+        except Exception:
+            pass
 
 signal.signal(signal.SIGINT, lambda s, f: setattr(sys.modules[__name__], "SHUTDOWN", True))
 signal.signal(signal.SIGTERM, lambda s, f: setattr(sys.modules[__name__], "SHUTDOWN", True))
@@ -149,7 +174,7 @@ class AsyncDenseClient:
             _json_log("debug", "dense.health", url=self.url, status=r.status_code)
             return r.status_code == 200
         except Exception as e:
-            _json_log("warning", "dense.health.error", error=str(e))
+            _json_log("warn", "dense.health.error", error=str(e))
             return False
     async def embed(self, texts: List[str]) -> List[List[float]]:
         if not texts:
@@ -196,7 +221,7 @@ class AsyncSparseClient:
             _json_log("debug", "sparse.health", url=self.url, status=r.status_code)
             return r.status_code == 200
         except Exception as e:
-            _json_log("warning", "sparse.health.error", error=str(e))
+            _json_log("warn", "sparse.health.error", error=str(e))
             return False
     async def embed_chunked(self, texts: List[str]) -> List[Dict[str, Any]]:
         if not texts:
@@ -234,7 +259,7 @@ class AsyncSparseClient:
                         _json_log("debug", "sparse.batch.split", original=len(texts), split_to=maxb)
                         return out
                 except Exception as e:
-                    _json_log("warning", "sparse.batch.split.failed", error=str(e))
+                    _json_log("warn", "sparse.batch.split.failed", error=str(e))
             if r.status_code == 422:
                 maxb = SPARSE_BATCH_FALLBACK
                 out = []
@@ -268,7 +293,7 @@ class AsyncRerankerClient:
             _json_log("debug", "reranker.health", url=self.url, status=r.status_code)
             return r.status_code == 200
         except Exception as e:
-            _json_log("warning", "reranker.health.error", error=str(e))
+            _json_log("warn", "reranker.health.error", error=str(e))
             return False
     async def rerank(self, query: str, documents: List[str]) -> List[float]:
         if not documents:
@@ -376,7 +401,7 @@ def softmax(x):
 
 async def hybrid_query(client, collection_name, query_text, sparse_client, dense_client, reranker_client, hybrid, top_k=10, prefetch_k_dense=200, prefetch_k_sparse=200, rrf_top_n=10):
     if client is None:
-        _json_log("warning", "qdrant.missing")
+        _json_log("warn", "qdrant.missing")
         return []
     if hybrid and dense_client is None:
         hybrid = False
@@ -392,7 +417,7 @@ async def hybrid_query(client, collection_name, query_text, sparse_client, dense
                 sparse_vecs = await sparse_client.embed_chunked([query_text])
                 q_sparse = sparse_vecs[0] if sparse_vecs is not None else None
         except Exception as e:
-            _json_log("warning", "embed.failed", error=str(e))
+            _json_log("warn", "embed.failed", error=str(e))
             q_dense = None
             q_sparse = None
         q_sparse_obj = None
@@ -409,7 +434,7 @@ async def hybrid_query(client, collection_name, query_text, sparse_client, dense
             QDRANT_QUERY_COUNT.labels(service=SERVICE_NAME, env=ENV).inc()
             items = query_response_to_items(fused)
         except Exception as e:
-            _json_log("warning", "qdrant.query.failed", error=str(e))
+            _json_log("warn", "qdrant.query.failed", error=str(e))
             items = []
     else:
         q_sparse_vecs = None
@@ -417,7 +442,7 @@ async def hybrid_query(client, collection_name, query_text, sparse_client, dense
             if sparse_client is not None:
                 q_sparse_vecs = await sparse_client.embed_chunked([query_text])
         except Exception as e:
-            _json_log("warning", "sparse.embed.failed", error=str(e))
+            _json_log("warn", "sparse.embed.failed", error=str(e))
         q_sparse = q_sparse_vecs[0] if q_sparse_vecs is not None else None
         q_sparse_obj = None
         if q_sparse is not None:
@@ -432,7 +457,7 @@ async def hybrid_query(client, collection_name, query_text, sparse_client, dense
             QDRANT_QUERY_COUNT.labels(service=SERVICE_NAME, env=ENV).inc()
             items = query_response_to_items(resp)
         except Exception as e:
-            _json_log("warning", "qdrant.query.failed", error=str(e))
+            _json_log("warn", "qdrant.query.failed", error=str(e))
             items = []
     results = [extract_point_fields(it) for it in items]
     seen = set()
@@ -471,7 +496,7 @@ async def _background_health_checker():
             try:
                 return QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY) if QDRANT_API_KEY else QdrantClient(url=QDRANT_URL)
             except Exception as e:
-                _json_log("warning", "qdrant.init.failed", error=str(e))
+                _json_log("warn", "qdrant.init.failed", error=str(e))
                 return None
         qdrant_client = await asyncio.to_thread(build_qdrant)
         for _ in range(6):
@@ -552,7 +577,6 @@ async def _shutdown_event():
     _json_log("info", "shutdown.complete", status="stopping")
     SERVICE_READY.labels(service=SERVICE_NAME, env=ENV).set(0)
 
-# --- NEW: capture Pydantic/FastAPI validation errors (happens before route handler) ---
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     endpoint = getattr(request.url, "path", str(request.url))
@@ -562,11 +586,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         ERROR_COUNT.labels(service=SERVICE_NAME, env=ENV, endpoint=endpoint, status_code=str(status_code)).inc()
     except Exception:
         pass
-    _json_log("warning", "request.validation_error", endpoint=endpoint, error=str(exc))
-    # fastapi default content style is acceptable; returning errors array
+    _json_log("warn", "request.validation_error", endpoint=endpoint, error=str(exc))
     return JSONResponse(status_code=422, content=json.loads(json.dumps({"detail": exc.errors()})))
 
-# --- NEW: catch-all to ensure we increment counters for unexpected exceptions not handled in handler ---
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     endpoint = getattr(request.url, "path", str(request.url))
@@ -649,9 +671,9 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
                             r["combined_score"] = combined[order.index(i)] if i < len(combined) else reordered[i].get("score", 0.0)
                         results = reordered + results[candidate_count:]
                 except Exception as e:
-                    _json_log("warning", "rerank.failed", error=str(e))
+                    _json_log("warn", "rerank.failed", error=str(e))
         except Exception as e:
-            _json_log("warning", "rerank.decision.failed", error=str(e))
+            _json_log("warn", "rerank.decision.failed", error=str(e))
         docs_for_llm = results[:min(len(results), max(1, MAX_CHUNKS_TO_LLM))]
         if not docs_for_llm:
             return GenerateResponse(answer="no documents retrieved")
@@ -689,7 +711,7 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
                     max_toks = req.max_tokens or max(128, LLM_MAX_TOKENS)
                     answer_text = await _call_llm_via_http(system_prompt, user_prompt, model=LLM_MODEL, max_tokens=max_toks, temperature=LLM_TEMPERATURE)
                     if isinstance(answer_text, str) and len(answer_text.strip()) < 3:
-                        _json_log("warning", "llm.too_short", len=len(answer_text))
+                        _json_log("warn", "llm.too_short", len=len(answer_text))
                         answer_text = deterministic_summarize(llm_lines, req.query)
                 else:
                     answer_text = deterministic_summarize(llm_lines, req.query)
@@ -700,7 +722,7 @@ async def generate_handler(req: GenerateRequest) -> GenerateResponse:
         try:
             answer_text = _validate_and_filter_citations(answer_text, valid_indexes)
         except Exception as e:
-            _json_log("warning", "citation.filter.failed", error=str(e))
+            _json_log("warn", "citation.filter.failed", error=str(e))
         out_chunks = None
         if req.return_chunks and req.enable_tracing:
             out_chunks = []

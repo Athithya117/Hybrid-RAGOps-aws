@@ -1,18 +1,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: clickhouse
+  name: clickhouse-exporter
   namespace: observability
 spec:
   selector:
     app: clickhouse
   ports:
-  - name: http
-    port: 8123
-    targetPort: 8123
-  - name: tcp
-    port: 9000
-    targetPort: 9000
   - name: metrics
     port: 9116
     targetPort: 9116

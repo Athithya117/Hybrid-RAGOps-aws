@@ -1,43 +1,66 @@
 import importlib
-import logging
 import os
 import secrets
 import sys
 import json
 import traceback
 from datetime import datetime, timezone
+
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
+
+# Prometheus metrics
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
+
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from config import EXTERNAL_BASE as FRONTEND_BASE, QUERY_URL, COOKIE_NAME, SESSION_SECRET, COOKIE_SAMESITE, COOKIE_SECURE, JWT_SECRET, enabled_providers_effective, get_redirect, REQUIRE_AUTH
+# use our structured JSON logger
+from logger import log
 
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(stream=sys.stdout, level=getattr(logging, LOG_LEVEL, logging.INFO))
-logger = logging.getLogger("orchestrator")
-SERVICE_NAME = "frontend"
+from config import (
+    EXTERNAL_BASE as FRONTEND_BASE,
+    QUERY_URL,
+    COOKIE_NAME,
+    SESSION_SECRET,
+    COOKIE_SAMESITE,
+    COOKIE_SECURE,
+    JWT_SECRET,
+    enabled_providers_effective,
+    get_redirect,
+    REQUIRE_AUTH,
+)
+
+SERVICE_NAME = os.getenv("SERVICE_NAME", "frontend").strip()
 ENV = os.getenv("ENV", "STAGING").upper()
 
+# Prometheus readiness gauge
+SERVICE_READY = Gauge("service_ready", "Service readiness (1=ready, 0=not ready)", ["service", "env"])
+SERVICE_READY.labels(service=SERVICE_NAME, env=ENV).set(0)
+
 def _iso_ts():
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 def _json_log(level: str, message: str, **fields):
-    entry = {"timestamp": _iso_ts(), "level": level.upper(), "message": message, "service": SERVICE_NAME, "env": ENV}
-    if level.lower() == "info":
-        minimal = {}
-        for k in ("status", "path", "method", "config", "secrets_ok"):
-            if k in fields:
-                minimal[k] = fields[k]
-        if minimal:
-            entry["fields"] = minimal
-        logger.log(getattr(logging, level.upper(), logging.INFO), json.dumps(entry, ensure_ascii=False, separators=(",", ":")))
-        return
-    entry["fields"] = fields if fields else {}
-    logger.log(getattr(logging, level.upper(), logging.INFO), json.dumps(entry, ensure_ascii=False, separators=(",", ":")))
+    lvl = (level or "info").strip().lower()
+    try:
+        if lvl == "debug":
+            log.debug(message, **fields)
+        elif lvl in ("warn", "warning"):
+            log.warn(message, **fields)
+        elif lvl == "info":
+            log.info(message, **fields)
+        else:
+            log.error(message, **fields)
+    except Exception:
+        try:
+            sys.stderr.write(f"logging failed level={lvl} message={message}\n")
+        except Exception:
+            pass
 
+# Warn about missing secrets but using structured logs
 if not JWT_SECRET:
     _json_log("warning", "JWT_SECRET not set; generating ephemeral secret (NOT for production).")
     JWT_SECRET = secrets.token_hex(32)
@@ -48,7 +71,47 @@ if not SESSION_SECRET:
 OAUTH_REDIRECT_BASE = FRONTEND_BASE
 
 app = FastAPI(title="orchestrator")
-app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, session_cookie=COOKIE_NAME, same_site=COOKIE_SAMESITE, https_only=COOKIE_SECURE)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    session_cookie=COOKIE_NAME,
+    same_site=COOKIE_SAMESITE,
+    https_only=COOKIE_SECURE,
+)
+
+try:
+    auth_mod = importlib.import_module("stateless_openid_auth")
+except Exception as e:
+    tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+    _json_log("error", "Failed to import stateless_openid_auth; falling back to stub auth router.", stack=tb)
+    from fastapi import APIRouter
+    _auth_router = APIRouter()
+
+    @_auth_router.get("/login")
+    async def _auth_login():
+        return JSONResponse({"error": "auth module unavailable"}, status_code=503)
+
+    class _AuthMod:
+        app = _auth_router
+
+    auth_mod = _AuthMod()
+
+try:
+    frontend_mod = importlib.import_module("frontend_ui")
+except Exception as e:
+    tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+    _json_log("error", "Failed to import frontend_ui; falling back to stub frontend router.", stack=tb)
+    from fastapi import APIRouter
+    _fe_router = APIRouter()
+
+    @_fe_router.get("/")
+    async def _fe_index():
+        return JSONResponse({"error": "frontend module unavailable"}, status_code=503)
+
+    class _FeMod:
+        app = _fe_router
+
+    frontend_mod = _FeMod()
 
 from fastapi import FastAPI as _FastAPI
 from fastapi.routing import APIRouter as _APIRouter
@@ -65,34 +128,6 @@ def _get_router(obj):
     if hasattr(candidate, "router"):
         return getattr(candidate, "router")
     return None
-
-try:
-    auth_mod = importlib.import_module("stateless_openid_auth")
-except Exception as e:
-    tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-    _json_log("error", "Failed to import stateless_openid_auth; falling back to stub auth router.", stack=tb)
-    from fastapi import APIRouter
-    _auth_router = APIRouter()
-    @_auth_router.get("/login")
-    async def _auth_login():
-        return JSONResponse({"error": "auth module unavailable"}, status_code=503)
-    class _AuthMod:
-        app = _auth_router
-    auth_mod = _AuthMod()
-
-try:
-    frontend_mod = importlib.import_module("frontend_ui")
-except Exception as e:
-    tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-    _json_log("error", "Failed to import frontend_ui; falling back to stub frontend router.", stack=tb)
-    from fastapi import APIRouter
-    _fe_router = APIRouter()
-    @_fe_router.get("/")
-    async def _fe_index():
-        return JSONResponse({"error": "frontend module unavailable"}, status_code=503)
-    class _FeMod:
-        app = _fe_router
-    frontend_mod = _FeMod()
 
 auth_router = _get_router(auth_mod)
 if auth_router is not None:
@@ -126,6 +161,7 @@ async def orchestrator_health():
     secrets_ok = bool(JWT_SECRET and SESSION_SECRET)
     masked = lambda s: ("<set>" if s else "<unset>")
     _json_log("info", "orchestrator.health", config=cfg, secrets_ok=secrets_ok)
+    SERVICE_READY.labels(service=SERVICE_NAME, env=ENV).set(1 if secrets_ok else 0)
     return JSONResponse({"status": "ok", "secrets_ok": secrets_ok, "config": cfg, "masked": {"jwt_secret": masked(JWT_SECRET), "session_secret": masked(SESSION_SECRET)}})
 
 @app.post("/run")
@@ -197,6 +233,13 @@ async def presign(request: Request):
         tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
         _json_log("error", "Presign proxy failed", stack=tb)
         raise HTTPException(status_code=502, detail="Presign proxy failed")
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+# set basic ready state based on secrets presence
+SERVICE_READY.labels(service=SERVICE_NAME, env=ENV).set(1 if (JWT_SECRET and SESSION_SECRET) else 0)
 
 if __name__ == "__main__":
     import uvicorn

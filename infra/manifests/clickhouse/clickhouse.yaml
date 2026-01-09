@@ -19,6 +19,24 @@ spec:
   - name: tcp
     port: 9000
     targetPort: 9000
+  - name: metrics
+    port: 9116
+    targetPort: 9116
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse-exporter
+  namespace: observability
+spec:
+  selector:
+    app: clickhouse
+  ports:
+  - name: metrics
+    port: 9116
+    targetPort: 9116
   type: ClusterIP
 
 ---
@@ -55,6 +73,27 @@ spec:
           limits:
             cpu: '1'
             memory: 2Gi
+      - name: clickhouse-exporter
+        image: flant/clickhouse-exporter:nightly-10102021
+        args:
+        - --scrape_uri=http://127.0.0.1:8123/
+        - --telemetry.address=:9116
+        ports:
+        - containerPort: 9116
+          name: metrics
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        startupProbe:
+          httpGet:
+            path: /
+            port: 9116
+          failureThreshold: 12
+          periodSeconds: 5
   volumeClaimTemplates:
   - metadata:
       name: data

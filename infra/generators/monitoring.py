@@ -15,57 +15,142 @@ from pathlib import Path
 from datetime import datetime
 from collections import deque
 
+# --- Environment variables (single source, top of file, EXACT format you requested) ---
+VM_NAMESPACE = os.getenv("VM_NAMESPACE", "monitoring")
+VMAGENT_PORT = os.getenv("VMAGENT_PORT", "8429")
+VICTORIA_PORT = os.getenv("VICTORIA_PORT", "8428")
+VMAGENT_IMAGE = os.getenv("VMAGENT_IMAGE", "victoriametrics/vmagent:v1.99.0")
+VM_IMAGE = os.getenv("VM_IMAGE", "victoriametrics/victoria-metrics:v1.99.0")
+VMAGENT_REPLICAS = os.getenv("VMAGENT_REPLICAS", "2")
+VM_RES_CPU = os.getenv("VM_RES_CPU", "100m")
+VM_RES_MEM = os.getenv("VM_RES_MEM", "256Mi")
+VMAGENT_RES_CPU = os.getenv("VMAGENT_RES_CPU", "100m")
+VMAGENT_RES_MEM = os.getenv("VMAGENT_RES_MEM", "256Mi")
+VM_SCRAPE_INTERVAL = os.getenv("VM_SCRAPE_INTERVAL", "15s")
+VM_SCRAPE_TIMEOUT = os.getenv("VM_SCRAPE_TIMEOUT", "10s")
+REMOTE_WRITE_URL = os.getenv("REMOTE_WRITE_URL", f"http://victoria-metrics.{VM_NAMESPACE}.svc.cluster.local:{VICTORIA_PORT}/api/v1/write")
+VMAGENT_PVC_STORAGE = os.getenv("VMAGENT_PVC_STORAGE", "1Gi")
+VICTORIA_PVC_STORAGE = os.getenv("VICTORIA_PVC_STORAGE", "1Gi")
+QDRANT_NAMESPACE = os.getenv("QDRANT_NAMESPACE", "qdrant")
+RETRIEVAL_NAMESPACE = os.getenv("RETRIEVAL_NAMESPACE", "inference")
+ENABLE_VMAGENT_SELF_SCRAPE = os.getenv("ENABLE_VMAGENT_SELF_SCRAPE", "true")
+ENABLE_KUBE_STATE_METRICS = os.getenv("ENABLE_KUBE_STATE_METRICS", "true")
+
+# New opt-in flags for extra scrapes and service targets (defaults set to false -> opt-in)
+ENABLE_CLICKHOUSE_EXPORTER_SCRAPE = os.getenv("ENABLE_CLICKHOUSE_EXPORTER_SCRAPE", "true")
+CLICKHOUSE_EXPORTER_SERVICE_NAME = os.getenv("CLICKHOUSE_EXPORTER_SERVICE_NAME", "clickhouse-exporter")
+CLICKHOUSE_EXPORTER_NAMESPACE = os.getenv("CLICKHOUSE_EXPORTER_NAMESPACE", "observability")
+CLICKHOUSE_EXPORTER_PORT = os.getenv("CLICKHOUSE_EXPORTER_PORT", "9116")
+ENABLE_VECTOR_PROMETHEUS_SCRAPE = os.getenv("ENABLE_VECTOR_PROMETHEUS_SCRAPE", "true")
+VECTOR_PROMETHEUS_SERVICE_NAME = os.getenv("VECTOR_PROMETHEUS_SERVICE_NAME", "vector-agent")
+VECTOR_PROMETHEUS_NAMESPACE = os.getenv("VECTOR_PROMETHEUS_NAMESPACE", "observability")
+VECTOR_PROMETHEUS_PORT = os.getenv("VECTOR_PROMETHEUS_PORT", "8687")
+
+LOCAL_VICTORIA_PORT = os.getenv("LOCAL_VICTORIA_PORT", "0")
+LOCAL_VMAGENT_PORT = os.getenv("LOCAL_VMAGENT_PORT", "0")
+PORTFWD_READY_TIMEOUT = os.getenv("PORTFWD_READY_TIMEOUT", "30")
+PER_POD_PORTFWD_TIMEOUT = os.getenv("PER_POD_PORTFWD_TIMEOUT", "8")
+QUERY_RETRIES = os.getenv("QUERY_RETRIES", "6")
+RETRY_BACKOFF = os.getenv("RETRY_BACKOFF", "3")
+QUERY_SLEEP = os.getenv("QUERY_SLEEP", "1")
+CURL_BIN = os.getenv("CURL_BIN", "curl")
+PYTHON_BIN = os.getenv("PYTHON_BIN", "python3")
+SKIP_AUTO_RESTART = os.getenv("SKIP_AUTO_RESTART", "false")
+VICTORIA_WRITE_WAIT_MAX = os.getenv("VICTORIA_WRITE_WAIT_MAX", "120")
+VICTORIA_WRITE_WAIT_STEP_MAX = os.getenv("VICTORIA_WRITE_WAIT_STEP_MAX", "8")
+VMAGENT_READINESS_INITIAL = os.getenv("VMAGENT_READINESS_INITIAL", "30")
+VMAGENT_READINESS_TIMEOUT = os.getenv("VMAGENT_READINESS_TIMEOUT", "10")
+VMAGENT_READINESS_FAILURE_THRESHOLD = os.getenv("VMAGENT_READINESS_FAILURE_THRESHOLD", "6")
+
+# --- Typed conversions derived immediately below the raw env reads ---
+# (keeps all env reads at the top; typed variables used throughout the module)
+try:
+    VMAGENT_PORT = int(VMAGENT_PORT)
+except Exception:
+    VMAGENT_PORT = 8429
+try:
+    VICTORIA_PORT = int(VICTORIA_PORT)
+except Exception:
+    VICTORIA_PORT = 8428
+try:
+    CLICKHOUSE_EXPORTER_PORT = int(CLICKHOUSE_EXPORTER_PORT)
+except Exception:
+    CLICKHOUSE_EXPORTER_PORT = 9116
+try:
+    VECTOR_PROMETHEUS_PORT = int(VECTOR_PROMETHEUS_PORT)
+except Exception:
+    VECTOR_PROMETHEUS_PORT = 8687
+try:
+    LOCAL_VICTORIA_PORT = int(LOCAL_VICTORIA_PORT)
+except Exception:
+    LOCAL_VICTORIA_PORT = 0
+try:
+    LOCAL_VMAGENT_PORT = int(LOCAL_VMAGENT_PORT)
+except Exception:
+    LOCAL_VMAGENT_PORT = 0
+try:
+    PORTFWD_READY_TIMEOUT = int(PORTFWD_READY_TIMEOUT)
+except Exception:
+    PORTFWD_READY_TIMEOUT = 30
+try:
+    PER_POD_PORTFWD_TIMEOUT = int(PER_POD_PORTFWD_TIMEOUT)
+except Exception:
+    PER_POD_PORTFWD_TIMEOUT = 8
+try:
+    QUERY_RETRIES = int(QUERY_RETRIES)
+except Exception:
+    QUERY_RETRIES = 6
+try:
+    RETRY_BACKOFF = int(RETRY_BACKOFF)
+except Exception:
+    RETRY_BACKOFF = 3
+try:
+    QUERY_SLEEP = int(QUERY_SLEEP)
+except Exception:
+    QUERY_SLEEP = 1
+SKIP_AUTO_RESTART = SKIP_AUTO_RESTART.lower() == "true"
+try:
+    VICTORIA_WRITE_WAIT_MAX = int(VICTORIA_WRITE_WAIT_MAX)
+except Exception:
+    VICTORIA_WRITE_WAIT_MAX = 120
+try:
+    VICTORIA_WRITE_WAIT_STEP_MAX = int(VICTORIA_WRITE_WAIT_STEP_MAX)
+except Exception:
+    VICTORIA_WRITE_WAIT_STEP_MAX = 8
+try:
+    VMAGENT_READINESS_INITIAL = int(VMAGENT_READINESS_INITIAL)
+except Exception:
+    VMAGENT_READINESS_INITIAL = 30
+try:
+    VMAGENT_READINESS_TIMEOUT = int(VMAGENT_READINESS_TIMEOUT)
+except Exception:
+    VMAGENT_READINESS_TIMEOUT = 10
+try:
+    VMAGENT_READINESS_FAILURE_THRESHOLD = int(VMAGENT_READINESS_FAILURE_THRESHOLD)
+except Exception:
+    VMAGENT_READINESS_FAILURE_THRESHOLD = 6
+
+ENABLE_VMAGENT_SELF_SCRAPE = ENABLE_VMAGENT_SELF_SCRAPE.lower() == "true"
+ENABLE_KUBE_STATE_METRICS = ENABLE_KUBE_STATE_METRICS.lower() == "true"
+ENABLE_CLICKHOUSE_EXPORTER_SCRAPE = ENABLE_CLICKHOUSE_EXPORTER_SCRAPE.lower() == "true"
+ENABLE_VECTOR_PROMETHEUS_SCRAPE = ENABLE_VECTOR_PROMETHEUS_SCRAPE.lower() == "true"
+
+# Recompute REMOTE_WRITE_URL if it used interpolated defaults
+if not REMOTE_WRITE_URL:
+    REMOTE_WRITE_URL = f"http://victoria-metrics.{VM_NAMESPACE}.svc.cluster.local:{VICTORIA_PORT}/api/v1/write"
+
+MANIFEST_DIR = Path.cwd() / "infra" / "manifests"
+MANIFEST = MANIFEST_DIR / "00-monitoring.yaml"
+MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
+
+TMPFILES = []
+PFPROCS = []
+
 def LOG(*args):
     print(datetime.now().isoformat(), *args, flush=True)
 
 def ERR(*args):
     print(datetime.now().isoformat(), "ERROR", *args, file=sys.stderr, flush=True)
-
-VM_NAMESPACE = os.environ.get("VM_NAMESPACE", "monitoring")
-VMAGENT_PORT = int(os.environ.get("VMAGENT_PORT", "8429"))
-VICTORIA_PORT = int(os.environ.get("VICTORIA_PORT", "8428"))
-VMAGENT_IMAGE = os.environ.get("VMAGENT_IMAGE", "victoriametrics/vmagent:v1.99.0")
-VM_IMAGE = os.environ.get("VM_IMAGE", "victoriametrics/victoria-metrics:v1.99.0")
-VMAGENT_REPLICAS = os.environ.get("VMAGENT_REPLICAS", "2")
-VM_RES_CPU = os.environ.get("VM_RES_CPU", "100m")
-VM_RES_MEM = os.environ.get("VM_RES_MEM", "256Mi")
-VMAGENT_RES_CPU = os.environ.get("VMAGENT_RES_CPU", "100m")
-VMAGENT_RES_MEM = os.environ.get("VMAGENT_RES_MEM", "256Mi")
-VM_SCRAPE_INTERVAL = os.environ.get("VM_SCRAPE_INTERVAL", "15s")
-VM_SCRAPE_TIMEOUT = os.environ.get("VM_SCRAPE_TIMEOUT", "10s")
-REMOTE_WRITE_URL = os.environ.get(
-    "REMOTE_WRITE_URL",
-    f"http://victoria-metrics.{VM_NAMESPACE}.svc.cluster.local:{VICTORIA_PORT}/api/v1/write",
-)
-VMAGENT_PVC_STORAGE = os.environ.get("VMAGENT_PVC_STORAGE", "1Gi")
-VICTORIA_PVC_STORAGE = os.environ.get("VICTORIA_PVC_STORAGE", "1Gi")
-QDRANT_NAMESPACE = os.environ.get("QDRANT_NAMESPACE", "qdrant")
-RETRIEVAL_NAMESPACE = os.environ.get("RETRIEVAL_NAMESPACE", "inference")
-MANIFEST_DIR = Path.cwd() / "infra" / "manifests"
-MANIFEST = MANIFEST_DIR / "00-monitoring.yaml"
-MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
-ENABLE_VMAGENT_SELF_SCRAPE = os.environ.get("ENABLE_VMAGENT_SELF_SCRAPE", "true").lower() == "true"
-ENABLE_KUBE_STATE_METRICS = os.environ.get("ENABLE_KUBE_STATE_METRICS", "true").lower() == "true"
-LOCAL_VICTORIA_PORT = int(os.environ.get("LOCAL_VICTORIA_PORT", "0"))
-LOCAL_VMAGENT_PORT = int(os.environ.get("LOCAL_VMAGENT_PORT", "0"))
-PORTFWD_READY_TIMEOUT = int(os.environ.get("PORTFWD_READY_TIMEOUT", "30"))
-PER_POD_PORTFWD_TIMEOUT = int(os.environ.get("PER_POD_PORTFWD_TIMEOUT", "8"))
-QUERY_RETRIES = int(os.environ.get("QUERY_RETRIES", "6"))
-RETRY_BACKOFF = int(os.environ.get("RETRY_BACKOFF", "3"))
-QUERY_SLEEP = int(os.environ.get("QUERY_SLEEP", "1"))
-CURL_BIN = os.environ.get("CURL_BIN", "curl")
-PYTHON_BIN = os.environ.get("PYTHON_BIN", "python3")
-SKIP_AUTO_RESTART = os.environ.get("SKIP_AUTO_RESTART", "false").lower() == "true"
-VICTORIA_WRITE_WAIT_MAX = int(os.environ.get("VICTORIA_WRITE_WAIT_MAX", "120"))
-VICTORIA_WRITE_WAIT_STEP_MAX = int(os.environ.get("VICTORIA_WRITE_WAIT_STEP_MAX", "8"))
-VMAGENT_READINESS_INITIAL = int(os.environ.get("VMAGENT_READINESS_INITIAL", "30"))
-VMAGENT_READINESS_TIMEOUT = int(os.environ.get("VMAGENT_READINESS_TIMEOUT", "10"))
-VMAGENT_READINESS_FAILURE_THRESHOLD = int(
-    os.environ.get("VMAGENT_READINESS_FAILURE_THRESHOLD", "6")
-)
-
-TMPFILES = []
-PFPROCS = []
 
 def require(cmd):
     if shutil.which(cmd) is None:
@@ -274,6 +359,62 @@ subjects:
             "      replacement: /metrics",
             "    - target_label: job",
             "      replacement: kube-state-metrics",
+        ])
+
+    # optionally add ClickHouse exporter scrape job (opt-in)
+    if ENABLE_CLICKHOUSE_EXPORTER_SCRAPE:
+        scrape_yaml_lines.extend([
+            "",
+            "  - job_name: clickhouse-exporter",
+            "    kubernetes_sd_configs:",
+            "    - role: endpoints",
+            "    relabel_configs:",
+            "    - source_labels: [__meta_kubernetes_service_name]",
+            "      action: keep",
+            f"      regex: {CLICKHOUSE_EXPORTER_SERVICE_NAME}",
+            "    - source_labels: [__meta_kubernetes_namespace]",
+            "      action: keep",
+            f"      regex: {CLICKHOUSE_EXPORTER_NAMESPACE}",
+            "    - source_labels: [__meta_kubernetes_endpoint_address, __meta_kubernetes_endpoint_port]",
+            "      action: replace",
+            "      regex: (.+);(.+)",
+            "      replacement: '$1:$2'",
+            "      target_label: __address__",
+            "    - action: drop",
+            "      source_labels: [__address__]",
+            "      regex: ^$",
+            "    - target_label: __metrics_path__",
+            "      replacement: /metrics",
+            "    - target_label: job",
+            "      replacement: clickhouse-exporter",
+        ])
+
+    # optionally add Vector prometheus exporter scrape job (opt-in)
+    if ENABLE_VECTOR_PROMETHEUS_SCRAPE:
+        scrape_yaml_lines.extend([
+            "",
+            "  - job_name: vector-prometheus-exporter",
+            "    kubernetes_sd_configs:",
+            "    - role: endpoints",
+            "    relabel_configs:",
+            "    - source_labels: [__meta_kubernetes_service_name]",
+            "      action: keep",
+            f"      regex: {VECTOR_PROMETHEUS_SERVICE_NAME}",
+            "    - source_labels: [__meta_kubernetes_namespace]",
+            "      action: keep",
+            f"      regex: {VECTOR_PROMETHEUS_NAMESPACE}",
+            "    - source_labels: [__meta_kubernetes_endpoint_address, __meta_kubernetes_endpoint_port]",
+            "      action: replace",
+            "      regex: (.+);(.+)",
+            "      replacement: '$1:$2'",
+            "      target_label: __address__",
+            "    - action: drop",
+            "      source_labels: [__address__]",
+            "      regex: ^$",
+            "    - target_label: __metrics_path__",
+            "      replacement: /metrics",
+            "    - target_label: job",
+            "      replacement: vector-prometheus-exporter",
         ])
 
     # qdrant and retriever pod scrape jobs (structured and deterministic)
@@ -722,6 +863,12 @@ spec:
 
 def apply():
     validate_numeric_envs()
+
+    # Emit clear warnings if scrapes were enabled but the operator might not have enabled exporters.
+    if ENABLE_CLICKHOUSE_EXPORTER_SCRAPE:
+        LOG(f"WARNING: ENABLE_CLICKHOUSE_EXPORTER_SCRAPE=true. Ensure ClickHouse exporter Deployment/Service exists with name '{CLICKHOUSE_EXPORTER_SERVICE_NAME}' in namespace '{CLICKHOUSE_EXPORTER_NAMESPACE}'.")
+    if ENABLE_VECTOR_PROMETHEUS_SCRAPE:
+        LOG(f"WARNING: ENABLE_VECTOR_PROMETHEUS_SCRAPE=true. Ensure Vector prometheus exporter Service exists with name '{VECTOR_PROMETHEUS_SERVICE_NAME}' in namespace '{VECTOR_PROMETHEUS_NAMESPACE}'.")
 
     rc = subprocess.run(["kubectl", "get", "ns", VM_NAMESPACE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if rc.returncode != 0:

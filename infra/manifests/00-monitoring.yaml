@@ -75,6 +75,52 @@ data:
           replacement: /metrics
         - target_label: job
           replacement: kube-state-metrics
+
+      - job_name: clickhouse-exporter
+        kubernetes_sd_configs:
+        - role: endpoints
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_service_name]
+          action: keep
+          regex: clickhouse-exporter
+        - source_labels: [__meta_kubernetes_namespace]
+          action: keep
+          regex: observability
+        - source_labels: [__meta_kubernetes_endpoint_address, __meta_kubernetes_endpoint_port]
+          action: replace
+          regex: (.+);(.+)
+          replacement: '$1:$2'
+          target_label: __address__
+        - action: drop
+          source_labels: [__address__]
+          regex: ^$
+        - target_label: __metrics_path__
+          replacement: /metrics
+        - target_label: job
+          replacement: clickhouse-exporter
+
+      - job_name: vector-prometheus-exporter
+        kubernetes_sd_configs:
+        - role: endpoints
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_service_name]
+          action: keep
+          regex: vector-agent
+        - source_labels: [__meta_kubernetes_namespace]
+          action: keep
+          regex: observability
+        - source_labels: [__meta_kubernetes_endpoint_address, __meta_kubernetes_endpoint_port]
+          action: replace
+          regex: (.+);(.+)
+          replacement: '$1:$2'
+          target_label: __address__
+        - action: drop
+          source_labels: [__address__]
+          regex: ^$
+        - target_label: __metrics_path__
+          replacement: /metrics
+        - target_label: job
+          replacement: vector-prometheus-exporter
       - job_name: k8s-pods-qdrant
         kubernetes_sd_configs:
         - role: pod

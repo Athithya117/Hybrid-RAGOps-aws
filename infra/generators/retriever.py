@@ -74,7 +74,7 @@ def load_config() -> Dict[str, Any]:
     cfg["ALLOW_MISSING_SECRETS"] = os.getenv("ALLOW_MISSING_SECRETS", "false").lower() in ("1", "true", "yes")
 
     # core
-    cfg["IMAGE"] = os.getenv("QUERY_IMAGE", os.getenv("RETRIEVAL_IMAGE", "docker.io/athithya5354/retrieval:v21"))
+    cfg["IMAGE"] = os.getenv("QUERY_IMAGE", os.getenv("RETRIEVAL_IMAGE", "docker.io/athithya5354/retrieval:v23"))
     cfg["NAMESPACE"] = os.getenv("QUERY_NAMESPACE", os.getenv("RETRIEVAL_NAMESPACE", "inference"))
     cfg["SERVICE_NAME"] = os.getenv("QUERY_SERVICE_NAME", os.getenv("RETRIEVAL_NAME", "retrieval"))
     cfg["PORT"] = int(os.getenv("QUERY_PORT", os.getenv("RETRIEVAL_HTTP_PORT", "8001")))

@@ -44,6 +44,8 @@ data:
       kubernetes_logs:
         type: kubernetes_logs
         insert_namespace_fields: true
+      internal_metrics:
+        type: internal_metrics
     transforms:
       normalize_v1:
         type: remap
@@ -76,7 +78,7 @@ data:
             }
           }
 
-          allowed_levels = ["info", "warn", "error"]
+          allowed_levels = ["debug", "info", "warn", "error"]
 
           raw_level = ""
           if exists(parsed.level) && is_string(parsed.level) {
@@ -214,6 +216,11 @@ data:
           timeout_secs: 2.0
         healthcheck:
           enabled: true
+      prometheus_exporter:
+        type: prometheus_exporter
+        inputs:
+        - internal_metrics
+        address: 0.0.0.0:8687
 
 ---
 apiVersion: apps/v1
@@ -250,8 +257,11 @@ spec:
             type: DirectoryOrCreate
       containers:
         - name: vector
-          image: timberio/vector:0.52.0-debian
+          image: timberio/vector:0.52.0-distroless-static
           args: ["-c", "/etc/vector/vector.yaml"]
+          ports:
+            - name: metrics
+              containerPort: 8687
           volumeMounts:
             - name: vector-config
               mountPath: /etc/vector/vector.yaml
@@ -285,5 +295,31 @@ spec:
                   fieldPath: spec.nodeName
             - name: VECTOR_DROP_NAMESPACES
               value: "kube-system"
-            - name: VECTOR_LOG_LEVELS
-              value: "info,warn,error"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vector-agent
+  namespace: observability
+spec:
+  selector:
+    app: vector
+  ports:
+  - name: metrics
+    port: 8687
+    targetPort: 8687
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vector-prometheus-exporter
+  namespace: observability
+spec:
+  selector:
+    app: vector
+  ports:
+  - name: metrics
+    port: 8687
+    targetPort: 8687

@@ -25,7 +25,7 @@ spec:
       serviceAccountName: retrieval-sa
       containers:
       - name: retrieval
-        image: docker.io/athithya5354/retrieval:v21
+        image: docker.io/athithya5354/retrieval:v23
         ports:
         - containerPort: 8001
         envFrom:

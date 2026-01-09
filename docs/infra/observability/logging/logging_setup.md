@@ -1,221 +1,249 @@
-# Logging Setup and Application Log Schema
+# Logging Platform Documentation — RAG Platform (App + Infra Contract & Runtime Flow)
 
-## 1. Overview
+## Purpose
 
-This platform uses a **deterministic, schema-normalized logging pipeline** built on:
-
-* **Vector** as the log collector and normalizer (DaemonSet on Kubernetes)
-* **ClickHouse** as the authoritative log storage backend
-* **JSON-first application logs** with strict field semantics
-
-The core principle is **log determinism**:
-given the same input log event, the resulting stored record in ClickHouse must be identical regardless of runtime environment, pod placement, or source language.
+This document is the authoritative, actionable reference for the platform logging pipeline. It defines the application logging contract, the collector/normalizer behavior, the storage schema, runtime control flow, verification checks, CI gates, and operational troubleshooting steps. Use this document to implement, review, and operate logging on this platform.
 
 ---
 
-## 2. High-Level Architecture
+## 1. High-level architecture
 
-### 2.1 Data Flow
+* **Application services** emit structured logs as **one JSON object per line** to `stdout`.
+* Kubernetes writes container logs to node filesystem (`/var/log/pods/...`).
+* **Vector** runs as a DaemonSet on every node, tails pod logs via `kubernetes_logs`, **parses** application JSON, **normalizes** fields, **drops** configured namespaces, and **sinks** normalized rows to ClickHouse.
+* **ClickHouse** hosts the authoritative `logs.kube_logs` table and optional dead-letter / admin tables. ClickHouse is provisioned and managed via `infra/generators/clickhouse.py`.
 
-1. **Application containers** write logs to stdout/stderr
-2. **Kubernetes** exposes container logs under `/var/log/pods`
-3. **Vector DaemonSet**:
-
-   * Collects all Kubernetes logs
-   * Normalizes timestamps, levels, and metadata
-   * Enforces a fixed schema
-   * Drops logs from configured namespaces
-4. **ClickHouse**:
-
-   * Stores logs in `logs.kube_logs`
-   * Applies optional TTL-based retention
-   * Supports deterministic querying and aggregation
-
----
-
-## 3. Vector Normalization Guarantees
-
-Vector enforces the following invariants before logs are written to ClickHouse:
-
-### 3.1 Timestamp Resolution
-
-* Output column: `ts` (`DateTime64(3)`)
-* Resolution: **milliseconds**
-* Deterministic rules:
-
-  1. Prefer `parsed.timestamp` if present
-  2. Accept either:
-
-     * Unix epoch (seconds)
-     * RFC3339 / ISO-8601 string
-  3. Fallback to ingestion time (`now()`)
-
-Applications **must not rely** on ingestion time for correctness.
-
----
-
-### 3.2 Log Level Normalization
-
-* Stored column: `level`
-* Canonical values:
-
-  * `DEBUG`
-  * `INFO`
-  * `WARN`
-  * `ERROR`
-
-Accepted input values (case-insensitive):
-
-* `debug`
-* `info`
-* `warn`, `warning`
-* `error`, `err`
-
-Anything else is deterministically coerced to `INFO`.
-
----
-
-### 3.3 Kubernetes Metadata Mapping
-
-Vector deterministically populates:
-
-| Column      | Source (priority order)                                       |
-| ----------- | ------------------------------------------------------------- |
-| `service`   | `parsed.service` → `kubernetes.labels.app` → `container_name` |
-| `container` | `kubernetes.container_name`                                   |
-| `pod`       | `kubernetes.pod_name`                                         |
-| `namespace` | `kubernetes.pod_namespace`                                    |
-
-Missing values resolve to empty strings, never `null`.
-
----
-
-## 4. ClickHouse Storage Schema (Authoritative)
-
-All logs are written to:
+Textual diagram:
 
 ```
-database: logs
-table: kube_logs
-```
-
-### 4.1 Table Definition
-
-| Column      | Type                     | Description                     |
-| ----------- | ------------------------ | ------------------------------- |
-| `ts`        | `DateTime64(3)`          | Event timestamp                 |
-| `level`     | `LowCardinality(String)` | Normalized log level            |
-| `message`   | `String`                 | Human-readable message          |
-| `service`   | `LowCardinality(String)` | Logical service name            |
-| `pod`       | `LowCardinality(String)` | Kubernetes pod                  |
-| `namespace` | `LowCardinality(String)` | Kubernetes namespace            |
-| `container` | `LowCardinality(String)` | Container name                  |
-| `trace_id`  | `String`                 | Distributed trace ID            |
-| `span_id`   | `String`                 | Distributed span ID             |
-| `fields`    | `String`                 | JSON-encoded structured payload |
-
-This schema is **stable and versioned implicitly**. Backward-incompatible changes are not allowed.
-
----
-
-## 5. Deterministic Application Log Contract (MANDATORY)
-
-### 5.1 Required Log Format
-
-All application logs **must be valid JSON objects** written to stdout.
-
-Example (canonical):
-
-```json
-{
-  "timestamp": "2025-01-12T10:42:31.123Z",
-  "level": "info",
-  "message": "user login succeeded",
-  "service": "auth-api",
-  "trace_id": "9f3a2c8e1b4d",
-  "span_id": "a1b2c3d4",
-  "user_id": "12345",
-  "ip": "203.0.113.10"
-}
+[App stdout: JSON lines] --> kube node logs (/var/log/pods) --> [Vector DaemonSet normalize_v1 VRL]
+      --> (drop namespaces) --> [Vector clickhouse sink (json_each_row/gzip)] --> [ClickHouse logs.kube_logs]
 ```
 
 ---
 
-### 5.2 Mandatory Fields (Application Layer)
+## 2. Runtime control flow (end-to-end)
 
-| Field       | Type         | Rules                     |
-| ----------- | ------------ | ------------------------- |
-| `timestamp` | string | int | RFC3339 or Unix seconds   |
-| `level`     | string       | One of accepted values    |
-| `message`   | string       | Must be human-readable    |
-| `service`   | string       | Stable service identifier |
+1. **App emits**: application calls `JsonLogger` to emit a JSON object to `stdout`.
+2. **Kubernetes** stores the line under `/var/log/pods/<pod>/<container>/...`.
+3. **Vector (kubernetes_logs source)** reads lines, attaches `kubernetes.*` metadata if `insert_namespace_fields=True`.
+4. **Vector transform (normalize_v1)**: VRL `parse_json(.message)` produces `parsed`, then:
 
-If these are missing, Vector will still ingest the log, but **semantic guarantees are lost**.
-
----
-
-### 5.3 Optional but Strongly Recommended
-
-| Field            | Purpose                      |
-| ---------------- | ---------------------------- |
-| `trace_id`       | Cross-service correlation    |
-| `span_id`        | Distributed tracing          |
-| Any other fields | Become part of `fields` JSON |
-
-All non-reserved keys are preserved verbatim inside `fields`.
+   * Timestamp resolution: `parsed.timestamp` → `.timestamp` → `now()`; output `ts` (ms precision).
+   * Level normalization: `parsed.level` / `.level` normalized to canonical levels `DEBUG/INFO/WARN/ERROR`.
+   * Service resolution: `parsed.service` → `kubernetes.labels.app` → `kubernetes.container_name`. Missing → `""` (empty string).
+   * Kubernetes metadata: `container`, `pod`, `namespace` deterministically populated or `""`.
+   * `fields` = `encode_json(parsed)` (preserves all non-reserved app keys).
+   * Namespace dropping: if `.namespace ∈ VECTOR_DROP_NAMESPACES` then `del(.)` (log removed before sinks).
+5. **Vector sink**: normalized event (JSON-each-row) batched, compressed, and inserted into ClickHouse `logs.kube_logs`.
+6. **ClickHouse** persists the row for queries, dashboards and retention policies.
 
 ---
 
-### 5.4 Prohibited Patterns
+## 3. Application layer contract (authoritative)
 
-Applications **must not**:
+### 3.1 Output channel
 
-* Emit plain-text (non-JSON) logs
-* Change key meanings dynamically
-* Embed structured data inside `message`
-* Emit multi-line log entries
-* Use locale-dependent timestamps
-* Emit arrays or top-level non-object JSON
+* **stdout only** for machine/ingestable logs
+* **stderr only** for human/library logs (non-ingestable). Libraries should be configured to write to stderr.
 
-Violations reduce observability guarantees and may be rejected in the future.
+### 3.2 Required top-level keys (every emitted JSON object)
+
+* `timestamp` — RFC3339 string with millisecond precision (`YYYY-MM-DDTHH:MM:SS.sssZ`) **preferred**. Unix epoch (seconds) accepted by internal parsers but RFC3339 is canonical.
+* `level` — one of the lowercase strings: `debug`, `info`, `warn`, `error`.
+* `message` — human-readable short string.
+* `service` — stable logical service identifier (e.g. `retrieval`). Must be present and non-empty. This value is owned by the app and must be set at process startup (via `SERVICE_NAME` env).
+
+### 3.3 Optional fields
+
+* `trace_id`, `span_id` — optional; include only when tracing is active. If absent, they will be empty in ClickHouse.
+* Any other JSON-serializable keys are allowed; they will be preserved under `fields` by Vector.
+
+### 3.4 Output formatting rules (non-negotiable)
+
+* Exactly one JSON object per line (no multiline logs).
+* No ANSI/terminal coloring in stdout.
+* UTF-8 encoded.
+* No structured data embedded inside the `message` string (use top-level keys instead).
+* Do not emit arrays or top-level non-object JSON.
+
+### 3.5 Verbosity control
+
+* **App-controlled via** `LOG_LEVEL` environment variable.
+
+  * `LOG_LEVEL=DEBUG` → emit DEBUG, INFO, WARN, ERROR
+  * `LOG_LEVEL=INFO` → emit INFO, WARN, ERROR (DEBUG suppressed)
+  * `LOG_LEVEL=WARN` → emit WARN, ERROR
+  * `LOG_LEVEL=ERROR` → emit ERROR only
+* `LOG_LEVEL` is the only safe gate for suppressing debug logs. Do not attempt to control verbosity in Vector.
+
+### 3.6 Sample canonical logger (reference)
+
+The platform provides a `JsonLogger` pattern that all services must adopt (writes to stdout, enforces required fields and single-line JSON). Example production-ready implementation is kept in service codebase; follow that exact contract.
 
 ---
 
-## 6. Namespace-Based Log Dropping
+## 4. Vector (collector & normalizer) contract and behavior
 
-Vector deterministically drops logs from configured namespaces:
+### 4.1 Deployment
 
-* Default drop list:
+* Vector runs as a DaemonSet (one per node).
+* Config generated by `infra/generators/vector_logger.py` with `kubernetes_logs` source and `normalize_v1` remap transform.
+* The generator uses a fixed canonical allow-list for normalized levels: `["debug","info","warn","error"]`.
 
-  * `kube-system`
+### 4.2 VRL normalization guarantees (what Vector enforces)
 
-Controlled via:
+* **Timestamp**: output column `ts` (`DateTime64(3)` semantics) — prefer `parsed.timestamp`, accept epoch or RFC3339, fallback `now()`.
+* **Level**: canonical values in ClickHouse are uppercase `DEBUG/INFO/WARN/ERROR`. Vector maps synonyms (`warning` → `WARN`, `err` → `ERROR`). Unknown levels → coerced to `INFO`.
+* **Service**: deterministic priority: `parsed.service` → `kubernetes.labels.app` → `kubernetes.container_name`. Missing → empty string.
+* **Kubernetes metadata**: `container`, `pod`, `namespace` populated; empty string instead of `null`.
+* **fields**: JSON-encoded copy of `parsed` (preserves all non-reserved app keys).
+* **Namespace-based dropping**: controlled by `VECTOR_DROP_NAMESPACES` (default `kube-system`). Dropping occurs before any sink write.
 
-```sh
-VECTOR_DROP_NAMESPACES="models,indexing,qdrant" # model logs are redundant as retrieval service includes them
+### 4.3 Sinks & batching
+
+* ClickHouse sink:
+
+  * `format: json_each_row`
+  * `compression: gzip`
+  * `skip_unknown_fields: true` (Vector will not fail insert on unknown keys)
+  * batching controlled via `VECTOR_BATCH_MAX_EVENTS` and `VECTOR_BATCH_TIMEOUT_SEC`.
+
+### 4.4 Operational notes
+
+* Vector normalizes, but does not decide or filter semantics. App must be authoritative.
+* Vector may expose internal metrics via a Prometheus exporter (optional), which should be scraped by monitoring.
+
+---
+
+## 5. ClickHouse storage schema (authoritative persistence)
+
+### 5.1 Table and database
+
+* Database: `logs`
+* Table: `kube_logs`
+
+### 5.2 Recommended authoritative columns (must be present)
+
+* `ts` — `DateTime64(3)` — event timestamp
+* `level` — `LowCardinality(String)` — canonical level
+* `message` — `String`
+* `service` — `LowCardinality(String)`
+* `pod` — `LowCardinality(String)`
+* `namespace` — `LowCardinality(String)`
+* `container` — `LowCardinality(String)`
+* `trace_id` — `String` (optional)
+* `span_id` — `String` (optional)
+* `fields` — `String` (JSON-encoded structured payload)
+
+> The generator `infra/generators/clickhouse.py` creates the DB/table and runs `ALTER TABLE ADD COLUMN IF NOT EXISTS` to ensure safe, idempotent migrations.
+
+### 5.3 Retention
+
+* Configure TTL via `LOGS_TTL_DAYS` (recommended default: 90 days) using ClickHouse `TTL ts + toIntervalDay(...)`. If not set, storage grows indefinitely.
+
+---
+
+## 6. Runtime & verification commands
+
+### 6.1 Validate a line locally (quick)
+
+```bash
+python3 -c "from apps.inference.retrieval import query as q; q._json_log('info','smoke', foo=1)"
+# then:
+python3 - <<'PY'
+import sys, json
+s = sys.stdin.read().strip()
+print(json.loads(s))
+PY <<< "$(python3 -c "from apps.inference.retrieval import query as q; q._json_log('info','smoke', foo=1); import sys; sys.stdout.flush()")"
 ```
 
-Dropping happens **before** ClickHouse ingestion.
+## 7. Troubleshooting checklist (common issues)
+
+### 7.1 App logs not ingested
+
+* Confirm app writes JSON to stdout (not stderr).
+* `kubectl logs` the pod and verify first line parses with `jq`.
+* Confirm Vector DaemonSet is running on the node where pod scheduled.
+* Check Vector logs for parse errors.
+
+### 7.2 Missing `service` in ClickHouse
+
+* Check app has `SERVICE_NAME` set and app startup did not bypass the guard.
+* Search recent pod logs for lines where `service` is empty.
+* Confirm Vector fallback mapping (`kubernetes.labels.app` or `container_name`) is not producing unexpected values.
+
+### 7.3 Debug logs appearing in production
+
+* Confirm deployment `LOG_LEVEL` env is set to `INFO` or `WARN`.
+* Check that application uses the platform `JsonLogger` and does not manually print debug data to stdout.
+* Confirm Vector has **not** been used to try to suppress debug logs — suppression must be at the app layer only.
+
+### 7.4 ClickHouse insert/auth failures
+
+* Check `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` secrets used by Vector pods.
+* Confirm ClickHouse service reachable from Vector (`curl` test from a Vector pod).
+* Inspect Vector sink logs and ClickHouse logs for error messages.
 
 ---
 
-## 7. Operational Guarantees
+## 8. Versioning and schema evolution policy
 
-* Idempotent deployment (generators re-runnable)
-* Deterministic schema enforcement
-* Safe retries during ClickHouse bootstrap
-* No reliance on mutable runtime ordering
-* Environment-driven configuration only
+* All schema changes must be backward-compatible. Use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for additive changes.
+* For breaking changes (rename/remove column semantics), follow a three-step migration:
 
----
-
-## 8. Summary for Application Engineers
-
-**If you remember one thing:**
-
-> Emit one JSON object per line, with a stable timestamp, level, message, and service name. Everything else is deterministic infrastructure behavior.
-
-This contract is non-negotiable.
+  1. **Introduce** new column (additive); update producers to write both old and new keys.
+  2. **Migrate** reads/dashboards to use the new column.
+  3. **Remove** old column after data retention period and stakeholder sign-off.
+* VRL changes must be versioned (`normalize_v1`, `normalize_v2`) and rolled out with correspondence in ClickHouse DDL.
 
 ---
 
+## 9. Required repository artefacts & location
+
+* `apps/*/logger.py` — canonical JsonLogger implementation used by application code.
+* `infra/generators/vector_logger.py` — Vector manifest generator (contains VRL).
+* `infra/generators/clickhouse.py` — ClickHouse manifest & init SQL generator.
+* `infra/manifests/vector/vector.yaml` — generated Vector manifest.
+* `infra/manifests/clickhouse/30-init.sql` — generated ClickHouse init SQL.
+* `ci/jobs/logs-contract.yml` — CI job ensuring logging contract compliance (implement if not present).
+
+---
+
+## 10. Onboarding checklist for a new service
+
+1. Add `JsonLogger` import and use exclusively; remove ad-hoc `print()` to stdout.
+2. Set `SERVICE_NAME` env in deployment manifest.
+3. Add CI `logs-contract` test that validates a small set of sample logs.
+4. Set `LOG_LEVEL` per environment (`DEBUG` for local/dev, `INFO` for staging, `WARN` for prod).
+5. Deploy to staging; verify `kubectl logs` parse with `jq` and ClickHouse queries return expected rows.
+6. After stability window, promote to production.
+
+---
+
+## 11. Appendix — Key environment variables (app & infra)
+
+### App-side
+
+* `SERVICE_NAME` — required, e.g. `retrieval`
+* `LOG_LEVEL` — `DEBUG | INFO | WARN | ERROR` (controls emit gate)
+* `ENV` — environment label used in logs, e.g. `STAGING`, `PROD`
+
+### Vector generator / DaemonSet
+
+* `VECTOR_DROP_NAMESPACES` — CSV namespaces to drop before ingestion (default: `kube-system`)
+* `VECTOR_BATCH_MAX_EVENTS` — batch size for sink
+* `VECTOR_BATCH_TIMEOUT_SEC` — batch timeout for sink
+* `VECTOR_PROMETHEUS_EXPORTER` — `true|false` for internal metrics exporter
+* `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` — secrets used by Vector to authenticate to ClickHouse
+
+### ClickHouse generator
+
+* `CLICKHOUSE_DB` — database name (default `logs`)
+* `CLICKHOUSE_TABLE` — table name (default `kube_logs`)
+* `CLICKHOUSE_PVC_SIZE`, `CLICKHOUSE_REQ_CPU`, `CLICKHOUSE_REQ_MEM`, etc. — resource sizing
+* `LOGS_TTL_DAYS` — (recommended) TTL in days; add to DDL for retention
+
+---
+
+This document is the single-source of truth for how application code must emit logs and how the infrastructure normalizes, ingests, stores and verifies them. Follow it verbatim to maintain determinism, observability, and low operational risk across environments.

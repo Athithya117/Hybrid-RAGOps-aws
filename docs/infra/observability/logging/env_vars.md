@@ -138,33 +138,6 @@ Inspect generated manifests for expected cluster-specific behavior.
 
 ---
 
-### `VECTOR_LOG_LEVELS`
-
-* **What**
-  Accepted input log levels used by VRL normalization.
-
-* **Values**
-  CSV of lowercase values:
-
-  ```
-  debug,info,warn,error
-  ```
-
-* **When to change**
-
-  * Include `debug` in development
-  * Exclude `debug` in production to reduce noise
-
-* **Impact**
-
-  * Unknown values are coerced to `INFO`
-  * This **does not filter logs**, it normalizes level values only
-
-* **Validate**
-  Emit a test log with `level: debug` and confirm stored level is `DEBUG`.
-
----
-
 ## ClickHouse (Log Storage)
 
 ### `CLICKHOUSE_REPLICAS`

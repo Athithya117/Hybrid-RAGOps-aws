@@ -1,31 +1,39 @@
-import logging,os,sys
-from fastapi import FastAPI,Request,HTTPException
-from fastapi.responses import HTMLResponse,PlainTextResponse,JSONResponse
+import os
+import sys
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, PlainTextResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from jinja2 import Environment,BaseLoader,select_autoescape
+from jinja2 import Environment, BaseLoader, select_autoescape
+
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
-from config import QUERY_URL,EXTERNAL_BASE,DISPLAY_SOURCES_IN_UI,DISPLAY_TOPK_IN_UI,REQUIRE_AUTH
-LOG_LEVEL = os.getenv("LOG_LEVEL","INFO").upper()
-logging.basicConfig(level=LOG_LEVEL)
-log = logging.getLogger("frontend_noauth")
+
+from config import QUERY_URL, EXTERNAL_BASE, DISPLAY_SOURCES_IN_UI, DISPLAY_TOPK_IN_UI, REQUIRE_AUTH
+
+# structured logger
+from logger import log
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
 def _ensure_url(u: str, name: str) -> str:
-    if not isinstance(u,str) or (not u.startswith("http://") and not u.startswith("https://")):
-        log.warning("%s must be http(s). Falling back to default for %s", name, u)
+    if not isinstance(u, str) or (not u.startswith("http://") and not u.startswith("https://")):
+        log.warn(f"{name} must be http(s). Falling back to default for {name}", provided=u)
         return "http://retrieval-svc.inference.svc.cluster.local:8001" if name == "QUERY_URL" else "http://localhost:8000"
     return u
-QUERY_URL = _ensure_url(QUERY_URL,"QUERY_URL")
-FRONTEND_URL = _ensure_url(EXTERNAL_BASE,"FRONTEND_URL")
-app = FastAPI(title="frontend-noauth",docs_url=None,redoc_url=None)
-ENABLE_CORS = os.getenv("ENABLE_CORS","false").lower() in ("1","true","yes")
-CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS","*")
+
+QUERY_URL = _ensure_url(QUERY_URL, "QUERY_URL")
+FRONTEND_URL = _ensure_url(EXTERNAL_BASE, "FRONTEND_URL")
+app = FastAPI(title="frontend-noauth", docs_url=None, redoc_url=None)
+ENABLE_CORS = os.getenv("ENABLE_CORS", "false").lower() in ("1", "true", "yes")
+CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "*")
 if ENABLE_CORS:
     origins = ["*"] if CORS_ALLOWED_ORIGINS == "*" else [o.strip() for o in CORS_ALLOWED_ORIGINS.split(",") if o.strip()]
-    app.add_middleware(CORSMiddleware,allow_origins=origins,allow_credentials=False,allow_methods=["GET","POST","OPTIONS"],allow_headers=["Content-Type","Authorization"])
+    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=False, allow_methods=["GET","POST","OPTIONS"], allow_headers=["Content-Type","Authorization"])
 DISPLAY_SOURCES = bool(DISPLAY_SOURCES_IN_UI)
 DISPLAY_TOPK = bool(DISPLAY_TOPK_IN_UI)
 REQUIRE_AUTH_UI = bool(REQUIRE_AUTH)
+
 INDEX_TEMPLATE = r"""<!doctype html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -209,12 +217,15 @@ document.addEventListener('DOMContentLoaded', function(){
 env = Environment(loader=BaseLoader(), autoescape=select_autoescape(["html"]))
 tmpl = env.from_string(INDEX_TEMPLATE)
 INDEX_HTML = tmpl.render(display_sources=DISPLAY_SOURCES,display_topk=DISPLAY_TOPK,require_auth=REQUIRE_AUTH_UI)
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return HTMLResponse(INDEX_HTML)
+
 @app.get("/health")
 async def health():
     return {"status":"ok","query_url":QUERY_URL}
+
 @app.post("/run")
 async def run(request: Request):
     try:
@@ -237,15 +248,19 @@ async def run(request: Request):
             resp = await client.post(target, json=body, headers=headers)
             content_type = resp.headers.get("content-type","")
             if "application/json" in (content_type or ""):
+                log.info("proxy.request.success", status=resp.status_code, path="/run")
                 return JSONResponse(content=resp.json(), status_code=resp.status_code)
             else:
+                log.info("proxy.request.success_text", status=resp.status_code, path="/run")
                 return PlainTextResponse(content=resp.text, status_code=resp.status_code)
     except httpx.HTTPStatusError as e:
-        log.error("Upstream returned non-200: %s", str(e))
+        log.error("Upstream returned non-200", error=str(e))
         raise HTTPException(status_code=502, detail=f"Upstream error: {getattr(e.response,'status_code','unknown')}")
-    except Exception:
-        log.exception("Upstream call failed")
+    except Exception as e:
+        tb = "".join(__import__("traceback").format_exception(type(e), e, e.__traceback__))
+        log.error("Upstream call failed", stack=tb)
         raise HTTPException(status_code=502, detail="Upstream call failed")
+
 @app.post("/presign")
 async def presign(request: Request):
     try:
@@ -262,9 +277,12 @@ async def presign(request: Request):
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.post(target, json=body, headers=headers)
             try:
+                log.info("proxy.presign.success", status=resp.status_code, path="/presign")
                 return JSONResponse(content=resp.json(), status_code=resp.status_code)
             except Exception:
+                log.info("proxy.presign.success_text", status=resp.status_code, path="/presign")
                 return PlainTextResponse(content=resp.text, status_code=resp.status_code)
-    except Exception:
-        log.exception("Presign proxy failed")
+    except Exception as e:
+        tb = "".join(__import__("traceback").format_exception(type(e), e, e.__traceback__))
+        log.error("Presign proxy failed", stack=tb)
         raise HTTPException(status_code=502, detail="Presign proxy failed")

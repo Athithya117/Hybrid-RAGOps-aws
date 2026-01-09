@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-01-04T14:11:50.686755Z",
+  "generated_at": "2026-01-09T06:40:58.191010Z",
   "image": "athithya5354/dense:amd64-arm64-v1",
   "namespace": "models",
   "replicas": 1,

@@ -157,3 +157,36 @@ clean:
 	find . -type f -name "*.log" ! -path "./.git/*" -delete
 	find . -type f -name "*.pulumi-logs" ! -path "./.git/*" -delete
 	clear
+
+
+# Makefile snippet: ClickHouse convenience targets
+# Paste into your Makefile. Tweak CH_NS if you use a different namespace.
+CH_NS ?= observability
+
+# find-clickhouse-pod: runtime helper (runs inside recipe)
+# Usage examples:
+#   make ch-shell
+#   make ch-query QUERY="SELECT count() FROM logs.kube_logs;"
+.PHONY: ch-shell ch-query
+
+ch-shell:
+	@POD="$$(kubectl -n $(CH_NS) get pods -l app=clickhouse -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || kubectl -n $(CH_NS) get pods --no-headers 2>/dev/null | awk '/clickhouse|ch-single/ {print $$1; exit}')" ; \
+	if [ -z "$$POD" ]; then \
+	  echo "[error] no ClickHouse pod found in namespace $(CH_NS)"; \
+	  kubectl -n $(CH_NS) get pods || true; \
+	  exit 1; \
+	fi ; \
+	echo "[info] connecting to ClickHouse pod $$POD in namespace $(CH_NS)"; \
+	kubectl -n $(CH_NS) exec -it $$POD -- clickhouse-client
+
+ch-query:
+	@QUERY="$${QUERY}" ; \
+	if [ -z "$$QUERY" ]; then \
+	  echo "Usage: make ch-query QUERY=\"SELECT ...\""; exit 2; \
+	fi ; \
+	POD="$$(kubectl -n $(CH_NS) get pods -l app=clickhouse -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || kubectl -n $(CH_NS) get pods --no-headers 2>/dev/null | awk '/clickhouse|ch-single/ {print $$1; exit}')" ; \
+	if [ -z "$$POD" ]; then \
+	  echo "[error] no ClickHouse pod found in namespace $(CH_NS)"; kubectl -n $(CH_NS) get pods || true; exit 1; \
+	fi ; \
+	echo "[info] running query on $$POD in namespace $(CH_NS)"; \
+	echo "$$QUERY" | kubectl -n $(CH_NS) exec -i $$POD -- clickhouse-client --multiquery

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# compact qdrant e2e: exercise throughput + failures, verify every dashboard panel metric
+# compact qdrant e2e: exercise throughput + failures, verify every qdrant dashboard's panel metric
 set -euo pipefail
 
 LOG(){ printf '%s %s\n' "$(date -Iseconds)" "$*"; }

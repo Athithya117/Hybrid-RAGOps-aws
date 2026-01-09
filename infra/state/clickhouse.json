@@ -1,10 +1,16 @@
 {
   "namespace": "observability",
   "service": "clickhouse",
+  "exporter_service": "clickhouse-exporter",
   "app_label": "clickhouse",
   "statefulset": "ch-single",
   "db": "logs",
   "table": "kube_logs",
   "user": "vector",
-  "secret": "clickhouse-credentials"
+  "secret": "clickhouse-credentials",
+  "exporter": {
+    "enabled": true,
+    "image": "flant/clickhouse-exporter:nightly-10102021",
+    "port": 9116
+  }
 }
