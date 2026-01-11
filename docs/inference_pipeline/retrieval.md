@@ -1,115 +1,60 @@
-# Retrieval Service — Runtime Documentation
+# Retrieval Service — Runtime Documentation (Updated)
 
 ## Overview
 
-The retrieval service is a stateless FastAPI application that implements the online retrieval layer for the RAG pipeline. It accepts user queries, produces dense and sparse query embeddings, performs hybrid search against a Qdrant collection, applies fusion and optional reranking, assembles LLM prompts, and returns UI-ready results and optional presigned blob URLs.
+The retrieval service is a stateless FastAPI application implementing the online retrieval and answer-generation layer of the RAG pipeline. It accepts user queries, performs sparse and optional dense hybrid retrieval against Qdrant, applies Reciprocal Rank Fusion (RRF), conditionally reranks results, builds numbered prompts, invokes an LLM when available, and returns an answer with optional traceable source chunks.
+
+This document reflects the current behavior of `apps/inference/retriever/query.py` and supersedes older documentation.
 
 ---
 
-## Components & Contracts
+## High-Level Architecture
 
-* **HTTP API (this service)**
+The service coordinates five external dependencies:
 
-  * `/generate` — main generate endpoint. Accepts `query`, returns `answer` and optional `chunks`.
-  * `/presign` — returns an Azure Blob SAS URL for a stored object.
-  * `/healthz`, `/readyz`, `/metrics` — health/readiness/Prometheus metrics.
+1. Dense embedding service (HTTP)
+2. Sparse embedding service (HTTP)
+3. Optional reranker service (HTTP)
+4. Qdrant vector database
+5. LLM provider (OpenAI- / Groq-compatible HTTP API)
 
-* **Embedding services (external HTTP)**
-
-  * Dense embedder: POST `{DENSE_URL}/embed` → `{"vectors":[[float,...],...]}`; health at `{DENSE_URL}/health`.
-  * Sparse embedder: POST `{SPARSE_URL}/embed` → `{"vectors":[{"indices":[int...],"values":[float...]},...]}`; health at `{SPARSE_URL}/health`.
-  * Reranker: POST `{RERANKER_URL}/rerank` → `{"scores":[float,...]}`; health at `{RERANKER_URL}/health`.
-
-* **Vector DB**
-
-  * Qdrant accessed via `qdrant_client` (sync client used inside `asyncio.to_thread`). Query functions return payload and scores. Collection name is `COLLECTION_NAME`.
-
-* **LLM provider**
-
-  * HTTP-based chat completion endpoint. `_call_llm_via_http()` posts to the configured LLM API (OpenAI/Groq-compatible).
+All external calls are bounded by timeouts and instrumented with Prometheus metrics. Qdrant is accessed via the synchronous Python client but executed in `asyncio.to_thread` to avoid blocking the event loop.
 
 ---
 
-## Runtime Control Flow (step-by-step)
+## Service Lifecycle
 
-### 1. Lifespan (startup)
+### Startup
 
-1. Instantiate async thin clients:
+On startup, the service:
 
-   * `AsyncDenseClient(DENSE_URL)`, `AsyncSparseClient(SPARSE_URL)`, `AsyncRerankerClient(RERANKER_URL)`.
-2. Create `QdrantClient` synchronously inside `asyncio.to_thread`.
-3. Perform best-effort `/health` checks for dense, sparse, reranker and record readiness metrics.
-4. Set `SERVICE_READY` gauge to reflect Qdrant availability.
-5. On shutdown, close HTTPX clients and log lifecycle events.
+- Instantiates async HTTP clients:
+  - `AsyncDenseClient`
+  - `AsyncSparseClient`
+  - `AsyncRerankerClient`
+- Creates a `QdrantClient` in a background thread.
+- Performs repeated `/health` checks against dense, sparse, and reranker services.
+- Marks readiness (`service_ready` gauge) as soon as the Qdrant client is successfully created (model services are advisory, not gating).
+- Launches a background health checker that continuously refreshes readiness state.
 
-### 2. Incoming request: `/generate`
+### Shutdown
 
-1. Validate request (non-empty `query`, `top_k` bounds).
-2. Verify Qdrant client exists; return a service-unavailable response if missing.
-3. Call `hybrid_query(...)` to retrieve candidate chunks (top-K). Metrics and latency are recorded.
-4. Trim results to `MAX_CHUNKS_TO_LLM`. If no documents, return `GenerateResponse(answer="no documents retrieved")`.
-5. Build numbered LLM prompt blocks and UI metadata using `build_numbered_prompt_and_ui_chunks()`. This uses `ui_fields_from_payload()` to produce `snippet`, `source_url`, and other UI items.
-6. If `enable_tracing` and an LLM API key is configured, call `_call_llm_via_http()` to fetch a traced answer; otherwise, call the configured LLM prompt or fallback `deterministic_summarize()` when LLM is not available or fails.
-7. Validate and filter citations with `_validate_and_filter_citations()`.
-8. Return `GenerateResponse(answer=<text>, chunks=<optional chunk list>)`.
+On shutdown (`SIGINT` / `SIGTERM`):
 
-### 3. Hybrid retrieval: `hybrid_query(...)`
-
-1. **Embedding**
-
-   * When hybrid mode is enabled, call:
-
-     * `dense_client.embed([query_text])` → single dense vector (length = `DENSE_DIM`), normalized.
-     * `sparse_client.embed_chunked([query_text])` → sparse `{indices, values}` object.
-   * When hybrid disabled, only sparse embedding is used.
-   * Embed calls are guarded by timeouts and instrumented; failures downgrade gracefully (embed result set to `None`).
-2. **Qdrant search**
-
-   * If dense is available and hybrid enabled:
-
-     * Build `Prefetch(query=q_dense, using="dense", limit=prefetch_k)` and execute `client.query_points(..., query=FusionQuery(fusion=Fusion.RRF), limit=top_k, with_payload=True, with_vectors=False)` inside `asyncio.to_thread`.
-   * Otherwise:
-
-     * Build `SparseVector(indices=..., values=...)` and call `client.query_points(..., query=q_sparse_obj, using="sparse", limit=top_k, with_payload=True, with_vectors=False)` inside `asyncio.to_thread`.
-3. **Response normalization & dedup**
-
-   * Convert client response into a canonical list of items via `query_response_to_items()` and `extract_point_fields()`.
-   * Deduplicate by `chunk_id` or `id` and return up to `top_k` candidate results.
-
-### 4. Reranking decision and execution
-
-1. Rerank is controlled by `RERANKER_MODE`:
-
-   * `DISABLE`: skip reranking.
-   * `ALWAYS`: rerank the top `RERANK_TOPK`.
-   * `AUTO`: evaluate heuristics (fused top score vs `RERANK_AUTO_THRESHOLD`, rank disagreement > `RERANK_THRESHOLD`, top-second gap < `RERANK_MARGIN`) to decide rerank.
-2. If rerank triggered:
-
-   * Extract candidate documents into plain text list.
-   * Call `reranker_client.rerank(query, documents)` → scores.
-   * Merge reranker scores with original ordering and re-sort candidates.
-
-### 5. LLM invocation & fallback
-
-1. Build prompt body and LLM lines (numbered blocks) from selected chunks.
-2. Call `_call_llm_via_http(system, user_prompt, model, max_tokens, temperature)` if API key present.
-3. On LLM HTTP errors or missing API key, use deterministic summarizer `deterministic_summarize()` as fallback.
-4. Post-process and filter citations.
-
-### 6. Presign flow (`/presign`)
-
-1. Accept `s3_path` (supports `az://container/blob`, `container/blob`, or full `https://...`).
-2. Call `helpers.presign_azure_blob_blocking(path, expires, inline)` inside `asyncio.to_thread`.
-3. Return a full SAS URL or error.
+- Background health task is cancelled.
+- All HTTPX clients are closed.
+- Readiness gauge is set to 0.
+- Shutdown is logged deterministically.
 
 ---
 
-## Endpoints & JSON Contracts
+## API Endpoints
 
 ### `/generate` (POST)
 
-**Request**
+Primary query endpoint.
 
+Request:
 ```json
 {
   "query": "string",
@@ -118,9 +63,9 @@ The retrieval service is a stateless FastAPI application that implements the onl
   "return_chunks": true,
   "max_tokens": 512
 }
-```
+````
 
-**Response**
+Response:
 
 ```json
 {
@@ -135,100 +80,204 @@ The retrieval service is a stateless FastAPI application that implements the onl
 }
 ```
 
+Behavior summary:
+
+* Validates input and availability of Qdrant.
+* Executes hybrid or sparse-only retrieval.
+* Optionally reranks results.
+* Builds numbered prompt blocks.
+* Calls LLM if configured, otherwise falls back to deterministic summarization.
+* Filters invalid citations.
+* Returns answer and (optionally) traceable chunks.
+
+---
+
 ### `/presign` (POST)
 
-**Request**
+Returns a presigned Azure Blob URL.
+
+Request:
 
 ```json
-{ "s3_path": "az://container/blob", "expires": 3600, "inline": true }
+{ "path": "az://container/blob", "expires": 3600, "inline": true }
 ```
 
-**Response**
+Response:
 
 ```json
 { "url": "https://<account>.blob.core.windows.net/container/blob?<sas>" }
 ```
 
-### `/healthz` (GET)
+Presign logic is executed in a thread using `helpers.presign_azure_blob_blocking`.
 
-Return: `{"status": "ok"}`
+---
 
-### `/readyz` (GET)
+### Health & Observability
 
-Return example:
+* `/healthz` — liveness probe (`{"status":"ok"}`)
+* `/readyz` — readiness probe (Qdrant + dependency health snapshot)
+* `/metrics` — Prometheus exposition
 
-```json
-{
-  "status":"ready",
-  "service_ready": true,
-  "qdrant": true,
-  "dense": true,
-  "sparse": true,
-  "reranker": true
-}
-```
+---
 
-### `/metrics` (GET)
+## Retrieval Pipeline
 
-Prometheus exposition format.
+### Step 1: Embedding
+
+Depending on availability:
+
+* Hybrid mode (default when dense + sparse clients exist):
+
+  * Dense embedding via `dense_client.embed([query])`
+  * Sparse embedding via `sparse_client.embed_chunked([query])`
+* Sparse-only fallback:
+
+  * Sparse embedding only
+
+Dense vectors are L2-normalized and validated against `DENSE_DIM`.
+
+Embedding failures are logged and degrade gracefully (signals set to `None`).
+
+---
+
+### Step 2: Qdrant Query
+
+Hybrid (Dense + Sparse):
+
+* Dense vector is used in a `Prefetch` query.
+* Query executed with `FusionQuery(fusion=Fusion.RRF)`.
+* Result size is capped by `RRF_TOP_N`.
+
+Sparse-only:
+
+* Sparse vector queried directly using `using="sparse"`.
+* Result size capped by `QUERY_TOPK_SPARSE`.
+
+All Qdrant calls are executed inside `asyncio.to_thread`.
+
+Key distinction:
+
+* `RRF_TOP_N` limits how many candidates survive hybrid fusion.
+
+---
+
+### Step 3: Normalization & Deduplication
+
+* Qdrant responses are normalized via `query_response_to_items`.
+* Each item is reduced to `{id, score, payload}`.
+* Deduplication is performed by:
+
+  * `payload.chunk_id` if present
+  * otherwise by point `id`
+* Results are truncated to request-level `top_k`.
+
+---
+
+## Reranking
+
+### Reranker Modes
+
+Controlled by `RERANKER_MODE`:
+
+* `DISABLE` — never rerank
+* `ALWAYS` — always rerank
+* `AUTO` — rerank based on heuristics:
+
+  * top fused score < `RERANK_AUTO_THRESHOLD`
+  * or top–second score gap < `RERANK_MARGIN`
+
+### Reranking Scope
+
+* Only the top `RERANK_TOPK` retrieved results are reranked.
+* Reranker returns per-document scores.
+* Scores are combined with original fused scores using:
+
+  * `combined = RERANK_ALPHA * rerank_score + (1 - RERANK_ALPHA) * fused_score`
+* Only the reranked prefix is reordered; the tail remains unchanged.
+
+Important distinction:
+
+* `RRF_TOP_N` controls how many candidates exist at all.
+* `RERANK_TOPK` controls how many of those candidates are reranked.
+
+---
+
+## LLM Invocation
+
+### Prompt Construction
+
+* Retrieved chunks are converted into numbered blocks:
+
+  ```
+  [1]
+  Heading: ...
+  Content: ...
+  ```
+* These blocks are embedded into the user prompt template.
+
+### Execution
+
+* If an API key is present:
+
+  * `_call_llm_via_http()` is used (OpenAI/Groq-compatible).
+* If missing or on failure:
+
+  * `deterministic_summarize()` is used as fallback.
+
+### Tracing Mode
+
+* When `enable_tracing=true`, chunks and citations are preserved and returned.
+* If tracing is requested but no API key exists, the service returns a diagnostic answer with source chunks only.
+
+---
+
+## Citation Filtering
+
+Before returning the answer:
+
+* All non-numeric citations (URLs, metadata fields) are stripped.
+* Numeric citations `[n]` are retained only if `n` corresponds to a returned chunk index.
+* Extraneous whitespace and URLs are removed.
 
 ---
 
 ## Configuration (Environment Variables)
 
-Core variables used at runtime:
+Key variables used by the service:
 
-* `QDRANT_URL`, `QDRANT_API_KEY` — Qdrant connection.
-* `COLLECTION_NAME` — Qdrant collection name.
-* `DENSE_URL`, `DENSE_DIM`, `DENSE_BATCH_SIZE` — Dense embedder endpoint and expected vector dimension.
-* `SPARSE_URL`, `SPARSE_BATCH_FALLBACK` — Sparse embedder endpoint and fallback batch size.
-* `RERANKER_URL`, `RERANKER_MODE`, `RERANK_TOPK`, `RERANK_AUTO_THRESHOLD`, `RERANK_THRESHOLD`, `RERANK_MARGIN` — Reranker configuration and thresholds.
-* `API_KEY`, `LLM_MODEL`, `LLM_MAX_TOKENS`, `LLM_TEMPERATURE` — LLM provider credentials and call parameters.
-* `MAX_CHUNKS_TO_LLM`, `MAX_PROMPT_TOKENS`, `HTTP_TIMEOUT` — request safety limits and timeouts.
-* Azure presign variables: `AZURE_STORAGE_ACCOUNT_NAME`, `AZURE_STORAGE_ACCOUNT_KEY`, `AZURE_SAS_TOKEN`, `AZURE_ENDPOINT_SUFFIX`, `AZURE_USE_MANAGED_IDENTITY`, `ENV`.
+* Qdrant: `QDRANT_URL`, `QDRANT_API_KEY`, `COLLECTION_NAME`
+* Embeddings: `DENSE_URL`, `DENSE_DIM`, `SPARSE_URL`, `SPARSE_BATCH_FALLBACK`
+* Retrieval: `QUERY_TOPK_DENSE`, `QUERY_TOPK_SPARSE`, `RRF_TOP_N`
+* Reranking: `RERANKER_URL`, `RERANKER_MODE`, `RERANK_TOPK`, `RERANK_AUTO_THRESHOLD`, `RERANK_MARGIN`, `RERANK_ALPHA`
+* LLM: `API_KEY`, `LLM_MODEL`, `LLM_MAX_TOKENS`, `LLM_TEMPERATURE`
+* Limits & runtime: `MAX_CHUNKS_TO_LLM`, `MAX_PROMPT_TOKENS`, `HTTP_TIMEOUT`, `SERVICE_NAME`, `ENV`, `LOG_LEVEL`
 
 ---
 
-## Metrics (exposed)
+## Metrics
 
-* `retrieval_requests_total`, `retrieval_request_duration_seconds`, `retrieval_errors_total`
-* `dense_embed_requests_total`, `dense_embed_duration_seconds`
-* `sparse_embed_requests_total`, `sparse_embed_duration_seconds`
-* `qdrant_query_total`, `qdrant_query_duration_seconds`
-* `llm_calls_total`, `llm_call_duration_seconds`
-* `presign_requests_total`, `presign_duration_seconds`
-* `retrieved_docs_count` (histogram)
-* `service_ready` (gauge)
+Exposed via `/metrics`:
+
+* Request, error, and latency metrics
+* Dense, sparse, reranker, Qdrant, and LLM call metrics
+* Retrieved document count histogram
+* Service readiness gauge
 
 ---
 
 ## Error Handling & Fallbacks
 
-* **Embedding failure**: If dense or sparse embed fails, the service logs a warning and proceeds using the remaining signals. The corresponding client returns `None` or an empty list.
-* **Qdrant failure**: If Qdrant query fails, `hybrid_query` returns an empty result list; `/generate` returns a safe failure message and records error metrics.
-* **Reranker failure**: If reranker crashes or times out, skip rerank and continue with original fused results.
-* **LLM failure**: If LLM HTTP call fails or no API key, fall back to `deterministic_summarize()` for a short answer.
-* **Schema/Dimension mismatch**: Dense client verifies vector length; if mismatch is detected upstream, it raises an error to prevent silent corruption.
+* Embedding failure: degrade to remaining signals
+* Qdrant failure: empty results and safe error answer
+* Reranker failure: skip rerank
+* LLM failure or missing key: deterministic summarization
+* Validation errors: structured 422 responses
 
 ---
 
-## Health, Readiness, and Probes
+## Implementation Notes
 
-* **Liveness**: `/healthz` — lightweight check to confirm process is alive.
-* **Readiness**: `/readyz` — composite check: Qdrant client availability and model service `/health` responses. Use readiness probe to prevent routing traffic until Qdrant client is created.
-* **Docker-level**: HEALTHCHECK configured to call `/healthz` in the runtime image.
-
----
-
-## Shutdown Behavior
-
-* `SIGINT` / `SIGTERM` set a shutdown flag. Lifespan teardown closes HTTPX clients and logs shutdown events. External load balancer should be drained before pod termination to allow in-flight requests to finish.
-
----
-
-## Implementation Notes (concise)
-
-* Blocking Qdrant client calls are executed inside `asyncio.to_thread` to avoid blocking the event loop.
-* Presign operations that require Azure SDKs are executed in a thread to avoid blocking.
-* All external calls (embed, rerank, LLM, Qdrant) obey `HTTP_TIMEOUT` and are instrumented for latency and error telemetry.
-
+* Blocking operations (Qdrant, Azure presign) run in threads.
+* HTTP calls obey `HTTP_TIMEOUT`.
+* Logging is structured JSON with source-side log-level gating.
+* The service is stateless and horizontally scalable.

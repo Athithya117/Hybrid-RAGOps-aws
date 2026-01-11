@@ -7,7 +7,7 @@ Writes manifests to infra/manifests/reranker/
 
 Usage:
   python gen_reranker.py --generate
-  python gen_reranker.py --apply
+  python gen_reranker.py --rollout
   python gen_reranker.py --delete
 """
 from pathlib import Path
@@ -82,7 +82,7 @@ def load_config():
     cfg["ENV"] = os.environ.get("RERANKER_ENV", os.environ.get("ENV", "STAGING")).upper()
     cfg["MANIFESTS_DIR"] = Path(os.environ.get("MANIFESTS_DIR", "infra/manifests/reranker"))
     cfg["INPUTS_HASH_PATH"] = cfg["MANIFESTS_DIR"] / ".inputs_hash"
-    cfg["IMAGE"] = os.environ.get("RERANKER_IMAGE", "athithya5354/reranker:amd64-arm64-v1")
+    cfg["IMAGE"] = os.environ.get("RERANKER_IMAGE", "athithya5354/reranker:v1")
     cfg["NAMESPACE"] = os.environ.get("RERANKER_NAMESPACE", "models")
     cfg["SERVICE_NAME"] = os.environ.get("RERANKER_SERVICE_NAME", "reranker")
     cfg["CONTAINER_PORT"] = int(os.environ.get("RERANKER_PORT", "8202"))
@@ -279,7 +279,7 @@ def render_hpa(cfg):
     }
     return yaml.safe_dump(hpa, sort_keys=False)
 
-# -------------------- generate / apply / delete --------------------
+# -------------------- generate / rollout / delete --------------------
 def generate_manifests(cfg, dry_run=False, verbose=False):
     ensure_dir(cfg["MANIFESTS_DIR"])
     inputs_hash = canonical_inputs_hash(cfg)
@@ -307,7 +307,7 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
         log.info("Namespace:\n%s", ns_yaml.splitlines()[:20])
         log.info("Deployment (head):\n%s", deploy_yaml.splitlines()[:60])
 
-def apply_to_cluster(cfg, dry_run=False, verbose=False):
+def apply_to_cluster(cfg, dry_run=False, verbose=False, mode_label: str = "rollout"):
     kubectl = shutil.which("kubectl")
     if not kubectl:
         log.error("kubectl not found in PATH; cannot apply")
@@ -324,7 +324,7 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False):
         combined += f"---\n# source: {p.name}\n" + p.read_text() + "\n"
     res = kubectl_apply_yaml(combined, dry_run=False)
     if not res.get("applied", False):
-        log.error("kubectl apply failed: %s", res.get("stderr") or res.get("error"))
+        log.error("%s failed: %s", mode_label, res.get("stderr") or res.get("error"))
         sys.exit(2)
     summary = {
         "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
@@ -334,7 +334,7 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False):
         "files": {k: str(v) for k, v in cfg["FILES"].items()},
     }
     atomic_write(cfg["MANIFESTS_DIR"] / "last_deploy_summary.json", json.dumps(summary, indent=2))
-    log.info("Applied manifests to cluster and wrote deploy summary")
+    log.info("%s complete; applied manifests to cluster and wrote deploy summary", mode_label)
 
 def delete_manifests(cfg):
     if cfg["MANIFESTS_DIR"].exists():
@@ -353,10 +353,11 @@ def delete_manifests(cfg):
 
 # -------------------- CLI --------------------
 def parse_args():
-    p = argparse.ArgumentParser(description="Generate/apply Reranker Kubernetes manifests.")
+    p = argparse.ArgumentParser(description="Generate/rollout/delete Reranker Kubernetes manifests.")
     grp = p.add_mutually_exclusive_group(required=True)
     grp.add_argument("--generate", action="store_true", help="Generate manifests to MANIFESTS_DIR.")
-    grp.add_argument("--apply", action="store_true", help="Generate manifests and apply to cluster (requires kubectl).")
+    grp.add_argument("--rollout", action="store_true", help="Create or converge resources to desired state (preferred over --apply).")
+    grp.add_argument("--apply", action="store_true", help="Legacy alias for --rollout (deprecated).")
     grp.add_argument("--delete", action="store_true", help="Delete generated manifests.")
     p.add_argument("--dry-run", action="store_true", help="Render and validate but do not write or apply.")
     p.add_argument("--verbose", action="store_true", help="Print extra debug info.")
@@ -371,12 +372,12 @@ def main():
     if args.generate:
         generate_manifests(cfg, dry_run=args.dry_run, verbose=args.verbose)
         return
+    if args.rollout:
+        apply_to_cluster(cfg, dry_run=args.dry_run, verbose=args.verbose, mode_label="rollout")
+        return
     if args.apply:
-        generate_manifests(cfg, dry_run=args.dry_run, verbose=args.verbose)
-        if args.dry_run:
-            log.info("Dry-run mode: skipping kubectl apply.")
-            return
-        apply_to_cluster(cfg, dry_run=args.dry_run, verbose=args.verbose)
+        log.warning("--apply is deprecated; use --rollout")
+        apply_to_cluster(cfg, dry_run=args.dry_run, verbose=args.verbose, mode_label="apply")
         return
 
 if __name__ == "__main__":

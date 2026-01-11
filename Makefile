@@ -14,20 +14,67 @@ pulumi-preview:
 	bash infra/pulumi_azure/run.sh --preview || true
 
 
-
 set-aks-context:
 	az aks get-credentials \
 	  -g "$$AZURE_RESOURCE_GROUP_NAME" \
 	  -n "$$(jq -r '.aks_cluster_name' infra/pulumi_azure/pulumi-outputs.json)" \
-	  --overwrite-existing && kubectl get nodes
+	  --overwrite-existing && \
+	echo "current context: " && \
+	kubectl config current-context && \
+	kubectl get nodes && \
+	kubectl get pods -A
+
+delete-aks-context:
+	@CLUSTER_NAME="$$(jq -r '.aks_cluster_name' infra/pulumi_azure/pulumi-outputs.json)" ; \
+	RG_NAME="$$AZURE_RESOURCE_GROUP_NAME" ; \
+	kubectl config delete-context "$$CLUSTER_NAME" 2>/dev/null || true ; \
+	kubectl config delete-cluster "$$CLUSTER_NAME" 2>/dev/null || true ; \
+	kubectl config unset "users.clusterUser_$${RG_NAME}_$${CLUSTER_NAME}" 2>/dev/null || true ; \
+	kubectl config get-contexts
 
 set-kind-context:
 	kubectl config use-context kind-rag8s-local
 
 
+rollout-qdrant:
+	python3 infra/generators/qdrant_cluster.py --rollout
+
+delete-qdrant:
+	kubectl delete ns qdrant
+
+
+dense-image:
+	bash apps/dense/test_and_push_dense.sh
+
+rollout-dense:
+	python3 infra/generators/dense.py --rollout
+
+delete-dense:
+	python3 infra/generators/dense.py --delete
+
+
+sparse-image:
+	bash apps/sparse/test_and_push_sparse.sh
+
+rollout-sparse:
+	python3 infra/generators/sparse.py --rollout
+
+delete-sparse:
+	python3 infra/generators/sparse.py --delete
+
+
+base-index-image:
+	bash apps/index/build_and_push_base_image.sh
 
 index-image:
 	bash apps/index/build_and_push_image.sh
+
+rollout-indexing-cronjob:
+	python3 infra/generators/indexing_cronjob.py --rollout
+
+delete-indexing-cronjob:
+	kubectl delete ns indexing
+
 
 frontend-image:
 	bash apps/inference/frontend/build_and_push_frontend.sh
@@ -35,11 +82,9 @@ frontend-image:
 retrieval-image:
 	bash apps/inference/retrieval/test_and_push_retriever.sh
 
-sparse-image:
-	bash apps/sparse/test_and_push_sparse.sh
 
-dense-image:
-	bash apps/dense/test_and_push_dense.sh
+rollout-reranker:
+	python3 infra/generators/reranker.py --rollout
 
 reranker-image:
 	bash apps/reranker/test_and_push_reranker.sh
@@ -55,60 +100,47 @@ flux-status:
 	flux check && flux get kustomizations -n flux-system
 
 
+rollout-retriever:
+	python3 infra/generators/retriever.py --rollout
 
-deploy-dense:
-	python3 infra/generators/dense.py --apply
+rollout-frontend:
+	python3 infra/generators/frontend_auth.py --rollout --confirm
 
-deploy-sparse:
-	python3 infra/generators/sparse.py --apply
+rollout-cloudflared:
+	python3 infra/generators/cloudflared.py --rollout --replicas $${CLOUDFLARED_TUNNEL_REPLICAS} --namespace inference
 
-deploy-reranker:
-	python3 infra/generators/reranker.py --apply
+rollout-clickhouse:
+	python3 infra/generators/clickhouse.py --rollout
 
-deploy-qdrant:
-	bash infra/generators/qdrant_cluster.sh --apply
+rollout-vector:
+	python3 infra/generators/vector_logger.py --rollout
 
-deploy-retriever:
-	python3 infra/generators/retriever.py --apply
+rollout-vm:
+	bash infra/generators/monitoring.sh --rollout
 
-deploy-frontend:
-	python3 infra/generators/frontend_auth.py --apply --confirm
-
-deploy-cloudflared:
-	python3 infra/generators/cloudflared.py --apply --replicas $${CLOUDFLARED_TUNNEL_REPLICAS} --namespace inference
-
-deploy-clickhouse:
-	python3 infra/generators/clickhouse.py --apply
-
-deploy-vector:
-	python3 infra/generators/vector_logger.py --apply
-
-deploy-vm:
-	bash infra/generators/monitoring.sh --apply
-
-deploy-runbooks:
+rollout-runbooks:
 	bash infra/base_infra/az_runbooks.sh
 
-deploy-alert-manager:
-	python3 infra/generators/alerting.py --apply
+rollout-alert-manager:
+	python3 infra/generators/alerting.py --rollout
 
 
-deploy-models: deploy-dense deploy-sparse deploy-reranker
-deploy-inference-svcs: deploy-retriever deploy-frontend
-deploy-observability-stack:	deploy-prometheus deploy-clickhouse deploy-vector deploy-dashboards
+rollout-models: rollout-dense rollout-sparse rollout-reranker
+rollout-inference-svcs: rollout-retriever rollout-frontend
+rollout-observability-stack: rollout-prometheus rollout-clickhouse rollout-vector rollout-dashboards
 
 
 run-indexing-cronjob-kind:
-	@echo "[make fix-dns] invoking utils/fix_kind_cluster_dns.sh"
+	@echo "[make fix-kind-dns] invoking utils/fix_kind_cluster_dns.sh"
 	@chmod +x utils/fix_kind_cluster_dns.sh || true
 	@utils/fix_kind_cluster_dns.sh --timeout 60
 	sleep 5
-	python3 infra/generators/indexing_cronjob.py --delete
-	python3 infra/generators/indexing_cronjob.py --apply
-	python3 infra/runners/run_indexing_cronjob.py --wait-for-running --wait-running-timeout 120
+	python3 infra/generators/indexing_cronjob.py --rollout
+	python3 infra/runners/run_indexing_cronjob_kind.py --wait-for-running --wait-running-timeout 120
 
-fix-dns:
-	@echo "[make fix-dns] invoking utils/fix_kind_cluster_dns.sh"
+
+fix-kind-dns:
+	@echo "[make fix-kind-dns] invoking utils/fix_kind_cluster_dns.sh"
 	@chmod +x utils/fix_kind_cluster_dns.sh || true
 	@utils/fix_kind_cluster_dns.sh --timeout 60
 
@@ -122,26 +154,34 @@ qdrant-backup:
 qdrant-restore:
 	@bash $(CONTROL) restore
 
+
 cloudflare-setup:
-	bash infra/setup/cloudflared.sh 
+	bash infra/setup/cloudflared.sh
 
 cloudflare-logout:
-	rm -rf ~/.cloudflared && rm -f ~/.config/rag/secrets.env && unset CLOUDFLARE_TUNNEL_TOKEN && unset CLOUDFLARE_TUNNEL_CREDENTIALS_B64 && unset CLOUDFLARE_TUNNEL_NAME
+	rm -rf ~/.cloudflared && \
+	rm -f ~/.config/rag/secrets.env && \
+	unset CLOUDFLARE_TUNNEL_TOKEN && \
+	unset CLOUDFLARE_TUNNEL_CREDENTIALS_B64 && \
+	unset CLOUDFLARE_TUNNEL_NAME
+
 
 test-vector-connection:
 	make fix-dns
 	bash infra/tests/test_vector_clickhouse_connection.sh
 
 test-retriever:
-	make deploy-vm
-	make deploy-retriever
+	make rollout-vm
+	make rollout-retriever
 	bash infra/tests/monitoring/test_retriever.sh || true
+
 
 lc:
 	bash utils/lc.sh
 
 tree:
 	tree -a -I '.git|.venv|repos|__pycache__|venv|commands.sh|raw_data|.venv-pulumi|.venv2|archive|tmp.md|docs|models|tmp|raw|chunked'
+
 
 docker-login:
 	echo "$$DOCKER_PASSWORD" | docker login -u "$$DOCKER_USERNAME" --password-stdin
@@ -151,6 +191,7 @@ push:
 	git commit -m "new"
 	git push origin main --force
 
+
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
@@ -159,22 +200,18 @@ clean:
 	clear
 
 
-# Makefile snippet: ClickHouse convenience targets
-# Paste into your Makefile. Tweak CH_NS if you use a different namespace.
+# ClickHouse convenience targets
 CH_NS ?= observability
 
-# find-clickhouse-pod: runtime helper (runs inside recipe)
-# Usage examples:
-#   make ch-shell
-#   make ch-query QUERY="SELECT count() FROM logs.kube_logs;"
 .PHONY: ch-shell ch-query
 
 ch-shell:
-	@POD="$$(kubectl -n $(CH_NS) get pods -l app=clickhouse -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || kubectl -n $(CH_NS) get pods --no-headers 2>/dev/null | awk '/clickhouse|ch-single/ {print $$1; exit}')" ; \
+	@POD="$$(kubectl -n $(CH_NS) get pods -l app=clickhouse -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || \
+	kubectl -n $(CH_NS) get pods --no-headers 2>/dev/null | awk '/clickhouse|ch-single/ {print $$1; exit}')" ; \
 	if [ -z "$$POD" ]; then \
-	  echo "[error] no ClickHouse pod found in namespace $(CH_NS)"; \
-	  kubectl -n $(CH_NS) get pods || true; \
-	  exit 1; \
+		echo "[error] no ClickHouse pod found in namespace $(CH_NS)"; \
+		kubectl -n $(CH_NS) get pods || true; \
+		exit 1; \
 	fi ; \
 	echo "[info] connecting to ClickHouse pod $$POD in namespace $(CH_NS)"; \
 	kubectl -n $(CH_NS) exec -it $$POD -- clickhouse-client
@@ -182,11 +219,14 @@ ch-shell:
 ch-query:
 	@QUERY="$${QUERY}" ; \
 	if [ -z "$$QUERY" ]; then \
-	  echo "Usage: make ch-query QUERY=\"SELECT ...\""; exit 2; \
+		echo "Usage: make ch-query QUERY=\"SELECT ...\""; exit 2; \
 	fi ; \
-	POD="$$(kubectl -n $(CH_NS) get pods -l app=clickhouse -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || kubectl -n $(CH_NS) get pods --no-headers 2>/dev/null | awk '/clickhouse|ch-single/ {print $$1; exit}')" ; \
+	POD="$$(kubectl -n $(CH_NS) get pods -l app=clickhouse -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || \
+	kubectl -n $(CH_NS) get pods --no-headers 2>/dev/null | awk '/clickhouse|ch-single/ {print $$1; exit}')" ; \
 	if [ -z "$$POD" ]; then \
-	  echo "[error] no ClickHouse pod found in namespace $(CH_NS)"; kubectl -n $(CH_NS) get pods || true; exit 1; \
+		echo "[error] no ClickHouse pod found in namespace $(CH_NS)"; \
+		kubectl -n $(CH_NS) get pods || true; \
+		exit 1; \
 	fi ; \
 	echo "[info] running query on $$POD in namespace $(CH_NS)"; \
 	echo "$$QUERY" | kubectl -n $(CH_NS) exec -i $$POD -- clickhouse-client --multiquery

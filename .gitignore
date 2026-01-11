@@ -33,6 +33,8 @@ infra/pulumi_aws/backups
 infra/pulumi_azure/.venv-pulumi
 infra/pulumi_azure/Pulumi.staging.yaml
 infra/pulumi_azure/Pulumi.prod.yaml
+
+
 commands/
 commands
 models
@@ -40,7 +42,6 @@ alerts/
 dashboards
 
 *.onnx
-*.pt
 *.bin
 *.safetensors
 *.ckpt

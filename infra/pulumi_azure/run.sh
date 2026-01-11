@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
 IFS=$'\n\t'
 log(){ printf '[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"; }
 warn(){ printf '[%s] WARN: %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"; }

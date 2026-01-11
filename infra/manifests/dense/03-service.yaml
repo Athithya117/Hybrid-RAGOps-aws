@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/component: embedder
     app.kubernetes.io/managed-by: gen_dense
     app.kubernetes.io/instance: dense
-    env: staging
+    env: prod
 spec:
   type: ClusterIP
   ports:

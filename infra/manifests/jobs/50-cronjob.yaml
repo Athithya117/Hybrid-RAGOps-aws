@@ -22,7 +22,7 @@ spec:
           restartPolicy: Never
           containers:
           - name: indexer
-            image: athithya5354/indexing_pipeline_cpu:v12
+            image: athithya5354/indexing_pipeline_cpu:v17
             imagePullPolicy: IfNotPresent
             command:
             - /bin/sh
@@ -38,6 +38,8 @@ spec:
 
               exec /opt/venv/bin/python indexing_pipeline.py'
             env:
+            - name: AVOID_BACKUP_AFTER_EMPTY_INDEXING
+              value: 'true'
             - name: AZURE_CHUNKED_PREFIX
               value: data/chunked/
             - name: AZURE_CLIENT_ID
@@ -69,24 +71,50 @@ spec:
               value: b1e221f4-74ef-4e62-9bca-fb70aef41930
             - name: AZURE_TENANT_ID
               value: b8a65a11-9d1c-4d48-b9f6-dabfc67f2e4b
+            - name: BACKUP_AZ_CONTAINER
+              value: backups-515
+            - name: BACKUP_ENV
+              value: STAGING
+            - name: BACKUP_INVOKE_RETRIES
+              value: '3'
+            - name: BACKUP_INVOKE_RETRY_BASE
+              value: '2.0'
+            - name: BACKUP_LOCAL_DIR
+              value: tmp
+            - name: BACKUP_PREFIX
+              value: qdrant/backup
+            - name: BACKUP_RETRY_ATTEMPTS
+              value: '4'
+            - name: BACKUP_RETRY_BASE
+              value: '1.5'
+            - name: BACKUP_TIMEOUT
+              value: '300'
             - name: BATCH_SIZE
-              value: '16'
+              value: '8'
             - name: CSV_TARGET_TOKENS_PER_CHUNK
               value: '400'
             - name: DENSE_DIM
-              value: '384'
+              value: '512'
             - name: DENSE_URL
               value: http://dense-svc.models.svc.cluster.local:8200
+            - name: ENABLE_QDRANT_BACKUP
+              value: 'true'
             - name: ENV
               value: ''
             - name: EXTRA_SECRET_NAME
               value: indexer-extra-secrets
+            - name: FORCE_QDRANT_BACKUP
+              value: 'false'
             - name: HTTP_TIMEOUT
               value: '60'
             - name: INDEXING_PIPELINE_CPU_IMAGE_REPO
               value: athithya5354/indexing_pipeline_cpu
             - name: INDEXING_PIPELINE_CPU_IMAGE_TAG
-              value: v12
+              value: v17
+            - name: INDEX_STDOUT_TAIL_LINES
+              value: '2000'
+            - name: INDEX_TIMEOUT
+              value: '1800'
             - name: JSONL_TARGET_TOKENS_PER_CHUNK
               value: '400'
             - name: LOG_LEVEL
@@ -95,6 +123,10 @@ spec:
               value: infra/manifests/jobs
             - name: MAX_TOKENS_PER_CHUNK
               value: '320'
+            - name: MIN_INDEXED_POINTS_FOR_BACKUP
+              value: '100'
+            - name: MIN_INDEX_DELTA_RATIO_FOR_BACKUP
+              value: '0.0'
             - name: MIN_TOKENS_PER_CHUNK
               value: '100'
             - name: NAMESPACE
@@ -119,23 +151,15 @@ spec:
               value: indexer-cron-rb
             - name: ROLE_NAME
               value: indexer-cron-role
+            - name: RUN_QDRANT_BACKUP_PATH
+              value: infra/runners/run_qdrant_backup_service.py
             - name: SERVICE_ACCOUNT_NAME
               value: indexer-cron-sa
             - name: SPARSE_BATCH_FALLBACK
               value: '8'
             - name: SPARSE_URL
               value: http://sparse-svc.models.svc.cluster.local:8201
-            - name: UAI_RAG_RO_CLIENT_ID
-              value: ''
-            - name: UAI_RAG_RO_NAME
-              value: ''
-            - name: UAI_RAG_RO_PRINCIPAL_ID
-              value: ''
             - name: UAI_RAG_RW_CLIENT_ID
-              value: ''
-            - name: UAI_RAG_RW_NAME
-              value: ''
-            - name: UAI_RAG_RW_PRINCIPAL_ID
               value: ''
             - name: UPSERT_CHUNK
               value: '500'
@@ -148,3 +172,4 @@ spec:
               limits:
                 cpu: '4'
                 memory: 2Gi
+      activeDeadlineSeconds: 3600

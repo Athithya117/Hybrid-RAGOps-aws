@@ -40,12 +40,13 @@ resources:
 tolerations: []
 persistence:
   enabled: false
+  size: 20Gi
+  storageClass: ''
 config:
-  params:
-    shard_number: 1
-    replication_factor: 1
-    write_consistency_factor: 1
+  on_disk_payload: false
   log_level: INFO
   storage:
     storage_path: /qdrant/storage
     snapshots_path: /qdrant/snapshots
+hnsw_defaults:
+  on_disk: false

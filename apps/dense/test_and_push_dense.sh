@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
 MODE="${1:-cpu}"
 DOCKER_USERNAME="${DOCKER_USERNAME:-}"
 DOCKER_PASSWORD="${DOCKER_PASSWORD:-}"
-IMAGE_TAG="${IMAGE_TAG:-v1}"
+IMAGE_TAG="${DENSE_IMAGE_TAG:-v4}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_CONTEXT_DIR="${BUILD_CONTEXT_DIR:-${SCRIPT_DIR}}"
 IMAGE_REPO="${IMAGE_REPO:-dense}"
@@ -18,22 +19,27 @@ WAIT_TIMEOUT="${WAIT_TIMEOUT:-120}"
 SLEEP_BETWEEN_TRIES=1
 RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-3}"
 RETRY_BACKOFF="${RETRY_BACKOFF:-2}"
+
 FASTEMBED_GPU_ARG="0"
 case "${MODE,,}" in
   gpu) FASTEMBED_GPU_ARG="1" ;;
   cpu) FASTEMBED_GPU_ARG="0" ;;
   *) FASTEMBED_GPU_ARG="0"; printf '%s\n' "[WARN] unknown MODE '${MODE}', falling back to 'cpu'" >&2 ;;
 esac
+
 normalize_bool(){
   local v="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
   case "${v}" in 1|true|yes|y) printf '%s' "true" ;; 0|false|no|n|'') printf '%s' "false" ;; *) printf '%s' "false" ;; esac
 }
 AZURE_REGISTRY="$(normalize_bool "${AZURE_REGISTRY_RAW}")"
+
 log(){ printf '\033[0;34m[INFO]\033[0m %s\n' "$*"; }
 warn(){ printf '\033[0;33m[WARN]\033[0m %s\n' "$*" >&2; }
 err(){ printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; }
+
 cleanup_container(){ set +e; if docker ps -a --format '{{.Names}}' | grep -xq "${CONTAINER_NAME}"; then docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true; fi; set -e; }
 trap 'cleanup_container' EXIT
+
 retry_cmd(){
   local attempts=0 rc=0
   while :; do
@@ -44,6 +50,7 @@ retry_cmd(){
   done
   return $rc
 }
+
 wait_for_health(){
   local host_port="$1" path="$2" timeout="$3"
   local start now body
@@ -66,22 +73,53 @@ wait_for_health(){
     sleep "${SLEEP_BETWEEN_TRIES}"
   done
 }
+
 if ! command -v docker >/dev/null 2>&1; then err "docker CLI not found"; exit 2; fi
+
 log "Local arch: $(uname -m || true)"
 case "$(uname -m || true)" in
   x86_64|amd64) LOCAL_PLATFORM="linux/amd64" ;;
   aarch64|arm64) LOCAL_PLATFORM="linux/arm64" ;;
   *) LOCAL_PLATFORM="linux/amd64"; warn "unknown local arch, assuming amd64" ;;
 esac
-log "Building local single-arch image ${IMAGE_LOCAL}"
-docker build --build-arg "FASTEMBED_GPU=${FASTEMBED_GPU_ARG}" -t "${IMAGE_LOCAL}" "${BUILD_CONTEXT_DIR}" || { err "docker build failed"; exit 3; }
+
+# --- REQUIRED: enforce DENSE_MODEL_NAME + DENSE_DIM provided ---
+: "${DENSE_MODEL_NAME:?DENSE_MODEL_NAME must be set — e.g. jinaai/jina-embeddings-v2-small-en}"
+: "${DENSE_DIM:?DENSE_DIM must be set — e.g. 512}"
+
+# Validate DENSE_DIM is an integer
+if ! printf '%s' "${DENSE_DIM}" | grep -Eq '^[0-9]+$'; then
+  err "DENSE_DIM must be a positive integer (got: ${DENSE_DIM})"
+  exit 1
+fi
+
+log "Building local single-arch image ${IMAGE_LOCAL} (model=${DENSE_MODEL_NAME}, dim=${DENSE_DIM}, gpu=${FASTEMBED_GPU_ARG})"
+
+docker build \
+  --platform "${LOCAL_PLATFORM}" \
+  --build-arg FASTEMBED_GPU="${FASTEMBED_GPU_ARG}" \
+  --build-arg DENSE_MODEL_NAME="${DENSE_MODEL_NAME}" \
+  --build-arg DENSE_DIM="${DENSE_DIM}" \
+  -t "${IMAGE_LOCAL}" \
+  "${BUILD_CONTEXT_DIR}" \
+  || { err "docker build failed"; exit 3; }
+
 cleanup_container
 log "Running container ${CONTAINER_NAME}"
 docker run --name "${CONTAINER_NAME}" -d -p "${HOST_PORT}:${CONTAINER_PORT}" --shm-size=1.8g "${IMAGE_LOCAL}" >/dev/null
-if ! wait_for_health "${HOST_PORT}" "/health" "${WAIT_TIMEOUT}"; then err "Health check failed"; docker logs --tail 200 "${CONTAINER_NAME}" || true; docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true; exit 4; fi
+
+if ! wait_for_health "${HOST_PORT}" "/health" "${WAIT_TIMEOUT}"; then
+  err "Health check failed"
+  docker logs --tail 200 "${CONTAINER_NAME}" || true
+  docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+  exit 4
+fi
+
 EMBED_PAYLOAD='{"texts":["hello from test_and_push_dense"]}'
 resp=$(printf '%s' "${EMBED_PAYLOAD}" | curl -fsS -X POST "http://127.0.0.1:${HOST_PORT}/embed" -H "Content-Type: application/json" -d @- ) || { err "Embed POST failed"; docker logs --tail 200 "${CONTAINER_NAME}" || true; docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true; exit 5; }
+
 if command -v jq >/dev/null 2>&1; then printf '%s\n' "${resp}" | jq .; else printf '%s\n' "${resp}"; fi
+
 if command -v jq >/dev/null 2>&1; then VEC_LEN=$(printf '%s' "${resp}" | jq -r '.vectors[0] | length' 2>/dev/null || true); else VEC_LEN=$(python3 - <<'PY' 2>/dev/null || true
 import sys,json
 try:
@@ -92,13 +130,18 @@ except Exception:
   print("")
 PY
 ); fi
+
 if [ -z "${VEC_LEN}" ]; then err "Failed to parse vector length"; docker logs --tail 200 "${CONTAINER_NAME}" || true; docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true; exit 6; fi
+
 HEALTH_DIM=$(curl -fsS "http://127.0.0.1:${HOST_PORT}/health" 2>/dev/null | (jq -r '.dim // empty' 2>/dev/null || python3 -c "import sys,json;print(json.load(sys.stdin).get('dim',''))") ) || true
 : "${HEALTH_DIM:=0}"
+
 if [ "${HEALTH_DIM}" != "0" ]; then
   if [ "${VEC_LEN}" -ne "${HEALTH_DIM}" ]; then err "Vector length mismatch: ${VEC_LEN} != ${HEALTH_DIM}"; docker logs --tail 200 "${CONTAINER_NAME}" || true; docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true; exit 7; fi
 fi
+
 docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+
 if [ "${AZURE_REGISTRY}" = "true" ]; then
   if ! command -v az >/dev/null 2>&1; then err "az CLI required for ACR push"; exit 8; fi
   if [ -z "${ACR_NAME}" ]; then err "AZURE_REGISTRY=true requires ACR_NAME"; exit 9; fi

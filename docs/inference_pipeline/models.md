@@ -89,7 +89,7 @@ Sparse is optional but strongly recommended when documents are technical or long
 ---
 
 ## 4. Reranker  
-**Default:** `Xenova/ms-marco-MiniLM-L-6-v2`. More: https://qdrant.github.io/fastembed/examples/Supported_Models/#supported-image-embedding-models
+**Default:** `Xenova/ms-marco-MiniLM-L-6-v2`. More: https://qdrant.github.io/fastembed/examples/Supported_Models/#supported-rerank-cross-encoder-models
 
 ### Purpose
 Re-scores the top-k retrieved documents using cross-encoder ranking.  

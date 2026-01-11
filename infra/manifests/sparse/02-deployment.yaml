@@ -25,7 +25,7 @@ spec:
       serviceAccountName: sparse-sa
       containers:
       - name: sparse
-        image: athithya5354/sparse:amd64-arm64-v2
+        image: athithya5354/sparse:v1
         ports:
         - containerPort: 8201
         env:

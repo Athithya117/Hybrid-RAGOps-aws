@@ -10,8 +10,8 @@ spec:
   selector:
     app.kubernetes.io/name: qdrant
   ports:
-    - name: metrics
-      port: 6333
-      targetPort: 6333
-      protocol: TCP
+  - name: metrics
+    port: 6333
+    targetPort: 6333
+    protocol: TCP
   type: ClusterIP

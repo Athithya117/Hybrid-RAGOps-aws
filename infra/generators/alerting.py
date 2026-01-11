@@ -609,8 +609,9 @@ def validate(args: argparse.Namespace) -> None:
     promtool_check(slo)
     LOG.info("validate complete")
 
-def apply(args: argparse.Namespace) -> None:
-    LOG.info("apply started")
+def apply(args: argparse.Namespace, mode_label: str = "apply") -> None:
+    # mode_label allows distinguishing rollout vs legacy apply in logs
+    LOG.info("%s started", mode_label)
     render_all()
     alertmgr_deploy = OUT_DIR / "alertmanager-deployment.yaml"
     alertmgr_cm = OUT_DIR / "alertmanager-config.yaml"
@@ -631,7 +632,7 @@ def apply(args: argparse.Namespace) -> None:
             LOG.info("slo.rules.yaml is raw rules; not applying as k8s object")
     except Exception as e:
         LOG.warning("skipping slo.rules apply: %s", e)
-    LOG.info("apply complete")
+    LOG.info("%s complete", mode_label)
 
 def delete(args: argparse.Namespace) -> None:
     LOG.info("delete started")
@@ -666,11 +667,12 @@ def delete(args: argparse.Namespace) -> None:
     LOG.info("delete complete")
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Generate/validate/apply/delete alerting manifests")
+    p = argparse.ArgumentParser(description="Generate/validate/rollout/delete alerting manifests")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--generate", action="store_true")
     g.add_argument("--validate", action="store_true")
-    g.add_argument("--apply", action="store_true")
+    g.add_argument("--rollout", action="store_true", help="Create or converge resources to desired state (preferred over --apply)")
+    g.add_argument("--apply", action="store_true", help="Legacy alias for --rollout (deprecated)")
     g.add_argument("--delete", action="store_true")
     p.add_argument("--confirm", action="store_true", help="required for --delete")
     return p.parse_args()
@@ -684,8 +686,14 @@ def main() -> None:
         if args.validate:
             validate(args)
             return
+        if args.rollout:
+            # preferred, modern semantic
+            apply(args, mode_label="rollout")
+            return
         if args.apply:
-            apply(args)
+            # deprecated but supported for backward compatibility
+            LOG.warning("--apply is deprecated; use --rollout")
+            apply(args, mode_label="apply")
             return
         if args.delete:
             delete(args)

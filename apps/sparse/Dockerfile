@@ -1,22 +1,27 @@
-# apps/sparse/Dockerfile
+# Builder stage: install fastembed and pre-warm the sparse model
 FROM python:3.12.12-slim AS builder
 
 ARG FASTEMBED_GPU=0
-ARG MODEL_NAME=Qdrant/minicoil-v1
+ARG SPARSE_MODEL_NAME
+
+# Fail-fast: require build-time model selection
+RUN if [ -z "${SPARSE_MODEL_NAME:-}" ]; then echo "SPARSE_MODEL_NAME build-arg is required" >&2 && exit 1; fi
 
 ENV FASTEMBED_CACHE=/models_cache \
     HF_HOME=/models_cache \
     HUGGINGFACE_HUB_CACHE=/models_cache \
     TRANSFORMERS_CACHE=/models_cache \
-    MODEL_NAME=${MODEL_NAME}
+    SPARSE_MODEL_NAME=${SPARSE_MODEL_NAME}
 
 RUN mkdir -p /models_cache
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git curl build-essential && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git curl build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN python -m pip install --upgrade pip
 
-# Install fastembed + numpy + huggingface_hub + prometheus_client in builder
+# Install fastembed + numpy + huggingface_hub into builder so we can pre-warm
 RUN if [ "$FASTEMBED_GPU" = "1" ]; then \
       pip install --no-cache-dir numpy==2.2.6 fastembed-gpu==0.7.3 huggingface_hub; \
     else \
@@ -26,25 +31,40 @@ RUN if [ "$FASTEMBED_GPU" = "1" ]; then \
 WORKDIR /build
 COPY host_sparse.py /build/host_sparse.py
 
-# Pre-warm model so the weights are downloaded inside builder
+# Pre-warm model (best-effort; cached in builder image)
 RUN python - <<'PY'
-import os
-from fastembed import SparseTextEmbedding
-m = SparseTextEmbedding(model_name=os.environ.get("MODEL_NAME"))
-_ = list(m.embed(["_warmup_"], batch_size=1))
+import os, sys
+try:
+    from fastembed import SparseTextEmbedding
+    m = SparseTextEmbedding(model_name=os.environ.get("SPARSE_MODEL_NAME"))
+    _ = list(m.embed(["_warmup_"], batch_size=1))
+except Exception as e:
+    # keep build going; pre-warm is best-effort (remove this catch to make pre-warm strict)
+    print("WARNING: sparse model pre-warm failed:", e, file=sys.stderr)
 PY
 
 # ---------------------------- FINAL RUNTIME IMAGE ----------------------------
 FROM python:3.12.12-slim
 
+ARG FASTEMBED_GPU=0
+ARG SPARSE_MODEL_NAME
+
 ENV FASTEMBED_CACHE=/models_cache \
     HF_HOME=/models_cache \
     HUGGINGFACE_HUB_CACHE=/models_cache \
-    TRANSFORMERS_CACHE=/models_cache
+    TRANSFORMERS_CACHE=/models_cache \
+    SPARSE_MODEL_NAME=${SPARSE_MODEL_NAME} \
+    SPARSE_BATCH_SIZE=8 \
+    SPARSE_CUDA=0 \
+    SPARSE_HOST=0.0.0.0 \
+    SPARSE_PORT=8201 \
+    FASTEMBED_CACHE=/models_cache
 
-RUN mkdir -p /models_cache
+RUN mkdir -p /models_cache /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /models_cache /models_cache
 COPY --from=builder /build/host_sparse.py /app/host_sparse.py
@@ -53,24 +73,21 @@ WORKDIR /app
 
 RUN python -m pip install --upgrade pip
 
-ARG FASTEMBED_GPU=0
-
-# runtime packages
+# Runtime packages
 RUN sh -c ' \
     if [ "$FASTEMBED_GPU" = "1" ]; then \
-      pip install --no-cache-dir numpy==2.2.6 fastembed-gpu==0.7.3 fastapi==0.122.0 uvicorn==0.38.0 huggingface_hub; \
+      pip install --no-cache-dir numpy==2.2.6 fastembed-gpu==0.7.3 fastapi==0.122.0 uvicorn==0.38.0 huggingface_hub prometheus-client==0.17.0; \
     else \
-      pip install --no-cache-dir numpy==2.2.6 fastembed==0.7.3 fastapi==0.122.0 uvicorn==0.38.0 huggingface_hub; \
+      pip install --no-cache-dir numpy==2.2.6 fastembed==0.7.3 fastapi==0.122.0 uvicorn==0.38.0 huggingface_hub prometheus-client==0.17.0; \
     fi'
 
-ENV SPARSE_HOST=0.0.0.0 \
-    SPARSE_PORT=8201 \
-    SPARSE_MODEL_NAME=Qdrant/minicoil-v1 \
-    SPARSE_BATCH_SIZE=8 \
-    SPARSE_CUDA=0 \
-    ENV=dev \
-    FASTEMBED_CACHE=/models_cache
+# Record authoritative baked model into image
+RUN printf '%s' "${SPARSE_MODEL_NAME}" > /app/.baked_sparse_model && chmod 644 /app/.baked_sparse_model
+
+# Entrypoint enforces baked model immutability
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 EXPOSE 8201
 
-CMD ["uvicorn", "host_sparse:app", "--host", "0.0.0.0", "--port", "8201", "--lifespan", "on"]
+ENTRYPOINT ["sh", "/app/entrypoint.sh"]

@@ -1149,18 +1149,26 @@ def delete():
     LOG("monitoring deleted (best-effort); namespace left intact")
 
 def usage_and_exit():
-    print("usage: monitoring.py --generate|--apply|--delete|--validate (multiple flags allowed, executed in order)", file=sys.stderr)
+    print("usage: monitoring.py --generate|--rollout|--apply|--delete|--validate (multiple flags allowed, executed in order). --apply is a deprecated alias for --rollout", file=sys.stderr)
     sys.exit(1)
 
 def main():
     if len(sys.argv) < 2:
         usage_and_exit()
 
+    # If user used the old --apply flag, warn about deprecation (prefer --rollout).
+    if "--apply" in sys.argv and "--rollout" not in sys.argv:
+        LOG("DEPRECATION: --apply is deprecated; prefer --rollout (behavior preserved)")
+
     ops = []
     for a in sys.argv[1:]:
         if a == "--generate":
             ops.append("generate")
+        elif a == "--rollout":
+            # preferred modern term; map to existing 'apply' behavior
+            ops.append("apply")
         elif a == "--apply":
+            # legacy alias retained for backward compatibility
             ops.append("apply")
         elif a == "--delete":
             ops.append("delete")
@@ -1178,7 +1186,7 @@ def main():
             LOG(f"rendered {MANIFEST}")
         elif op == "apply":
             apply()
-            LOG("applied monitoring")
+            LOG("applied monitoring (rollout)")
         elif op == "delete":
             delete()
             LOG("deleted monitoring resources (namespace preserved)")

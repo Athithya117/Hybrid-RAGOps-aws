@@ -3,7 +3,6 @@
 # Generates CronJob + RBAC + supporting manifests for the indexing pipeline.
 # The generated CronJob overrides the image entrypoint by setting a safe,
 # portable command that works in kind and AKS without rebuilding images.
-
 from __future__ import annotations
 import os
 import sys
@@ -32,7 +31,7 @@ DEFAULTS: Dict[str, str] = {
     "ROLE_NAME": "indexer-cron-role",
     "ROLEBINDING_NAME": "indexer-cron-rb",
     "INDEXING_PIPELINE_CPU_IMAGE_REPO": "athithya5354/indexing_pipeline_cpu",
-    "INDEXING_PIPELINE_CPU_IMAGE_TAG": "v12",
+    "INDEXING_PIPELINE_CPU_IMAGE_TAG": "v17",
     "INDEXING_BACKUP_CRONJOB_CPU_REQUEST": "2",
     "INDEXING_BACKUP_CRONJOB_CPU_LIMIT": "4",
     "INDEXING_BACKUP_CRONJOB_MEMORY_REQUEST": "1Gi",
@@ -47,6 +46,25 @@ DEFAULTS: Dict[str, str] = {
     "SPARSE_URL": "http://sparse-svc.models.svc.cluster.local:8201",
     "PYTHONUNBUFFERED": "1",
     "MANIFESTS_DIR": "infra/manifests/jobs",
+    # New backup / pipeline control envs (backward compatible defaults)
+    "ENABLE_QDRANT_BACKUP": "true",
+    "FORCE_QDRANT_BACKUP": "false",
+    "AVOID_BACKUP_AFTER_EMPTY_INDEXING": "true",
+    "MIN_INDEXED_POINTS_FOR_BACKUP": "100",
+    "MIN_INDEX_DELTA_RATIO_FOR_BACKUP": "0.0",
+    "BACKUP_AZ_CONTAINER": "",
+    "BACKUP_PREFIX": "qdrant/backup",
+    "BACKUP_TIMEOUT": "300",
+    "BACKUP_RETRY_ATTEMPTS": "4",
+    "BACKUP_RETRY_BASE": "1.5",
+    "BACKUP_INVOKE_RETRIES": "3",
+    "BACKUP_INVOKE_RETRY_BASE": "2.0",
+    "BACKUP_LOCAL_DIR": "tmp",
+    "BACKUP_ENV": "STAGING",
+    "RUN_QDRANT_BACKUP_PATH": "infra/runners/run_qdrant_backup_service.py",
+    "INDEX_TIMEOUT": "1800",
+    "INDEX_STDOUT_TAIL_LINES": "2000",
+    "CRONJOB_MAX_TIME": "3600",
 }
 
 SENSITIVE_KEYS = {
@@ -78,12 +96,6 @@ RUNTIME_KEYS = set(DEFAULTS.keys()).union(
         "AZURE_CHUNKED_PREFIX",
         "AZURE_ENDPOINT_SUFFIX",
         "AZURE_STORAGE_API_VERSION",
-        "UAI_RAG_RW_CLIENT_ID",
-        "UAI_RAG_RO_CLIENT_ID",
-        "UAI_RAG_RW_PRINCIPAL_ID",
-        "UAI_RAG_RO_PRINCIPAL_ID",
-        "UAI_RAG_RW_NAME",
-        "UAI_RAG_RO_NAME",
         "QDRANT_API_KEY",
         "QDRANT_SECRET_NAME",
         "BATCH_SIZE",
@@ -100,6 +112,25 @@ RUNTIME_KEYS = set(DEFAULTS.keys()).union(
         "OVERWRITE_PPT_WITH_PPTS",
         "USE_MANAGED_IDENTITY",
         "ENV",
+        # include the new keys explicitly as well to be safe
+        "ENABLE_QDRANT_BACKUP",
+        "FORCE_QDRANT_BACKUP",
+        "AVOID_BACKUP_AFTER_EMPTY_INDEXING",
+        "MIN_INDEXED_POINTS_FOR_BACKUP",
+        "MIN_INDEX_DELTA_RATIO_FOR_BACKUP",
+        "BACKUP_AZ_CONTAINER",
+        "BACKUP_PREFIX",
+        "BACKUP_TIMEOUT",
+        "BACKUP_RETRY_ATTEMPTS",
+        "BACKUP_RETRY_BASE",
+        "BACKUP_INVOKE_RETRIES",
+        "BACKUP_INVOKE_RETRY_BASE",
+        "BACKUP_LOCAL_DIR",
+        "BACKUP_ENV",
+        "RUN_QDRANT_BACKUP_PATH",
+        "INDEX_TIMEOUT",
+        "INDEX_STDOUT_TAIL_LINES",
+        "CRONJOB_MAX_TIME",
     }
 )
 
@@ -218,8 +249,7 @@ def cronjob_manifest(cfg: Dict[str, str],
     ns = cfg["NAMESPACE"]
     cron_name = cfg["CRONJOB_NAME"]
     image = (
-        f"{cfg.get('INDEXING_PIPELINE_CPU_IMAGE_REPO')}:"
-        f"{cfg.get('INDEXING_PIPELINE_CPU_IMAGE_TAG')}"
+        f"{cfg.get('INDEXING_PIPELINE_CPU_IMAGE_REPO')}:" f"{cfg.get('INDEXING_PIPELINE_CPU_IMAGE_TAG')}"
     )
     sa_name = cfg["SERVICE_ACCOUNT_NAME"]
     azure_secret = cfg.get("AZURE_SECRET_NAME",
@@ -280,6 +310,7 @@ def cronjob_manifest(cfg: Dict[str, str],
             continue
         env_list.append({"name": k, "value": v})
 
+    # ensure HTTP_TIMEOUT exists
     if not any(e.get("name") == "HTTP_TIMEOUT" for e in env_list):
         env_list.append({
             "name": "HTTP_TIMEOUT",
@@ -296,9 +327,6 @@ def cronjob_manifest(cfg: Dict[str, str],
                 "AZURE_TENANT_ID"]
 
     # New: override container command/args to skip image ENTRYPOINT
-    # Use a short, robust shell wrapper that:
-    #  - tries ulimit -n but never references $SHELL
-    #  - execs the Python interpreter inside the venv directly
     wrapper_lines = [
         "set -e",
         "DESIRED=\"${DESIRED_NOFILE:-262144}\"",
@@ -312,7 +340,6 @@ def cronjob_manifest(cfg: Dict[str, str],
         "name": "indexer",
         "image": image,
         "imagePullPolicy": "IfNotPresent",
-        # override ENTRYPOINT: use portable /bin/sh -c wrapper
         "command": ["/bin/sh", "-c"],
         "args": [wrapper_script],
         "env": env_list,
@@ -354,6 +381,12 @@ def cronjob_manifest(cfg: Dict[str, str],
             },
         },
     }
+
+    # Map CRONJOB_MAX_TIME -> activeDeadlineSeconds on the Job spec (hard timeout)
+    try:
+        job_spec["activeDeadlineSeconds"] = int(cfg.get("CRONJOB_MAX_TIME", DEFAULTS["CRONJOB_MAX_TIME"]))
+    except Exception:
+        job_spec["activeDeadlineSeconds"] = int(DEFAULTS["CRONJOB_MAX_TIME"])
 
     cron: Dict[str, Any] = {
         "apiVersion": "batch/v1",
@@ -477,6 +510,8 @@ def load_cfg() -> Dict[str, str]:
     cfg["USE_MANAGED_IDENTITY"] = "1" if use_mi_env else "0"
     cfg["UAI_RAG_RW_CLIENT_ID"] = os.environ.get("UAI_RAG_RW_CLIENT_ID", "")
     cfg["AZURE_TENANT_ID"] = os.environ.get("AZURE_TENANT_ID", "")
+    # Ensure CRONJOB_MAX_TIME is read from env explicitly (cron-job-level setting)
+    cfg["CRONJOB_MAX_TIME"] = os.environ.get("CRONJOB_MAX_TIME", DEFAULTS["CRONJOB_MAX_TIME"])
     env_map = collect_runtime_env_map()
     for k, v in env_map.items():
         if k not in cfg:
@@ -534,6 +569,16 @@ def validate_cfg(cfg: Dict[str, str]):
             print(f"ERROR: {k} must be an integer", file=sys.stderr)
             raise SystemExit(2)
 
+    # validate CRONJOB_MAX_TIME is a positive integer
+    try:
+        max_time = int(str(cfg.get("CRONJOB_MAX_TIME", DEFAULTS["CRONJOB_MAX_TIME"])))
+        if max_time < 1:
+            print("ERROR: CRONJOB_MAX_TIME must be a positive integer", file=sys.stderr)
+            raise SystemExit(2)
+    except Exception:
+        print("ERROR: CRONJOB_MAX_TIME must be a positive integer", file=sys.stderr)
+        raise SystemExit(2)
+
 
 def write_manifest_file(manifests_dir: Path, filename: str,
                         manifest: Dict[str, Any]) -> Path:
@@ -589,8 +634,7 @@ def apply(cfg: Dict[str, str], dry_run: bool = False):
 
     if os.environ.get("QDRANT_API_KEY"):
         qname = cfg.get("QDRANT_SECRET_NAME",
-                        NAMED_SECRET_MAP.get("QDRANT_API_KEY",
-                                             "qdrant-api-key"))
+                        NAMED_SECRET_MAP.get("QDRANT_API_KEY", "qdrant-api-key"))
         manifests.append(
             ("41-secret-qdrant-placeholder.yaml",
              {
@@ -692,8 +736,7 @@ def apply(cfg: Dict[str, str], dry_run: bool = False):
     created_secret_names: List[str] = []
     if os.environ.get("QDRANT_API_KEY"):
         qname = cfg.get("QDRANT_SECRET_NAME",
-                        NAMED_SECRET_MAP.get("QDRANT_API_KEY",
-                                             "qdrant-api-key"))
+                        NAMED_SECRET_MAP.get("QDRANT_API_KEY", "qdrant-api-key"))
         ok, err = kubectl_create_secret_inline(
             qname, ns, {"QDRANT_API_KEY": os.environ["QDRANT_API_KEY"]})
         if not ok:
@@ -844,9 +887,10 @@ def delete(cfg: Dict[str, str], dry_run: bool = False,
 def parse_args():
     import argparse
     p = argparse.ArgumentParser(
-        description="Apply indexing CronJob (non-UAI by default).")
+        description="Rollout/delete indexing CronJob (non-UAI by default).")
     g = p.add_mutually_exclusive_group(required=False)
-    g.add_argument("--apply", action="store_true")
+    g.add_argument("--rollout", action="store_true", help="Create or converge resources to desired state (preferred)")
+    g.add_argument("--apply", action="store_true", help="Legacy alias for --rollout (deprecated)")
     g.add_argument("--delete", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--delete-secrets", action="store_true")
@@ -858,10 +902,22 @@ def print_env_examples():
     non_uai = [
         "# Non-UAI (default) — provide a valid connection string",
         "export AZURE_USE_MANAGED_IDENTITY=0",
-        "export AZURE_STORAGE_CONNECTION_STRING='DefaultEndpointsProtocol=https;EndpointSuffix=core.windows.net;"
-        "AccountName=storeragprod42;AccountKey=...;BlobEndpoint=https://storeragprod42.blob.core.windows.net/;'",
+        "export AZURE_STORAGE_CONNECTION_STRING='DefaultEndpointsProtocol=https;EndpointSuffix=core.windows.net;AccountName=storeragprod42;AccountKey=...;BlobEndpoint=https://storeragprod42.blob.core.windows.net/;'",
         "export AZURE_CONTAINER=rag-data-prod",
         "export QDRANT_API_KEY='REDACTED_IF_USED'",
+        "",
+        "# Backup / pipeline control (recommended)",
+        "export ENABLE_QDRANT_BACKUP=true",
+        "export FORCE_QDRANT_BACKUP=false",
+        "export AVOID_BACKUP_AFTER_EMPTY_INDEXING=true",
+        "export MIN_INDEXED_POINTS_FOR_BACKUP=100",
+        "export MIN_INDEX_DELTA_RATIO_FOR_BACKUP=0.0",
+        "export BACKUP_AZ_CONTAINER=backups-515",
+        "export BACKUP_PREFIX=qdrant/backup",
+        "export AZURE_STORAGE_CONNECTION_STRING='...'",
+        "export INDEX_TIMEOUT=1800",
+        "export BACKUP_TIMEOUT=300",
+        "export CRONJOB_MAX_TIME=3600",
     ]
     uai = [
         "# UAI / Managed Identity (explicit) — must set USE_MANAGED_IDENTITY=1",
@@ -870,6 +926,8 @@ def print_env_examples():
         "export AZURE_STORAGE_ACCOUNT_NAME=storeragprod42",
         "export AZURE_TENANT_ID='YOUR_TENANT_ID'",
         "export UAI_RAG_RW_CLIENT_ID='6a687dad-cd44-4fcf-99b5-b596cd2e3c77'",
+        "export BACKUP_AZ_CONTAINER=backups-515",
+        "export BACKUP_PREFIX=qdrant/backup",
         "export AZURE_CONTAINER=rag-data-prod",
         "export QDRANT_API_KEY='REDACTED_IF_USED'",
     ]
@@ -891,13 +949,19 @@ def main():
         traceback.print_exc()
         raise SystemExit(2) from e
     try:
-        if args.apply:
+        if args.rollout:
+            # preferred semantic
+            print("rollout: creating or converging resources to desired state")
+            apply(cfg, dry_run=args.dry_run)
+        elif args.apply:
+            # deprecated alias kept for backward compatibility
+            print("WARNING: --apply is deprecated; use --rollout (behaviour unchanged)", file=sys.stderr)
             apply(cfg, dry_run=args.dry_run)
         elif args.delete:
             delete(cfg, dry_run=args.dry_run,
                    delete_secrets=args.delete_secrets)
         else:
-            print("No action specified. Use --apply or --delete or --print-envs",
+            print("No action specified. Use --rollout (preferred), --apply (deprecated), --delete or --print-envs",
                   file=sys.stderr)
             raise SystemExit(1)
     except SystemExit:
@@ -906,6 +970,7 @@ def main():
         print("Operation failed:", e, file=sys.stderr)
         traceback.print_exc()
         raise SystemExit(4) from e
+
 
 if __name__ == "__main__":
     main()

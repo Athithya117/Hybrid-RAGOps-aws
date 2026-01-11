@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/component: embedder
     app.kubernetes.io/managed-by: gen_dense
     app.kubernetes.io/instance: dense
-    env: staging
+    env: prod
 spec:
   replicas: 1
   selector:
@@ -25,14 +25,14 @@ spec:
       serviceAccountName: dense-sa
       containers:
       - name: dense
-        image: athithya5354/dense:amd64-arm64-v1
+        image: athithya5354/dense:v1
         ports:
         - containerPort: 8200
         env:
         - name: DENSE_PORT
           value: '8200'
         - name: ENV
-          value: STAGING
+          value: PROD
         - name: DENSE_LOGLEVEL
           value: INFO
         livenessProbe:

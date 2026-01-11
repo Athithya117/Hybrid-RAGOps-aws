@@ -454,68 +454,89 @@ def validate_and_write(manifest_text: str):
         fh.write(manifest_text)
     print("[info] wrote", MANIFEST_FILE)
 
+def generate() -> None:
+    ns = NAMESPACE.strip()
+    manifest_text = build_manifest(ns)
+    validate_and_write(manifest_text)
+    print("[ok] generate complete")
+
+def rollout() -> None:
+    """Create or converge resources to desired state (preferred semantic)."""
+    ns = NAMESPACE.strip()
+    # backup existing manifest if present
+    if os.path.exists(MANIFEST_FILE):
+        try:
+            os.makedirs("/tmp/infra-backups", exist_ok=True)
+            subprocess.run(f"cp {MANIFEST_FILE} /tmp/infra-backups/vector.yaml.bak", shell=True)
+        except Exception:
+            pass
+    manifest_text = build_manifest(ns)
+    validate_and_write(manifest_text)
+
+    # ensure namespace exists and create secret for ClickHouse credentials (backwards-compatible behavior)
+    subprocess.run(f"kubectl create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -", shell=True)
+    subprocess.run(
+        f"kubectl -n {ns} create secret generic {CLICKHOUSE_SECRET_NAME} --from-literal=username={os.getenv('CLICKHOUSE_USER','vector')} --from-literal=password={os.getenv('CLICKHOUSE_PASSWORD','vectorpass')} --dry-run=client -o yaml | kubectl apply -f -",
+        shell=True
+    )
+
+    # apply manifest (validate first)
+    subprocess.run(f"kubectl apply --dry-run=client -f {MANIFEST_FILE}", shell=True)
+    subprocess.run(f"kubectl apply -f {MANIFEST_FILE}", shell=True)
+
+    # if exporter enabled, note to operator
+    if VECTOR_PROMETHEUS_EXPORTER_BOOL:
+        print("[info] Vector prometheus exporter enabled; manifest creates services 'vector-agent' and 'vector-prometheus-exporter' in namespace", ns)
+
+    subprocess.run(f"kubectl -n {ns} rollout restart daemonset vector-agent || true", shell=True)
+    print("[ok] rollout complete")
+
+def delete() -> None:
+    ns = NAMESPACE.strip()
+    if os.path.exists(MANIFEST_FILE):
+        try:
+            subprocess.run(f"kubectl delete -f {MANIFEST_FILE} --ignore-not-found", shell=True)
+        except Exception:
+            pass
+        try:
+            os.remove(MANIFEST_FILE)
+        except Exception:
+            pass
+    try:
+        subprocess.run(f"kubectl -n {ns} delete secret {CLICKHOUSE_SECRET_NAME} --ignore-not-found", shell=True)
+        subprocess.run("kubectl delete clusterrolebinding vector-k8s-reader-binding --ignore-not-found", shell=True)
+        subprocess.run("kubectl delete clusterrole vector-k8s-reader --ignore-not-found", shell=True)
+        subprocess.run(f"kubectl -n {ns} delete serviceaccount vector --ignore-not-found", shell=True)
+    except Exception:
+        pass
+    print("[ok] delete complete")
+
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--generate", action="store_true")
-    parser.add_argument("--apply", action="store_true")
-    parser.add_argument("--delete", action="store_true")
+    grp = parser.add_mutually_exclusive_group(required=True)
+    grp.add_argument("--generate", action="store_true")
+    grp.add_argument("--rollout", action="store_true", help="Create or converge resources to desired state (preferred over --apply)")
+    grp.add_argument("--apply", action="store_true", help="Legacy alias for --rollout (deprecated)")
+    grp.add_argument("--delete", action="store_true")
     args = parser.parse_args()
-    ns = NAMESPACE.strip()
 
     if args.generate:
-        manifest_text = build_manifest(ns)
-        validate_and_write(manifest_text)
-        print("[ok] generate complete")
+        generate()
+        return
+
+    if args.rollout:
+        rollout()
         return
 
     if args.apply:
-        if os.path.exists(MANIFEST_FILE):
-            try:
-                os.makedirs("/tmp/infra-backups", exist_ok=True)
-                subprocess.run(f"cp {MANIFEST_FILE} /tmp/infra-backups/vector.yaml.bak", shell=True)
-            except Exception:
-                pass
-        manifest_text = build_manifest(ns)
-        validate_and_write(manifest_text)
-
-        # ensure namespace exists and create secret for ClickHouse credentials (backwards-compatible behavior)
-        subprocess.run(f"kubectl create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -", shell=True)
-        subprocess.run(
-            f"kubectl -n {ns} create secret generic {CLICKHOUSE_SECRET_NAME} --from-literal=username={os.getenv('CLICKHOUSE_USER','vector')} --from-literal=password={os.getenv('CLICKHOUSE_PASSWORD','vectorpass')} --dry-run=client -o yaml | kubectl apply -f -",
-            shell=True
-        )
-
-        # apply manifest (validate first)
-        subprocess.run(f"kubectl apply --dry-run=client -f {MANIFEST_FILE}", shell=True)
-        subprocess.run(f"kubectl apply -f {MANIFEST_FILE}", shell=True)
-
-        # if exporter enabled, note to operator
-        if VECTOR_PROMETHEUS_EXPORTER_BOOL:
-            print("[info] Vector prometheus exporter enabled; manifest creates services 'vector-agent' and 'vector-prometheus-exporter' in namespace", ns)
-
-        subprocess.run(f"kubectl -n {ns} rollout restart daemonset vector-agent || true", shell=True)
-        print("[ok] apply complete")
+        # backward compatibility: warn and run rollout behavior
+        print("[warn] --apply is deprecated; use --rollout")
+        rollout()
         return
 
     if args.delete:
-        if os.path.exists(MANIFEST_FILE):
-            try:
-                subprocess.run(f"kubectl delete -f {MANIFEST_FILE} --ignore-not-found", shell=True)
-            except Exception:
-                pass
-            try:
-                os.remove(MANIFEST_FILE)
-            except Exception:
-                pass
-        try:
-            subprocess.run(f"kubectl -n {ns} delete secret {CLICKHOUSE_SECRET_NAME} --ignore-not-found", shell=True)
-            subprocess.run("kubectl delete clusterrolebinding vector-k8s-reader-binding --ignore-not-found", shell=True)
-            subprocess.run("kubectl delete clusterrole vector-k8s-reader --ignore-not-found", shell=True)
-            subprocess.run(f"kubectl -n {ns} delete serviceaccount vector --ignore-not-found", shell=True)
-        except Exception:
-            pass
-        print("[ok] delete complete")
+        delete()
         return
 
     parser.print_help()

@@ -1018,9 +1018,10 @@ def ensure_deployment_applied_safely(yaml_path: Path, ns: str, name: str = "graf
             pass
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Generate/apply/delete Grafana dashboards + optional Grafana deployment + optional in-cluster Postgres.")
+    p = argparse.ArgumentParser(description="Generate/rollout/delete Grafana dashboards + optional Grafana deployment + optional in-cluster Postgres.")
     g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument("--apply", action="store_true")
+    g.add_argument("--rollout", action="store_true", help="Create or converge resources to desired state (preferred over --apply)")
+    g.add_argument("--apply", action="store_true", help="Legacy alias for --rollout (deprecated)")
     g.add_argument("--delete", action="store_true")
     p.add_argument("--get-creds", action="store_true", help="Print Grafana admin username/password from grafana-admin-secret (after apply)")
     return p.parse_args()
@@ -1030,7 +1031,11 @@ def main() -> None:
     try:
         if args.delete:
             delete_action(); return
+        if args.rollout:
+            apply_action()
+            return
         if args.apply:
+            LOG.warning("--apply is deprecated; use --rollout")
             apply_action()
             return
     except Exception as e:

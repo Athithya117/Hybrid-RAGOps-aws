@@ -452,18 +452,39 @@ def delete_manifests(cfg: Dict[str, Any], confirm: bool = False) -> None:
 
 def parse_args() -> Any:
     import argparse
-    p = argparse.ArgumentParser(description="Generate/apply frontend + auth manifests; secrets applied in-cluster (not written to disk).")
+    p = argparse.ArgumentParser(description="Generate/rollout/validate/delete frontend + auth manifests; secrets applied in-cluster (not written to disk).")
     g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument("--generate", action="store_true"); g.add_argument("--apply", action="store_true"); g.add_argument("--validate", action="store_true"); g.add_argument("--delete", action="store_true")
-    p.add_argument("--confirm", action="store_true", help="required for apply/delete"); p.add_argument("--dry-run", action="store_true")
+    g.add_argument("--generate", action="store_true")
+    g.add_argument("--rollout", action="store_true", help="Create or converge resources to desired state (preferred over --apply)")
+    g.add_argument("--apply", action="store_true", help="Legacy alias for --rollout (deprecated)")
+    g.add_argument("--validate", action="store_true")
+    g.add_argument("--delete", action="store_true")
+    p.add_argument("--confirm", action="store_true", help="required for rollout/apply/delete")
+    p.add_argument("--dry-run", action="store_true")
     return p.parse_args()
 
 def main() -> None:
     args = parse_args(); cfg = load_config()
-    if args.generate: generate(cfg, dry_run=args.dry_run); return
-    if args.apply: generate(cfg, dry_run=args.dry_run); apply(cfg, confirm=args.confirm); return
-    if args.validate: generate(cfg, dry_run=args.dry_run); validate(cfg); return
-    if args.delete: delete_manifests(cfg, confirm=args.confirm); return
+    if args.generate:
+        generate(cfg, dry_run=args.dry_run)
+        return
+    if args.rollout:
+        info("rollout: creating or converging resources to desired state")
+        generate(cfg, dry_run=args.dry_run)
+        apply(cfg, confirm=args.confirm)
+        return
+    if args.apply:
+        warn("--apply is deprecated; use --rollout")
+        generate(cfg, dry_run=args.dry_run)
+        apply(cfg, confirm=args.confirm)
+        return
+    if args.validate:
+        generate(cfg, dry_run=args.dry_run)
+        validate(cfg)
+        return
+    if args.delete:
+        delete_manifests(cfg, confirm=args.confirm)
+        return
 
 if __name__ == "__main__":
     main()

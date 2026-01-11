@@ -9,8 +9,8 @@ Usage:
   # generate files
   python gen_sparse.py --generate
 
-  # apply to cluster (requires kubectl)
-  python gen_sparse.py --apply
+  # rollout to cluster (create or converge resources)
+  python gen_sparse.py --rollout
 
   # delete generated manifests
   python gen_sparse.py --delete
@@ -89,7 +89,7 @@ def load_config():
     cfg["MANIFESTS_DIR"] = Path(os.environ.get("MANIFESTS_DIR", "infra/manifests/sparse"))
     cfg["INPUTS_HASH_PATH"] = cfg["MANIFESTS_DIR"] / ".inputs_hash"
     # image and runtime
-    cfg["IMAGE"] = os.environ.get("SPARSE_IMAGE", "athithya5354/sparse:amd64-arm64-v2")
+    cfg["IMAGE"] = os.environ.get("SPARSE_IMAGE", "athithya5354/sparse:v1")
     cfg["NAMESPACE"] = os.environ.get("SPARSE_NAMESPACE", "models")
     cfg["SERVICE_NAME"] = os.environ.get("SPARSE_SERVICE_NAME", "sparse")
     cfg["CONTAINER_PORT"] = int(os.environ.get("SPARSE_PORT", "8201"))
@@ -355,6 +355,12 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False):
     atomic_write(cfg["MANIFESTS_DIR"] / "last_deploy_summary.json", json.dumps(summary, indent=2))
     log.info("Applied manifests to cluster and wrote deploy summary")
 
+# rollout is a semantic alias for apply in platform terms
+def rollout_manifests(cfg, dry_run=False, verbose=False):
+    log.info("rollout started")
+    apply_to_cluster(cfg, dry_run=dry_run, verbose=verbose)
+    log.info("rollout complete")
+
 def delete_manifests(cfg):
     if cfg["MANIFESTS_DIR"].exists():
         for p in sorted(cfg["MANIFESTS_DIR"].glob("*")):
@@ -372,10 +378,11 @@ def delete_manifests(cfg):
 
 # -------------------- CLI --------------------
 def parse_args():
-    p = argparse.ArgumentParser(description="Generate/apply Sparse embedder Kubernetes manifests.")
+    p = argparse.ArgumentParser(description="Generate/rollout/delete Sparse embedder Kubernetes manifests.")
     grp = p.add_mutually_exclusive_group(required=True)
     grp.add_argument("--generate", action="store_true", help="Generate manifests to MANIFESTS_DIR.")
-    grp.add_argument("--apply", action="store_true", help="Generate manifests and apply to cluster (requires kubectl).")
+    grp.add_argument("--rollout", action="store_true", help="Create or converge resources to desired state (preferred over --apply).")
+    grp.add_argument("--apply", action="store_true", help="Legacy alias for --rollout (deprecated).")
     grp.add_argument("--delete", action="store_true", help="Delete generated manifests.")
     p.add_argument("--dry-run", action="store_true", help="Render and validate but do not write or apply.")
     p.add_argument("--verbose", action="store_true", help="Print extra debug info.")
@@ -390,12 +397,12 @@ def main():
     if args.generate:
         generate_manifests(cfg, dry_run=args.dry_run, verbose=args.verbose)
         return
+    if args.rollout:
+        rollout_manifests(cfg, dry_run=args.dry_run, verbose=args.verbose)
+        return
     if args.apply:
-        generate_manifests(cfg, dry_run=args.dry_run, verbose=args.verbose)
-        if args.dry_run:
-            log.info("Dry-run mode: skipping kubectl apply.")
-            return
-        apply_to_cluster(cfg, dry_run=args.dry_run, verbose=args.verbose)
+        log.warning("--apply is deprecated; use --rollout")
+        rollout_manifests(cfg, dry_run=args.dry_run, verbose=args.verbose)
         return
 
 if __name__ == "__main__":

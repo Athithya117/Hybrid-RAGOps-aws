@@ -361,6 +361,10 @@ def write_state_artifact():
     print("[info] wrote state artifact", STATE_FILE)
 
 def apply_manifests():
+    """
+    Apply manifests to cluster. This function is used by both rollout (preferred)
+    and the legacy --apply alias. Behavior is unchanged.
+    """
     validate_env_cluster()
     ensure_kubectl()
     generate_manifests()
@@ -402,6 +406,14 @@ def apply_manifests():
                 print("[warn]", msg, "- continuing (set CLICKHOUSE_STRICT_EXPORTER_HEALTH=true to fail)")
     print("[ok] clickhouse apply complete")
 
+def rollout_manifests():
+    """
+    Preferred entrypoint for creating or converging resources to desired state.
+    Uses same behavior as apply_manifests but prints an explicit rollout header.
+    """
+    print("[info] rollout started")
+    apply_manifests()
+
 def delete_manifests(confirm: bool = False) -> None:
     if not confirm:
         print("[error] delete requires --confirm")
@@ -425,10 +437,11 @@ def delete_manifests(confirm: bool = False) -> None:
 
 def parse_args() -> Dict[str, Any]:
     import argparse
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(description="clickhouse manifest generator")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--generate", action="store_true")
-    g.add_argument("--apply", action="store_true")
+    g.add_argument("--rollout", action="store_true", help="Create or converge resources to desired state (preferred over --apply)")
+    g.add_argument("--apply", action="store_true", help="Legacy alias for --rollout (deprecated)")
     g.add_argument("--delete", action="store_true")
     p.add_argument("--confirm", action="store_true")
     return vars(p.parse_args())
@@ -439,7 +452,12 @@ def main() -> None:
         generate_manifests()
         write_state_artifact()
         return
+    if args.get("rollout"):
+        rollout_manifests()
+        return
     if args.get("apply"):
+        # backward compatibility
+        print("[warn] --apply is deprecated; use --rollout")
         apply_manifests()
         return
     if args.get("delete"):

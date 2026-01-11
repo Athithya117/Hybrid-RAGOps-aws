@@ -9,8 +9,8 @@ Usage:
   # generate files
   python gen_dense.py --generate
 
-  # apply to cluster (requires kubectl)
-  python gen_dense.py --apply
+  # rollout (create or converge resources to desired state)
+  python gen_dense.py --rollout
 
   # delete generated manifests
   python gen_dense.py --delete
@@ -85,18 +85,18 @@ def kubectl_apply_yaml(yaml_str: str, dry_run=False):
 def load_config():
     cfg = {}
     # environment context
-    cfg["ENV"] = os.environ.get("DENSE_ENV", os.environ.get("ENV", "STAGING")).upper()
+    cfg["ENV"] = os.environ.get("DENSE_ENV", os.environ.get("ENV", "PROD")).upper()
     cfg["MANIFESTS_DIR"] = Path(os.environ.get("MANIFESTS_DIR", "infra/manifests/dense"))
     cfg["INPUTS_HASH_PATH"] = cfg["MANIFESTS_DIR"] / ".inputs_hash"
     # image and runtime
-    cfg["IMAGE"] = os.environ.get("DENSE_IMAGE", "athithya5354/dense:amd64-arm64-v1")
+    cfg["IMAGE"] = os.environ.get("DENSE_IMAGE", "athithya5354/dense:v1")
     cfg["NAMESPACE"] = os.environ.get("DENSE_NAMESPACE", "models")
     cfg["SERVICE_NAME"] = os.environ.get("DENSE_SERVICE_NAME", "dense")
     cfg["CONTAINER_PORT"] = int(os.environ.get("DENSE_PORT", "8200"))
     cfg["HOST"] = os.environ.get("DENSE_HOST", "0.0.0.0")
     cfg["LOGLEVEL"] = os.environ.get("DENSE_LOGLEVEL", "INFO")
     # replicas & resources (defaults differ by ENV)
-    if cfg["ENV"] == "PROD":
+    if cfg["ENV"] == "STAGING":
         cfg.update({
             "REPLICAS": int(os.environ.get("DENSE_REPLICAS", "3")),
             "CPU_REQUEST": os.environ.get("DENSE_CPU_REQUEST", "1000m"),
@@ -294,7 +294,7 @@ def render_hpa(cfg):
     }
     return yaml.safe_dump(hpa, sort_keys=False)
 
-# -------------------- generate / apply / delete --------------------
+# -------------------- generate / rollout / delete --------------------
 def generate_manifests(cfg, dry_run=False, verbose=False):
     ensure_dir(cfg["MANIFESTS_DIR"])
     inputs_hash = canonical_inputs_hash(cfg)
@@ -324,7 +324,7 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
         log.info("Deployment (head):\n%s", deploy_yaml.splitlines()[:60])
     return
 
-def apply_to_cluster(cfg, dry_run=False, verbose=False):
+def apply_to_cluster(cfg, dry_run=False, verbose=False, mode_label: str = "rollout"):
     # ensure kubectl exists
     kubectl = shutil.which("kubectl")
     if not kubectl:
@@ -335,6 +335,7 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False):
     if dry_run:
         log.info("Dry-run: skipping kubectl apply")
         return
+    log.info("%s: applying manifests to cluster", mode_label)
     # apply files in the manifest dir in deterministic order
     files = [cfg["FILES"]["namespace"], cfg["FILES"]["sa_role"], cfg["FILES"]["deployment"], cfg["FILES"]["service"]]
     if cfg["HPA_ENABLED"]:
@@ -344,7 +345,7 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False):
         combined += f"---\n# source: {p.name}\n" + p.read_text() + "\n"
     res = kubectl_apply_yaml(combined, dry_run=False)
     if not res.get("applied", False):
-        log.error("kubectl apply failed: %s", res.get("stderr") or res.get("error"))
+        log.error("%s failed: %s", mode_label, res.get("stderr") or res.get("error"))
         sys.exit(2)
     # write last_deploy_summary
     summary = {
@@ -355,7 +356,7 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False):
         "files": {k: str(v) for k, v in cfg["FILES"].items()},
     }
     atomic_write(cfg["MANIFESTS_DIR"] / "last_deploy_summary.json", json.dumps(summary, indent=2))
-    log.info("Applied manifests to cluster and wrote deploy summary")
+    log.info("%s complete; wrote deploy summary", mode_label)
 
 def delete_manifests(cfg):
     if cfg["MANIFESTS_DIR"].exists():
@@ -374,10 +375,11 @@ def delete_manifests(cfg):
 
 # -------------------- CLI --------------------
 def parse_args():
-    p = argparse.ArgumentParser(description="Generate/apply Dense embedder Kubernetes manifests.")
+    p = argparse.ArgumentParser(description="Generate/rollout/delete Dense embedder Kubernetes manifests.")
     grp = p.add_mutually_exclusive_group(required=True)
     grp.add_argument("--generate", action="store_true", help="Generate manifests to MANIFESTS_DIR.")
-    grp.add_argument("--apply", action="store_true", help="Generate manifests and apply to cluster (requires kubectl).")
+    grp.add_argument("--rollout", action="store_true", help="Create or converge resources to desired state (preferred over --apply).")
+    grp.add_argument("--apply", action="store_true", help="Legacy alias for --rollout (deprecated).")
     grp.add_argument("--delete", action="store_true", help="Delete generated manifests.")
     p.add_argument("--dry-run", action="store_true", help="Render and validate but do not write or apply.")
     p.add_argument("--verbose", action="store_true", help="Print extra debug info.")
@@ -392,12 +394,12 @@ def main():
     if args.generate:
         generate_manifests(cfg, dry_run=args.dry_run, verbose=args.verbose)
         return
+    if args.rollout:
+        apply_to_cluster(cfg, dry_run=args.dry_run, verbose=args.verbose, mode_label="rollout")
+        return
     if args.apply:
-        generate_manifests(cfg, dry_run=args.dry_run, verbose=args.verbose)
-        if args.dry_run:
-            log.info("Dry-run mode: skipping kubectl apply.")
-            return
-        apply_to_cluster(cfg, dry_run=args.dry_run, verbose=args.verbose)
+        log.warning("--apply is deprecated; use --rollout")
+        apply_to_cluster(cfg, dry_run=args.dry_run, verbose=args.verbose, mode_label="apply")
         return
 
 if __name__ == "__main__":

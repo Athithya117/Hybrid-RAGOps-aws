@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-01-09T06:40:58.191010Z",
-  "image": "athithya5354/dense:amd64-arm64-v1",
+  "generated_at": "2026-01-11T04:48:05.213042Z",
+  "image": "athithya5354/dense:v1",
   "namespace": "models",
   "replicas": 1,
   "files": {

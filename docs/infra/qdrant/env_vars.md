@@ -68,7 +68,7 @@ Below is a concise, concrete reference for **every environment variable you’ll
 
 ---
 
-### `QDRANT_REPLICATION_FACTOR`
+### `QDRANT_REPLICATION_FACTOR` (app layer)
 
 * **What:** Logical replication factor used to render cluster peer configuration.
 * **Default:** `1`.

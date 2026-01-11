@@ -96,10 +96,10 @@ def load_config() -> Dict[str, Any]:
     cfg["STARTUP_FAILURE_THRESHOLD"] = int(os.getenv("STARTUP_FAILURE_THRESHOLD", "60"))
 
     # HPA
-    cfg["HPA_ENABLED"] = os.getenv("HPA_ENABLED", "false").lower() in ("1", "true", "yes")
-    cfg["HPA_MIN"] = int(os.getenv("HPA_MIN", "1"))
-    cfg["HPA_MAX"] = int(os.getenv("HPA_MAX", "5"))
-    cfg["HPA_TARGET_CPU"] = int(os.getenv("HPA_TARGET_CPU", "60"))
+    cfg["HPA_ENABLED"] = os.getenv("RETRIEVER_HPA_ENABLED", "false").lower() in ("1", "true", "yes")
+    cfg["HPA_MIN"] = int(os.getenv("RETRIEVER_HPA_MIN", "1"))
+    cfg["HPA_MAX"] = int(os.getenv("RETRIEVER_HPA_MAX", "5"))
+    cfg["HPA_TARGET_CPU"] = int(os.getenv("RETRIEVER_HPA_TARGET_CPU", "60"))
 
     # endpoints + defaults (kept in effective config but NOT written into configmap unless opt-in)
     defaults = {
@@ -457,7 +457,7 @@ def detect_secret_leak(rendered: str, secret_map: Dict[str, str]) -> Optional[st
             return k
     return None
 
-# ---- generate / apply / delete ----
+# ---- generate / rollout(apply) / delete ----
 def generate(cfg: Dict[str, Any]) -> None:
     ensure_dir(cfg["MANIFESTS_DIR"])
     ihash = canonical_inputs_hash(cfg)
@@ -510,7 +510,8 @@ def generate(cfg: Dict[str, Any]) -> None:
     cfg["INPUTS_HASH_PATH"].write_text(ihash, encoding="utf-8")
     info(f"Wrote manifests to {cfg['MANIFESTS_DIR']} (secrets are NOT written to disk)")
 
-def apply(cfg: Dict[str, Any]) -> None:
+def apply(cfg: Dict[str, Any], mode_label: str = "rollout") -> None:
+    info(f"{mode_label} started")
     if not which("kubectl"):
         die("kubectl not found in PATH")
 
@@ -556,6 +557,7 @@ def apply(cfg: Dict[str, Any]) -> None:
     info("Applied manifests to cluster.")
     summary = {"generated_at": datetime.datetime.utcnow().isoformat() + "Z", "image": cfg["IMAGE"], "namespace": cfg["NAMESPACE"], "replicas": cfg["REPLICAS"]}
     atomic_write(cfg["MANIFESTS_DIR"] / "last_deploy_summary.json", json.dumps(summary, indent=2))
+    info(f"{mode_label} complete")
 
 def delete(cfg: Dict[str, Any]) -> None:
     # remove local manifests but preserve namespace manifest and inputs hash
@@ -597,7 +599,9 @@ def delete(cfg: Dict[str, Any]) -> None:
 def parse_args():
     p = argparse.ArgumentParser(description="Generator for retrieval/query manifests (secret-safe).")
     g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument("--apply", action="store_true", help="generate + apply manifests (creates namespace if needed)")
+    g.add_argument("--generate", action="store_true", help="render manifests to MANIFESTS_DIR (no cluster ops)")
+    g.add_argument("--rollout", action="store_true", help="create or converge resources to desired state (preferred over --apply)")
+    g.add_argument("--apply", action="store_true", help="legacy alias for --rollout (deprecated)")
     g.add_argument("--delete", action="store_true", help="delete manifests/resources (preserves namespace)")
     return p.parse_args()
 
@@ -612,8 +616,16 @@ def main():
     if cfg["USE_AZURE_KEYVAULT"] and not os.getenv("AZURE_KEY_VAULT_NAME") and not cfg["ALLOW_MISSING_SECRETS"]:
         die("AZURE_KEY_VAULT_NAME required when USE_AZURE_KEYVAULT=true (or set ALLOW_MISSING_SECRETS=true)")
 
+    if args.generate:
+        generate(cfg)
+        return
+    if args.rollout:
+        apply(cfg, mode_label="rollout")
+        return
     if args.apply:
-        apply(cfg)
+        # backward compatibility
+        info("--apply is deprecated; use --rollout")
+        apply(cfg, mode_label="apply")
         return
     if args.delete:
         delete(cfg)

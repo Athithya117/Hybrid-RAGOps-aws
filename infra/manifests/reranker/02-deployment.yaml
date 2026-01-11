@@ -25,7 +25,7 @@ spec:
       serviceAccountName: reranker-sa
       containers:
       - name: reranker
-        image: athithya5354/reranker:amd64-arm64-v1
+        image: athithya5354/reranker:v1
         ports:
         - containerPort: 8202
         env:

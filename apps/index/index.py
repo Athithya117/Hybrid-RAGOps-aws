@@ -935,7 +935,96 @@ def retrieve_and_index():
         create_collection_sparse_only(client, COLLECTION_NAME)
     embed_and_upsert(client, COLLECTION_NAME, chunks, sparse_client, dense_client, hybrid_mode)
 
+
 if __name__ == "__main__":
-    slog("info", "startup", use_managed_identity=str(USE_MANAGED_IDENTITY).lower(), azure_client_id=str(AZURE_CLIENT_ID or ""))
-    validate_envs()
-    retrieve_and_index()
+    # Runtime wrapper that captures input/output metrics without changing core logic.
+    # Emits a single-line JSON summary as the last stdout line:
+    # {"collection":"<name>","indexed_points":<n>,"total_input_chunks":<n>,"skipped_existing":<n>}
+    try:
+        slog("info", "startup", use_managed_identity=str(USE_MANAGED_IDENTITY).lower(), azure_client_id=str(AZURE_CLIENT_ID or ""))
+        validate_envs()
+    except SystemExit:
+        raise
+    except Exception as e:
+        slog("error", "startup.failed", exc=e)
+        raise
+
+    metrics = {"total_input_chunks": 0, "indexed_points": 0}
+
+    # --- patch load_chunks_from_azure to capture total_input_chunks ---
+    try:
+        _orig_load_chunks = load_chunks_from_azure  # type: ignore
+        def _load_chunks_wrapper(account_name, account_key, container, prefix):
+            chunks = _orig_load_chunks(account_name, account_key, container, prefix)
+            try:
+                metrics["total_input_chunks"] = len(chunks) if chunks is not None else 0
+            except Exception:
+                metrics["total_input_chunks"] = 0
+            return chunks
+        globals()["load_chunks_from_azure"] = _load_chunks_wrapper  # type: ignore
+    except Exception as e:
+        slog("warning", "wrap.load_chunks.failed", exc=e)
+
+    # --- patch QdrantClient.upsert to count points actually upserted (increment only on success) ---
+    try:
+        _orig_upsert = QdrantClient.upsert  # type: ignore
+        def _upsert_wrapper(self, *args, **kwargs):
+            # find points list defensively (either kwargs or first list-like positional arg)
+            pts = kwargs.get("points", None)
+            if pts is None:
+                for a in args:
+                    if isinstance(a, list):
+                        pts = a
+                        break
+            # call original; increment only if call does not raise
+            result = _orig_upsert(self, *args, **kwargs)
+            try:
+                n = len(pts) if pts is not None else 0
+            except Exception:
+                n = 0
+            try:
+                metrics["indexed_points"] = int(metrics.get("indexed_points", 0)) + int(n)
+            except Exception:
+                metrics["indexed_points"] = metrics.get("indexed_points", 0)
+            return result
+        QdrantClient.upsert = _upsert_wrapper  # type: ignore
+    except Exception as e:
+        slog("warning", "wrap.qdrant.upsert.failed", exc=e)
+
+    # Run the original flow and capture exit semantics
+    exit_code = 0
+    try:
+        retrieve_and_index()
+        exit_code = 0
+    except SystemExit as se:
+        exit_code = getattr(se, "code", 1) or 1
+    except Exception as e:
+        slog("error", "index.unhandled_exception", exc=e)
+        exit_code = 1
+
+    # Compose summary. skipped_existing is best-effort: total_input_chunks - indexed_points
+    total_input_chunks = int(metrics.get("total_input_chunks", 0) or 0)
+    indexed_points = int(metrics.get("indexed_points", 0) or 0)
+    skipped = total_input_chunks - indexed_points
+    if skipped < 0:
+        skipped = 0
+
+    summary = {
+        "collection": COLLECTION_NAME,
+        "indexed_points": indexed_points,
+        "total_input_chunks": total_input_chunks,
+        "skipped_existing": skipped,
+    }
+
+    # Print single-line JSON as the very last stdout output (deterministic, parseable)
+    try:
+        print(json.dumps(summary, separators=(",", ":")), flush=True)
+    except Exception:
+        print(f'{{"collection":"{COLLECTION_NAME}","indexed_points":{indexed_points},"total_input_chunks":{total_input_chunks},"skipped_existing":{skipped}}}', flush=True)
+
+    # Exit with non-zero if indexing had a non-zero/system error
+    if exit_code:
+        sys.exit(exit_code)
+    sys.exit(0)
+
+
