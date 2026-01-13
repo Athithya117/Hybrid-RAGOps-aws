@@ -1,16 +1,3 @@
-"""
-ACR helper for Pulumi (pulumi-azure-native v3.11.0 compatibility).
-
-This module exposes a single, deterministic create_registry(...) function.
-It does NOT attempt to probe or import existing registries (no mixed intent).
-If you need import behavior, create the registry out-of-band and adapt later.
-
-Behavior:
- - Validates inputs strictly.
- - For SKU == "Basic" it omits policies (preview-only combinations can break Basic).
- - Uses only documented fields for Registry resource.
-"""
-
 from __future__ import annotations
 import re
 import pulumi
@@ -45,19 +32,15 @@ def create_registry(
     location: str,
 ):
     """
-    Create and return (id, login_server, provisioning_state) Pulumi outputs.
-
-    This is a deterministic 'managed' creation path: Pulumi will own the registry lifecycle.
-    It validates inputs and avoids preview-only fields for Basic SKU.
+    Creates a Registry resource and returns a dict:
+      {"registry": registry_resource, "id": registry.id, "login_server": registry.login_server, "provisioning_state": registry.provisioning_state}
+    Deterministic creation; minimal fields for Basic SKU; includes policies for non-Basic SKUs.
     """
     _validate_name(registry_name)
     sku_cap = _normalize_sku(sku)
     _validate_retention(int(retention_days))
 
-    # SkuArgs is supported by pulumi-azure-native; use a simple SkuArgs with name.
     sku_obj = containerregistry.SkuArgs(name=sku_cap)
-
-    # public_network_access uses documented values "Enabled"|"Disabled"
     public_net = "Enabled" if public_network_access else "Disabled"
 
     registry_args = {
@@ -70,15 +53,17 @@ def create_registry(
         "tags": {"managedBy": "pulumi", "project": "rag"},
     }
 
-    # Add policies only for non-Basic to avoid preview validation conflicts when Basic is requested.
     if sku_cap != "Basic":
         registry_args["policies"] = containerregistry.PoliciesArgs(
             retention_policy=containerregistry.RetentionPolicyArgs(days=int(retention_days), status="Enabled"),
             soft_delete_policy=containerregistry.SoftDeletePolicyArgs(status="Enabled"),
         )
 
-    # Create the Registry resource (Pulumi will translate to the documented REST create).
     registry = containerregistry.Registry("acrRegistry", **registry_args)
 
-    # Return canonical outputs (they are Outputs and safe to export).
-    return registry.id, registry.login_server, registry.provisioning_state
+    return {
+        "registry": registry,
+        "id": registry.id,
+        "login_server": registry.login_server,
+        "provisioning_state": registry.provisioning_state,
+    }

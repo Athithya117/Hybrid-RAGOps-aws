@@ -38,7 +38,7 @@ def ensure_dir(p: Path):
 
 def atomic_write(path: Path, content: str):
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content)
+    tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)
 
 def run_cmd(cmd, capture=True, check=False, timeout=None, input_bytes=None):
@@ -186,7 +186,7 @@ def render_sa_role(cfg):
     }
     return "\n---\n".join([yaml.safe_dump(x, sort_keys=False) for x in (sa, role, rb)])
 
-def render_deployment(cfg):
+def render_deployment(cfg, inputs_hash: str = ""):
     labels = cfg["LABELS"].copy()
     container = {
         "name": cfg["SERVICE_NAME"],
@@ -222,7 +222,7 @@ def render_deployment(cfg):
             "requests": {"cpu": cfg["CPU_REQUEST"], "memory": cfg["MEMORY_REQUEST"]},
             "limits": {"cpu": cfg["CPU_LIMIT"], "memory": cfg["MEMORY_LIMIT"]},
         },
-    
+
     }
 
     # GPU support: add resource limits if enabled
@@ -261,6 +261,12 @@ def render_deployment(cfg):
         "prometheus.io/port": str(cfg["CONTAINER_PORT"]),
         "prometheus.io/path": "/metrics",
     })
+
+    # Add deterministic inputs hash annotation to trigger rollout when non-secret inputs change
+    if inputs_hash:
+        pod_spec["spec"]["template"]["metadata"]["annotations"].update({
+            "gen-dense/inputs-hash": inputs_hash
+        })
 
     return yaml.safe_dump(pod_spec, sort_keys=False)
 
@@ -303,11 +309,11 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
         existing = cfg["INPUTS_HASH_PATH"].read_text().strip()
     if existing == inputs_hash and not dry_run:
         log.info("No non-secret changes detected; generation skipped.")
-        return
+        return inputs_hash
 
     ns_yaml = render_namespace(cfg)
     sa_role_yaml = render_sa_role(cfg)
-    deploy_yaml = render_deployment(cfg)
+    deploy_yaml = render_deployment(cfg, inputs_hash=inputs_hash)
     svc_yaml = render_service(cfg)
     atomic_write(cfg["FILES"]["namespace"], ns_yaml)
     atomic_write(cfg["FILES"]["sa_role"], sa_role_yaml)
@@ -317,12 +323,12 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
         hpa_yaml = render_hpa(cfg)
         atomic_write(cfg["FILES"]["hpa"], hpa_yaml)
     # save inputs hash
-    cfg["INPUTS_HASH_PATH"].write_text(inputs_hash)
+    cfg["INPUTS_HASH_PATH"].write_text(inputs_hash, encoding="utf-8")
     log.info("Wrote manifests to %s", str(cfg["MANIFESTS_DIR"]))
     if verbose:
-        log.info("Namespace:\n%s", ns_yaml.splitlines()[:20])
-        log.info("Deployment (head):\n%s", deploy_yaml.splitlines()[:60])
-    return
+        log.info("Namespace:\n%s", "\n".join(ns_yaml.splitlines()[:20]))
+        log.info("Deployment (head):\n%s", "\n".join(deploy_yaml.splitlines()[:60]))
+    return inputs_hash
 
 def apply_to_cluster(cfg, dry_run=False, verbose=False, mode_label: str = "rollout"):
     # ensure kubectl exists
@@ -331,7 +337,8 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False, mode_label: str = "rollo
         log.error("kubectl not found in PATH; cannot apply")
         sys.exit(2)
     # generate first (writes files)
-    generate_manifests(cfg, dry_run=dry_run, verbose=verbose)
+    inputs_hash = generate_manifests(cfg, dry_run=dry_run, verbose=verbose)
+    # if generate_manifests skipped (returned existing inputs_hash), inputs_hash will be that value or None
     if dry_run:
         log.info("Dry-run: skipping kubectl apply")
         return
@@ -342,7 +349,11 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False, mode_label: str = "rollo
         files.append(cfg["FILES"]["hpa"])
     combined = ""
     for p in files:
-        combined += f"---\n# source: {p.name}\n" + p.read_text() + "\n"
+        # Defensive: if file missing, skip but warn
+        if not p.exists():
+            log.warning("Expected manifest missing: %s (skipping)", str(p))
+            continue
+        combined += f"---\n# source: {p.name}\n" + p.read_text(encoding="utf-8") + "\n"
     res = kubectl_apply_yaml(combined, dry_run=False)
     if not res.get("applied", False):
         log.error("%s failed: %s", mode_label, res.get("stderr") or res.get("error"))
@@ -353,6 +364,7 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False, mode_label: str = "rollo
         "image": cfg["IMAGE"],
         "namespace": cfg["NAMESPACE"],
         "replicas": cfg["REPLICAS"],
+        "inputs_hash": inputs_hash,
         "files": {k: str(v) for k, v in cfg["FILES"].items()},
     }
     atomic_write(cfg["MANIFESTS_DIR"] / "last_deploy_summary.json", json.dumps(summary, indent=2))

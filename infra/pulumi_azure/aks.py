@@ -1,17 +1,7 @@
-"""
-AKS cluster creation module.
-
-Exports:
-  create_aks_cluster(rg, location, stack, params...)
-Returns:
-  cluster (ManagedCluster resource)
-Notes:
-  - Mirrors previous cluster creation in your monolith __main__.py.
-  - Agent pool helper keeps same defaults; does not modify behavior.
-"""
-
 from __future__ import annotations
+from typing import Optional
 import pulumi
+from pulumi import Output
 from pulumi_azure_native import containerservice
 
 def agent_profile_args(name: str, vm_size: str, count: int, max_pods: int, mode: str = "User",
@@ -33,16 +23,59 @@ def agent_profile_args(name: str, vm_size: str, count: int, max_pods: int, mode:
         args.max_count = max_count if max_count is not None else count
     return args
 
-def create_aks_cluster(rg, location: str, stack: str, aks_cluster_name: str, aks_sku: str,
-                       system_node_vm: str, system_node_count: int, max_pods: int,
-                       balanced_vm: str, balanced_min: int, balanced_max: int,
-                       cpu_vm: str, cpu_min: int, cpu_max: int,
-                       qdrant_vm: str, qdrant_count: int,
-                       aks_network_plugin: str, outbound_type: str, snet_aks_id: str | None):
+def _mk_cluster(args):
     """
-    Create the ManagedCluster and return it.
-    Keep resource names and tags consistent with previous behavior.
+    Internal helper to construct the ManagedCluster resource object.
+    args is a dict with keys matching ManagedCluster constructor inputs.
+    Returns the containerservice.ManagedCluster resource instance.
     """
+    return containerservice.ManagedCluster(
+        args["name"],
+        resource_group_name=args["resource_group_name"],
+        location=args["location"],
+        dns_prefix=args["dns_prefix"],
+        enable_rbac=args["enable_rbac"],
+        network_profile=args["network_profile"],
+        agent_pool_profiles=args["agent_pool_profiles"],
+        identity=args["identity"],
+        identity_profile=args.get("identity_profile"),
+        sku=args.get("sku"),
+        tags=args.get("tags"),
+    )
+
+def create_aks_cluster(rg,
+                       location: str,
+                       stack: str,
+                       aks_cluster_name: str,
+                       aks_sku: str,
+                       system_node_vm: str,
+                       system_node_count: int,
+                       max_pods: int,
+                       balanced_vm: str,
+                       balanced_min: int,
+                       balanced_max: int,
+                       cpu_vm: str,
+                       cpu_min: int,
+                       cpu_max: int,
+                       qdrant_vm: str,
+                       qdrant_count: int,
+                       aks_network_plugin: str,
+                       outbound_type: str,
+                       snet_aks_id: str | None,
+                       kubelet_identity = None):
+    """
+    Create the AKS ManagedCluster.
+
+    If `kubelet_identity` (a managedidentity.UserAssignedIdentity resource) is provided,
+    we resolve its resource id before constructing the cluster so that `userAssignedIdentities`
+    map uses a *literal* ARM resource id string as key. This avoids passing an Output as a dict key
+    which causes Pulumi/serializer errors.
+
+    Returns either:
+      - a containerservice.ManagedCluster resource (if kubelet_identity not provided), or
+      - an Output[containerservice.ManagedCluster] if cluster creation is created inside an apply.
+    """
+
     system_pool = agent_profile_args("systempool", system_node_vm, system_node_count, max_pods, mode="System", vnet_subnet_id=snet_aks_id)
     apppool_count = balanced_min if balanced_min > 0 else 0
     app_pool = agent_profile_args("apppool", balanced_vm, apppool_count, max_pods, mode="User", enable_autoscaling=True, min_count=balanced_min, max_count=balanced_max, vnet_subnet_id=None if aks_network_plugin != "azure" else snet_aks_id)
@@ -50,14 +83,6 @@ def create_aks_cluster(rg, location: str, stack: str, aks_cluster_name: str, aks
     cpu_pool = agent_profile_args("cpuheavy", cpu_vm, cpu_min if cpu_min>0 else 0, max_pods, mode="User", enable_autoscaling=True, min_count=cpu_min, max_count=cpu_max, vnet_subnet_id=None if aks_network_plugin != "azure" else snet_aks_id)
 
     agent_pools = [system_pool, app_pool, qdrant_pool, cpu_pool]
-
-    # For non-azure plugin, ensure vnet_subnet_id is omitted
-    if aks_network_plugin != "azure":
-        for p in agent_pools:
-            try:
-                setattr(p, "vnet_subnet_id", None)
-            except Exception:
-                pass
 
     network_profile = containerservice.ContainerServiceNetworkProfileArgs(
         network_plugin=aks_network_plugin,
@@ -68,17 +93,39 @@ def create_aks_cluster(rg, location: str, stack: str, aks_cluster_name: str, aks
         outbound_type=outbound_type,
     )
 
-    cluster = containerservice.ManagedCluster(
-        f"{aks_cluster_name}-pulumi",
-        resource_group_name=rg.name,
-        location=location,
-        dns_prefix=aks_cluster_name,
-        enable_rbac=True,
-        network_profile=network_profile,
-        agent_pool_profiles=agent_pools,
-        identity=containerservice.ManagedClusterIdentityArgs(type="SystemAssigned"),
-        sku=containerservice.ManagedClusterSKUArgs(name="Base", tier="Standard") if (aks_sku and aks_sku.lower() == "standard") else None,
-        tags={"env": stack, "managedBy": "pulumi", "project": "rag", "stack": stack},
-    )
+    base_args = {
+        "name": f"{aks_cluster_name}-pulumi",
+        "resource_group_name": rg.name,
+        "location": location,
+        "dns_prefix": aks_cluster_name,
+        "enable_rbac": True,
+        "network_profile": network_profile,
+        "agent_pool_profiles": agent_pools,
+        "tags": {"env": stack, "managedBy": "pulumi", "project": "rag", "stack": stack},
+    }
 
-    return cluster
+    if aks_sku and aks_sku.lower() == "standard":
+        base_args["sku"] = containerservice.ManagedClusterSKUArgs(name="Base", tier="Standard")
+
+    # If kubelet_identity is provided, we MUST map userAssignedIdentities with a literal resource-id key.
+    # To avoid Output-as-dict-key serialization problems, create the ManagedCluster inside an apply that receives the resolved id string.
+    if kubelet_identity is not None:
+        # Expect kubelet_identity to be a resource with .id and .principal_id
+        def _make_cluster(kid_id):
+            # kid_id is a plain string here (ARM resource id)
+            mc_args = dict(base_args)
+            # identity must include the userAssigned identity in userAssignedIdentities map
+            mc_args["identity"] = containerservice.ManagedClusterIdentityArgs(
+                type="SystemAssigned,UserAssigned",
+                user_assigned_identities={ kid_id: {} },
+            )
+            # set identity_profile.kubeletidentity.resourceId to the same literal id
+            mc_args["identity_profile"] = {"kubeletidentity": {"resourceId": kid_id}}
+            return _mk_cluster(mc_args)
+
+        # Resolve the id then create the cluster resource inside the apply.
+        return kubelet_identity.id.apply(lambda kid: _make_cluster(kid))
+
+    # Default path: system-assigned only
+    base_args["identity"] = containerservice.ManagedClusterIdentityArgs(type="SystemAssigned")
+    return _mk_cluster(base_args)

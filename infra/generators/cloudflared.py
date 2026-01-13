@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, sys, base64, subprocess, argparse, time
+import os
+import sys
+import base64
+import subprocess
+import argparse
+import time
+import hashlib
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -73,20 +79,35 @@ def ensure_namespace(ns: str) -> None:
         info(f"Namespace '{ns}' created")
 
 
-def render_configmap(tunnel_name: str, credentials_path: str, ingress_rules: List[Dict[str, str]], use_token: bool) -> Dict[str, Any]:
+def sha256_str(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def render_configmap(tunnel_name: str, credentials_path: str, ingress_rules: List[Dict[str, Any]], use_token: bool) -> Tuple[Dict[str, Any], str]:
+    """
+    Returns (ConfigMap dict, rendered_config_text).
+    """
     cfg: Dict[str, Any] = {"ingress": ingress_rules}
     if not use_token:
         if tunnel_name:
             cfg["tunnel"] = tunnel_name
         cfg["credentials-file"] = credentials_path
-    return {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "cloudflared-config", "namespace": NAMESPACE}, "data": {"config.yml": yaml.safe_dump(cfg, sort_keys=False)}}
+    # Keep ordering deterministic: yaml.safe_dump with sort_keys=False is acceptable because ingress_rules is constructed deterministically
+    config_text = yaml.safe_dump(cfg, sort_keys=False)
+    cm = {
+        "apiVersion": "v1",
+        "kind": "ConfigMap",
+        "metadata": {"name": "cloudflared-config", "namespace": NAMESPACE},
+        "data": {"config.yml": config_text},
+    }
+    return cm, config_text
 
 
 def render_serviceaccount() -> Dict[str, Any]:
     return {"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": "cloudflared-sa", "namespace": NAMESPACE}}
 
 
-def render_deployment(replicas: int, image: str, use_token: bool, tunnel_name: str, mount_creds: bool, config_key: str = "config.yml", creds_key: str = "credentials.json") -> Dict[str, Any]:
+def render_deployment(replicas: int, image: str, use_token: bool, tunnel_name: str, mount_creds: bool, config_checksum: str = "", config_key: str = "config.yml", creds_key: str = "credentials.json") -> Dict[str, Any]:
     container = {
         "name": "cloudflared",
         "image": image,
@@ -115,11 +136,17 @@ def render_deployment(replicas: int, image: str, use_token: bool, tunnel_name: s
     if mount_creds:
         volumes.append({"name": "creds-volume", "secret": {"secretName": "cloudflared-tunnel-credentials"}})
     pod_spec["volumes"] = volumes
+
+    template_meta: Dict[str, Any] = {"labels": {"app": "cloudflared"}}
+    if config_checksum:
+        # annotation triggers rollout when config changes
+        template_meta["annotations"] = {"cloudflared/config-checksum": config_checksum}
+
     deployment = {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
         "metadata": {"name": "cloudflared", "namespace": NAMESPACE},
-        "spec": {"replicas": replicas, "selector": {"matchLabels": {"app": "cloudflared"}}, "template": {"metadata": {"labels": {"app": "cloudflared"}}, "spec": pod_spec}},
+        "spec": {"replicas": replicas, "selector": {"matchLabels": {"app": "cloudflared"}}, "template": {"metadata": template_meta, "spec": pod_spec}},
     }
     return deployment
 
@@ -138,18 +165,47 @@ def render_secret_credentials(creds_b64: str) -> Dict[str, Any]:
     return {"apiVersion": "v1", "kind": "Secret", "metadata": {"name": "cloudflared-tunnel-credentials", "namespace": NAMESPACE}, "type": "Opaque", "data": {"credentials.json": data_b64}}
 
 
-def write_manifests(replicas: int, image: str, use_token: bool, tunnel_name: str, embed_secrets: bool, upstream_service: str, hostname: str, credentials_path: str):
+def write_manifests(replicas: int, image: str, use_token: bool, tunnel_name: str, embed_secrets: bool, upstream_service: str, hostname: str, credentials_path: str, dashboard_hostname: str = "", dashboard_upstream: str = ""):
     MANIFESTS_DIR.mkdir(parents=True, exist_ok=True)
     sa = render_serviceaccount()
-    ingress_rules: List[Dict[str, str]] = []
+    ingress_rules: List[Dict[str, Any]] = []
+    seen = set()
+
+    # Frontend hostname (if provided)
     if hostname:
-        ingress_rules.append({"hostname": hostname, "service": upstream_service})
+        key = (hostname, upstream_service)
+        if key not in seen:
+            ingress_rules.append({"hostname": hostname, "service": upstream_service})
+            seen.add(key)
+            info(f"Added ingress rule: {hostname} -> {upstream_service}")
+
+    # Dashboard hostname -> route to Grafana upstream when supplied
+    if dashboard_hostname:
+        dsvc = dashboard_upstream or DEFAULT_DASHBOARD_UPSTREAM
+        key = (dashboard_hostname, dsvc)
+        if key not in seen:
+            # ensure Grafana sees the external host so redirects / asset URLs use the public hostname
+            ingress_rules.append({
+                "hostname": dashboard_hostname,
+                "service": dsvc,
+                "originRequest": {"httpHostHeader": dashboard_hostname},
+            })
+            seen.add(key)
+            info(f"Added ingress rule: {dashboard_hostname} -> {dsvc}")
+
+    # Default 404 catch-all
     ingress_rules.append({"service": "http_status:404"})
-    cm = render_configmap(tunnel_name, credentials_path, ingress_rules, use_token)
-    deploy = render_deployment(replicas, image, use_token, tunnel_name, mount_creds=not use_token)
+
+    cm, config_text = render_configmap(tunnel_name, credentials_path, ingress_rules, use_token)
+    config_checksum = sha256_str(config_text)
+
+    deploy = render_deployment(replicas, image, use_token, tunnel_name, mount_creds=not use_token, config_checksum=config_checksum)
+
+    # Write manifests in stable order
     safe_write(MANIFESTS_DIR / "00-serviceaccount.yaml", yaml.safe_dump(sa, sort_keys=False))
     safe_write(MANIFESTS_DIR / "01-configmap.yaml", yaml.safe_dump(cm, sort_keys=False))
     safe_write(MANIFESTS_DIR / "02-deployment.yaml", yaml.safe_dump(deploy, sort_keys=False))
+
     if embed_secrets:
         idx = 3
         if CLOUDFLARE_TUNNEL_TOKEN:
@@ -158,7 +214,9 @@ def write_manifests(replicas: int, image: str, use_token: bool, tunnel_name: str
         if CLOUDFLARE_TUNNEL_CREDENTIALS_B64:
             safe_write(MANIFESTS_DIR / f"{idx:02d}-secret-cloudflared-credentials.yaml", yaml.safe_dump(render_secret_credentials(CLOUDFLARE_TUNNEL_CREDENTIALS_B64), sort_keys=False))
             idx += 1
+
     info(f"Wrote manifests to {MANIFESTS_DIR}")
+    return config_checksum
 
 
 def apply_secret_yaml(yaml_text: str, attempts: int = 3) -> int:
@@ -199,7 +257,19 @@ if __name__ == "__main__":
     FRONTEND_HOSTNAME = os.getenv("FRONTEND_HOSTNAME", "").strip()
     if not FRONTEND_HOSTNAME:
         die("FRONTEND_HOSTNAME must be set")
-    UPSTREAM_SERVICE = os.getenv("UPSTREAM_SERVICE", "http://frontend-svc.inference.svc.cluster.local:8000").strip()
+
+    DASHBOARDS_HOSTNAME = os.getenv("DASHBOARDS_HOSTNAME", "").strip()  # optional; empty => no public route for Grafana
+
+    # Accept either a full upstream url or fall back to service name in inference namespace
+    UPSTREAM_SERVICE = os.getenv("UPSTREAM_SERVICE", "").strip()
+    if not UPSTREAM_SERVICE:
+        UPSTREAM_SERVICE = "http://frontend-svc.inference.svc.cluster.local:8000"
+
+    # Dashboard upstream defaults to Grafana service in monitoring namespace, overridable by env
+    GRAFANA_NAMESPACE = os.getenv("GRAFANA_NAMESPACE", "monitoring").strip()
+    DEFAULT_DASHBOARD_UPSTREAM = f"http://grafana.{GRAFANA_NAMESPACE}.svc.cluster.local:3000"
+    DASHBOARDS_UPSTREAM = os.getenv("DASHBOARDS_UPSTREAM", DEFAULT_DASHBOARD_UPSTREAM).strip()
+
     CLOUDFLARE_TUNNEL_TOKEN = os.getenv("CLOUDFLARE_TUNNEL_TOKEN", "").strip()
     CLOUDFLARE_TUNNEL_CREDENTIALS_B64 = os.getenv("CLOUDFLARE_TUNNEL_CREDENTIALS_B64", "").strip()
     CLOUDFLARE_TUNNEL_NAME = os.getenv("CLOUDFLARE_TUNNEL_NAME", "rag-frontend").strip()
@@ -224,7 +294,8 @@ if __name__ == "__main__":
         info("deleted (where present)")
         sys.exit(0)
 
-    write_manifests(
+    # Render manifests and compute checksum (write_manifests returns checksum)
+    config_checksum = write_manifests(
         replicas=replicas,
         image=image,
         use_token=use_token,
@@ -233,15 +304,17 @@ if __name__ == "__main__":
         upstream_service=UPSTREAM_SERVICE,
         hostname=FRONTEND_HOSTNAME,
         credentials_path=credentials_path,
+        dashboard_hostname=DASHBOARDS_HOSTNAME,
+        dashboard_upstream=DASHBOARDS_UPSTREAM,
     )
 
     if args.rollout or args.apply:
-        # prefer --rollout; support --apply as deprecated alias
         if args.apply and not args.rollout:
             info("--apply is deprecated; using --rollout semantics (prefer --rollout)")
 
         ensure_namespace(NAMESPACE)
         if not args.embed_secrets:
+            # apply secrets first (if provided via env) so Deployment can reference them immediately
             if CLOUDFLARE_TUNNEL_TOKEN:
                 info("Applying cloudflared-token Secret from env (not written to repo).")
                 sc_yaml = yaml.safe_dump(render_secret_token(CLOUDFLARE_TUNNEL_TOKEN), sort_keys=False)
@@ -257,7 +330,10 @@ if __name__ == "__main__":
         else:
             info("Secrets embedded into manifests (--embed-secrets).")
 
+        # Apply manifests (configmap + deployment). Because deployment contains the config-checksum annotation,
+        # any config changes will create a new ReplicaSet and trigger a rollout.
         apply_manifests()
+
         rc = wait_for_rollout("cloudflared", NAMESPACE, timeout=120)
         if rc != 0:
             print("Rollout failed or timed out; printing diagnostics", file=sys.stderr)

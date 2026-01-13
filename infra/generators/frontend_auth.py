@@ -280,7 +280,7 @@ def render_configmap(cfg: Dict[str, Any]) -> str:
     cm = {"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":f"{cfg['SERVICE_NAME']}-config","namespace":cfg['FRONTEND_NAMESPACE']},"data":data}
     return safe_yaml(cm)
 
-def render_deployment(cfg: Dict[str, Any]) -> str:
+def render_deployment(cfg: Dict[str, Any], config_checksum: Optional[str] = "") -> str:
     labels = {"app.kubernetes.io/name": cfg["SERVICE_NAME"]}
     env_from: List[Dict[str, Any]] = [{"configMapRef": {"name": f"{cfg['SERVICE_NAME']}-config"}}]
     secret_envs: List[Dict[str, Any]] = []
@@ -303,10 +303,26 @@ def render_deployment(cfg: Dict[str, Any]) -> str:
         "readinessProbe": {"httpGet": {"path": "/orchestrator/health", "port": cfg["PORT"]}, "initialDelaySeconds": 3, "periodSeconds": 5, "timeoutSeconds": 1}
     }
     # normalize None for env
-    if container["env"] is None:
-        del container["env"]
-    pod = {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"name":f"{cfg['SERVICE_NAME']}-deployment","namespace":cfg['FRONTEND_NAMESPACE'],"labels":labels},"spec":{"replicas":cfg['REPLICAS'],"selector":{"matchLabels":labels},"template":{"metadata":{"labels":labels},"spec":{"serviceAccountName":f"{cfg['SERVICE_NAME']}-sa","containers":[container]}}}}
-    return safe_yaml(pod)
+    if container.get("env") is None:
+        container.pop("env", None)
+
+    # Pod template metadata should include annotation that changes when configmap content changes
+    template_meta: Dict[str, Any] = {"labels": labels}
+    if config_checksum:
+        template_meta.setdefault("annotations", {})["frontend/config-checksum"] = config_checksum
+
+    pod_spec = {"serviceAccountName": f"{cfg['SERVICE_NAME']}-sa", "containers": [container]}
+    deployment = {
+        "apiVersion":"apps/v1",
+        "kind":"Deployment",
+        "metadata":{"name":f"{cfg['SERVICE_NAME']}-deployment","namespace":cfg['FRONTEND_NAMESPACE']},
+        "spec":{
+            "replicas": cfg["REPLICAS"],
+            "selector": {"matchLabels": labels},
+            "template": {"metadata": template_meta, "spec": pod_spec}
+        }
+    }
+    return safe_yaml(deployment)
 
 def render_service(cfg: Dict[str, Any]) -> str:
     svc = {"apiVersion":"v1","kind":"Service","metadata":{"name":f"{cfg['SERVICE_NAME']}-svc","namespace":cfg['FRONTEND_NAMESPACE']},"spec":{"type":"ClusterIP","ports":[{"port":cfg['PORT'],"targetPort":cfg['PORT'],"protocol":"TCP","name":"http"}],"selector":{"app.kubernetes.io/name":cfg['SERVICE_NAME']}}}
@@ -364,6 +380,7 @@ def ensure_dir(cfg: Dict[str, Any]) -> None:
 def detect_secret_leak(rendered: str, secret_values: Dict[str, str]) -> Optional[str]:
     for envk, v in secret_values.items():
         if not v: continue
+        # only detect long secrets to reduce false positives, but still catch leaks
         if len(v) >= 8 and v in rendered: return envk
     return None
 
@@ -377,6 +394,9 @@ def load_auth_meta(cfg: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         die(f"Failed reading auth meta: {e}")
 
+def compute_sha256(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
 def generate(cfg: Dict[str, Any], dry_run: bool = False) -> None:
     ensure_dir(cfg)
     ihash = canonical_inputs_hash(cfg)
@@ -389,12 +409,21 @@ def generate(cfg: Dict[str, Any], dry_run: bool = False) -> None:
         info("No non-secret changes; skipping generation.")
         return
     meta = load_auth_meta(cfg)
-    deployment_yaml = render_deployment(cfg)
-    leak = detect_secret_leak(deployment_yaml, cfg["SECRET_VALUES"])
-    if leak: die(f"Secret value for {leak} would be embedded in generated Deployment YAML; refuse to generate.")
+
+    # Render configmap first so we can compute checksum used in Deployment pod template annotation
+    configmap_yaml = render_configmap(cfg)
+    config_checksum = compute_sha256(configmap_yaml)
+
+    deployment_yaml = render_deployment(cfg, config_checksum=config_checksum)
+
+    # check for secret leakage in both configmap and deployment (and short combined) before writing files
+    combined_for_leak = "\n".join([configmap_yaml, deployment_yaml, str(cfg.get("FILES", {}))])
+    leak = detect_secret_leak(combined_for_leak, cfg["SECRET_VALUES"])
+    if leak: die(f"Secret value for {leak} would be embedded in generated YAML; refuse to generate.")
+
     atomic_write(cfg["FILES"]["namespace"], render_namespace(cfg))
     atomic_write(cfg["FILES"]["sa_role"], render_sa_role(cfg))
-    atomic_write(cfg["FILES"]["configmap"], render_configmap(cfg))
+    atomic_write(cfg["FILES"]["configmap"], configmap_yaml)
     atomic_write(cfg["FILES"]["deployment"], deployment_yaml)
     atomic_write(cfg["FILES"]["service"], render_service(cfg))
     if cfg["HPA_ENABLED"]: atomic_write(cfg["FILES"]["hpa"], render_hpa(cfg))
@@ -409,6 +438,13 @@ def generate(cfg: Dict[str, Any], dry_run: bool = False) -> None:
         except Exception: pass
     cfg["FILES"]["inputs_hash"].write_text(ihash, encoding="utf-8")
     info("Wrote frontend manifests to %s" % str(cfg["MANIFESTS_DIR"]))
+
+def wait_for_rollout(cfg: Dict[str, Any], timeout: int = 120) -> int:
+    deployment_name = f"{cfg['SERVICE_NAME']}-deployment"
+    ns = cfg["FRONTEND_NAMESPACE"]
+    cmd = ["kubectl", "rollout", "status", f"deployment/{deployment_name}", "-n", ns, f"--timeout={timeout}s"]
+    rc, out, err = run_cmd(cmd, timeout=timeout + 10)
+    return rc
 
 def apply(cfg: Dict[str, Any], confirm: bool = False) -> None:
     if not confirm: die("Refusing to apply without --confirm")
@@ -428,6 +464,20 @@ def apply(cfg: Dict[str, Any], confirm: bool = False) -> None:
     rc, out, err = run_cmd(["kubectl", "apply", "-f", "-"], input_bytes=(combined.encode("utf-8")), timeout=60)
     if rc != 0: die(f"kubectl apply failed: {err or out}")
     info("Applied frontend manifests (non-secret resources)")
+
+    # Wait for deployment rollout using the pod-template annotation (set during generate)
+    rc_rollout = wait_for_rollout(cfg, timeout=120)
+    if rc_rollout != 0:
+        print("Rollout failed or timed out; printing diagnostics", file=sys.stderr)
+        ns = cfg["FRONTEND_NAMESPACE"]
+        # get pods
+        run_cmd(["kubectl", "get", "pods", "-n", ns])
+        # describe pods matching label
+        run_cmd(["kubectl", "describe", "pod", "-l", f"app.kubernetes.io/name={cfg['SERVICE_NAME']}", "-n", ns])
+        # logs
+        run_cmd(["kubectl", "logs", "-l", f"app.kubernetes.io/name={cfg['SERVICE_NAME']}", "-n", ns, "--tail=200"])
+        die(f"{cfg['SERVICE_NAME']} deployment failed to rollout")
+    info(f"{cfg['SERVICE_NAME']} deployment rolled out successfully")
 
 def validate(cfg: Dict[str, Any]) -> None:
     if not which("kubectl"):

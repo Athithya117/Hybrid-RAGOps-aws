@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-01-09T08:59:27.088184Z",
+  "generated_at": "2026-01-12T13:50:40.509287Z",
   "image": "docker.io/athithya5354/retrieval:v23",
   "namespace": "inference",
   "replicas": 1

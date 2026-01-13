@@ -38,7 +38,7 @@ def ensure_dir(p: Path):
 
 def atomic_write(path: Path, content: str):
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content)
+    tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)
 
 def run_cmd(cmd, capture=True, check=False, timeout=None, input_bytes=None):
@@ -142,6 +142,10 @@ def load_config():
         "app.kubernetes.io/instance": cfg["SERVICE_NAME"],
         "env": cfg["ENV"].lower(),
     }
+    # rollout & strategy tuning
+    cfg["MAX_UNAVAILABLE"] = os.environ.get("SPARSE_MAX_UNAVAILABLE", "25%")
+    cfg["MAX_SURGE"] = os.environ.get("SPARSE_MAX_SURGE", "25%")
+    cfg["ROLLOUT_TIMEOUT"] = int(os.environ.get("SPARSE_ROLLOUT_TIMEOUT", "300"))  # seconds for kubectl rollout status
     # output filenames
     cfg["FILES"] = {
         "namespace": cfg["MANIFESTS_DIR"] / "00-namespace.yaml",
@@ -231,6 +235,9 @@ def render_deployment(cfg):
             gcount = 1
         container["resources"]["limits"][cfg["GPU_RESOURCE_NAME"]] = gcount
 
+    # compute inputs hash and embed as annotation so Deployment.template changes when inputs change
+    inputs_hash = canonical_inputs_hash(cfg)
+
     pod_spec = {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
@@ -238,8 +245,12 @@ def render_deployment(cfg):
         "spec": {
             "replicas": cfg["REPLICAS"],
             "selector": {"matchLabels": {"app.kubernetes.io/name": cfg["SERVICE_NAME"]}},
+            "strategy": {
+                "type": "RollingUpdate",
+                "rollingUpdate": {"maxUnavailable": cfg["MAX_UNAVAILABLE"], "maxSurge": cfg["MAX_SURGE"]},
+            },
             "template": {
-                "metadata": {"labels": labels},
+                "metadata": {"labels": labels, "annotations": {"gen_sparse/inputs-hash": inputs_hash}},
                 "spec": {
                     "serviceAccountName": cfg["SA_NAME"],
                     "containers": [container],
@@ -250,7 +261,12 @@ def render_deployment(cfg):
 
     # If GPU node selector provided, add to pod spec (best-effort)
     if cfg["ENABLE_GPU"] and cfg["GPU_NODE_SELECTOR"]:
-        pod_spec["spec"]["template"]["spec"]["nodeSelector"] = {k: v for k, v in [cfg["GPU_NODE_SELECTOR"].split("=", 1)]} if "=" in cfg["GPU_NODE_SELECTOR"] else {cfg["GPU_NODE_SELECTOR"]: "true"}
+        # accept "key=value" or simple label
+        if "=" in cfg["GPU_NODE_SELECTOR"]:
+            k, v = cfg["GPU_NODE_SELECTOR"].split("=", 1)
+            pod_spec["spec"]["template"]["spec"]["nodeSelector"] = {k: v}
+        else:
+            pod_spec["spec"]["template"]["spec"]["nodeSelector"] = {cfg["GPU_NODE_SELECTOR"]: "true"}
 
     # Add prometheus scraping annotations (optional standard)
     pod_spec["spec"]["template"]["metadata"].setdefault("annotations", {})
@@ -292,6 +308,20 @@ def render_hpa(cfg):
     }
     return yaml.safe_dump(hpa, sort_keys=False)
 
+# -------------------- rollout helpers --------------------
+def wait_for_rollout(deployment_name: str, namespace: str, timeout: int = 300):
+    kubectl = shutil.which("kubectl")
+    if not kubectl:
+        log.error("kubectl not found in PATH; cannot wait for rollout")
+        return 127
+    cmd = [kubectl, "rollout", "status", f"deployment/{deployment_name}", "-n", namespace, f"--timeout={timeout}s"]
+    rc, out, err = run_cmd(cmd, timeout=timeout + 10)
+    if rc != 0:
+        log.error("rollout status failed (rc=%d). stdout=%s stderr=%s", rc, out, err)
+    else:
+        log.info("rollout status: %s", out.strip())
+    return rc
+
 # -------------------- generate / apply / delete --------------------
 def generate_manifests(cfg, dry_run=False, verbose=False):
     ensure_dir(cfg["MANIFESTS_DIR"])
@@ -315,11 +345,11 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
         hpa_yaml = render_hpa(cfg)
         atomic_write(cfg["FILES"]["hpa"], hpa_yaml)
     # save inputs hash
-    cfg["INPUTS_HASH_PATH"].write_text(inputs_hash)
+    cfg["INPUTS_HASH_PATH"].write_text(inputs_hash, encoding="utf-8")
     log.info("Wrote manifests to %s", str(cfg["MANIFESTS_DIR"]))
     if verbose:
-        log.info("Namespace:\n%s", ns_yaml.splitlines()[:20])
-        log.info("Deployment (head):\n%s", deploy_yaml.splitlines()[:60])
+        log.info("Namespace:\n%s", "\n".join(ns_yaml.splitlines()[:20]))
+        log.info("Deployment (head):\n%s", "\n".join(deploy_yaml.splitlines()[:60]))
     return
 
 def apply_to_cluster(cfg, dry_run=False, verbose=False):
@@ -339,11 +369,31 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False):
         files.append(cfg["FILES"]["hpa"])
     combined = ""
     for p in files:
-        combined += f"---\n# source: {p.name}\n" + p.read_text() + "\n"
+        combined += f"---\n# source: {p.name}\n" + p.read_text(encoding="utf-8") + "\n"
     res = kubectl_apply_yaml(combined, dry_run=False)
     if not res.get("applied", False):
         log.error("kubectl apply failed: %s", res.get("stderr") or res.get("error"))
         sys.exit(2)
+
+    # wait for rollout of deployment (ensures annotation-driven rollouts are observed)
+    deployment_name = f"{cfg['SERVICE_NAME']}-deployment"
+    rc = wait_for_rollout(deployment_name, cfg["NAMESPACE"], timeout=cfg.get("ROLLOUT_TIMEOUT", 300))
+    if rc != 0:
+        # print diagnostics
+        log.error("Rollout failed or timed out; gathering diagnostics...")
+        cmds = [
+            ([shutil.which("kubectl"), "get", "pods", "-n", cfg["NAMESPACE"]], "get pods"),
+            ([shutil.which("kubectl"), "describe", "pod", "-l", f"app.kubernetes.io/name={cfg['SERVICE_NAME']}", "-n", cfg["NAMESPACE"]], "describe pods"),
+            ([shutil.which("kubectl"), "logs", "-l", f"app.kubernetes.io/name={cfg['SERVICE_NAME']}", "-n", cfg["NAMESPACE"], "--tail=200"], "logs"),
+        ]
+        for cmd, tag in cmds:
+            if not cmd[0]:
+                continue
+            rcout, out, err = run_cmd(cmd, timeout=30)
+            log.error("=== %s (rc=%d) ===\n%s\n%s", tag, rcout, (out or "").strip(), (err or "").strip())
+        log.error("Deployment %s failed to rollout", deployment_name)
+        sys.exit(2)
+
     # write last_deploy_summary
     summary = {
         "generated_at": datetime.datetime.utcnow().isoformat() + "Z",

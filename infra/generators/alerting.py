@@ -10,9 +10,10 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Iterable
+from typing import Any, Dict, List, Tuple, Iterable, Optional
 import yaml
 
 ALLOWED_LOG_LEVELS = {"DEBUG", "INFO", "WARN", "ERROR"}
@@ -56,7 +57,6 @@ SLO_FAST_BURN_MULTIPLIER = os.getenv("SLO_FAST_BURN_MULTIPLIER", "2")
 SLO_SLOW_BURN_MULTIPLIER = os.getenv("SLO_SLOW_BURN_MULTIPLIER", "1.2")
 RETRIEVER_LATENCY_THRESHOLD_SECONDS = os.getenv("RETRIEVER_LATENCY_THRESHOLD_SECONDS", "0.5")
 QDRANT_LATENCY_THRESHOLD_SECONDS = os.getenv("QDRANT_LATENCY_THRESHOLD_SECONDS", "0.8")
-# NEW: minimum request-rate floor to avoid low-traffic false positives
 SLO_MIN_REQUEST_RATE = os.getenv("SLO_MIN_REQUEST_RATE", "50")
 DEFAULT_WEBHOOK = os.getenv("DEFAULT_WEBHOOK", "")
 NOTIFIER_SECRET_NAME = os.getenv("NOTIFIER_SECRET_NAME", "alertmanager-notifiers")
@@ -65,7 +65,6 @@ ALERTMANAGER_SLACK_WEBHOOK = os.getenv("ALERTMANAGER_SLACK_WEBHOOK", "")
 ALERT_DEFAULT_CHANNEL = os.getenv("ALERT_DEFAULT_CHANNEL", "")
 CREATE_NOTIFIER_SECRET = os.getenv("CREATE_NOTIFIER_SECRET", "false").lower() in ("1", "true", "yes")
 RUNBOOK_BASE_URL = os.getenv("RUNBOOK_BASE_URL", "")
-# Optional validator flag (enable in CI to require HEAD 200 for every runbook link)
 RUNBOOK_VALIDATE = os.getenv("RUNBOOK_VALIDATE", "false").lower() in ("1", "true", "yes")
 
 ALERTING_SLACK_SEVERITY_LEVELS = os.getenv("ALERTING_SLACK_SEVERITY_LEVELS", "warning,critical")
@@ -91,6 +90,9 @@ def run_cmd(cmd: List[str], timeout: int = 60) -> Tuple[int, str, str]:
             err = f"timeout after {timeout}s"
         LOG.error("run_cmd timeout cmd=%s", " ".join(cmd))
         return 124, out.strip(), err.strip()
+
+def sha256_str(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 def atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -120,7 +122,6 @@ def parse_csv_to_list(s: str) -> List[str]:
     return uniq
 
 def validate_inputs() -> None:
-    # SLO success target
     try:
         sst = float(SLO_SUCCESS_TARGET)
         if not (0.0 < sst < 1.0):
@@ -128,12 +129,9 @@ def validate_inputs() -> None:
     except Exception:
         LOG.error("invalid SLO_SUCCESS_TARGET %s", SLO_SUCCESS_TARGET)
         raise RuntimeError("SLO_SUCCESS_TARGET must be float between 0 and 1, e.g. 0.999")
-    # quantile
     if SLO_LATENCY_QUANTILE not in ("0.95", "0.99"):
         LOG.error("invalid SLO_LATENCY_QUANTILE %s", SLO_LATENCY_QUANTILE)
         raise RuntimeError("SLO_LATENCY_QUANTILE must be '0.95' or '0.99'")
-
-    # Validate multipliers and ensure fast > slow
     try:
         fastf = float(SLO_FAST_BURN_MULTIPLIER)
         slowf = float(SLO_SLOW_BURN_MULTIPLIER)
@@ -143,8 +141,6 @@ def validate_inputs() -> None:
     except Exception:
         LOG.error("invalid SLO_FAST_BURN_MULTIPLIER/SLO_SLOW_BURN_MULTIPLIER %s %s", SLO_FAST_BURN_MULTIPLIER, SLO_SLOW_BURN_MULTIPLIER)
         raise RuntimeError("SLO_FAST_BURN_MULTIPLIER and SLO_SLOW_BURN_MULTIPLIER must be positive floats and fast > slow")
-
-    # Validate latency thresholds
     try:
         rt = float(RETRIEVER_LATENCY_THRESHOLD_SECONDS)
         qt = float(QDRANT_LATENCY_THRESHOLD_SECONDS)
@@ -153,8 +149,6 @@ def validate_inputs() -> None:
     except Exception:
         LOG.error("invalid latency thresholds retriever=%s qdrant=%s", RETRIEVER_LATENCY_THRESHOLD_SECONDS, QDRANT_LATENCY_THRESHOLD_SECONDS)
         raise RuntimeError("RETRIEVER_LATENCY_THRESHOLD_SECONDS and QDRANT_LATENCY_THRESHOLD_SECONDS must be non-negative numbers")
-
-    # Validate SLO_MIN_REQUEST_RATE
     try:
         minreq = float(SLO_MIN_REQUEST_RATE)
         if minreq < 0:
@@ -162,7 +156,6 @@ def validate_inputs() -> None:
     except Exception:
         LOG.error("invalid SLO_MIN_REQUEST_RATE %s", SLO_MIN_REQUEST_RATE)
         raise RuntimeError("SLO_MIN_REQUEST_RATE must be a non-negative number (e.g., 50)")
-
     required = {"VMALERT_IMAGE": VMALERT_IMAGE, "DATASOURCE_URL": DATASOURCE_URL, "NOTIFIER_URL": NOTIFIER_URL}
     for k, v in required.items():
         if not v:
@@ -186,20 +179,12 @@ def runbook_url_for(alert_name: str) -> str:
     return f"{base}/{filename}" if base else ""
 
 def maybe_runbook(alert_name: str) -> Dict[str, str]:
-    """
-    Return {'runbook': url} if RUNBOOK_BASE_URL configured, otherwise {}.
-    This prevents emitting runbook: "" which downstream systems display poorly.
-    """
     url = runbook_url_for(alert_name)
     if url:
         return {"runbook": url}
     return {}
 
 def validate_runbooks(rules_obj: Dict[str, Any]) -> None:
-    """
-    If RUNBOOK_VALIDATE is enabled, verify that every non-empty runbook URL returns HTTP 200.
-    This is intended for CI validation (set RUNBOOK_VALIDATE=true in CI).
-    """
     if not RUNBOOK_VALIDATE:
         LOG.info("RUNBOOK_VALIDATE not enabled; skipping runbook HEAD checks")
         return
@@ -532,31 +517,63 @@ def build_notifier_secret_manifest() -> Dict[str, Any]:
 def render_all() -> None:
     validate_inputs()
     rules_obj = build_slo_rules()
-    # If RUNBOOK_VALIDATE is enabled, validate runbook URLs before rendering files (fail fast)
     try:
         validate_runbooks(rules_obj)
     except Exception:
-        # re-raise so CI/validate fails; render_all is used by generate/validate/apply
         raise
     rules_text = yaml.safe_dump(rules_obj, sort_keys=False)
+
+    # Build vmalert objects (ConfigMap, Deployment, Service)
     vmalert_objs = build_vmalert_objects(rules_text)
+    # vmalert_objs[0] = cm, [1] = deploy, [2] = svc
+
+    # Build alertmanager config and objects
     alertmgr_cm = build_alertmanager_cm()
     alertmgr_objs = build_alertmanager_objects()
+    # alertmgr_objs[0] = deploy, [1] = svc
+
+    # Compute checksums and inject annotations to trigger rollouts when configs change
+    try:
+        vmalert_checksum = sha256_str(rules_text)
+        deploy_vmalert = vmalert_objs[1]
+        template_meta = deploy_vmalert.setdefault("spec", {}).setdefault("template", {}).setdefault("metadata", {})
+        annotations = template_meta.setdefault("annotations", {})
+        annotations["alerting/vmalert-rules-checksum"] = vmalert_checksum
+        LOG.info("injected vmalert checksum %s", vmalert_checksum)
+    except Exception as e:
+        LOG.warning("failed to inject vmalert checksum: %s", e)
+
+    try:
+        alertmgr_config_text = alertmgr_cm.get("data", {}).get("alertmanager.yml", "")
+        alertmgr_checksum = sha256_str(alertmgr_config_text)
+        deploy_alertmgr = alertmgr_objs[0]
+        template_meta = deploy_alertmgr.setdefault("spec", {}).setdefault("template", {}).setdefault("metadata", {})
+        annotations = template_meta.setdefault("annotations", {})
+        annotations["alerting/alertmanager-config-checksum"] = alertmgr_checksum
+        LOG.info("injected alertmanager checksum %s", alertmgr_checksum)
+    except Exception as e:
+        LOG.warning("failed to inject alertmanager checksum: %s", e)
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     slo_path = OUT_DIR / "slo.rules.yaml"
     vmalert_path = OUT_DIR / "vmalert-deployment.yaml"
     alertmgr_deploy_path = OUT_DIR / "alertmanager-deployment.yaml"
     alertmgr_cm_path = OUT_DIR / "alertmanager-config.yaml"
+
     atomic_write(slo_path, rules_text)
+
     multi_vmalert: List[str] = []
     for o in vmalert_objs:
         multi_vmalert.append(yaml.safe_dump(o, sort_keys=False))
     atomic_write(vmalert_path, "\n---\n".join(multi_vmalert) + "\n")
+
     multi_alertmgr: List[str] = []
     for o in alertmgr_objs:
         multi_alertmgr.append(yaml.safe_dump(o, sort_keys=False))
     atomic_write(alertmgr_deploy_path, "\n---\n".join(multi_alertmgr) + "\n")
+
     atomic_write(alertmgr_cm_path, yaml.safe_dump(alertmgr_cm, sort_keys=False))
+
     if CREATE_NOTIFIER_SECRET:
         secret = build_notifier_secret_manifest()
         if secret:
@@ -595,13 +612,18 @@ def kubectl_delete(path: Path) -> None:
     else:
         LOG.info("kubectl delete succeeded file=%s", str(path))
 
+def wait_for_rollout(deployment_name: str, namespace: str, timeout: int = 120) -> None:
+    rc, out, err = run_cmd(["kubectl", "-n", namespace, "rollout", "status", f"deployment/{deployment_name}", f"--timeout={timeout}s"], timeout=timeout + 10)
+    if rc != 0:
+        LOG.error("rollout status failed for %s/%s stdout=%s stderr=%s", namespace, deployment_name, out, err)
+        raise RuntimeError(f"rollout failed or timed out for {deployment_name} in {namespace}")
+
 def generate(args: argparse.Namespace) -> None:
     LOG.info("generate started")
     render_all()
 
 def validate(args: argparse.Namespace) -> None:
     LOG.info("validate started")
-    # render_all performs validate_inputs and optionally validate_runbooks (per RUNBOOK_VALIDATE)
     render_all()
     slo = OUT_DIR / "slo.rules.yaml"
     if not slo.exists():
@@ -610,20 +632,51 @@ def validate(args: argparse.Namespace) -> None:
     LOG.info("validate complete")
 
 def apply(args: argparse.Namespace, mode_label: str = "apply") -> None:
-    # mode_label allows distinguishing rollout vs legacy apply in logs
     LOG.info("%s started", mode_label)
     render_all()
     alertmgr_deploy = OUT_DIR / "alertmanager-deployment.yaml"
     alertmgr_cm = OUT_DIR / "alertmanager-config.yaml"
     vmalert_manifest = OUT_DIR / "vmalert-deployment.yaml"
     slo = OUT_DIR / "slo.rules.yaml"
+
+    # Apply notifier secret first if requested
     if CREATE_NOTIFIER_SECRET:
         secret_path = OUT_DIR / f"{NOTIFIER_SECRET_NAME}-secret.yaml"
         if secret_path.exists():
             kubectl_apply(secret_path)
-    kubectl_apply(alertmgr_deploy)
-    kubectl_apply(alertmgr_cm)
-    kubectl_apply(vmalert_manifest)
+
+    # Apply alertmanager ConfigMap before its Deployment so the checksum annotation is meaningful at apply-time
+    if alertmgr_cm.exists():
+        kubectl_apply(alertmgr_cm)
+
+    # Apply vmalert manifest (contains CM + Deployment + Service). CM is included so it's safe.
+    if vmalert_manifest.exists():
+        kubectl_apply(vmalert_manifest)
+        # wait for vmalert rollout
+        try:
+            wait_for_rollout("vmalert", VM_NAMESPACE, timeout=120)
+            LOG.info("vmalert rolled out successfully")
+        except Exception:
+            LOG.error("vmalert rollout failed; gathering diagnostics")
+            run_cmd(["kubectl", "get", "pods", "-n", VM_NAMESPACE])
+            run_cmd(["kubectl", "describe", "pod", "-l", "app=vmalert", "-n", VM_NAMESPACE])
+            run_cmd(["kubectl", "logs", "-l", "app=vmalert", "-n", VM_NAMESPACE, "--tail=200"])
+            raise
+
+    # Apply alertmanager deployment/service after its configmap
+    if alertmgr_deploy.exists():
+        kubectl_apply(alertmgr_deploy)
+        try:
+            wait_for_rollout("alertmanager", VM_NAMESPACE, timeout=120)
+            LOG.info("alertmanager rolled out successfully")
+        except Exception:
+            LOG.error("alertmanager rollout failed; gathering diagnostics")
+            run_cmd(["kubectl", "get", "pods", "-n", VM_NAMESPACE])
+            run_cmd(["kubectl", "describe", "pod", "-l", "app=alertmanager", "-n", VM_NAMESPACE])
+            run_cmd(["kubectl", "logs", "-l", "app=alertmanager", "-n", VM_NAMESPACE, "--tail=200"])
+            raise
+
+    # Apply SLO rules if they are a kubernetes manifest (not raw rules)
     try:
         txt = slo.read_text(encoding="utf-8")
         if txt.lstrip().startswith("apiVersion:"):
@@ -687,11 +740,9 @@ def main() -> None:
             validate(args)
             return
         if args.rollout:
-            # preferred, modern semantic
             apply(args, mode_label="rollout")
             return
         if args.apply:
-            # deprecated but supported for backward compatibility
             LOG.warning("--apply is deprecated; use --rollout")
             apply(args, mode_label="apply")
             return

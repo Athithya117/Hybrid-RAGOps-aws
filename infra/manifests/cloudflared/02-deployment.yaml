@@ -4,7 +4,7 @@ metadata:
   name: cloudflared
   namespace: inference
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: cloudflared
@@ -12,6 +12,8 @@ spec:
     metadata:
       labels:
         app: cloudflared
+      annotations:
+        cloudflared/config-checksum: 39a848892cb10330fa9b39ff10117b2569a0bc4f92685ecbc62846de619cdf2f
     spec:
       serviceAccountName: cloudflared-sa
       containers:

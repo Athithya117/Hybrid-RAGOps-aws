@@ -73,10 +73,10 @@ export AZURE_STORAGE_CONNECTION_STRING="$(python3 infra/base_infra/get_storage_c
 export AZURE_DELETE_ACCOUNT=0                             # 1 = delete entire storage account on `make delete-sa`, 0 = containers only
 export FORCE_DELETE=1                                     # Skip interactive confirmation prompts
 # make delete-sa
-
 ```
 
-### STEP 2: Manage platform infrastructure with Pulumi: export all required environment variables, run `make pulumi-preview` to inspect changes, `make pulumi-up` to apply them, or `make pulumi-destroy` to delete resources (destructive; requires PULUMI_FORCE_DESTROY=1). You may refer docs/infra/azure.
+### STEP 2: Manage platform infrastructure with Pulumi: export all required environment variables, run `make pulumi-preview` to inspect changes, `make pulumi-up` to apply them, or `make pulumi-destroy` to delete resources (destructive; requires PULUMI_FORCE_DESTROY=1). [Docs](docs/infra/azure).
+> NOTE: Node selectors and taints are not yet implemented. Only `systemnodepool` and `workernodepool` have been tested using azure for students subscription.
 
 ```sh
 export PULUMI_STACK="staging"                     # Pulumi state scope (infra boundary); PROD: "prod"
@@ -99,13 +99,12 @@ export AKS_LOCATION="${AZURE_LOCATION}"   # Deployment region; change only for l
 export ACR_NAME=acr49250                                   # Global ACR name; change only if creating a new registry (cannot rename)
 export ACR_REPO_PREFIX=rag                              # Logical repo namespace; change when multiple teams/apps share one ACR
 export ACR_LOCATION="${AKS_LOCATION:-${AZURE_LOCATION:-eastus}}"  # Region; change only if co-locating with AKS or for compliance
-export ACR_SKU=Basic        # All RAG8s images fits into the Basic plan 10GiB. Set `Premium` if geo-replication/private endpoints required.
-# make pulumi-up
+export ACR_SKU=Basic        # All RAG8s images fits into the Basic plan 10GiB yet `Standard` required for prod throughput
 export PULUMI_FORCE_DESTROY=1                     # Allow destructive changes (staging safety off); PROD: 0
 # make pulumi-destroy
 ```
 
-### STEP 3: Manage kubectl context — run `make set-aks-context` to connect to AKS, or `make delete-aks-context` to fully remove local AKS credentials and kubeconfig entries.
+### STEP 3: Manage kubectl context — run `make set-aks-context` to connect to AKS, or `make delete-aks-context` to fully remove local AKS credentials and kubeconfig entries. 
 > If locally testing, run `make lc` to create a kind cluster, and use `make set-kind-context` to switch between AKS and kind.
 
 ### STEP 4: Rollout the Qdrant StatefulSet and services into AKS by running make rollout-qdrant (remove it with make delete-qdrant).
@@ -120,7 +119,6 @@ export QDRANT_CPU_REQUEST="1"                              # Increase to 2+ if s
 export QDRANT_CPU_LIMIT="2"                                # Set equal to request for deterministic perf; raise only to allow controlled bursting
 export QDRANT_MEMORY_REQUEST="2Gi"                         # Increase to 4Gi+ when HNSW build or mmap usage grows; must fit node memory
 export QDRANT_MEMORY_LIMIT="4Gi"                           # Always >= request; raise only to avoid OOMKills, never rely on overcommit
-export QDRANT_IMAGE="qdrant/qdrant:v1.16.0"                # Pin exact version for reproducibility; upgrade only after validating data format compatibility
 ```
 
 ### STEP 5.1: Select the dense embedding model and embedding dimension (FastEmbed-compatible)
@@ -206,29 +204,29 @@ export STORAGE_RAW_PREFIX=data/raw/                 # Blob path prefix containin
 export STORAGE_CHUNKED_PREFIX=data/chunked/         # Blob path prefix where normalized, chunked outputs are written
 export AZURE_STORAGE_CONNECTION_STRING=$(python3 infra/base_infra/get_storage_conn_string.py)  # SA string used by the CronJob for all blob I/O
 
-export OVERWRITE_DOC_DOCX_TO_PDF="true"               # If true, remove originals when converting (.doc/.docx) -> .pdf; set false to keep originals
-export OVERWRITE_ALL_AUDIO_FILES="true"               # If true, remove originals when converting (.mp3,.aac/etc) -> (16k wav); false to keep originals
-export OVERWRITE_SPREADSHEETS_WITH_CSV="true"         # If true, remove originals when converting (.xls/.xlsx/.ods/etc) to .csv ;false to keep originals
+export OVERWRITE_DOC_DOCX_TO_PDF="true"          # If true, remove originals when converting (.doc/.docx) -> .pdf; set false to keep originals
+export OVERWRITE_ALL_AUDIO_FILES="true"          # If true, remove originals when converting (.mp3,.aac/etc) -> (16k wav); false to keep originals
+export OVERWRITE_SPREADSHEETS_WITH_CSV="true"    # If true, remove originals when converting (.xls/.xlsx/.ods/etc) to .csv ;false to keep originals
 export OVERWRITE_PPT_WITH_PPTS="true"                 # If true, remove orignals when converting .ppt -> .pptx;false to keep originals
 
-export MAX_TOKENS_PER_CHUNK="320"                     # Cummulatively append text sentences of .pdf, .html, .mp3, .png ,etc as a chunk till this token limit  
+export MAX_TOKENS_PER_CHUNK="320"       # Cummulatively append text sentences of .pdf, .html, .mp3, .png ,etc as a chunk till this token limit  
 export MIN_TOKENS_PER_CHUNK="100"                     # Minimum tokens; if chunk < this, append to previous chunk — adjust to avoid tiny fragments
 export NUMBER_OF_OVERLAPPING_SENTENCES="2"            # Sentence overlap between adjacent chunks to improve recall; increase for precision 
 export PDF_DISABLE_OCR="false"                        # true to skip OCR (fast but miss scanned text); false to enable OCR for scanned/embedded text
-export PDF_OCR_ENGINE="rapidocr"                      # 'tesseract' or 'rapidocr' — choose rapidocr for higher accuracy, tesseract for lightweight/multilingual
-export PDF_TESSERACT_LANG="eng"                       # (if tess)Language code for tesseract; change only if using tesseract and target language differs
-export IMAGE_TESSERACT_LANG="eng"                     # (if tess)tesseract language for image OCR; change only with tesseract and single-language images
-export TESSERACT_CONFIG="--oem 1 --psm 6"             # (if tess) Tesseract runtime flags; use --psm 3 for full-page OCR or keep 6 for block segmentation
-export PDF_FORCE_OCR="false"                          # true to force OCR even when PDF has text layer (useful for noisy text), false to preserve native text
+export PDF_OCR_ENGINE="rapidocr"                      # 'tesseract' or 'rapidocr' — choose rapidocr for higher accuracy, tesseract for multilingual
+export PDF_TESSERACT_LANG="eng"             # (if tess)Language code for tesseract; change only if using tesseract and target language differs
+export IMAGE_TESSERACT_LANG="eng"           # (if tess)tesseract language for image OCR; change only with tesseract and single-language images
+export TESSERACT_CONFIG="--oem 1 --psm 6"   # (if tess) Tesseract runtime flags; use --psm 3 for full-page OCR or keep 6 for block segmentation
+export PDF_FORCE_OCR="false"                # true to force OCR even when PDF has text layer (useful for noisy text), false to preserve native text
 export PDF_OCR_RENDER_DPI="400"                       # DPI used when rendering PDF pages for OCR; increase for very small text, reduce for speed
-export PDF_MIN_IMG_SIZE_BYTES="3072"                  # Skip OCR for images below this size; lower to include smaller images, increase to ignore artifacts
-export IMAGE_OCR_ENGINE="tesseract"                   # 'tesseract' or 'rapidocr' for standalone images; choose based on accuracy/speed tradeoff
+export PDF_MIN_IMG_SIZE_BYTES="3072"        # Skip OCR for images below this size; lower to include smaller images, increase to ignore artifacts
+export IMAGE_OCR_ENGINE="tesseract"         # 'tesseract' or 'rapidocr' for standalone images; choose based on accuracy/speed tradeoff
 export IMAGE_MIN_IMG_SIZE_BYTES="3072"                # Skip OCR for images smaller than this; reduce to process thumbnails, increase to avoid noise
 export IMAGE_RENDER_DPI="400"                         # DPI when rendering images for OCR; increase for tiny text, lower for better throughput
 export IMAGE_UPSCALE_FACTOR="2.0"                     # Upscale small images before OCR; increase for very small/blurred text, decrease for performance
-export CSV_TARGET_TOKENS_PER_CHUNK="400"              # Token budget for CSV chunking (including header); increase for wide tables, decrease to split more
+export CSV_TARGET_TOKENS_PER_CHUNK="400"    # Token budget for CSV chunking (including header); increase for wide tables, decrease to split more
 export JSONL_TARGET_TOKENS_PER_CHUNK="400"            # Token budget for JSONL chunking; similar guidance as CSV
-export PPTX_SLIDES_PER_CHUNK="4"                      # Slides grouped per chunk; increase when slides are short, decrease when slides have lots of text
+export PPTX_SLIDES_PER_CHUNK="4"            # Slides grouped per chunk; increase when slides are short, decrease when slides have lots of text
 export PPTX_OCR_ENGINE="rapidocr"                     # OCR engine for PPTX-rendered images; same selection guidance as other OCR engine vars
 export PYTHONUNBUFFERED="1"                           # Forces Python stdout/stderr unbuffered so container logs are immediate; keep set in containers
 
@@ -238,14 +236,14 @@ export BATCH_SIZE="8"                               # Number of chunks sent per 
 export UPSERT_CHUNK="500"                           # Points per Qdrant upsert call; larger reduces API overhead but increases request size
 export SPARSE_BATCH_FALLBACK="8"                    # Micro-batch size used when sparse service rejects large batches (422)
 
-export QDRANT_SHARD_NUMBER="3"                      # Number of shards per collection; controls horizontal scaling and parallelism (set at collection creation)
-export QDRANT_REPLICATION_FACTOR="2"                # Number of replicas per shard; controls availability and durability (collection creation only)
+export QDRANT_SHARD_NUMBER="3"             # Number of shards per collection; controls horizontal scaling and parallelism (set at collection creation)
+export QDRANT_REPLICATION_FACTOR="2"        # Number of replicas per shard; controls availability and durability (collection creation only)
 export QDRANT_WRITE_CONSISTENCY_FACTOR="1"          # How many replicas must confirm a write; higher = safer writes, lower availability
 export QDRANT_API_KEY=$QDRANT__SERVICE__API_KEY     # API key used by indexer to authenticate to Qdrant
 export QDRANT_HNSW_EF_CONSTRUCT="128"               # HNSW build depth; higher improves recall but increases index-build CPU/time
 export QDRANT_HNSW_M="32"                           # HNSW max connections per node; higher improves recall but increases RAM per vector
 export QDRANT_HNSW_FULL_SCAN_THRESHOLD="10000"      # Vector-count threshold below which brute-force search is preferred over HNSW
-export QDRANT_ONDISK="false"                         # TRUE/1/YES => enable on-disk HNSW (saves RAM without much increase in latency if using local NVMe EC2s)
+export QDRANT_ONDISK="false"    # TRUE/1/YES => enable on-disk HNSW (saves RAM without much increase in latency if using local NVMe VMs)
 
 export INDEX_TIMEOUT=1800          # Max allowed runtime (seconds) for index.py before forced termination
 export BACKUP_TIMEOUT=300          # Max allowed runtime (seconds) for Qdrant backup execution
@@ -308,7 +306,7 @@ make rollout-reranker
 # make delete-reranker
 ```
 
-### STEP 9: Rollout the retrieval service (online hybrid search, reranking, and LLM prompt assembly)
+### STEP 9: Rollout the retrieval service (online hybrid search, reranking, and LLM prompt assembly). [Retriever docs](docs/inference_pipeline/retrieval.md)
 
 ```sh
 export RETRIEVAL_IMAGE="docker.io/athithya5354/retrieval:v23"  # or build your own by running `make retrieval-image`
@@ -360,158 +358,215 @@ make rollout-retriever
 # make delete-retriever
 ```
 
-**STEP 10: Configure Cloudflare DNS and Tunnel (Frontend Edge Exposure)**.
+### STEP 10: Configure Cloudflare DNS and Tunnel (Frontend Edge Exposure)**. [Edge docs](docs/infra/edge)
 
 ```sh
 # One-time local setup: authenticate with Cloudflare, create/reuse tunnel, bind public hostname, and export tunnel credentials
 
+export FRONTEND_HOSTNAME=                  # (REQUIRED)Public hostname served by Cloudflare (). 
+export DASHBOARDS_HOSTNAME=                   #  (OPTIONAL) empty = port-forward only (no public Grafana)
 make cloudflare-setup  # follow the printed browser login and authorization steps to export CLOUDFLARE_TUNNEL_TOKEN
-export CLOUDFLARE_TUNNEL_TOKEN=
+# export CLOUDFLARE_TUNNEL_TOKEN=
 
 # Rollout cloudflared tunneling agents into Kubernetes
-export CLOUDFLARED_VERSION="2025.11.1"
+
 export CLOUDFLARED_TUNNEL_REPLICAS=2
-make rollout-cloudflared
+make rollout-cloudflared-agents
 
 # make delete-cloudflared
 # optional logout if required `make cloudflare-logout`
+
 ```
 
+### STEP 11: Rollout the frontend and authentication service (UI + OAuth gateway). [Auth docs](docs/inference_pipeline/auth/)
 
+This step deploys the user-facing web UI together with the authentication layer into AKS.
+The service supports Google, Microsoft, and GitHub OAuth, issues JWT-based sessions, and enforces domain/org allowlists.
+Public exposure is expected to be routed through Cloudflare Tunnel configured in Step 10.
 
+```sh
+export FRONTEND_HOSTNAME=$FRONTEND_HOSTNAME                  # Public hostname served by Cloudflare (e.g. ui.mycompany.com)
+export JWT_SECRET="X6f7Qw2Lz8Vp3Rk1Tn6Yb4Mh0Cs5JdAe"         # Strong random secret (32+ chars); used to sign JWTs
+export SESSION_SECRET="X6f7Qw2Lz8Vp3Rk1Tn6Yb4Mh0Cs5JdAe"     # Strong random secret (32+ chars); used for session cookies
+export JWT_EXP_SECONDS=1800                                  # JWT expiration in seconds (e.g. 1800 = 30 minutes)
+export DISPLAY_SOURCES_IN_UI="true"                          # Show cited sources in UI
+export DISPLAY_TOPK_IN_UI="true"                             # Show top-K icon in UI
 
-export VMAGENT_REPLICAS="${VMAGENT_REPLICAS:-1}"                                      # vmagent replica count; increase only for HA if you handle dupes/deduplication.
-export VM_RES_CPU="${VM_RES_CPU:-100m}"                                               # victoria container cpu request/limit; raise when ingestion/query CPU saturated.
-export VM_RES_MEM="${VM_RES_MEM:-256Mi}"                                              # victoria memory request/limit; raise to avoid OOM for larger TSDB.
-export VMAGENT_RES_CPU="${VMAGENT_RES_CPU:-100m}"                                     # vmagent cpu; increase when scraping or remote-write CPU is high.
-export VMAGENT_RES_MEM="${VMAGENT_RES_MEM:-256Mi}"                                    # vmagent memory; increase if vmagent OOMs or persistent-queue grows.
-# scrape & timing (affects ingestion rate / storage)
-export VM_SCRAPE_INTERVAL="${VM_SCRAPE_INTERVAL:-15s}"                                 # global scrape interval; increase (longer) if cardinality/CPU/WAL pressure.
-export VM_SCRAPE_TIMEOUT="${VM_SCRAPE_TIMEOUT:-10s}"                                   # per-scrape timeout;
-make deploy-vm
+export ENABLE_GOOGLE_AUTH="true"                             # Enable/disable Google authentication
+export GOOGLE_ALLOWED_DOMAINS="company.com,gmail.com"        # Comma-separated allowed email domains
+export GOOGLE_CLIENT_ID=""                                   # Google OAuth client ID
+export GOOGLE_CLIENT_SECRET=""                               # Google OAuth client secret
 
+export ENABLE_MICROSOFT_AUTH="true"                          # Enable/disable Microsoft authentication
+export MS_CLIENT_ID=""                                       # Azure AD application (client) ID
+export MS_CLIENT_SECRET=""                                   # Azure AD client secret
+export MS_TENANT_ID=""                                       # Primary tenant ID (single-tenant or common)
+export MICROSOFT_ALLOWED_DOMAINS="outlook.com,company.com"   # Comma-separated allowed email domains
+export MICROSOFT_ALLOWED_TENANT_IDS=""                       # Optional comma-separated tenant allowlist
 
-make deploy-runbooks  # deploying runbooks will export the env var RUNBOOK_BASE_URL
+export ENABLE_GITHUB_AUTH="true"                             # Enable/disable GitHub authentication
+export GITHUB_CLIENT_ID=""                                   # GitHub OAuth client ID
+export GITHUB_CLIENT_SECRET=""                               # GitHub OAuth client secret
+export GITHUB_ALLOWED_ORGS="my-org"                          # Comma-separated allowed GitHub organizations
 
+export FRONTEND_AND_AUTH_IMAGE="athithya5354/frontend-and-auth:v12"  # Or build your own with `make frontend-image`
+export FRONTEND_AND_AUTH_REPLICAS=1                          # Replica count; PROD: >=2 for availability
 
-export ENABLE_SLACK=true                         # master switch for Slack delivery (true/false)
-export ENABLE_PAGERDUTY=true                     # master switch for PagerDuty paging (true/false)
-export ALERTING_PAGING_SEVERITY_LEVELS=critical  # severities considered paging; routed to Slack if PagerDuty is off
-export ALERTING_SLACK_SEVERITY_LEVELS=warning,critical  # severities delivered to Slack when Slack is on
+make rollout-frontend
+# make delete-frontend
+```
+> This completes the RAG inference deployment. You can access the system by opening `https://<FRONTEND_HOSTNAME>` in your browser to run authenticated RAG queries and LLM-backed retrieval.
 
-export PAGERDUTY_INTEGRATION_KEY=$PAGERDUTY_INTEGRATION_KEY   # Set when PagerDuty receiver required; empty fully disables PD in build_alertmanager_cm()
-export ALERTMANAGER_SLACK_WEBHOOK=$ALERTMANAGER_SLACK_WEBHOOK     # Set when Slack receiver required; empty disables Slack receiver entirely
-export ALERT_DEFAULT_CHANNEL="#alerts-prod"                       # (Optional) Change per environment/team; used by Slack templates downstream 
-export RUNBOOK_BASE_URL=$RUNBOOK_BASE_URL                         # Set to absolute http(s) URL to enable per-alert runbook links; 
-export ALERTING_GROUP_WAIT="30s"                                  # Change to reduce initial fanout latency; wired to Alertmanager global+route group_wait
-export ALERTING_GROUP_INTERVAL="5m"                               # Increase to reduce noise for flappy alerts; Alertmanager route group_interval
-export ALERTING_REPEAT_INTERVAL="3h"                              # Increase for less reminder spam; decrease for stricter paging policies
-export VMALERT_EVAL_INTERVAL="30s"                                # Increase if CPU-bound; decrease for faster detection; passed directly to vmalert
-export VMALERT_REPLICAS="2"                                       # Set to 1 for k3s/dev; >=2 for AKS HA; parsed as int with safe fallback
-export SLO_SUCCESS_TARGET="0.999"                                 # Change ONLY when SLO policy changes; must be 0<value<1 or validation fails
-export SLO_LATENCY_QUANTILE="0.95"                                # Allowed values ONLY: 0.95 or 0.99; controls histogram_quantile in SLO alerts
-export SLO_FAST_BURN_MULTIPLIER="2.0"                             # Increase to reduce pages; decrease for aggressive paging; used in fast-burn PromQL
-export SLO_SLOW_BURN_MULTIPLIER="1.2"                             # Increase to tolerate long-term degradation; used in slow-burn PromQL
-export ALERTMANAGER_REPLICAS="2"                                  # Set >=2 to enable HA gossip; parsed as int with fallback to 1
-export ALERTMANAGER_RES_CPU="200m"                                # Increase with high route/template count; no validation, pure manifest pass-through
-export ALERTMANAGER_RES_MEM="256Mi"                               # Increase when many alerts or receivers; Alertmanager memory-bound first
-export VMALERT_RES_CPU="200m"                                     # Increase with rule count and eval interval; affects vmalert stability
-export VMALERT_RES_MEM="256Mi"                                    # Increase with complex PromQL or large rule files
+### STEP 12: Rollout observability stack (VictoriaMetrics + vmagent). [Observability docs](docs/infra/observability/monitoring)
 
-
-make deploy-alert-manager
-
+This step deploys VictoriaMetrics as the time-series database for metrics storage and querying, along with vmagent for scraping Kubernetes targets and remote-writing metrics into VictoriaMetrics.
+The configuration is intentionally conservative by default and suitable for staging; production environments should tune resource limits, scrape intervals, and retention based on metric cardinality and ingestion volume.
 
 ```sh
 
-export CLICKHOUSE_REPLICAS=1                  # clickhouse statefulset replicas
-export CLICKHOUSE_PVC_SIZE=10Gi              # clickhouse PVC size
-export CLICKHOUSE_REQ_CPU=1                   # clickhouse CPU request
-export CLICKHOUSE_REQ_MEM=4Gi                 # clickhouse memory request
-export CLICKHOUSE_LIMIT_CPU=4                 # clickhouse CPU limit
-export CLICKHOUSE_LIMIT_MEM=16Gi              # clickhouse memory limit
-export CLICKHOUSE_USER=vector                 # clickhouse user for vector
-export CLICKHOUSE_PASSWORD=vectorpass         # clickhouse password (replace with secret manager in prod)
-export LOGS_TTL_DAYS=2
+export VM_ENABLE_PERSISTENCE="true"                          # true = PVC-backed TSDB; false = emptyDir (dev/CI only, data lost on restart)
+export VICTORIA_PVC_STORAGE="10Gi"                            # Increase when disk usage >70% or retention is insufficient; never shrink an existing PVC
+export VMAGENT_REPLICAS=1                                    # Set >1 only if duplicate metrics are acceptable; multi-replica vmagent always uses emptyDir
+export VM_PERSISTANCE_STORAGE_CLASS="managed-premium"       # Change only when switching cloud, region, or disk tier (e.g. premium → standard)
+export VM_REQ_CPU="100m"                                     # Increase if ingestion or query latency rises under load
+export VM_REQ_MEM="256Mi"                                    # Increase if TSDB cache churns or OOMKills occur
+export VM_LIMIT_CPU="100m"                                   # Raise only to allow controlled CPU bursts; keep = request for predictability
+export VM_LIMIT_MEM="256Mi"                                  # Must be >= request; raise to prevent OOMKills
 
-make deploy-clickhouse
+export VMAGENT_REQ_CPU="100m"                                # Increase if scrape or remote-write CPU saturates
+export VMAGENT_REQ_MEM="256Mi"                               # Increase if vmagent OOMs or queue grows
+export VMAGENT_LIMIT_CPU="100m"                              # Raise only for bursty scrape loads; keep = request
+export VMAGENT_LIMIT_MEM="256Mi"                             # Must be >= request; raise under memory pressure
+export VM_SCRAPE_INTERVAL="15s"                              # Increase to reduce cardinality/CPU; decrease only for low-latency metrics
+export VM_SCRAPE_TIMEOUT="10s"                               # Must be < interval; increase only if scrape targets are slow
 
-export K8S_CLUSTER=aks                        # set to aks for production behavior
-export VECTOR_REPLICAS=1                      # logical replica control (future-proof)
-export VECTOR_REQ_CPU=200m                    # vector CPU request
-export VECTOR_REQ_MEM=512Mi                   # vector memory request
-export VECTOR_LIMIT_CPU=1000m                 # vector CPU limit
-export VECTOR_LIMIT_MEM=1Gi                   # vector memory limit
-export VECTOR_DROP_NAMESPACES="kube-system,models,indexing"
-export VECTOR_LOG_LEVELS=info,warn,error
-make deploy-vector
+make rollout-vm
+# make delete-vm
+```
 
+### STEP 13: Provision alerting, SLOs, and on-call notifications (vmalert + Alertmanager)
 
+This step deploys the alerting control plane for the RAG platform.
+It generates and applies SLO-based PromQL rules, runs continuous evaluation via **vmalert**, and routes alerts through **Alertmanager** to Slack, PagerDuty, or webhooks.
+All manifests are rendered deterministically from environment variables using `infra/generators/alerting.py`.
 
-export GRAFANA_ADMIN_PASSWORD='grafana' # Grafana admin password (secret) — rotate regularly / change per environment
-export GRAFANA_ADMIN_USER='admin' # Grafana admin username (secret) — change when onboarding or rotating admin
-export GRAFANA_API_KEY='' # Grafana API key — used for API validation; set in CI or automated checks
-export GRAFANA_API_URL='' # Grafana API base URL — set for remote API validations or CI post-deploy checks
-export GRAFANA_USE_PVC='false' # Feature flag: persist Grafana data on PVC; set true for stateful installations
-export GRAFANA_REPLICAS='1' # Grafana replicas (scale horizontally for HA or load); change to scale
-export GRAFANA_IMAGE='grafana/grafana:10.3.5' # Grafana container image (pin for deterministic upgrades)
-export GRAFANA_CPU_REQ='100m' # Grafana CPU request — tune if Grafana is CPU-starved
-export GRAFANA_MEM_REQ='128Mi' # Grafana memory request — increase if OOM or heavy dashboards
-export GRAFANA_CPU_LIMIT='500m' # Grafana CPU limit — allow bursts as needed
-export GRAFANA_MEM_LIMIT='512Mi' # Grafana memory limit — upper bound to avoid OOM on host
-export GRAFANA_PVC_SIZE='5Gi' # PVC size for Grafana data (if GRAFANA_USE_PVC=true) — adjust to retention/plugins
-export METRICS_DATASOURCE='VictoriaMetrics' # Logical metrics datasource name used in dashboards
-export METRICS_DATASOURCE_URL='http://victoria-metrics.monitoring.svc:8428' # Metrics backend endpoint — change per cluster
-export CLICKHOUSE_DATASOURCE='ClickHouse' # Logical ClickHouse datasource name used in dashboard links
-export CLICKHOUSE_URL='http://clickhouse.clickhouse.svc:8123' # ClickHouse HTTP endpoint for explore links
-export DATASOURCE_URL='http://victoria-metrics.monitoring.svc:8428' # Backend URL used for recording-rule sanity checks
-export CI='false' # CI toggle: when true the generator fails hard on validation errors (use in pipelines)
-export GRAFANA_NAMESPACE='monitoring' # Namespace where Grafana / ConfigMaps are created
-export GRAFANA_PROVISIONING_NAMESPACE='monitoring' # Namespace Grafana expects provisioning ConfigMaps in
-export DEFAULT_NAMESPACE='monitoring' # Default namespace injected into dashboard variables
-export DASHBOARD_SERVICES='retriever,qdrant' # Comma list of per-service dashboards to render
-export GRAFANA_DASHBOARD_UID_PREFIX='platform-' # UID prefix for generated dashboards (avoid collisions)
-export RUNBOOK_BASE_URL='https://defaultsa515.z13.web.core.windows.net' # Base runbook URL used in dashboard headers/links
-export MAX_PANELS_PER_DASHBOARD='48' # Safety cap to avoid oversized dashboards (prevents runaway renders)
-export SLO_SUCCESS_TARGET='0.999' # SLO success target used in dashboard headers/alerts — change for different SLOs
-export SLO_LATENCY_QUANTILE='0.95' # Latency quantile used in SLO panels (allowed: 0.95 or 0.99)
-export RETRIEVER_LATENCY_THRESHOLD_SECONDS='0.5' # Retriever latency threshold (p95) shown in dashboards
-export QDRANT_LATENCY_THRESHOLD_SECONDS='0.8' # Qdrant latency threshold (p95) shown in dashboards
+```sh
+# Deploy static runbooks (docs/infra/observability/runbooks) for paging alerts.
+# This command exports RUNBOOK_BASE_URL automatically if supported by your setup.
+make rollout-runbooks
 
+export ENABLE_SLACK=true                         # Master switch for Slack notifications (true/false)
+export ENABLE_PAGERDUTY=true                     # Master switch for PagerDuty paging (true/false)
 
+export ALERTING_PAGING_SEVERITY_LEVELS=critical  # Severities considered paging; routed to Slack if PagerDuty is disabled
+export ALERTING_SLACK_SEVERITY_LEVELS=warning,critical  # Severities delivered to Slack when Slack is enabled
 
+export PAGERDUTY_INTEGRATION_KEY=$PAGERDUTY_INTEGRATION_KEY   # PagerDuty routing key; empty disables PagerDuty receiver
+export ALERTMANAGER_SLACK_WEBHOOK=$ALERTMANAGER_SLACK_WEBHOOK # Slack webhook URL; empty disables Slack receiver entirely
+export ALERT_DEFAULT_CHANNEL="#alerts-prod"                  # Optional default Slack channel
 
+export RUNBOOK_BASE_URL=$RUNBOOK_BASE_URL                    # export by running `make rollout-notebooks`
 
-export FRONTEND_HOSTNAME="ui.example.com"                    # public hostname (example: ui.mycompany.com)
-export ENABLE_GOOGLE_AUTH="true"                             # enable Google auth (example: true/false)
-export GOOGLE_ALLOWED_DOMAINS="company.com,gmail.com"        # allowed domains (example: company.com,gmail.com)
-export GOOGLE_CLIENT_ID=""                                   # example: 1234567890-abc.apps.googleusercontent.com
-export GOOGLE_CLIENT_SECRET=""                               # example: GOCSPX-xxxxxxxxxxxxxxxx
+export ALERTING_GROUP_WAIT="30s"                             # Initial wait before first notification in a group
+export ALERTING_GROUP_INTERVAL="5m"                          # Minimum time between notifications for the same group
+export ALERTING_REPEAT_INTERVAL="3h"                         # Reminder interval for ongoing alerts
 
-export JWT_SECRET=""                                         # example: random-32+char-secret
-export SESSION_SECRET=""                                     # example: random-32+char-secret
-export JWT_EXP_SECONDS=1800                                  # token expiry seconds (example: 1800)
-export DISPLAY_SOURCES_IN_UI="true"                          # show sources in UI (example: true)
-export DISPLAY_TOPK_IN_UI="true"                             # show top-K results (example: true)
+export VMALERT_EVAL_INTERVAL="30s"                            # Rule evaluation frequency
+export VMALERT_REPLICAS="2"                                  # >=2 for HA in AKS; 1 for dev
 
-export ENABLE_MICROSOFT_AUTH="true"                          # enable Microsoft auth (example: true/false)
-export MS_CLIENT_ID=""                                       # example: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-export MS_CLIENT_SECRET=""                                   # example: ~AbCdEfGhIjKlMnOpQrStUvWxYz
-export MICROSOFT_ALLOWED_DOMAINS="outlook.com,company.com"   # allowed domains (example: outlook.com,company.com)
-export MICROSOFT_ALLOWED_TENANT_IDS=""                       # example: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-export MS_TENANT_ID=""                                       # example: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+export SLO_SUCCESS_TARGET="0.99"                             # Target success ratio (0 < value < 1)
+export SLO_LATENCY_QUANTILE="0.95"                            # Allowed: 0.95 or 0.99
+export SLO_FAST_BURN_MULTIPLIER="2.0"                         # Fast-burn threshold multiplier
+export SLO_SLOW_BURN_MULTIPLIER="1.2"                         # Slow-burn threshold multiplier
 
-export ENABLE_GITHUB_AUTH="true"                             # enable GitHub auth (example: true/false)
-export GITHUB_CLIENT_ID=""                                   # example: Ov23liFnXdXltUPW34R7
-export GITHUB_CLIENT_SECRET=""                               # example: 40-char-github-secret
-export GITHUB_ALLOWED_ORGS="my-org"                          # allowed orgs (example: my-org,another-org)
+export ALERTMANAGER_REPLICAS="2"                              # >=2 enables HA gossip
+export ALERTMANAGER_RES_CPU="200m"                            # CPU request/limit passthrough
+export ALERTMANAGER_RES_MEM="256Mi"                           # Memory request/limit passthrough
+export VMALERT_RES_CPU="200m"                                 # CPU request/limit passthrough
+export VMALERT_RES_MEM="256Mi"                                # Memory request/limit passthrough
 
-export FRONTEND_AND_AUTH_IMAGE="athithya5354/frontend-and-auth:v10"      # or create by running `make frontend-image`
-export FRONTEND_AND_AUTH_REPLICAS=1                          # replica count (example: 1)
+make rollout-alert-manager
+# make delete-alert-manager
+```
 
-export CLOUDFLARED_VERSION="2025.11.1"                       # cloudflared version (example: 2025.11.1)
-export CLOUDFLARED_TUNNEL_REPLICAS=1                         # tunnel replicas (example: 1)
-make cloudflare-setup
-# export CLOUDFLARE_TUNNEL_KEY
-make deploy-cloudflared
-make deloy-frontend
+### STEP 14: Deploy log storage and query backend (ClickHouse)
+
+This step deploys **ClickHouse** as the primary log storage and query engine for the platform.
+ClickHouse stores normalized logs streamed from Vector and serves them for search, aggregation, and analytics.
+The setup is **single-node, PVC-backed, and production-safe by default**. Horizontal scaling (replication/sharding) is intentionally out of scope and should only be enabled with ClickHouse Keeper/ZooKeeper and replicated table engines.* This deployment is suitable for **production log volumes up to tens of GB/day** on a single node.
+
+All manifests are rendered deterministically from environment variables using `infra/generators/clickhouse.py`.
+
+```sh
+export CLICKHOUSE_PERSISTENCE_ENABLED="true"            # set false only for dev/CI where data loss on restart is acceptable
+export CLICKHOUSE_REPLICAS="1"                          # increase only with ClickHouse Keeper/ZooKeeper and replicated tables
+export CLICKHOUSE_PVC_SIZE="10Gi"                       # increase when disk usage >70% or retention grows; never shrink
+export CLICKHOUSE_PERSISTENCE_STORAGE_CLASS="managed-premium"  # change when switching cloud/region or disk tier (SSD recommended)
+
+export CLICKHOUSE_REQ_CPU="1"                           # raise if sustained ingestion or merges are CPU-bound
+export CLICKHOUSE_REQ_MEM="1Gi"                         # raise if merges/queries OOM or memory pressure appears
+export CLICKHOUSE_LIMIT_CPU="2"                         # allow controlled CPU bursts; must be >= request
+export CLICKHOUSE_LIMIT_MEM="2Gi"                       # headroom for merges/caches; must be >= request
+
+export CLICKHOUSE_USER="vector"                         # service user for log ingestion (use secrets in prod)
+export CLICKHOUSE_PASSWORD="vectorpass"                 # replace with secret manager before multi-tenant use
+export CLICKHOUSE_DB="logs"                             # change only when isolating datasets per workload
+export CLICKHOUSE_TABLE="kube_logs"                     # change when introducing new schema/version
+export LOGS_TTL_DAYS="2"                                # increase to retain logs longer; decrease to save disk
+
+export CLICKHOUSE_ENABLE_EXPORTER="true"                # disable only if metrics scraping is not required
+
+export CLICKHOUSE_MAX_MEMORY_USAGE="12Gi"               # set to ~60–80% of CLICKHOUSE_LIMIT_MEM to prevent OOM
+export CLICKHOUSE_MAX_MEMORY_USAGE_FOR_USER="8Gi"       # lower for multi-tenant safety; raise for heavy queries
+export CLICKHOUSE_MAX_THREADS="2"                       # <= CPU cores allocatable to pod; raise for parallel queries
+export CLICKHOUSE_BACKGROUND_POOL_SIZE="2"              # increase with higher IOPS to speed up merges
+export CLICKHOUSE_TTL_DAYS="2"                           # wire into table TTL; usually same as LOGS_TTL_DAYS
+
+make rollout-clickhouse
+# make delete-clickhouse
+```
+
+### STEP 15: Deploy log collection agents (Vector)
+
+This step deploys **Vector** as a node-level log collection agent.
+Vector runs as a **DaemonSet**, tails Kubernetes pod logs on each node, normalizes log structure and severity, and streams logs to ClickHouse.  The setup is **stateless and No PVC required**
+
+```sh
+export VECTOR_REPLICAS=1             # keep at 1 for DaemonSet semantics; increase only if converting Vector to Deployment with centralized ingestion
+export VECTOR_REQ_CPU=150m           # increase when node-level log volume grows or CPU throttling is observed in Vector metrics
+export VECTOR_REQ_MEM=256Mi          # increase if Vector RSS approaches limit or disk buffers grow under sustained backpressure
+export VECTOR_LIMIT_CPU=1000m        # raise only to allow bursty log spikes; keep close to request for predictable scheduling
+export VECTOR_LIMIT_MEM=1Gi          # raise if OOMKills occur during ClickHouse outages or large batch flushes
+
+export VECTOR_DROP_NAMESPACES="kube-system,kube-node-lease,kube-public,calico-system,tigera-operator,models,flux-system,indexing" # only qdrant & inference
+export VECTOR_LOG_LEVELS=info,warn,error    # Only further restriction is possible since app layer always LOG_LEVEL=info, DEBUG is not allowed
+
+make rollout-vector
+# make delete-vector
+```
+
+### STEP 16: Deploy Platform observability health, Qdrant and Retriever service dashboards
+
+This step deploys **Grafana** as the centralized observability UI for metrics, SLOs, and operational dashboards backed by VictoriaMetrics and ClickHouse.
+Grafana runs as a **single replica with SQLite**. **Note:** SLOs are displayed for visibility only and are **not guaranteed or enforced by RAG8s**.
+
+```sh
+export GRAFANA_PERSISTENCE_ENABLED="true"   # true = PVC-backed SQLite, false = emptyDir (data lost on restart)
+export GRAFANA_PVC_SIZE='2Gi'                    # Used only when GRAFANA_PERSISTENCE_MODE=pvc; increase if dashboards/users grow
+export GRAFANA_PVC_STORAGE_CLASS='managed-premium'  # Empty = default SC (kind); set explicitly in AKS (e.g. managed-premium)
+
+export GRAFANA_ADMIN_USER='admin'               # Admin username; change only during access rotation
+export GRAFANA_ADMIN_PASSWORD='grafana'         # Admin password; always rotate per environment
+
+export GRAFANA_CPU_REQ='100m'                   # Increase if dashboards render slowly or UI feels laggy
+export GRAFANA_MEM_REQ='128Mi'                  # Increase if Grafana OOMs under heavy dashboard usage
+export GRAFANA_CPU_LIMIT='500m'                 # Allow bursty UI activity during peak access
+export GRAFANA_MEM_LIMIT='512Mi'                # Upper bound to protect node memory
+
+export RETRIEVER_LATENCY_THRESHOLD_SECONDS='0.5' # p95 latency budget visualized in dashboards
+export QDRANT_LATENCY_THRESHOLD_SECONDS='0.8'    # p95 latency budget visualized in dashboards
+
+make rollout-dashboards
+# make delete-dashboards
+```
+

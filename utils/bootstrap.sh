@@ -243,6 +243,9 @@ if ! command -v helm >/dev/null 2>&1; then
   die "helm not found after install"
 fi
 
+curl -s https://fluxcd.io/install.sh | sudo FLUX_VERSION=2.7.5 bash
+
+
 # Ensure pulumi bin directory is present in common shell rc files (idempotent)
 add_path_to_rc(){
   local rcfile="$1"

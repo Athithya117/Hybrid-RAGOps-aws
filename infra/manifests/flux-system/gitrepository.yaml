@@ -1,0 +1,12 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: github-com-athithya-sakthivel-rag8s-git
+  namespace: flux-system
+spec:
+  interval: 60s
+  url: "https://github.com/Athithya-Sakthivel/RAG8s.git"
+  ref:
+    branch: "main"
+  secretRef:
+    name: repo-1d77f5ee

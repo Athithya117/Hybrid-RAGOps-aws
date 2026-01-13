@@ -10,6 +10,7 @@ import subprocess
 import traceback
 import time
 import shutil
+import hashlib
 from typing import Dict, List, Tuple, Any
 from pathlib import Path
 import yaml
@@ -244,6 +245,10 @@ def rolebinding_manifest(ns: str, name: str, role_name: str,
     }
 
 
+def sha256_str(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
 def cronjob_manifest(cfg: Dict[str, str],
                      env_map: Dict[str, str]) -> Dict[str, Any]:
     ns = cfg["NAMESPACE"]
@@ -387,6 +392,35 @@ def cronjob_manifest(cfg: Dict[str, str],
         job_spec["activeDeadlineSeconds"] = int(cfg.get("CRONJOB_MAX_TIME", DEFAULTS["CRONJOB_MAX_TIME"]))
     except Exception:
         job_spec["activeDeadlineSeconds"] = int(DEFAULTS["CRONJOB_MAX_TIME"])
+
+    # Compute deterministic checksum of relevant template inputs to force CronJob update when config changes.
+    # Include image, schedule, wrapper script, sorted env names+values (secret references included as names), and pod annotations.
+    checksum_obj = {
+        "image": image,
+        "schedule": cfg.get("CRON_SCHEDULE", DEFAULTS["INDEXING_BACKUP_CRON_EXPRESSION"]),
+        "wrapper": wrapper_script,
+        "env": sorted(
+            [
+                {
+                    "name": e.get("name"),
+                    # If valueFrom exists, include the secret name/key to capture secret reference changes
+                    "value": e.get("value") if "value" in e else None,
+                    "valueFrom": e.get("valueFrom") if "valueFrom" in e else None,
+                }
+                for e in env_list
+            ],
+            key=lambda x: x["name"] or ""
+        ),
+        "pod_annotations": dict(sorted(pod_annotations.items())) if pod_annotations else {},
+    }
+    checksum_input = yaml.safe_dump(checksum_obj, sort_keys=True)
+    config_checksum = sha256_str(checksum_input)
+
+    # Inject checksum into pod template annotations so kubectl apply -> CronJob spec change -> Kubernetes persists new template.
+    tmpl_meta = job_spec["template"]["metadata"]
+    annotations = tmpl_meta.get("annotations", {})
+    annotations["indexing/config-checksum"] = config_checksum
+    tmpl_meta["annotations"] = annotations
 
     cron: Dict[str, Any] = {
         "apiVersion": "batch/v1",

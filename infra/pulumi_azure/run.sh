@@ -1,59 +1,100 @@
 #!/usr/bin/env bash
 IFS=$'\n\t'
+set -o pipefail
+
+# ---- logging helpers ----
 log(){ printf '[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"; }
 warn(){ printf '[%s] WARN: %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"; }
 err(){ printf '[%s] ERROR: %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"; }
+
+# ---- user-configurable pins ----
+: "${PULUMI_VERSION:=v3.212.0}"               # locked Pulumi CLI version
+: "${PULUMI_PY_PKG_VERSION:=${PULUMI_VERSION}}"  # pulumi python package to install in venv
+: "${AZURE_NATIVE_PLUGIN_VERSION:=3.11.0}"   # azure-native provider plugin version (resource plugin)
+
+# ---- required environment checks ----
 : "${AZURE_SUBSCRIPTION_ID:?AZURE_SUBSCRIPTION_ID must be exported}"
 : "${AZURE_TENANT_ID:?AZURE_TENANT_ID must be exported}"
 : "${AZURE_RESOURCE_GROUP_NAME:?AZURE_RESOURCE_GROUP_NAME must be exported}"
 : "${AZURE_STORAGE_ACCOUNT_NAME:?AZURE_STORAGE_ACCOUNT_NAME must be exported}"
 : "${PULUMI_STACK:?PULUMI_STACK must be exported}"
-if [ -z "${PULUMI_AZ_CONTAINER:-}" ] && [ -n "${PULUMI_STATE_CONTAINER:-}" ]; then
-  export PULUMI_AZ_CONTAINER="${PULUMI_STATE_CONTAINER}"
-fi
-: "${PULUMI_AZ_CONTAINER:?PULUMI_AZ_CONTAINER must be exported (or set legacy PULUMI_STATE_CONTAINER)}"
-export ARM_USE_AZURE_CLI=true
-export ARM_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}"
-export ARM_TENANT_ID="${AZURE_TENANT_ID}"
+
+# ---- default binaries and paths ----
 : "${AZ_CLI_BIN:=az}"
 : "${PULUMI_BIN:=pulumi}"
 : "${PYTHON_BIN:=python3}"
 : "${PROJECT_DIR:=infra/pulumi_azure}"
 : "${REQ_FILE:=${PROJECT_DIR}/requirements.txt}"
 : "${FORCE:=${PULUMI_FORCE_DESTROY:-0}}"
+
+# ---- export Pulumi plugin acquisition disable to avoid GH queries for bundled language host ----
+export PULUMI_DISABLE_AUTOMATIC_PLUGIN_ACQUISITION=true
+
+# ---- preserve earlier PULUMI_CONFIG_PASSPHRASE usage ----
 if [ -n "${PULUMI_CONFIG_PASSPHRASE:-}" ]; then
   export PULUMI_CONFIG_PASSPHRASE="${PULUMI_CONFIG_PASSPHRASE}"
   log "Using PULUMI_CONFIG_PASSPHRASE from environment"
 fi
-for bin in "${AZ_CLI_BIN}" "${PULUMI_BIN}" "${PYTHON_BIN}" jq; do
+
+# ---- ensure CLIs exist (pulumi must be preinstalled externally) ----
+for bin in "${AZ_CLI_BIN}" "${PYTHON_BIN}" jq curl; do
   if ! command -v "${bin}" >/dev/null 2>&1; then
     err "required CLI not found: ${bin}"
     exit 2
   fi
 done
 log "Found az: ${AZ_CLI_BIN}"
-log "Found pulumi: ${PULUMI_BIN}"
 log "Found python: ${PYTHON_BIN}"
 log "Found jq in PATH"
+log "Found curl in PATH"
+
+# ---- require Pulumi CLI to be preinstalled (no installer in this script) ----
+if command -v "${PULUMI_BIN}" >/dev/null 2>&1; then
+  INSTALLED_VERSION="$("${PULUMI_BIN}" version 2>/dev/null | sed -n '1p' | awk '{print $1}')"
+  if [ -z "${INSTALLED_VERSION}" ] || [ "${INSTALLED_VERSION}" != "${PULUMI_VERSION}" ]; then
+    err "Pulumi CLI version mismatch: installed='${INSTALLED_VERSION:-none}' expected='${PULUMI_VERSION}'. This script does not install the Pulumi CLI; please install/upgrade externally."
+    exit 4
+  else
+    log "Pulumi CLI ${PULUMI_VERSION} already present"
+  fi
+else
+  err "Pulumi CLI not found. This script does not install the Pulumi CLI; please install Pulumi ${PULUMI_VERSION} and ensure it's on PATH."
+  exit 4
+fi
+
+# sanity: final pulumi version
+if ! command -v "${PULUMI_BIN}" >/dev/null 2>&1; then
+  err "Pulumi CLI not available after verification"
+  exit 4
+fi
+log "Pulumi CLI available: ${PULUMI_BIN}"
+log "Pulumi CLI version: $(${PULUMI_BIN} version 2>/dev/null | sed -n '1p' || true)"
+
+# ---- ensure storage backend preconditions ----
 AZ_SUB="${AZURE_SUBSCRIPTION_ID}"
 RG_NAME="${AZURE_RESOURCE_GROUP_NAME}"
 SA_NAME="${AZURE_STORAGE_ACCOUNT_NAME}"
-PULUMI_CONTAINER="${PULUMI_AZ_CONTAINER}"
+PULUMI_CONTAINER="${PULUMI_AZ_CONTAINER:-pulumi-state}"
 STACK="${PULUMI_STACK}"
 PROJ_DIR="${PROJECT_DIR}"
 REQ_FILE_PATH="${REQ_FILE}"
+
 "${AZ_CLI_BIN}" account set --subscription "${AZ_SUB}" >/dev/null 2>&1
 log "Azure subscription set to ${AZ_SUB}"
+
 if ! "${AZ_CLI_BIN}" storage account show -n "${SA_NAME}" -g "${RG_NAME}" -o none >/dev/null 2>&1; then
   err "Storage account ${SA_NAME} not found in RG ${RG_NAME}"
   exit 3
 fi
 log "Validated storage account ${SA_NAME} in RG ${RG_NAME}"
+
 if "${AZ_CLI_BIN}" storage container show --account-name "${SA_NAME}" -n "${PULUMI_CONTAINER}" --auth-mode login -o none >/dev/null 2>&1; then
   log "Pulumi backend container ${PULUMI_CONTAINER} accessible to current identity"
 else
   warn "Pulumi container ${PULUMI_CONTAINER} missing or not accessible; will attempt idempotent RBAC then storage-key fallback"
 fi
+
+# ---- venv and python deps ----
 VENV_DIR="${PROJ_DIR%/}/.venv-pulumi"
 if [ ! -d "${VENV_DIR}" ]; then
   log "Creating venv at ${VENV_DIR}"
@@ -61,25 +102,40 @@ if [ ! -d "${VENV_DIR}" ]; then
 fi
 . "${VENV_DIR}/bin/activate"
 log "Activated venv ${VENV_DIR}"
+
 if [ -f "${REQ_FILE_PATH}" ]; then
   log "Installing python deps from ${REQ_FILE_PATH}"
   "${PYTHON_BIN}" -m pip install --upgrade pip setuptools wheel >/dev/null 2>&1 || warn "pip upgrade returned non-zero"
-  "${PYTHON_BIN}" -m pip install -r "${REQ_FILE_PATH}" >/dev/null 2>&1 || warn "pip install returned non-zero"
+  # install requirements (best effort) - quiet output
+  if ! "${PYTHON_BIN}" -m pip install -r "${REQ_FILE_PATH}" >/dev/null 2>&1; then
+    warn "pip install -r ${REQ_FILE_PATH} returned non-zero; continuing to ensure pulumi python package pinned"
+  fi
 else
   warn "requirements file not found at ${REQ_FILE_PATH}; continuing"
 fi
-if ! command -v "${PULUMI_BIN}" >/dev/null 2>&1; then
-  if command -v curl >/dev/null 2>&1; then
-    log "Installing Pulumi CLI"
-    curl -fsSL https://get.pulumi.com | sh -s -- --quiet
-    export PATH="$HOME/.pulumi/bin:$PATH"
+
+# Ensure pulumi python package matches the pinned CLI version (quiet)
+log "Ensuring pulumi python package version = ${PULUMI_PY_PKG_VERSION}"
+if ! "${PYTHON_BIN}" -m pip install --upgrade "pulumi==${PULUMI_PY_PKG_VERSION}" >/dev/null 2>&1; then
+  warn "Failed to install pulumi==${PULUMI_PY_PKG_VERSION} into venv; please ensure compatibility"
+fi
+
+# ---- pre-install required Pulumi resource plugins (idempotent) ----
+# This is necessary because automatic plugin acquisition is disabled.
+# Install azure-native resource plugin which maps to your python package pulumi-azure-native.
+if command -v "${PULUMI_BIN}" >/dev/null 2>&1; then
+  log "Ensuring Pulumi resource plugin azure-native ${AZURE_NATIVE_PLUGIN_VERSION} is installed"
+  # Install resource plugin; ignore failure but warn (network, proxy)
+  if ! "${PULUMI_BIN}" plugin install resource azure-native "${AZURE_NATIVE_PLUGIN_VERSION}" >/dev/null 2>&1; then
+    warn "pulumi plugin install resource azure-native ${AZURE_NATIVE_PLUGIN_VERSION} failed (network/proxy?). If disabled, ensure plugin is preinstalled on runner"
   else
-    err "Pulumi CLI not present and curl unavailable to install it"
-    exit 4
+    log "pulumi resource plugin azure-native ${AZURE_NATIVE_PLUGIN_VERSION} installed"
   fi
 fi
-log "Pulumi CLI available: ${PULUMI_BIN}"
+
+# ---- Pulumi login (AAD preferred, fallback to storage key) ----
 PULUMI_BACKEND_URL="azblob://${PULUMI_CONTAINER}?storage_account=${SA_NAME}"
+
 attempt_login_aad() {
   "${PULUMI_BIN}" login "${PULUMI_BACKEND_URL}" >/dev/null 2>&1
 }
@@ -94,6 +150,7 @@ attempt_login_key() {
     return 1
   fi
 }
+
 log "Attempting Pulumi login via AAD to ${PULUMI_BACKEND_URL}"
 if attempt_login_aad; then
   log "Pulumi login via AAD succeeded"
@@ -131,6 +188,7 @@ else
         fi
       fi
     fi
+
     tries=0
     while ! "${AZ_CLI_BIN}" storage container show --account-name "${SA_NAME}" -n "${PULUMI_CONTAINER}" --auth-mode login -o none >/dev/null 2>&1; do
       tries=$((tries+1))
@@ -146,6 +204,7 @@ else
       fi
       sleep 5
     done
+
     if attempt_login_aad; then
       log "Pulumi login via AAD succeeded after RBAC reconciliation"
     else
@@ -158,10 +217,13 @@ else
     fi
   fi
 fi
+
+# ---- move into project and run Pulumi commands (preview / up / destroy handling preserved) ----
 if [ ! -d "${PROJ_DIR}" ]; then
   err "Pulumi project directory not found: ${PROJ_DIR}"
   exit 6
 fi
+
 PUSHED=0
 pushd "${PROJ_DIR}" >/dev/null && PUSHED=1
 PREVIEW_TMP="$(mktemp -t pulumi_preview.XXXXXX.txt)"
@@ -172,6 +234,7 @@ cleanup() {
   fi
 }
 trap 'cleanup' EXIT
+
 OUTPUTS_FILE="./pulumi-outputs.json"
 if "${PULUMI_BIN}" stack select "${STACK}" --non-interactive >/dev/null 2>&1; then
   log "Pulumi: selected existing stack ${STACK}"
@@ -202,6 +265,7 @@ else
   fi
   log "Pulumi: created and selected stack ${STACK}"
 fi
+
 MODE="${1:---create}"
 if [ "${MODE}" = "--preview" ]; then
   log "Running pulumi preview (human-facing)"
@@ -216,6 +280,7 @@ if [ "${MODE}" = "--preview" ]; then
   log "pulumi preview succeeded"
   exit 0
 fi
+
 log "Running pulumi preview (showing native logs)..."
 set +e
 "${PULUMI_BIN}" preview --non-interactive --diff 2>&1 | tee "${PREVIEW_TMP}"
@@ -225,6 +290,7 @@ if [ "${PREV_RC}" -ne 0 ]; then
   err "pulumi preview failed (exit ${PREV_RC})"
   exit 11
 fi
+
 if grep -E '\(delete\)|deleteReplace' "${PREVIEW_TMP}" >/dev/null 2>&1; then
   if [ "${FORCE}" != "1" ]; then
     err "Destructive changes detected in preview. Set FORCE=1 to override."
@@ -234,6 +300,7 @@ if grep -E '\(delete\)|deleteReplace' "${PREVIEW_TMP}" >/dev/null 2>&1; then
     log "FORCE=1 set; proceeding despite destructive changes"
   fi
 fi
+
 if [ "${MODE}" = "--delete" ]; then
   log "Destroy mode requested; performing pulumi destroy."
   if ! "${PULUMI_BIN}" destroy --yes --non-interactive; then
@@ -244,6 +311,7 @@ if [ "${MODE}" = "--delete" ]; then
   rm -f "${OUTPUTS_FILE}" || true
   exit 0
 fi
+
 log "Applying pulumi up (non-interactive)"
 if ! "${PULUMI_BIN}" up --yes --non-interactive; then
   warn "pulumi up failed; showing debug preview (--diff)"
@@ -251,6 +319,7 @@ if ! "${PULUMI_BIN}" up --yes --non-interactive; then
   err "pulumi up failed"
   exit 16
 fi
+
 log "pulumi up completed; exporting outputs"
 if ! "${PULUMI_BIN}" stack output --json > "${OUTPUTS_FILE}" 2>/dev/null; then
   warn "failed to write outputs file"
@@ -258,5 +327,6 @@ else
   chmod 0600 "${OUTPUTS_FILE}" || true
   log "Wrote stack outputs to ${OUTPUTS_FILE}"
 fi
+
 log "run.sh completed successfully"
 exit 0

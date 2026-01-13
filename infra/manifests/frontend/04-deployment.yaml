@@ -3,15 +3,16 @@ kind: Deployment
 metadata:
   name: frontend-deployment
   namespace: inference
-  labels: &id001
-    app.kubernetes.io/name: frontend
 spec:
   replicas: 1
   selector:
-    matchLabels: *id001
+    matchLabels: &id001
+      app.kubernetes.io/name: frontend
   template:
     metadata:
       labels: *id001
+      annotations:
+        frontend/config-checksum: f91d935c2155fddb268b68389c9e9e5750d2778685b858bc880a5899d9b4a8ef
     spec:
       serviceAccountName: frontend-sa
       containers:
@@ -33,21 +34,6 @@ spec:
             secretKeyRef:
               name: frontend-secret
               key: SESSION_SECRET
-        - name: GOOGLE_CLIENT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: frontend-secret
-              key: GOOGLE_CLIENT_SECRET
-        - name: MS_CLIENT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: frontend-secret
-              key: MS_CLIENT_SECRET
-        - name: GITHUB_CLIENT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: frontend-secret
-              key: GITHUB_CLIENT_SECRET
         resources:
           requests:
             cpu: 100m

@@ -33,7 +33,7 @@ def ensure_dir(p: Path):
 
 def atomic_write(path: Path, content: str):
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content)
+    tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)
 
 def run_cmd(cmd, capture=True, check=False, timeout=None, input_bytes=None):
@@ -177,7 +177,7 @@ def render_sa_role(cfg):
     }
     return "\n---\n".join([yaml.safe_dump(x, sort_keys=False) for x in (sa, role, rb)])
 
-def render_deployment(cfg):
+def render_deployment(cfg, config_checksum: str = ""):
     labels = cfg["LABELS"].copy()
     container = {
         "name": cfg["SERVICE_NAME"],
@@ -221,7 +221,7 @@ def render_deployment(cfg):
             gcount = 1
         container["resources"]["limits"][cfg["GPU_RESOURCE_NAME"]] = gcount
 
-    pod_spec = {
+    deployment = {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
         "metadata": {"name": f"{cfg['SERVICE_NAME']}-deployment", "namespace": cfg["NAMESPACE"], "labels": labels},
@@ -239,16 +239,20 @@ def render_deployment(cfg):
     }
 
     if cfg["ENABLE_GPU"] and cfg["GPU_NODE_SELECTOR"]:
-        pod_spec["spec"]["template"]["spec"]["nodeSelector"] = {k: v for k, v in [cfg["GPU_NODE_SELECTOR"].split("=", 1)]} if "=" in cfg["GPU_NODE_SELECTOR"] else {cfg["GPU_NODE_SELECTOR"]: "true"}
+        deployment["spec"]["template"]["spec"]["nodeSelector"] = {k: v for k, v in [cfg["GPU_NODE_SELECTOR"].split("=", 1)]} if "=" in cfg["GPU_NODE_SELECTOR"] else {cfg["GPU_NODE_SELECTOR"]: "true"}
 
-    pod_spec["spec"]["template"]["metadata"].setdefault("annotations", {})
-    pod_spec["spec"]["template"]["metadata"]["annotations"].update({
+    # ensure annotations exist and include monitoring and config checksum to force rollout on config changes
+    deployment["spec"]["template"]["metadata"].setdefault("annotations", {})
+    deployment["spec"]["template"]["metadata"]["annotations"].update({
         "prometheus.io/scrape": "true",
         "prometheus.io/port": str(cfg["CONTAINER_PORT"]),
         "prometheus.io/path": "/metrics",
     })
+    if config_checksum:
+        # annotation that will change whenever inputs/config change -> triggers Deployment rollout
+        deployment["spec"]["template"]["metadata"]["annotations"]["gen_reranker/config-checksum"] = config_checksum
 
-    return yaml.safe_dump(pod_spec, sort_keys=False)
+    return yaml.safe_dump(deployment, sort_keys=False)
 
 def render_service(cfg):
     svc = {
@@ -290,9 +294,12 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
         log.info("No non-secret changes detected; generation skipped.")
         return
 
+    # Use canonical inputs hash as config checksum so deployment manifest contains changing annotation when inputs change.
+    config_checksum = inputs_hash
+
     ns_yaml = render_namespace(cfg)
     sa_role_yaml = render_sa_role(cfg)
-    deploy_yaml = render_deployment(cfg)
+    deploy_yaml = render_deployment(cfg, config_checksum=config_checksum)
     svc_yaml = render_service(cfg)
     atomic_write(cfg["FILES"]["namespace"], ns_yaml)
     atomic_write(cfg["FILES"]["sa_role"], sa_role_yaml)
@@ -301,11 +308,38 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
     if cfg["HPA_ENABLED"]:
         hpa_yaml = render_hpa(cfg)
         atomic_write(cfg["FILES"]["hpa"], hpa_yaml)
-    cfg["INPUTS_HASH_PATH"].write_text(inputs_hash)
+    cfg["INPUTS_HASH_PATH"].write_text(inputs_hash, encoding="utf-8")
     log.info("Wrote manifests to %s", str(cfg["MANIFESTS_DIR"]))
     if verbose:
-        log.info("Namespace:\n%s", ns_yaml.splitlines()[:20])
-        log.info("Deployment (head):\n%s", deploy_yaml.splitlines()[:60])
+        log.info("Namespace:\n%s", "\n".join(ns_yaml.splitlines()[:20]))
+        log.info("Deployment (head):\n%s", "\n".join(deploy_yaml.splitlines()[:60]))
+
+def wait_for_rollout(cfg, timeout_seconds: int = 120):
+    kubectl = shutil.which("kubectl")
+    if not kubectl:
+        log.error("kubectl not found in PATH; cannot wait for rollout")
+        return 2
+    deployment_name = f"{cfg['SERVICE_NAME']}-deployment"
+    cmd = [kubectl, "rollout", "status", f"deployment/{deployment_name}", "-n", cfg["NAMESPACE"], f"--timeout={timeout_seconds}s"]
+    rc, out, err = run_cmd(cmd, capture=True, timeout=timeout_seconds + 10)
+    if rc == 0:
+        log.info("Deployment %s rolled out successfully", deployment_name)
+        return 0
+
+    # gather diagnostics
+    log.error("Rollout status failed (rc=%d). Gathering diagnostics...", rc)
+    d_cmds = [
+        [kubectl, "get", "pods", "-n", cfg["NAMESPACE"]],
+        [kubectl, "describe", "pod", "-l", f"app.kubernetes.io/name={cfg['SERVICE_NAME']}", "-n", cfg["NAMESPACE"]],
+        [kubectl, "logs", "-l", f"app.kubernetes.io/name={cfg['SERVICE_NAME']}", "-n", cfg["NAMESPACE"], "--tail=200"],
+    ]
+    for c in d_cmds:
+        rco, outo, erro = run_cmd(c, capture=True, timeout=30)
+        if outo:
+            log.error("CMD %s output:\n%s", " ".join(c), outo.strip())
+        if erro:
+            log.error("CMD %s error:\n%s", " ".join(c), erro.strip())
+    return rc
 
 def apply_to_cluster(cfg, dry_run=False, verbose=False, mode_label: str = "rollout"):
     kubectl = shutil.which("kubectl")
@@ -321,11 +355,18 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False, mode_label: str = "rollo
         files.append(cfg["FILES"]["hpa"])
     combined = ""
     for p in files:
-        combined += f"---\n# source: {p.name}\n" + p.read_text() + "\n"
+        combined += f"---\n# source: {p.name}\n" + p.read_text(encoding="utf-8") + "\n"
     res = kubectl_apply_yaml(combined, dry_run=False)
     if not res.get("applied", False):
         log.error("%s failed: %s", mode_label, res.get("stderr") or res.get("error"))
         sys.exit(2)
+
+    # Wait for Deployment rollout and fail fast with diagnostics if rollout does not complete.
+    rc = wait_for_rollout(cfg, timeout_seconds=120)
+    if rc != 0:
+        log.error("%s: rollout failed (rc=%d)", mode_label, rc)
+        sys.exit(2)
+
     summary = {
         "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
         "image": cfg["IMAGE"],

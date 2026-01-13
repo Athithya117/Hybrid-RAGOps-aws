@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -91,11 +92,12 @@ def is_valid_url(v: str) -> bool:
 def load_env() -> Dict[str, str]:
     env: Dict[str, str] = {
         "GRAFANA_IMAGE": os.getenv("GRAFANA_IMAGE", "grafana/grafana:10.3.5"),
-        "POSTGRES_IMAGE": os.getenv("POSTGRES_IMAGE", "postgres:15.4"),
         "GRAFANA_NAMESPACE": os.getenv("GRAFANA_NAMESPACE", "monitoring"),
         "GRAFANA_REPLICAS": os.getenv("GRAFANA_REPLICAS", "1"),
-        "GRAFANA_USE_PVC": os.getenv("GRAFANA_USE_PVC", "false"),
-        "GRAFANA_PVC_SIZE": os.getenv("GRAFANA_PVC_SIZE", "5Gi"),
+        # New persistence control: true => PVC-backed (sqlite persisted), false => emptyDir (ephemeral)
+        "GRAFANA_PERSISTENCE_ENABLED": os.getenv("GRAFANA_PERSISTENCE_ENABLED", "false"),
+        "GRAFANA_PVC_SIZE": os.getenv("GRAFANA_PVC_SIZE", "2Gi"),
+        "GRAFANA_PVC_STORAGE_CLASS": os.getenv("GRAFANA_PVC_STORAGE_CLASS", ""),
         "GRAFANA_CPU_REQ": os.getenv("GRAFANA_CPU_REQ", "100m"),
         "GRAFANA_MEM_REQ": os.getenv("GRAFANA_MEM_REQ", "128Mi"),
         "GRAFANA_CPU_LIMIT": os.getenv("GRAFANA_CPU_LIMIT", "500m"),
@@ -116,11 +118,6 @@ def load_env() -> Dict[str, str]:
         "GRAFANA_MANAGE_DEPLOYMENT": os.getenv("GRAFANA_MANAGE_DEPLOYMENT", "true"),
         "GRAFANA_ADMIN_USER": os.getenv("GRAFANA_ADMIN_USER", "admin"),
         "GRAFANA_ADMIN_PASSWORD": os.getenv("GRAFANA_ADMIN_PASSWORD", ""),
-        "GRAFANA_EXTERNAL_DB": os.getenv("GRAFANA_EXTERNAL_DB", "false"),
-        "GRAFANA_POSTGRES_USER": os.getenv("GRAFANA_POSTGRES_USER", "grafana"),
-        "GRAFANA_POSTGRES_DB": os.getenv("GRAFANA_POSTGRES_DB", "grafana"),
-        "GRAFANA_POSTGRES_PVC_SIZE": os.getenv("GRAFANA_POSTGRES_PVC_SIZE", "5Gi"),
-        "GRAFANA_POSTGRES_PASSWORD": os.getenv("GRAFANA_POSTGRES_PASSWORD", "GfN9m2z!7xQpL3sV@8bR4tY1uE0kH6"),
         "GRAFANA_INSTALL_PLUGINS": os.getenv("GRAFANA_INSTALL_PLUGINS", ""),
         "GRAFANA_PLUGINS_PREINSTALL": os.getenv("GRAFANA_PLUGINS_PREINSTALL", ""),
         "GRAFANA_PLUGINS_PREINSTALL_SYNC": os.getenv("GRAFANA_PLUGINS_PREINSTALL_SYNC", ""),
@@ -147,12 +144,12 @@ def validate_env_strict(env: Dict[str, str]) -> None:
     except Exception:
         add("GRAFANA_REPLICAS must be an integer")
 
-    if env.get("GRAFANA_USE_PVC", "").strip().lower() not in ("true", "false", "1", "0", "yes", "no"):
-        add("GRAFANA_USE_PVC must be one of: true|false")
+    if env.get("GRAFANA_PERSISTENCE_ENABLED", "").strip().lower() not in ("true", "false", "1", "0", "yes", "no"):
+        add("GRAFANA_PERSISTENCE_ENABLED must be one of: true|false")
 
     pvc = env.get("GRAFANA_PVC_SIZE", "")
     if pvc and not pvc.endswith(("Gi","Mi","G","M")):
-        add("GRAFANA_PVC_SIZE should use Kubernetes quantity (e.g. 5Gi)")
+        add("GRAFANA_PVC_SIZE should use Kubernetes quantity (e.g. 2Gi)")
 
     try:
         _ = float(env.get("SLO_SUCCESS_TARGET", "0.999"))
@@ -171,16 +168,6 @@ def validate_env_strict(env: Dict[str, str]) -> None:
     ch_url = env.get("CLICKHOUSE_URL", "") or ""
     if ch_url and not is_valid_url(ch_url):
         add("CLICKHOUSE_URL when provided must be a valid http(s) URL (e.g. http://clickhouse.svc:8123)")
-
-    if env.get("GRAFANA_EXTERNAL_DB", "").strip().lower() not in ("true","false","1","0","yes","no"):
-        add("GRAFANA_EXTERNAL_DB must be one of: true|false")
-
-    if coerce_bool(env.get("GRAFANA_EXTERNAL_DB","false")):
-        if not (os.getenv("GF_DATABASE_URL") or (os.getenv("GF_DATABASE_HOST") and os.getenv("GF_DATABASE_NAME") and os.getenv("GF_DATABASE_USER") and os.getenv("GF_DATABASE_PASSWORD"))):
-            add("GRAFANA_EXTERNAL_DB=true requires GF_DATABASE_URL or GF_DATABASE_HOST/NAME/USER/PASSWORD")
-
-    if not env.get("GRAFANA_POSTGRES_PASSWORD") and not coerce_bool(env.get("GRAFANA_EXTERNAL_DB","false")):
-        add("GRAFANA_POSTGRES_PASSWORD must be set when using in-cluster Postgres (GRAFANA_EXTERNAL_DB=false)")
 
     gp_pre = env.get("GRAFANA_PLUGINS_PREINSTALL", "").strip()
     gp_install = env.get("GRAFANA_INSTALL_PLUGINS", "").strip()
@@ -215,17 +202,17 @@ def validate_env_strict(env: Dict[str, str]) -> None:
             if " " in i:
                 add(f"Invalid plugin id in GRAFANA_ALLOW_UNSIGNED_PLUGINS: '{i}'")
 
+    # Additional rule: persistence-enabled + replicas != 1 is unsafe (sqlite single-writer)
+    if coerce_bool(env.get("GRAFANA_PERSISTENCE_ENABLED", "false")):
+        try:
+            r = int(env.get("GRAFANA_REPLICAS", "1"))
+            if r != 1:
+                add("GRAFANA_PERSISTENCE_ENABLED=true requires GRAFANA_REPLICAS=1 (SQLite is single-writer). Set replicas=1 or disable persistence.")
+        except Exception:
+            add("GRAFANA_REPLICAS must be an integer")
+
     if errors:
         raise RuntimeError("ENV validation failed:\n  " + "\n  ".join(errors))
-
-def validate_db_config(env: Dict[str, str]) -> None:
-    external = coerce_bool(env.get("GRAFANA_EXTERNAL_DB","false"))
-    if external:
-        if not (os.getenv("GF_DATABASE_URL") or (os.getenv("GF_DATABASE_HOST") and os.getenv("GF_DATABASE_NAME") and os.getenv("GF_DATABASE_USER") and os.getenv("GF_DATABASE_PASSWORD"))):
-            raise RuntimeError("GRAFANA_EXTERNAL_DB=true requires GF_DATABASE_URL or GF_DATABASE_HOST/NAME/USER/PASSWORD")
-    else:
-        if not env.get("GRAFANA_POSTGRES_PASSWORD"):
-            raise RuntimeError("GRAFANA_POSTGRES_PASSWORD must be set for in-cluster Postgres")
 
 def autodiscover_clickhouse_url(env: Dict[str, str]) -> str:
     explicit = env.get("CLICKHOUSE_URL", "") or os.getenv("CLICKHOUSE_URL", "")
@@ -500,7 +487,7 @@ def build_platform_observability_dashboard(env: Dict[str, str]) -> Dict[str, Any
     dash = {
         "id": None,
         "uid": uid,
-        "title": "Platform Observability — Proven (VMagent / Victoria / Vector / ClickHouse)",
+        "title": "Platform Observability Health",
         "templating": {"list": variables},
         "panels": panels,
         "schemaVersion": 36,
@@ -557,78 +544,16 @@ def build_datasources_cm(env: Dict[str, str]) -> Dict[str, Any]:
     ns = env["GRAFANA_PROVISIONING_NAMESPACE"]
     return {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "grafana-datasources", "namespace": ns, "labels": {"managed-by": "dashboards.py"}}, "data": {"datasources.yaml": yaml.safe_dump(provider, sort_keys=False)}}
 
-def build_postgres_secret(env: Dict[str, str]) -> Dict[str, Any]:
-    ns = env["GRAFANA_PROVISIONING_NAMESPACE"]
-    s = {
-        "apiVersion": "v1",
-        "kind": "Secret",
-        "metadata": {"name": "grafana-postgres-secret", "namespace": ns, "labels": {"managed-by":"dashboards.py"}},
-        "stringData": {
-            "postgres-user": env.get("GRAFANA_POSTGRES_USER", "grafana"),
-            "postgres-password": env.get("GRAFANA_POSTGRES_PASSWORD"),
-            "postgres-db": env.get("GRAFANA_POSTGRES_DB", "grafana")
-        }
-    }
-    return s
+def sha256_str(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
-def build_postgres_service(env: Dict[str, str]) -> Dict[str, Any]:
-    ns = env["GRAFANA_PROVISIONING_NAMESPACE"]
-    svc = {
-        "apiVersion": "v1",
-        "kind": "Service",
-        "metadata": {"name": "grafana-postgres", "namespace": ns, "labels": {"app": "grafana-postgres", "managed-by": "dashboards.py"}},
-        "spec": {"ports": [{"port": 5432, "name": "postgres", "protocol": "TCP"}], "selector": {"app":"grafana-postgres"}, "clusterIP": "None"}
-    }
-    return svc
-
-def build_postgres_statefulset(env: Dict[str, str]) -> Dict[str, Any]:
-    ns = env["GRAFANA_PROVISIONING_NAMESPACE"]
-    image = env.get("POSTGRES_IMAGE", "postgres:15.4")
-    user = env.get("GRAFANA_POSTGRES_USER", "grafana")
-    db = env.get("GRAFANA_POSTGRES_DB", "grafana")
-    pvc_size = env.get("GRAFANA_POSTGRES_PVC_SIZE", "5Gi")
-    sts = {
-        "apiVersion": "apps/v1",
-        "kind": "StatefulSet",
-        "metadata": {"name": "grafana-postgres", "namespace": ns, "labels": {"app":"grafana-postgres","managed-by":"dashboards.py"}},
-        "spec": {
-            "serviceName": "grafana-postgres",
-            "replicas": 1,
-            "selector": {"matchLabels": {"app":"grafana-postgres"}},
-            "template": {
-                "metadata": {"labels": {"app":"grafana-postgres"}} ,
-                "spec": {
-                    "containers": [
-                        {
-                            "name": "postgres",
-                            "image": image,
-                            "imagePullPolicy": "IfNotPresent",
-                            "env": [
-                                {"name": "POSTGRES_USER", "valueFrom": {"secretKeyRef": {"name": "grafana-postgres-secret", "key": "postgres-user"}}},
-                                {"name": "POSTGRES_PASSWORD", "valueFrom": {"secretKeyRef": {"name": "grafana-postgres-secret", "key": "postgres-password"}}},
-                                {"name": "POSTGRES_DB", "valueFrom": {"secretKeyRef": {"name": "grafana-postgres-secret", "key": "postgres-db"}}},
-                                {"name": "PGDATA", "value": "/var/lib/postgresql/data/pgdata"}
-                            ],
-                            "ports": [{"containerPort": 5432, "name": "postgres"}],
-                            "readinessProbe": {"exec": {"command": ["pg_isready", "-U", user]}, "initialDelaySeconds": 5, "periodSeconds": 5, "timeoutSeconds": 3},
-                            "resources": {"requests": {"cpu": env.get("GRAFANA_CPU_REQ"), "memory": env.get("GRAFANA_MEM_REQ")}, "limits": {"cpu": env.get("GRAFANA_CPU_LIMIT"), "memory": env.get("GRAFANA_MEM_LIMIT")}},
-                            "volumeMounts": [{"name": "pgdata", "mountPath": "/var/lib/postgresql/data"}]
-                        }
-                    ]
-                }
-            },
-            "volumeClaimTemplates": [
-                {"metadata": {"name": "pgdata", "labels": {"app":"grafana-postgres"}}, "spec": {"accessModes": ["ReadWriteOnce"], "resources": {"requests": {"storage": pvc_size}}}}
-            ]
-        }
-    }
-    return sts
-
-def build_grafana_deployment(env: Dict[str, str]) -> Dict[str, Any]:
+def build_grafana_deployment(env: Dict[str, str], config_checksum: str = "") -> Dict[str, Any]:
+    """
+    Build Deployment used when persistence is disabled (ephemeral emptyDir).
+    """
     ns = env["GRAFANA_NAMESPACE"]
     image = env["GRAFANA_IMAGE"]
     replicas = safe_int(env.get("GRAFANA_REPLICAS","1"),1)
-    use_pvc = coerce_bool(env.get("GRAFANA_USE_PVC","false"))
     volumes = [
         {"name":"dashboards","configMap":{"name":"grafana-dashboards"}},
         {"name":"provisioning","configMap":{"name":"grafana-provisioning"}},
@@ -639,16 +564,10 @@ def build_grafana_deployment(env: Dict[str, str]) -> Dict[str, Any]:
         {"name":"provisioning","mountPath":"/etc/grafana/provisioning/dashboards"},
         {"name":"datasources","mountPath":"/etc/grafana/provisioning/datasources"}
     ]
-    if use_pvc:
-        pvc_name = "grafana-data"
-        volumes.append({"name":"grafana-data","persistentVolumeClaim":{"claimName":pvc_name}})
-        volume_mounts.append({"name":"grafana-data","mountPath":"/var/lib/grafana"})
+    volumes.append({"name":"grafana-data","emptyDir":{}})
+    volume_mounts.append({"name":"grafana-data","mountPath":"/var/lib/grafana"})
+
     env_vars = [
-        {"name":"GF_DATABASE_TYPE","value":"postgres"},
-        {"name":"GF_DATABASE_HOST","value":"grafana-postgres.%s.svc.cluster.local:5432" % env.get("GRAFANA_PROVISIONING_NAMESPACE")},
-        {"name":"GF_DATABASE_NAME","valueFrom":{"secretKeyRef":{"name":"grafana-postgres-secret","key":"postgres-db"}}},
-        {"name":"GF_DATABASE_USER","valueFrom":{"secretKeyRef":{"name":"grafana-postgres-secret","key":"postgres-user"}}},
-        {"name":"GF_DATABASE_PASSWORD","valueFrom":{"secretKeyRef":{"name":"grafana-postgres-secret","key":"postgres-password"}}},
         {"name":"GF_SECURITY_ADMIN_USER","value":env.get("GRAFANA_ADMIN_USER","admin")}
     ]
     if env.get("GRAFANA_ADMIN_PASSWORD"):
@@ -684,6 +603,12 @@ def build_grafana_deployment(env: Dict[str, str]) -> Dict[str, Any]:
         "livenessProbe":{"httpGet":{"path":"/api/health","port":3000},"initialDelaySeconds":30,"periodSeconds":20,"timeoutSeconds":5}
     }
     pod_spec = {"containers":[container], "volumes":volumes}
+    pod_spec["securityContext"] = {"fsGroup": 472}
+
+    template_meta = {"labels":{"app":"grafana","managed-by":"dashboards.py"}}
+    if config_checksum:
+        template_meta["annotations"] = {"dashboards/config-checksum": config_checksum}
+
     deployment = {
         "apiVersion":"apps/v1",
         "kind":"Deployment",
@@ -691,18 +616,122 @@ def build_grafana_deployment(env: Dict[str, str]) -> Dict[str, Any]:
         "spec":{
             "replicas":replicas,
             "selector":{"matchLabels":{"app":"grafana","managed-by":"dashboards.py"}},
-            "template":{"metadata":{"labels":{"app":"grafana","managed-by":"dashboards.py"}},"spec":pod_spec}
+            "template":{"metadata":template_meta,"spec":pod_spec}
         }
     }
     return deployment
 
+def build_grafana_statefulset(env: Dict[str, str], config_checksum: str = "") -> Dict[str, Any]:
+    """
+    Build StatefulSet with volumeClaimTemplates used when persistence is enabled.
+    Enforces single-replica operation (validation happens earlier).
+    """
+    ns = env["GRAFANA_NAMESPACE"]
+    image = env["GRAFANA_IMAGE"]
+    replicas = 1  # validated earlier
+    # configmap mounts remain the same
+    volume_mounts = [
+        {"name":"dashboards","mountPath":"/var/lib/grafana/dashboards"},
+        {"name":"provisioning","mountPath":"/etc/grafana/provisioning/dashboards"},
+        {"name":"datasources","mountPath":"/etc/grafana/provisioning/datasources"},
+        {"name":"grafana-data","mountPath":"/var/lib/grafana"},
+    ]
+    volumes = [
+        {"name":"dashboards","configMap":{"name":"grafana-dashboards"}},
+        {"name":"provisioning","configMap":{"name":"grafana-provisioning"}},
+        {"name":"datasources","configMap":{"name":"grafana-datasources"}},
+    ]
+    env_vars = [
+        {"name":"GF_SECURITY_ADMIN_USER","value":env.get("GRAFANA_ADMIN_USER","admin")}
+    ]
+    if env.get("GRAFANA_ADMIN_PASSWORD"):
+        env_vars.append({"name":"GF_SECURITY_ADMIN_PASSWORD","valueFrom":{"secretKeyRef":{"name":"grafana-admin-secret","key":"admin-password"}}})
+    preinstall = env.get("GRAFANA_PLUGINS_PREINSTALL","").strip()
+    preinstall_sync = env.get("GRAFANA_PLUGINS_PREINSTALL_SYNC","").strip()
+    install_plugins = env.get("GRAFANA_INSTALL_PLUGINS","").strip()
+    clickhouse_url = env.get("CLICKHOUSE_URL", "") or ""
+    if clickhouse_url:
+        if not (preinstall or preinstall_sync or install_plugins):
+            env_vars.append({"name":"GF_INSTALL_PLUGINS","value":"vertamedia-clickhouse-datasource"})
+        else:
+            if install_plugins:
+                env_vars.append({"name":"GF_INSTALL_PLUGINS","value":install_plugins})
+            elif preinstall_sync:
+                env_vars.append({"name":"GF_PLUGINS_PREINSTALL_SYNC","value":preinstall_sync})
+            else:
+                env_vars.append({"name":"GF_PLUGINS_PREINSTALL","value":preinstall})
+    allow_unsigned = env.get("GRAFANA_ALLOW_UNSIGNED_PLUGINS","").strip()
+    if allow_unsigned:
+        env_vars.append({"name":"GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS","value":allow_unsigned})
+
+    container = {
+        "name":"grafana",
+        "image":image,
+        "env":env_vars,
+        "ports":[{"containerPort":3000,"name":"http"}],
+        "volumeMounts":volume_mounts,
+        "resources":{
+            "requests":{"cpu":env.get("GRAFANA_CPU_REQ"),"memory":env.get("GRAFANA_MEM_REQ")},
+            "limits":{"cpu":env.get("GRAFANA_CPU_LIMIT"),"memory":env.get("GRAFANA_MEM_LIMIT")}
+        },
+        "readinessProbe":{"httpGet":{"path":"/api/health","port":3000},"initialDelaySeconds":5,"periodSeconds":10,"timeoutSeconds":3},
+        "livenessProbe":{"httpGet":{"path":"/api/health","port":3000},"initialDelaySeconds":30,"periodSeconds":20,"timeoutSeconds":5}
+    }
+
+    # volumeClaimTemplates for /var/lib/grafana
+    pvc_size = env.get("GRAFANA_PVC_SIZE", "2Gi")
+    pvc_template: Dict[str, Any] = {
+        "metadata": {"name": "grafana-data"},
+        "spec": {
+            "accessModes": ["ReadWriteOnce"],
+            "resources": {"requests": {"storage": pvc_size}}
+        }
+    }
+    sc = env.get("GRAFANA_PVC_STORAGE_CLASS", "").strip()
+    if sc:
+        pvc_template["spec"]["storageClassName"] = sc
+
+    pod_spec = {"containers":[container], "volumes":volumes}
+    # fsGroup ensures Grafana (uid 472) can write
+    pod_spec["securityContext"] = {"fsGroup": 472}
+
+    template_meta = {"labels":{"app":"grafana","managed-by":"dashboards.py"}}
+    if config_checksum:
+        template_meta["annotations"] = {"dashboards/config-checksum": config_checksum}
+
+    ss = {
+        "apiVersion": "apps/v1",
+        "kind": "StatefulSet",
+        "metadata": {"name": "grafana", "namespace": ns, "labels": {"app": "grafana", "managed-by": "dashboards.py"}},
+        "spec": {
+            "serviceName": "grafana-headless",
+            "replicas": replicas,
+            "selector": {"matchLabels": {"app": "grafana", "managed-by": "dashboards.py"}},
+            "template": {"metadata": template_meta, "spec": pod_spec},
+            "volumeClaimTemplates": [pvc_template],
+        },
+    }
+    return ss
+
 def build_grafana_service(env: Dict[str, str]) -> Dict[str, Any]:
+    # ClusterIP service for callers (kept as before)
     ns = env["GRAFANA_NAMESPACE"]
     svc = {
         "apiVersion":"v1",
         "kind":"Service",
         "metadata":{"name":"grafana","namespace":ns,"labels":{"app":"grafana","managed-by":"dashboards.py"}},
         "spec":{"selector":{"app":"grafana","managed-by":"dashboards.py"},"ports":[{"port":3000,"targetPort":3000,"protocol":"TCP","name":"http"}],"type":"ClusterIP"}
+    }
+    return svc
+
+def build_grafana_headless_service(env: Dict[str, str]) -> Dict[str, Any]:
+    # Headless service required by StatefulSet for stable network identity
+    ns = env["GRAFANA_NAMESPACE"]
+    svc = {
+        "apiVersion":"v1",
+        "kind":"Service",
+        "metadata":{"name":"grafana-headless","namespace":ns,"labels":{"app":"grafana","managed-by":"dashboards.py","statefulset-service":"true"}},
+        "spec":{"selector":{"app":"grafana","managed-by":"dashboards.py"},"ports":[{"port":3000,"targetPort":3000,"protocol":"TCP","name":"http"}],"clusterIP":"None"}
     }
     return svc
 
@@ -764,9 +793,20 @@ def create_or_update_secret_from_env(ns: str, secret_name: str, mapping: Dict[st
         raise RuntimeError(f"failed to apply secret {secret_name}: {stderr}")
     run_cmd(["kubectl", "-n", ns, "label", "secret", secret_name, "managed-by=dashboards.py", "--overwrite"], timeout=10)
 
+def compute_config_checksum_from_files(paths: List[Path], extra_fields: Optional[Dict[str, str]] = None) -> str:
+    parts: List[str] = []
+    for p in paths:
+        try:
+            parts.append(p.read_text(encoding="utf-8"))
+        except Exception:
+            parts.append("")
+    if extra_fields:
+        for k in sorted(extra_fields.keys()):
+            parts.append(f"{k}={extra_fields[k]}\n")
+    return sha256_str("\n".join(parts))
+
 def render_all(env: Dict[str, str]) -> Dict[str, Path]:
     validate_env_strict(env)
-    validate_db_config(env)
     click_url = autodiscover_clickhouse_url(env)
     if click_url:
         env["CLICKHOUSE_URL"] = click_url
@@ -790,39 +830,52 @@ def render_all(env: Dict[str, str]) -> Dict[str, Path]:
     dashboards_cm = build_dashboards_configmap(rendered, env)
     prov_cm = build_provisioning_provider_cm(env)
     datasources_cm = build_datasources_cm(env)
+    # write configmaps first so checksum is computed over stable output
     atomic_write(OUT_DIR / "grafana-dashboards-configmap.yaml", yaml.safe_dump(dashboards_cm, sort_keys=False))
     atomic_write(OUT_DIR / "grafana-provisioning-configmap.yaml", yaml.safe_dump(prov_cm, sort_keys=False))
     atomic_write(OUT_DIR / "grafana-datasources-configmap.yaml", yaml.safe_dump(datasources_cm, sort_keys=False))
-    deployment = build_grafana_deployment(env)
+
+    # compute checksum across the key config files and important deployment inputs (image/replicas/persistence)
+    cfg_paths = [
+        OUT_DIR / "grafana-dashboards-configmap.yaml",
+        OUT_DIR / "grafana-provisioning-configmap.yaml",
+        OUT_DIR / "grafana-datasources-configmap.yaml"
+    ]
+    extra = {
+        "image": env.get("GRAFANA_IMAGE", ""),
+        "replicas": env.get("GRAFANA_REPLICAS", ""),
+        "persistence": env.get("GRAFANA_PERSISTENCE_ENABLED", "")
+    }
+    config_checksum = compute_config_checksum_from_files(cfg_paths, extra_fields=extra)
+
+    persistence_enabled = coerce_bool(env.get("GRAFANA_PERSISTENCE_ENABLED","false"))
+
+    # Build either Deployment (ephemeral) or StatefulSet (pvc)
+    if persistence_enabled:
+        ss = build_grafana_statefulset(env, config_checksum=config_checksum)
+        atomic_write(OUT_DIR / "grafana-statefulset.yaml", yaml.safe_dump(ss, sort_keys=False))
+        # Write headless service for StatefulSet to bind to
+        headless = build_grafana_headless_service(env)
+        atomic_write(OUT_DIR / "grafana-headless-service.yaml", yaml.safe_dump(headless, sort_keys=False))
+        out_paths["statefulset"] = OUT_DIR / "grafana-statefulset.yaml"
+        out_paths["headless_service"] = OUT_DIR / "grafana-headless-service.yaml"
+        # Do not create a standalone PVC manifest: StatefulSet will create PVCs via volumeClaimTemplates
+    else:
+        deployment = build_grafana_deployment(env, config_checksum=config_checksum)
+        atomic_write(OUT_DIR / "grafana-deployment.yaml", yaml.safe_dump(deployment, sort_keys=False))
+        out_paths["deployment"] = OUT_DIR / "grafana-deployment.yaml"
+
     svc = build_grafana_service(env)
-    atomic_write(OUT_DIR / "grafana-deployment.yaml", yaml.safe_dump(deployment, sort_keys=False))
     atomic_write(OUT_DIR / "grafana-service.yaml", yaml.safe_dump(svc, sort_keys=False))
+    out_paths["service"] = OUT_DIR / "grafana-service.yaml"
+
     LOG.info("Wrote provisioning manifests to %s", OUT_DIR)
-    if not coerce_bool(env.get("GRAFANA_EXTERNAL_DB","false")):
-        pg_secret = build_postgres_secret(env)
-        pg_svc = build_postgres_service(env)
-        pg_sts = build_postgres_statefulset(env)
-        atomic_write(OUT_DIR / "grafana-postgres-secret.yaml", yaml.safe_dump(pg_secret, sort_keys=False))
-        atomic_write(OUT_DIR / "grafana-postgres-service.yaml", yaml.safe_dump(pg_svc, sort_keys=False))
-        atomic_write(OUT_DIR / "grafana-postgres-statefulset.yaml", yaml.safe_dump(pg_sts, sort_keys=False))
-        out_paths["postgres_secret"] = OUT_DIR / "grafana-postgres-secret.yaml"
-        out_paths["postgres_service"] = OUT_DIR / "grafana-postgres-service.yaml"
-        out_paths["postgres_sts"] = OUT_DIR / "grafana-postgres-statefulset.yaml"
-    if coerce_bool(env.get("GRAFANA_USE_PVC","false")):
-        pvc = {
-            "apiVersion": "v1",
-            "kind": "PersistentVolumeClaim",
-            "metadata": {"name": "grafana-data", "namespace": env["GRAFANA_NAMESPACE"], "labels": {"app": "grafana", "managed-by":"dashboards.py"}},
-            "spec": {"accessModes": ["ReadWriteOnce"], "resources": {"requests": {"storage": env.get("GRAFANA_PVC_SIZE","5Gi")}}}
-        }
-        atomic_write(OUT_DIR / "grafana-pvc.yaml", yaml.safe_dump(pvc, sort_keys=False))
-        out_paths["pvc"] = OUT_DIR / "grafana-pvc.yaml"
+    # also write helper file
     atomic_write(OUT_DIR / "clickhouse-explore-sql.txt", CLICKHOUSE_SQL_TEMPLATE)
     out_paths["dashboards_cm"] = OUT_DIR / "grafana-dashboards-configmap.yaml"
     out_paths["provisioning_cm"] = OUT_DIR / "grafana-provisioning-configmap.yaml"
     out_paths["datasources_cm"] = OUT_DIR / "grafana-datasources-configmap.yaml"
-    out_paths["deployment"] = OUT_DIR / "grafana-deployment.yaml"
-    out_paths["service"] = OUT_DIR / "grafana-service.yaml"
+    out_paths["config_checksum"] = OUT_DIR / f"grafana-config-checksum-{config_checksum}"
     LOG.info("Render complete; output paths written to %s", OUT_DIR)
     return out_paths
 
@@ -861,60 +914,76 @@ def verify_post_apply(env: Dict[str, str]) -> Dict[str, Any]:
 def apply_action() -> None:
     env = load_env()
     validate_env_strict(env)
-    validate_db_config(env)
     paths = render_all(env)
     ns = env["GRAFANA_PROVISIONING_NAMESPACE"]
     ensure_namespace(ns)
     if env.get("GRAFANA_ADMIN_USER") and env.get("GRAFANA_ADMIN_PASSWORD"):
         create_or_update_secret_from_env(ns, "grafana-admin-secret", {"admin-user": env["GRAFANA_ADMIN_USER"], "admin-password": env["GRAFANA_ADMIN_PASSWORD"]})
-    if not coerce_bool(env.get("GRAFANA_EXTERNAL_DB","false")):
-        create_or_update_secret_from_env(ns, "grafana-postgres-secret", {"postgres-user": env.get("GRAFANA_POSTGRES_USER","grafana"), "postgres-password": env.get("GRAFANA_POSTGRES_PASSWORD"), "postgres-db": env.get("GRAFANA_POSTGRES_DB","grafana")})
-        if paths.get("postgres_service"):
-            try:
-                kubectl_apply_yaml(paths["postgres_service"])
-            except Exception:
-                pass
-        if paths.get("postgres_sts"):
-            try:
-                kubectl_apply_yaml(paths["postgres_sts"])
-            except Exception:
-                pass
-            run_cmd(["kubectl", "-n", ns, "rollout", "status", "statefulset/grafana-postgres", "--timeout=30s"], timeout=35)
+    # apply provisioning configmaps and dashboards
     if paths.get("datasources_cm"):
         try:
             kubectl_apply_yaml(paths["datasources_cm"])
         except Exception:
-            pass
+            LOG.exception("failed apply datasources configmap (continuing)")
     if paths.get("provisioning_cm"):
         try:
             kubectl_apply_yaml(paths["provisioning_cm"])
         except Exception:
-            pass
+            LOG.exception("failed apply provisioning configmap (continuing)")
     if paths.get("dashboards_cm"):
         try:
             kubectl_apply_yaml(paths["dashboards_cm"])
         except Exception:
-            pass
+            LOG.exception("failed apply dashboards configmap (continuing)")
+
+    # apply grafana service (ClusterIP) — callers depend on this name
     svc = OUT_DIR / "grafana-service.yaml"
     if svc.exists():
         try:
             kubectl_apply_yaml(svc)
         except Exception:
-            pass
-    if coerce_bool(env.get("GRAFANA_USE_PVC","false")):
-        pvc_path = OUT_DIR / "grafana-pvc.yaml"
-        if pvc_path.exists():
+            LOG.exception("failed apply grafana service (continuing)")
+
+    persistence_enabled = coerce_bool(env.get("GRAFANA_PERSISTENCE_ENABLED","false"))
+    manage_deploy = coerce_bool(env.get("GRAFANA_MANAGE_DEPLOYMENT","false"))
+
+    if persistence_enabled:
+        # apply headless service (required by StatefulSet) then statefulset
+        headless = OUT_DIR / "grafana-headless-service.yaml"
+        if headless.exists():
             try:
-                kubectl_apply_yaml(pvc_path)
+                # apply in target namespace
+                rc, out, err = run_cmd(["kubectl", "-n", ns, "apply", "-f", str(headless)], timeout=30)
+                if rc != 0:
+                    LOG.warning("failed to apply headless service: %s %s", out, err)
             except Exception:
-                pass
-    dep = OUT_DIR / "grafana-deployment.yaml"
-    if coerce_bool(env.get("GRAFANA_MANAGE_DEPLOYMENT","false")) and dep.exists():
-        try:
-            ensure_deployment_applied_safely(dep, env["GRAFANA_NAMESPACE"], name="grafana")
-            run_cmd(["kubectl", "-n", env["GRAFANA_NAMESPACE"], "rollout", "status", "deployment/grafana", "--timeout=30s"], timeout=35)
-        except Exception:
-            pass
+                LOG.exception("failed to apply headless service")
+        statefulset = OUT_DIR / "grafana-statefulset.yaml"
+        if manage_deploy and statefulset.exists():
+            try:
+                # use kubectl apply for statefulset; wait for rollout
+                rc, out, err = run_cmd(["kubectl", "-n", ns, "apply", "-f", str(statefulset)], timeout=60)
+                if rc != 0:
+                    LOG.warning("kubectl apply statefulset returned non-zero: %s %s", out, err)
+                # wait for rollout statefulset
+                rc, out, err = run_cmd(["kubectl", "-n", ns, "rollout", "status", "statefulset/grafana", "--timeout=120s"], timeout=130)
+                if rc != 0:
+                    LOG.warning("statefulset rollout status non-zero: %s %s", out, err)
+            except Exception:
+                LOG.exception("failed to apply statefulset (continuing)")
+        else:
+            LOG.info("GRAFANA_MANAGE_DEPLOYMENT=false or statefulset manifest missing; not managing StatefulSet")
+    else:
+        # ephemeral (Deployment) path
+        dep = OUT_DIR / "grafana-deployment.yaml"
+        if manage_deploy and dep.exists():
+            try:
+                ensure_deployment_applied_safely(dep, env["GRAFANA_NAMESPACE"], name="grafana")
+                run_cmd(["kubectl", "-n", env["GRAFANA_NAMESPACE"], "rollout", "status", "deployment/grafana", "--timeout=30s"], timeout=35)
+            except Exception:
+                LOG.exception("failed to apply deployment (continuing)")
+        else:
+            LOG.info("GRAFANA_MANAGE_DEPLOYMENT=false or deployment manifest missing; not managing Deployment")
 
 def delete_action() -> None:
     env = load_env()
@@ -925,8 +994,8 @@ def delete_action() -> None:
         "configmap",
         "secret",
         "service",
-        "statefulset",
         "deployment",
+        "statefulset",
         "daemonset",
         "replicaset",
         "pod",
@@ -1001,6 +1070,7 @@ def ensure_deployment_applied_safely(yaml_path: Path, ns: str, name: str = "graf
     if live_sel != desired_sel:
         managed = resource_has_managed_label("deployment", name, ns)
         force_apply = coerce_bool(os.getenv("FORCE_APPLY", "false"))
+        # when selectors change, be conservative unless explicitly forced
         if not managed and not force_apply:
             return
         if not force_apply:
@@ -1018,7 +1088,7 @@ def ensure_deployment_applied_safely(yaml_path: Path, ns: str, name: str = "graf
             pass
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Generate/rollout/delete Grafana dashboards + optional Grafana deployment + optional in-cluster Postgres.")
+    p = argparse.ArgumentParser(description="Generate/rollout/delete Grafana dashboards + optional Grafana deployment.")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--rollout", action="store_true", help="Create or converge resources to desired state (preferred over --apply)")
     g.add_argument("--apply", action="store_true", help="Legacy alias for --rollout (deprecated)")

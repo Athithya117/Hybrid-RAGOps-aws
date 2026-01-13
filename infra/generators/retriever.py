@@ -250,7 +250,7 @@ def render_configmap(cfg: Dict[str, Any]) -> str:
     }
     return yaml.safe_dump(cm, sort_keys=False)
 
-def render_deployment(cfg: Dict[str, Any]) -> str:
+def render_deployment(cfg: Dict[str, Any], config_checksum: str = "") -> str:
     labels = cfg["LABELS"].copy()
     env_from = [{"configMapRef": {"name": f"{cfg['SERVICE_NAME']}-config"}}]
     secret_name = f"{cfg['SERVICE_NAME']}-secret"
@@ -305,6 +305,10 @@ def render_deployment(cfg: Dict[str, Any]) -> str:
         "monitoring.io/port": str(cfg["METRICS_PORT"]),
         "monitoring.io/path": "/metrics",
     }
+
+    # Add config checksum annotation so configmap changes force Deployment template change -> rollout
+    if config_checksum:
+        pod_annotations["retriever/config-checksum"] = config_checksum
 
     pod_template = {
         "metadata": {"labels": labels, "annotations": pod_annotations},
@@ -457,6 +461,52 @@ def detect_secret_leak(rendered: str, secret_map: Dict[str, str]) -> Optional[st
             return k
     return None
 
+# ---- rollout helper ----
+def wait_for_rollout(name: str, namespace: str, timeout: int = 120) -> int:
+    kubectl = which("kubectl")
+    if not kubectl:
+        return 127
+    cmd = [kubectl, "rollout", "status", f"deployment/{name}", "-n", namespace, f"--timeout={timeout}s"]
+    try:
+        p = subprocess.run(cmd, capture_output=True, check=False, timeout=timeout + 10)
+        if p.returncode == 0:
+            return 0
+        # print stdout/stderr for diagnostics
+        if p.stdout:
+            print(p.stdout.decode(), file=sys.stderr)
+        if p.stderr:
+            print(p.stderr.decode(), file=sys.stderr)
+        return p.returncode
+    except subprocess.TimeoutExpired:
+        print("kubectl rollout status timed out", file=sys.stderr)
+        return 124
+    except Exception as e:
+        print(str(e), file=sys.stderr)
+        return 1
+
+def print_diagnostics(name: str, namespace: str) -> None:
+    kubectl = which("kubectl")
+    if not kubectl:
+        print("kubectl not available for diagnostics", file=sys.stderr)
+        return
+    # get pods
+    cmds = [
+        [kubectl, "get", "pods", "-n", namespace],
+        [kubectl, "describe", "pod", "-l", f"app.kubernetes.io/name={name}", "-n", namespace],
+        [kubectl, "logs", "-l", f"app.kubernetes.io/name={name}", "-n", namespace, "--tail=200"],
+    ]
+    for c in cmds:
+        try:
+            p = run_cmd_capture(c, timeout=30)
+            out = p.stdout.decode() if p.stdout else ""
+            err = p.stderr.decode() if p.stderr else ""
+            if out:
+                print(out, file=sys.stderr)
+            if err:
+                print(err, file=sys.stderr)
+        except Exception as e:
+            print(f"diag command failed: {' '.join(c)}: {e}", file=sys.stderr)
+
 # ---- generate / rollout(apply) / delete ----
 def generate(cfg: Dict[str, Any]) -> None:
     ensure_dir(cfg["MANIFESTS_DIR"])
@@ -478,11 +528,17 @@ def generate(cfg: Dict[str, Any]) -> None:
     ns_yaml = render_namespace(cfg)
     sa_yaml = render_sa_role(cfg)
     cm_yaml = render_configmap(cfg)
-    dep_yaml = render_deployment(cfg)
+
+    # compute checksum of the rendered ConfigMap YAML to trigger rollout when config changes
+    config_checksum = hashlib.sha256(cm_yaml.encode("utf-8")).hexdigest()
+
+    # render deployment with checksum embedded into pod annotations
+    dep_yaml = render_deployment(cfg, config_checksum=config_checksum)
     svc_yaml = render_service(cfg)
     hpa_yaml = render_hpa(cfg)
     es_yaml = render_external_secret(cfg)
 
+    # ensure we do not accidentally embed secrets into the deployment YAML content
     leak = detect_secret_leak(dep_yaml, cfg["SECRET_VALUES"])
     if leak:
         die(f"Secret value for {leak} would be embedded in deployment; refusing to generate.")
@@ -537,6 +593,9 @@ def apply(cfg: Dict[str, Any], mode_label: str = "rollout") -> None:
         info("Using Azure KeyVault mode; ensure ExternalSecrets operator and SecretStore exist before applying.")
     elif secret_res.get("created"):
         info("Created/updated in-cluster secret from environment variables. Secret keys include both uppercase and legacy lowercase variants.")
+    elif secret_res.get("created") is False and secret_res.get("stderr"):
+        # non-fatal but warn
+        info(f"Secret creation returned: {secret_res.get('stderr')}")
 
     # Build combined YAML stream, excluding namespace which was applied already
     parts: List[str] = []
@@ -555,6 +614,15 @@ def apply(cfg: Dict[str, Any], mode_label: str = "rollout") -> None:
     if not res.get("applied", False):
         die(f"kubectl apply failed: {res.get('stderr')}")
     info("Applied manifests to cluster.")
+
+    # Wait for deployment rollout to finish; if it fails, print diagnostics and exit non-zero
+    deployment_name = f"{cfg['SERVICE_NAME']}-deployment"
+    rc = wait_for_rollout(deployment_name, cfg["NAMESPACE"], timeout=120)
+    if rc != 0:
+        print("Rollout failed or timed out; printing diagnostics", file=sys.stderr)
+        print_diagnostics(cfg["SERVICE_NAME"], cfg["NAMESPACE"])
+        die(f"{cfg['SERVICE_NAME']} deployment failed to rollout (kubectl returned {rc})")
+
     summary = {"generated_at": datetime.datetime.utcnow().isoformat() + "Z", "image": cfg["IMAGE"], "namespace": cfg["NAMESPACE"], "replicas": cfg["REPLICAS"]}
     atomic_write(cfg["MANIFESTS_DIR"] / "last_deploy_summary.json", json.dumps(summary, indent=2))
     info(f"{mode_label} complete")

@@ -113,3 +113,4 @@ Thumbs.db
 *.local
 models
 *.onnx
+temp.sh

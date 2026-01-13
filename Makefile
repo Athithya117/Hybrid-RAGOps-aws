@@ -91,7 +91,7 @@ reranker-image:
 
 
 setup-flux:
-	python3 infra/scripts/setup_fluxcd.py --auto-push
+	python3 infra/setup/setup_fluxcd.py --auto-push
 
 inspect-flux:
 	tail -f infra/manifests/flux-system/setup_fluxcd.log
@@ -106,7 +106,7 @@ rollout-retriever:
 rollout-frontend:
 	python3 infra/generators/frontend_auth.py --rollout --confirm
 
-rollout-cloudflared:
+rollout-cloudflared-agents:
 	python3 infra/generators/cloudflared.py --rollout --replicas $${CLOUDFLARED_TUNNEL_REPLICAS} --namespace inference
 
 rollout-clickhouse:
@@ -116,7 +116,7 @@ rollout-vector:
 	python3 infra/generators/vector_logger.py --rollout
 
 rollout-vm:
-	bash infra/generators/monitoring.sh --rollout
+	python3 infra/generators/monitoring.py --rollout
 
 rollout-runbooks:
 	bash infra/base_infra/az_runbooks.sh
@@ -124,6 +124,36 @@ rollout-runbooks:
 rollout-alert-manager:
 	python3 infra/generators/alerting.py --rollout
 
+rollout-dashboards:
+	python3 infra/generators/dashboards.py --rollout
+
+
+delete-retriever:
+	python3 infra/generators/retriever.py --delete --confirm || true
+
+delete-frontend:
+	python3 infra/generators/frontend_auth.py --delete --confirm || true
+
+delete-cloudflared-agents:
+	python3 infra/generators/cloudflared.py --delete --namespace inference || true
+
+delete-clickhouse:
+	python3 infra/generators/clickhouse.py --delete --confirm || true
+
+delete-vector:
+	python3 infra/generators/vector_logger.py --delete || true
+ 
+delete-vm:
+	python3 infra/generators/monitoring.py --delete || true
+
+delete-runbooks:
+	bash infra/base_infra/az_runbooks.sh --delete || true
+
+delete-alert-manager:
+	python3 infra/generators/alerting.py --delete --confirm || true
+
+delete-dashboards:
+	python3 infra/generators/dashboards.py --delete || true
 
 rollout-models: rollout-dense rollout-sparse rollout-reranker
 rollout-inference-svcs: rollout-retriever rollout-frontend
@@ -199,6 +229,7 @@ clean:
 	find . -type f -name "*.pulumi-logs" ! -path "./.git/*" -delete
 	clear
 
+fix-dns: fix-kind-dns
 
 # ClickHouse convenience targets
 CH_NS ?= observability

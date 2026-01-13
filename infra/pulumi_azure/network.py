@@ -1,12 +1,3 @@
-"""
-Network primitives for the RAG platform Pulumi program.
-
-Exports:
-  create_network(rg, location, stack, aks_network_plugin)
-Returns:
-  dict with keys: vnet, snet_appgw, snet_aks
-"""
-
 from __future__ import annotations
 import pulumi
 from pulumi_azure_native import network

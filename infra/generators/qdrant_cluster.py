@@ -6,6 +6,7 @@ import time
 import shutil
 import tempfile
 import subprocess
+import hashlib
 from pathlib import Path
 
 try:
@@ -213,6 +214,15 @@ def render_values_yaml():
         extra_env.append({"name": "QDRANT__SERVICE__API_KEY", "valueFrom": {"secretKeyRef": {"name": SECRET_SERVICE_NAME, "key": "QDRANT__SERVICE__API_KEY"}}})
     if extra_env:
         vals["extraEnv"] = extra_env
+
+    # Compute a deterministic checksum of the values that matter (exclude the checksum itself).
+    # This checksum is injected into podAnnotations so Helm will update the pod template when the rendered configuration changes,
+    # triggering a StatefulSet/Deployment rolling update.
+    content_no_checksum = yaml.safe_dump(vals, sort_keys=False).encode("utf-8")
+    checksum = hashlib.sha256(content_no_checksum).hexdigest()
+    pod_ann = vals.get("podAnnotations", {}) or {}
+    pod_ann["qdrant/config-checksum"] = checksum
+    vals["podAnnotations"] = pod_ann
 
     content = yaml.safe_dump(vals, sort_keys=False).encode("utf-8")
     atomic_write(VALUES_FILE, content)

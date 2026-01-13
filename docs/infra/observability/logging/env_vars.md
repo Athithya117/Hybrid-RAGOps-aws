@@ -138,6 +138,180 @@ Inspect generated manifests for expected cluster-specific behavior.
 
 ---
 
+Below is a precise explanation of the **newly added ClickHouse environment variables** in STEP 14, including whether they are **hard limits**, **soft safety knobs**, or **require tuning/testing**.
+
+---
+
+## `CLICKHOUSE_MAX_MEMORY_USAGE`
+
+**What it controls**
+Maximum memory a **single query** (including merges triggered by that query) is allowed to allocate.
+
+**Why it exists**
+Prevents ClickHouse from consuming all container memory and getting OOMKilled by Kubernetes.
+
+**How it maps internally**
+Sets:
+
+* `max_memory_usage`
+
+**Recommended value**
+≈ **60–80% of `CLICKHOUSE_LIMIT_MEM`**
+
+**Behavior type**
+
+* Hard limit
+* Enforced by ClickHouse
+
+**Testing required?**
+Yes, light tuning.
+
+* Too low → large queries fail with `MEMORY_LIMIT_EXCEEDED`
+* Too high → risk of Kubernetes OOMKills
+
+---
+
+## `CLICKHOUSE_MAX_MEMORY_USAGE_FOR_USER`
+
+**What it controls**
+Maximum **aggregate memory usage per user**, across all concurrent queries.
+
+**Why it exists**
+Protects the system from:
+
+* Query storms
+* Poorly written dashboards
+* Multi-tenant overload (future-proofing)
+
+**How it maps internally**
+Sets:
+
+* `max_memory_usage_for_user`
+
+**Recommended value**
+Lower than `CLICKHOUSE_MAX_MEMORY_USAGE`
+
+**Behavior type**
+
+* Hard limit
+* Enforced at user level
+
+**Testing required?**
+Minimal.
+
+* Mostly defensive
+* Only tune upward if legitimate workloads are throttled
+
+---
+
+## `CLICKHOUSE_MAX_THREADS`
+
+**What it controls**
+Maximum number of execution threads per query.
+
+**Why it exists**
+Prevents CPU oversubscription and noisy-neighbor effects inside the pod.
+
+**How it maps internally**
+Sets:
+
+* `max_threads`
+
+**Recommended value**
+≤ allocatable CPU cores (usually equal to `CLICKHOUSE_REQ_CPU` rounded down)
+
+**Behavior type**
+
+* Hard cap on parallelism
+* CPU safety knob
+
+**Testing required?**
+Low.
+
+* Increase only if queries are CPU-bound and latency-sensitive
+* Lower values favor predictable latency over raw speed
+
+---
+
+## `CLICKHOUSE_BACKGROUND_POOL_SIZE`
+
+**What it controls**
+Number of threads used for **background tasks**:
+
+* Part merges
+* TTL cleanup
+* Mutations
+
+**Why it exists**
+Balances foreground query performance vs. merge/cleanup speed.
+
+**How it maps internally**
+Sets:
+
+* `background_pool_size`
+
+**Recommended value**
+
+* Start at `1–2`
+* Increase only with fast disks (SSD) and spare CPU
+
+**Behavior type**
+
+* Soft performance knob
+* Affects merge latency, not correctness
+
+**Testing required?**
+Optional.
+
+* Increase only if `system.merges` shows backlog
+* No correctness risk
+
+---
+
+## `CLICKHOUSE_TTL_DAYS`
+
+**What it controls**
+Retention period for log data at the **table level**.
+
+**Why it exists**
+Ensures disk usage remains bounded without manual cleanup.
+
+**How it maps internally**
+Used in:
+
+* `TTL ts + INTERVAL <n> DAY DELETE`
+
+**Recommended value**
+Same as `LOGS_TTL_DAYS`
+
+**Behavior type**
+
+* Declarative retention policy
+* Deterministic
+
+**Testing required?**
+No.
+
+* Safe, deterministic
+* TTL execution is asynchronous and non-blocking
+
+---
+
+## Summary Table
+
+| Variable                               | Category            | Risk Level | Needs Tuning |
+| -------------------------------------- | ------------------- | ---------- | ------------ |
+| `CLICKHOUSE_MAX_MEMORY_USAGE`          | Memory safety       | Medium     | Yes          |
+| `CLICKHOUSE_MAX_MEMORY_USAGE_FOR_USER` | Multi-tenant safety | Low        | Minimal      |
+| `CLICKHOUSE_MAX_THREADS`               | CPU isolation       | Low        | Optional     |
+| `CLICKHOUSE_BACKGROUND_POOL_SIZE`      | Merge throughput    | Low        | Optional     |
+| `CLICKHOUSE_TTL_DAYS`                  | Data lifecycle      | None       | No           |
+
+---
+
+### Bottom line
+
+
 ## ClickHouse (Log Storage)
 
 ### `CLICKHOUSE_REPLICAS`

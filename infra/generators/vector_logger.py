@@ -7,6 +7,7 @@ import yaml
 import subprocess
 import re
 import sys
+import hashlib
 from typing import Dict, Any, List
 
 # --- Environment variables (single source, top of file, exact format requested) ---
@@ -288,6 +289,9 @@ def build_manifest(namespace: str) -> str:
     dumped = yaml.safe_dump(vector_cfg, sort_keys=False)
     vector_yaml = inject_vrl(dumped, vrl)
 
+    # compute deterministic checksum of rendered vector config to force DaemonSet pod-template changes when config changes
+    config_checksum = hashlib.sha256(vector_yaml.encode("utf-8")).hexdigest()
+
     # Kubernetes manifest pieces (string documents)
     sa_doc = f"""apiVersion: v1
 kind: ServiceAccount
@@ -328,6 +332,8 @@ data:
 """
 
     # DaemonSet: note mountPath to file via subPath so the config file is at /etc/vector/vector.yaml
+    # include an annotation on the pod template with the config checksum so that applying a changed config causes
+    # the DaemonSet pod template to change and the controller to rollout replacements.
     ds_doc = f"""apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -341,6 +347,8 @@ spec:
     metadata:
       labels:
         app: vector
+      annotations:
+        vector/config-checksum: "{config_checksum}"
     spec:
       serviceAccountName: vector
       tolerations:
@@ -473,7 +481,7 @@ def rollout() -> None:
     manifest_text = build_manifest(ns)
     validate_and_write(manifest_text)
 
-    # ensure namespace exists and create secret for ClickHouse credentials (backwards-compatible behavior)
+    # ensure namespace exists and create secret for ClickHouse credentials (apply secrets first to avoid pod start race)
     subprocess.run(f"kubectl create namespace {ns} --dry-run=client -o yaml | kubectl apply -f -", shell=True)
     subprocess.run(
         f"kubectl -n {ns} create secret generic {CLICKHOUSE_SECRET_NAME} --from-literal=username={os.getenv('CLICKHOUSE_USER','vector')} --from-literal=password={os.getenv('CLICKHOUSE_PASSWORD','vectorpass')} --dry-run=client -o yaml | kubectl apply -f -",
@@ -482,13 +490,14 @@ def rollout() -> None:
 
     # apply manifest (validate first)
     subprocess.run(f"kubectl apply --dry-run=client -f {MANIFEST_FILE}", shell=True)
+    # apply will update ConfigMap and DaemonSet; DaemonSet pod-template contains a config checksum annotation
+    # so any change to vector.yaml will change the annotation and trigger a rolling replacement by the DaemonSet controller.
     subprocess.run(f"kubectl apply -f {MANIFEST_FILE}", shell=True)
 
-    # if exporter enabled, note to operator
+    # fallback: if operator wants an immediate restart regardless, keep restart as no-op if not supported
+    subprocess.run(f"kubectl -n {ns} rollout restart daemonset vector-agent || true", shell=True)
     if VECTOR_PROMETHEUS_EXPORTER_BOOL:
         print("[info] Vector prometheus exporter enabled; manifest creates services 'vector-agent' and 'vector-prometheus-exporter' in namespace", ns)
-
-    subprocess.run(f"kubectl -n {ns} rollout restart daemonset vector-agent || true", shell=True)
     print("[ok] rollout complete")
 
 def delete() -> None:

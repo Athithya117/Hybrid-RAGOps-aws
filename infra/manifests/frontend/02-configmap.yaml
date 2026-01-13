@@ -22,7 +22,7 @@ data:
   OIDC_AUDIENCE: ''
   SPA_CLIENT_ID: ''
   AZURE_TENANT_ID: b8a65a11-9d1c-4d48-b9f6-dabfc67f2e4b
-  MS_TENANT_ID: b8a65a11-9d1c-4d48-b9f6-dabfc67f2e4b
+  MS_TENANT_ID: ''
   JWKS_REFRESH_INTERVAL_SECONDS: '900'
   ENABLE_CORS: 'false'
   CORS_ALLOWED_ORIGINS: https://ui.athithya.site
@@ -30,14 +30,14 @@ data:
   ENABLE_GOOGLE_AUTH: 'true'
   ENABLE_MICROSOFT_AUTH: 'true'
   ENABLE_GITHUB_AUTH: 'true'
-  GOOGLE_CLIENT_ID: 765767206738-bgml7k1ih306jmq841lkl55iaj8bikq4.apps.googleusercontent.com
-  MS_CLIENT_ID: 0d390f2e-97ad-44c6-ac34-9b6574310713
-  GITHUB_CLIENT_ID: Ov23liFnXdXltUPW34R7
+  GOOGLE_CLIENT_ID: ''
+  MS_CLIENT_ID: ''
+  GITHUB_CLIENT_ID: ''
   GOOGLE_ALLOWED_DOMAINS: company.com,gmail.com
-  MICROSOFT_ALLOWED_DOMAINS: outlook.com,company.com,hotmail.com
-  MICROSOFT_ALLOWED_TENANT_IDS: b8a65a11-9d1c-4d48-b9f6-dabfc67f2e4b
+  MICROSOFT_ALLOWED_DOMAINS: outlook.com,company.com
+  MICROSOFT_ALLOWED_TENANT_IDS: ''
   GITHUB_ALLOWED_DOMAINS: ''
-  GITHUB_ALLOWED_ORGS: oauth-testing-1
+  GITHUB_ALLOWED_ORGS: my-org
   JWT_EXP_SECONDS: '1800'
   JWT_ISS: stateless-openid-auth
   JWT_AUD: rag-ui
