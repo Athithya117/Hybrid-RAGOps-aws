@@ -2,9 +2,9 @@
   "release": "qdrant",
   "namespace": "qdrant",
   "replicas": 1,
-  "values_file": "infra/manifests/qdrant/values.yaml",
   "chart_version": "1.16.0",
   "image": "qdrant/qdrant:v1.16.0",
-  "generated_at": "2026-01-11T05:03:33Z",
+  "generated_at": "2026-01-14T05:22:30Z",
+  "use_flux": false,
   "secrets_created": false
 }

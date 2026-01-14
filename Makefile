@@ -38,6 +38,9 @@ set-kind-context:
 
 rollout-qdrant:
 	python3 infra/generators/qdrant_cluster.py --rollout
+rollout-qdrant-with-flux:
+	python3 infra/generators/qdrant_cluster.py --rollout --flux
+
 
 delete-qdrant:
 	kubectl delete ns qdrant
@@ -89,9 +92,15 @@ rollout-reranker:
 reranker-image:
 	bash apps/reranker/test_and_push_reranker.sh
 
-
 setup-flux:
-	python3 infra/setup/setup_fluxcd.py --auto-push
+	curl -s https://fluxcd.io/install.sh | sudo FLUX_VERSION=2.7.5 bash || true
+	python3 infra/setup/setup_fluxcd.py --qdrant --dense --frontend --sparse --reranker --retriever --jobs --auto-push
+
+delete-flux:
+	kubectl delete ns flux-system --grace-period=0 --force --wait=false || true
+	kubectl get crd | grep fluxcd.io | awk '{print $$1}' | xargs -r kubectl delete crd --grace-period=0 --force || true
+	kubectl delete crd gitrepositories.source.toolkit.fluxcd.io helmrepositories.source.toolkit.fluxcd.io --grace-period=0 --force || true
+	kubectl get ns flux-system -o json 2>/dev/null | jq 'del(.spec.finalizers)' | kubectl replace --raw "/api/v1/namespaces/flux-system/finalize" -f - || true
 
 inspect-flux:
 	tail -f infra/manifests/flux-system/setup_fluxcd.log

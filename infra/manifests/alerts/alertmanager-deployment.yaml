@@ -6,7 +6,7 @@ metadata:
   labels:
     app: alertmanager
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: alertmanager
@@ -14,7 +14,13 @@ spec:
     metadata:
       labels:
         app: alertmanager
+      annotations:
+        alerting/alertmanager-config-checksum: baaac1fb0cb5a6c5e5b3e302722d553b7c0bdcf4770dd6eb08fecac03b20bef8
     spec:
+      volumes:
+      - name: config
+        configMap:
+          name: alertmanager-config
       containers:
       - name: alertmanager
         image: prom/alertmanager:v0.27.0
@@ -33,10 +39,6 @@ spec:
             port: 9093
           initialDelaySeconds: 5
           periodSeconds: 10
-      volumes:
-      - name: config
-        configMap:
-          name: alertmanager-config
 
 ---
 apiVersion: v1

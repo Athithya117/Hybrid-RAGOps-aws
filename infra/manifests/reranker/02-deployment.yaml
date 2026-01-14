@@ -21,6 +21,7 @@ spec:
         prometheus.io/scrape: 'true'
         prometheus.io/port: '8202'
         prometheus.io/path: /metrics
+        gen-reranker/config-checksum: e43335617ab4da851f6b033a09c849117fed9b39d483ac315d07870ce40682cc
     spec:
       serviceAccountName: reranker-sa
       containers:

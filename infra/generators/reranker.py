@@ -22,9 +22,12 @@ import hashlib
 import uuid
 import datetime
 import logging
+import time
+import tempfile
 
 # -------------------- logging --------------------
-logging.basicConfig(level=os.environ.get("GEN_RERANKER_LOGLEVEL", "INFO"))
+_level_name = os.environ.get("GEN_RERANKER_LOGLEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, _level_name, logging.INFO), format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("gen_reranker")
 
 # -------------------- helpers --------------------
@@ -32,13 +35,21 @@ def ensure_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)
 
 def atomic_write(path: Path, content: str):
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content, encoding="utf-8")
-    tmp.replace(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # write to a temp file in same dir then atomically replace
+    fd, tmp = tempfile.mkstemp(prefix=path.name, dir=str(path.parent))
+    os.close(fd)
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(content)
+    os.replace(tmp, str(path))
 
-def run_cmd(cmd, capture=True, check=False, timeout=None, input_bytes=None):
+def run_cmd(cmd, capture=True, check=False, timeout=None, input_text: str = None):
+    """
+    Run subprocess in text mode. Return (rc, stdout, stderr).
+    cmd: list or string acceptable to subprocess.run (we prefer list).
+    """
     try:
-        proc = subprocess.run(cmd, input=input_bytes, capture_output=capture, text=True, check=check, timeout=timeout)
+        proc = subprocess.run(cmd, input=input_text, capture_output=capture, text=True, check=check, timeout=timeout)
         return proc.returncode, proc.stdout or "", proc.stderr or ""
     except subprocess.CalledProcessError as e:
         return e.returncode, e.stdout or "", e.stderr or ""
@@ -69,10 +80,10 @@ def kubectl_apply_yaml(yaml_str: str, dry_run=False):
     else:
         cmd += ["-f", "-"]
     try:
-        proc = subprocess.run(cmd, input=yaml_str.encode("utf-8"), capture_output=True, check=True, timeout=120)
-        return {"applied": True, "stdout": proc.stdout.decode() if proc.stdout else ""}
+        proc = subprocess.run(cmd, input=yaml_str, capture_output=True, text=True, check=True, timeout=120)
+        return {"applied": True, "stdout": proc.stdout or ""}
     except subprocess.CalledProcessError as e:
-        return {"applied": False, "stderr": e.stderr.decode() if e.stderr else str(e)}
+        return {"applied": False, "stderr": e.stderr or str(e)}
     except subprocess.TimeoutExpired as e:
         return {"applied": False, "stderr": f"timeout: {e}"}
 
@@ -134,6 +145,8 @@ def load_config():
         "app.kubernetes.io/instance": cfg["SERVICE_NAME"],
         "env": cfg["ENV"].lower(),
     }
+    # rollout timeout
+    cfg["ROLLOUT_TIMEOUT"] = int(os.environ.get("RERANKER_ROLLOUT_TIMEOUT", "300"))
     cfg["FILES"] = {
         "namespace": cfg["MANIFESTS_DIR"] / "00-namespace.yaml",
         "sa_role": cfg["MANIFESTS_DIR"] / "01-sa-role.yaml",
@@ -238,8 +251,13 @@ def render_deployment(cfg, config_checksum: str = ""):
         },
     }
 
+    # GPU nodeSelector handling
     if cfg["ENABLE_GPU"] and cfg["GPU_NODE_SELECTOR"]:
-        deployment["spec"]["template"]["spec"]["nodeSelector"] = {k: v for k, v in [cfg["GPU_NODE_SELECTOR"].split("=", 1)]} if "=" in cfg["GPU_NODE_SELECTOR"] else {cfg["GPU_NODE_SELECTOR"]: "true"}
+        if "=" in cfg["GPU_NODE_SELECTOR"]:
+            k, v = cfg["GPU_NODE_SELECTOR"].split("=", 1)
+            deployment["spec"]["template"]["spec"]["nodeSelector"] = {k: v}
+        else:
+            deployment["spec"]["template"]["spec"]["nodeSelector"] = {cfg["GPU_NODE_SELECTOR"]: "true"}
 
     # ensure annotations exist and include monitoring and config checksum to force rollout on config changes
     deployment["spec"]["template"]["metadata"].setdefault("annotations", {})
@@ -249,8 +267,8 @@ def render_deployment(cfg, config_checksum: str = ""):
         "prometheus.io/path": "/metrics",
     })
     if config_checksum:
-        # annotation that will change whenever inputs/config change -> triggers Deployment rollout
-        deployment["spec"]["template"]["metadata"]["annotations"]["gen_reranker/config-checksum"] = config_checksum
+        # use a valid DNS-compatible prefix (no underscores)
+        deployment["spec"]["template"]["metadata"]["annotations"]["gen-reranker/config-checksum"] = config_checksum
 
     return yaml.safe_dump(deployment, sort_keys=False)
 
@@ -288,15 +306,16 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
     ensure_dir(cfg["MANIFESTS_DIR"])
     inputs_hash = canonical_inputs_hash(cfg)
     existing = None
-    if cfg["INPUTS_HASH_PATH"].exists():
-        existing = cfg["INPUTS_HASH_PATH"].read_text().strip()
+    try:
+        if cfg["INPUTS_HASH_PATH"].exists():
+            existing = cfg["INPUTS_HASH_PATH"].read_text().strip()
+    except Exception:
+        existing = None
     if existing == inputs_hash and not dry_run:
         log.info("No non-secret changes detected; generation skipped.")
         return
 
-    # Use canonical inputs hash as config checksum so deployment manifest contains changing annotation when inputs change.
     config_checksum = inputs_hash
-
     ns_yaml = render_namespace(cfg)
     sa_role_yaml = render_sa_role(cfg)
     deploy_yaml = render_deployment(cfg, config_checksum=config_checksum)
@@ -308,17 +327,20 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
     if cfg["HPA_ENABLED"]:
         hpa_yaml = render_hpa(cfg)
         atomic_write(cfg["FILES"]["hpa"], hpa_yaml)
+    # save inputs hash
     cfg["INPUTS_HASH_PATH"].write_text(inputs_hash, encoding="utf-8")
     log.info("Wrote manifests to %s", str(cfg["MANIFESTS_DIR"]))
     if verbose:
-        log.info("Namespace:\n%s", "\n".join(ns_yaml.splitlines()[:20]))
+        log.info("Namespace (head):\n%s", "\n".join(ns_yaml.splitlines()[:20]))
         log.info("Deployment (head):\n%s", "\n".join(deploy_yaml.splitlines()[:60]))
 
-def wait_for_rollout(cfg, timeout_seconds: int = 120):
+def wait_for_rollout(cfg, timeout_seconds: int = None):
     kubectl = shutil.which("kubectl")
     if not kubectl:
         log.error("kubectl not found in PATH; cannot wait for rollout")
         return 2
+    if timeout_seconds is None:
+        timeout_seconds = cfg.get("ROLLOUT_TIMEOUT", 300)
     deployment_name = f"{cfg['SERVICE_NAME']}-deployment"
     cmd = [kubectl, "rollout", "status", f"deployment/{deployment_name}", "-n", cfg["NAMESPACE"], f"--timeout={timeout_seconds}s"]
     rc, out, err = run_cmd(cmd, capture=True, timeout=timeout_seconds + 10)
@@ -361,8 +383,7 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False, mode_label: str = "rollo
         log.error("%s failed: %s", mode_label, res.get("stderr") or res.get("error"))
         sys.exit(2)
 
-    # Wait for Deployment rollout and fail fast with diagnostics if rollout does not complete.
-    rc = wait_for_rollout(cfg, timeout_seconds=120)
+    rc = wait_for_rollout(cfg, timeout_seconds=cfg.get("ROLLOUT_TIMEOUT", 300))
     if rc != 0:
         log.error("%s: rollout failed (rc=%d)", mode_label, rc)
         sys.exit(2)
@@ -381,12 +402,16 @@ def delete_manifests(cfg):
     if cfg["MANIFESTS_DIR"].exists():
         for p in sorted(cfg["MANIFESTS_DIR"].glob("*")):
             try:
-                p.unlink()
-            except IsADirectoryError:
-                shutil.rmtree(p)
+                if p.is_dir():
+                    shutil.rmtree(p)
+                else:
+                    p.unlink()
+            except Exception:
+                pass
         try:
-            cfg["INPUTS_HASH_PATH"].unlink()
-        except FileNotFoundError:
+            if cfg["INPUTS_HASH_PATH"].exists():
+                cfg["INPUTS_HASH_PATH"].unlink()
+        except Exception:
             pass
         log.info("Deleted manifests at %s", str(cfg["MANIFESTS_DIR"]))
     else:

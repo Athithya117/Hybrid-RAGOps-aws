@@ -27,9 +27,11 @@ import hashlib
 import uuid
 import datetime
 import logging
+import time
 
 # -------------------- logging --------------------
-logging.basicConfig(level=os.environ.get("GEN_SPARSE_LOGLEVEL", "INFO"))
+level_name = os.environ.get("GEN_SPARSE_LOGLEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, level_name, logging.INFO), format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("gen_sparse")
 
 # -------------------- helpers --------------------
@@ -37,13 +39,15 @@ def ensure_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)
 
 def atomic_write(path: Path, content: str):
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)
 
-def run_cmd(cmd, capture=True, check=False, timeout=None, input_bytes=None):
+def run_cmd(cmd, capture=True, check=False, timeout=None, input_text: str = None):
+    """Run a subprocess, return (rc, stdout, stderr). Uses text mode consistently."""
     try:
-        proc = subprocess.run(cmd, input=input_bytes, capture_output=capture, text=True, check=check, timeout=timeout)
+        proc = subprocess.run(cmd, input=input_text, capture_output=capture, text=True, check=check, timeout=timeout)
         return proc.returncode, proc.stdout or "", proc.stderr or ""
     except subprocess.CalledProcessError as e:
         return e.returncode, e.stdout or "", e.stderr or ""
@@ -74,10 +78,10 @@ def kubectl_apply_yaml(yaml_str: str, dry_run=False):
     else:
         cmd += ["-f", "-"]
     try:
-        proc = subprocess.run(cmd, input=yaml_str.encode("utf-8"), capture_output=True, check=True, timeout=120)
-        return {"applied": True, "stdout": proc.stdout.decode() if proc.stdout else ""}
+        proc = subprocess.run(cmd, input=yaml_str, capture_output=True, text=True, check=True, timeout=120)
+        return {"applied": True, "stdout": proc.stdout or ""}
     except subprocess.CalledProcessError as e:
-        return {"applied": False, "stderr": e.stderr.decode() if e.stderr else str(e)}
+        return {"applied": False, "stderr": e.stderr or str(e)}
     except subprocess.TimeoutExpired as e:
         return {"applied": False, "stderr": f"timeout: {e}"}
 
@@ -103,17 +107,16 @@ def load_config():
             "CPU_LIMIT": os.environ.get("SPARSE_CPU_LIMIT", "4000m"),
             "MEMORY_REQUEST": os.environ.get("SPARSE_MEMORY_REQUEST", "1Gi"),
             "MEMORY_LIMIT": os.environ.get("SPARSE_MEMORY_LIMIT", "4Gi"),
-            "STARTUP_FAILURE_THRESHOLD": int(os.environ.get("SPARSE_STARTUP_FAILURE_THRESHOLD", "24")),  # ~120s with 5s period
+            "STARTUP_FAILURE_THRESHOLD": int(os.environ.get("SPARSE_STARTUP_FAILURE_THRESHOLD", "24")),
         })
     else:
-        # staging defaults tuned for typical sparse model
         cfg.update({
             "REPLICAS": int(os.environ.get("SPARSE_REPLICAS", "1")),
             "CPU_REQUEST": os.environ.get("SPARSE_CPU_REQUEST", "250m"),
             "CPU_LIMIT": os.environ.get("SPARSE_CPU_LIMIT", "1000m"),
             "MEMORY_REQUEST": os.environ.get("SPARSE_MEMORY_REQUEST", "512Mi"),
             "MEMORY_LIMIT": os.environ.get("SPARSE_MEMORY_LIMIT", "1Gi"),
-            "STARTUP_FAILURE_THRESHOLD": int(os.environ.get("SPARSE_STARTUP_FAILURE_THRESHOLD", "60")),  # ~300s with 5s period
+            "STARTUP_FAILURE_THRESHOLD": int(os.environ.get("SPARSE_STARTUP_FAILURE_THRESHOLD", "60")),
         })
     # probe timings (overridable)
     cfg["PROBE_PERIOD_SECONDS"] = int(os.environ.get("SPARSE_PROBE_PERIOD_SECONDS", "5"))
@@ -145,7 +148,7 @@ def load_config():
     # rollout & strategy tuning
     cfg["MAX_UNAVAILABLE"] = os.environ.get("SPARSE_MAX_UNAVAILABLE", "25%")
     cfg["MAX_SURGE"] = os.environ.get("SPARSE_MAX_SURGE", "25%")
-    cfg["ROLLOUT_TIMEOUT"] = int(os.environ.get("SPARSE_ROLLOUT_TIMEOUT", "300"))  # seconds for kubectl rollout status
+    cfg["ROLLOUT_TIMEOUT"] = int(os.environ.get("SPARSE_ROLLOUT_TIMEOUT", "300"))
     # output filenames
     cfg["FILES"] = {
         "namespace": cfg["MANIFESTS_DIR"] / "00-namespace.yaml",
@@ -250,7 +253,7 @@ def render_deployment(cfg):
                 "rollingUpdate": {"maxUnavailable": cfg["MAX_UNAVAILABLE"], "maxSurge": cfg["MAX_SURGE"]},
             },
             "template": {
-                "metadata": {"labels": labels, "annotations": {"gen_sparse/inputs-hash": inputs_hash}},
+                "metadata": {"labels": labels, "annotations": {"gen-sparse/inputs-hash": inputs_hash}},
                 "spec": {
                     "serviceAccountName": cfg["SA_NAME"],
                     "containers": [container],
@@ -261,7 +264,6 @@ def render_deployment(cfg):
 
     # If GPU node selector provided, add to pod spec (best-effort)
     if cfg["ENABLE_GPU"] and cfg["GPU_NODE_SELECTOR"]:
-        # accept "key=value" or simple label
         if "=" in cfg["GPU_NODE_SELECTOR"]:
             k, v = cfg["GPU_NODE_SELECTOR"].split("=", 1)
             pod_spec["spec"]["template"]["spec"]["nodeSelector"] = {k: v}
@@ -292,7 +294,6 @@ def render_service(cfg):
     return yaml.safe_dump(svc, sort_keys=False)
 
 def render_hpa(cfg):
-    # Generate HorizontalPodAutoscaler v2 (CPU percent)
     hpa = {
         "apiVersion": "autoscaling/v2",
         "kind": "HorizontalPodAutoscaler",
@@ -317,7 +318,7 @@ def wait_for_rollout(deployment_name: str, namespace: str, timeout: int = 300):
     cmd = [kubectl, "rollout", "status", f"deployment/{deployment_name}", "-n", namespace, f"--timeout={timeout}s"]
     rc, out, err = run_cmd(cmd, timeout=timeout + 10)
     if rc != 0:
-        log.error("rollout status failed (rc=%d). stdout=%s stderr=%s", rc, out, err)
+        log.error("rollout status failed (rc=%d). stdout=%s stderr=%s", rc, out.strip(), err.strip())
     else:
         log.info("rollout status: %s", out.strip())
     return rc
@@ -327,8 +328,11 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
     ensure_dir(cfg["MANIFESTS_DIR"])
     inputs_hash = canonical_inputs_hash(cfg)
     existing = None
-    if cfg["INPUTS_HASH_PATH"].exists():
-        existing = cfg["INPUTS_HASH_PATH"].read_text().strip()
+    try:
+        if cfg["INPUTS_HASH_PATH"].exists():
+            existing = cfg["INPUTS_HASH_PATH"].read_text().strip()
+    except Exception:
+        existing = None
     if existing == inputs_hash and not dry_run:
         log.info("No non-secret changes detected; generation skipped.")
         return
@@ -353,17 +357,14 @@ def generate_manifests(cfg, dry_run=False, verbose=False):
     return
 
 def apply_to_cluster(cfg, dry_run=False, verbose=False):
-    # ensure kubectl exists
     kubectl = shutil.which("kubectl")
     if not kubectl:
         log.error("kubectl not found in PATH; cannot apply")
         sys.exit(2)
-    # generate first (writes files)
     generate_manifests(cfg, dry_run=dry_run, verbose=verbose)
     if dry_run:
         log.info("Dry-run: skipping kubectl apply")
         return
-    # apply files in the manifest dir in deterministic order
     files = [cfg["FILES"]["namespace"], cfg["FILES"]["sa_role"], cfg["FILES"]["deployment"], cfg["FILES"]["service"]]
     if cfg["HPA_ENABLED"]:
         files.append(cfg["FILES"]["hpa"])
@@ -375,26 +376,23 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False):
         log.error("kubectl apply failed: %s", res.get("stderr") or res.get("error"))
         sys.exit(2)
 
-    # wait for rollout of deployment (ensures annotation-driven rollouts are observed)
     deployment_name = f"{cfg['SERVICE_NAME']}-deployment"
     rc = wait_for_rollout(deployment_name, cfg["NAMESPACE"], timeout=cfg.get("ROLLOUT_TIMEOUT", 300))
     if rc != 0:
-        # print diagnostics
         log.error("Rollout failed or timed out; gathering diagnostics...")
         cmds = [
-            ([shutil.which("kubectl"), "get", "pods", "-n", cfg["NAMESPACE"]], "get pods"),
-            ([shutil.which("kubectl"), "describe", "pod", "-l", f"app.kubernetes.io/name={cfg['SERVICE_NAME']}", "-n", cfg["NAMESPACE"]], "describe pods"),
-            ([shutil.which("kubectl"), "logs", "-l", f"app.kubernetes.io/name={cfg['SERVICE_NAME']}", "-n", cfg["NAMESPACE"], "--tail=200"], "logs"),
+            ([shutil.which("kubectl") or "kubectl", "get", "pods", "-n", cfg["NAMESPACE"]], "get pods"),
+            ([shutil.which("kubectl") or "kubectl", "describe", "pod", "-l", f"app.kubernetes.io/name={cfg['SERVICE_NAME']}", "-n", cfg["NAMESPACE"]], "describe pods"),
+            ([shutil.which("kubectl") or "kubectl", "logs", "-l", f"app.kubernetes.io/name={cfg['SERVICE_NAME']}", "-n", cfg["NAMESPACE"], "--tail=200"], "logs"),
         ]
         for cmd, tag in cmds:
-            if not cmd[0]:
+            if not cmd or not cmd[0]:
                 continue
             rcout, out, err = run_cmd(cmd, timeout=30)
             log.error("=== %s (rc=%d) ===\n%s\n%s", tag, rcout, (out or "").strip(), (err or "").strip())
         log.error("Deployment %s failed to rollout", deployment_name)
         sys.exit(2)
 
-    # write last_deploy_summary
     summary = {
         "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
         "image": cfg["IMAGE"],
@@ -405,7 +403,7 @@ def apply_to_cluster(cfg, dry_run=False, verbose=False):
     atomic_write(cfg["MANIFESTS_DIR"] / "last_deploy_summary.json", json.dumps(summary, indent=2))
     log.info("Applied manifests to cluster and wrote deploy summary")
 
-# rollout is a semantic alias for apply in platform terms
+# rollout is an alias for apply (platform semantics)
 def rollout_manifests(cfg, dry_run=False, verbose=False):
     log.info("rollout started")
     apply_to_cluster(cfg, dry_run=dry_run, verbose=verbose)
@@ -415,12 +413,16 @@ def delete_manifests(cfg):
     if cfg["MANIFESTS_DIR"].exists():
         for p in sorted(cfg["MANIFESTS_DIR"].glob("*")):
             try:
-                p.unlink()
-            except IsADirectoryError:
-                shutil.rmtree(p)
+                if p.is_dir():
+                    shutil.rmtree(p)
+                else:
+                    p.unlink()
+            except Exception:
+                pass
         try:
-            cfg["INPUTS_HASH_PATH"].unlink()
-        except FileNotFoundError:
+            if cfg["INPUTS_HASH_PATH"].exists():
+                cfg["INPUTS_HASH_PATH"].unlink()
+        except Exception:
             pass
         log.info("Deleted manifests at %s", str(cfg["MANIFESTS_DIR"]))
     else:

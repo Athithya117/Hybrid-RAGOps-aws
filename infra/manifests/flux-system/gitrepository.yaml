@@ -5,8 +5,8 @@ metadata:
   namespace: flux-system
 spec:
   interval: 60s
-  url: "https://github.com/Athithya-Sakthivel/RAG8s.git"
+  url: https://github.com/Athithya-Sakthivel/RAG8s.git
   ref:
-    branch: "main"
+    branch: main
   secretRef:
     name: repo-1d77f5ee

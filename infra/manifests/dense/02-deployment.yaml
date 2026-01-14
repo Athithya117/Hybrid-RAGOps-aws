@@ -21,6 +21,7 @@ spec:
         prometheus.io/scrape: 'true'
         prometheus.io/port: '8200'
         prometheus.io/path: /metrics
+        gen-dense/inputs-hash: 7867cb309df5c6120285e9cad2a778933eab8ecffe0e473c2c3c1b263654c4d2
     spec:
       serviceAccountName: dense-sa
       containers:

@@ -12,6 +12,7 @@ podAnnotations:
   monitoring.io/scrape: 'true'
   monitoring.io/port: '6333'
   monitoring.io/path: /metrics
+  qdrant/config-checksum: 64b8b562c6926ef587b63410d96fc47a6a4a4b7134b0be3b65e18ab739e95e00
 ports:
 - name: metrics
   containerPort: 6333

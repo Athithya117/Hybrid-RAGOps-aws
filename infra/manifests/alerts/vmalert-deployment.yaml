@@ -90,6 +90,8 @@ spec:
     metadata:
       labels:
         app: vmalert
+      annotations:
+        alerting/vmalert-rules-checksum: 1b64b080e2d27c733d00674f4b6eba906f74956b9b80c22b9ac8cf76327630b6
     spec:
       containers:
       - name: vmalert

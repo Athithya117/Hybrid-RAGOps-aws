@@ -13,4 +13,4 @@ spec:
     kind: GitRepository
     name: github-com-athithya-sakthivel-rag8s-git
     namespace: flux-system
-  path: "./infra/manifests/qdrant"
+  path: infra/manifests/qdrant

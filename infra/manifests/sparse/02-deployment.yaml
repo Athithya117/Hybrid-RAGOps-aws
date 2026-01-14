@@ -14,10 +14,16 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: sparse
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
   template:
     metadata:
       labels: *id001
       annotations:
+        gen-sparse/inputs-hash: f0be9f7a2c198aec8f22ae199709adf6ed905c7eff6718197c981125f6fb5ae6
         prometheus.io/scrape: 'true'
         prometheus.io/port: '8201'
         prometheus.io/path: /metrics

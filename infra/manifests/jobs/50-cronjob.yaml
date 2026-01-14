@@ -17,6 +17,8 @@ spec:
         metadata:
           labels:
             app: indexing-backup-cronjob
+          annotations:
+            indexing/config-checksum: 4ed2470211f94cc46a329e901e7d1e039e26d3ad1cc9865e126ebdb53275ab0f
         spec:
           serviceAccountName: indexer-cron-sa
           restartPolicy: Never
@@ -142,7 +144,10 @@ spec:
             - name: PYTHONUNBUFFERED
               value: '1'
             - name: QDRANT_API_KEY
-              value: ''
+              valueFrom:
+                secretKeyRef:
+                  name: qdrant-api-key
+                  key: QDRANT_API_KEY
             - name: QDRANT_SECRET_NAME
               value: qdrant-api-key
             - name: QDRANT_URL

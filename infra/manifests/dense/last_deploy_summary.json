@@ -1,8 +1,9 @@
 {
-  "generated_at": "2026-01-11T04:48:05.213042Z",
+  "generated_at": "2026-01-14T05:35:49.850445Z",
   "image": "athithya5354/dense:v1",
   "namespace": "models",
   "replicas": 1,
+  "inputs_hash": "7867cb309df5c6120285e9cad2a778933eab8ecffe0e473c2c3c1b263654c4d2",
   "files": {
     "namespace": "infra/manifests/dense/00-namespace.yaml",
     "sa_role": "infra/manifests/dense/01-sa-role.yaml",

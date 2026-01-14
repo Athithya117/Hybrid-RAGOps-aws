@@ -549,6 +549,7 @@ make rollout-vector
 
 This step deploys **Grafana** as the centralized observability UI for metrics, SLOs, and operational dashboards backed by VictoriaMetrics and ClickHouse.
 Grafana runs as a **single replica with SQLite**. **Note:** SLOs are displayed for visibility only and are **not guaranteed or enforced by RAG8s**.
+Dashboards are accessible at https:<DASHBOARDS_HOSTNAME> if set or else port forward by running `kubectl -n monitoring port-forward svc/grafana 3000:3000` and access at localhost:3000 
 
 ```sh
 export GRAFANA_PERSISTENCE_ENABLED="true"   # true = PVC-backed SQLite, false = emptyDir (data lost on restart)
@@ -569,4 +570,22 @@ export QDRANT_LATENCY_THRESHOLD_SECONDS='0.8'    # p95 latency budget visualized
 make rollout-dashboards
 # make delete-dashboards
 ```
+
+
+### STEP 17: Bootstrap GitOps reconciliation (Flux)
+
+This step bootstraps **Flux CD** to continuously reconcile cluster state from Git.
+Flux runs in the **flux-system** namespace, authenticates to the Git repository using a **Git PAT**, and periodically applies desired state. This establishes **pull-based, drift-resistant deployments** with no runtime coupling to CI.
+
+```sh
+export GIT_PAT=''                          # Git personal access token with repo write access; used only during bootstrap
+export RECONCILE_INTERVAL_SECONDS='60'     # How often Flux reconciles Git state; lower = faster drift correction, higher = less API churn
+
+make setup-flux
+# make rollout-qdrant-with-flux  #
+# make delete-flux
+# make flux-status
+```
+
+Flux components are lightweight, stateless, and do not require PVCs. Reconciliation is idempotent and safe to run continuously.
 

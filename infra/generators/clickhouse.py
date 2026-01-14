@@ -1,5 +1,21 @@
 #!/usr/bin/env python3
+"""
+clickhouse.py
+
+Generates ClickHouse manifests and supports two deployment modes:
+
+ - Imperative (USE_FLUX=false): performs kubectl/helm-style apply and initialization.
+ - GitOps (USE_FLUX=true, default): writes Kubernetes manifests to infra/manifests/clickhouse
+   and can optionally apply them immediately so a cluster (or Flux) can reconcile.
+
+Usage:
+  --generate   -> generate files under infra/manifests/clickhouse
+  --rollout    -> perform rollout/apply (respects USE_FLUX)
+  --apply      -> alias for --rollout (deprecated)
+  --delete     -> delete generated resources (requires --confirm)
+"""
 from __future__ import annotations
+
 import os
 import sys
 import json
@@ -11,6 +27,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 import yaml
 
+# --- configuration (environment overrides) ---------------------------------
 NAMESPACE = os.getenv("NAMESPACE", "observability")
 CH_NAMESPACE = os.getenv("CH_NAMESPACE", NAMESPACE)
 CLICKHOUSE_SERVICE_NAME = os.getenv("CLICKHOUSE_SERVICE_NAME", "clickhouse")
@@ -71,17 +88,23 @@ except Exception:
 RENDER_DIR = Path(CH_MANIFESTS_DIR).resolve()
 STATE_DIR = Path(STATE_DIR).resolve()
 STATE_FILE = STATE_DIR / "clickhouse.json"
+
+# Files generated
 RENDER_FILES = {
     "namespace": RENDER_DIR / "00-namespace.yaml",
     "service": RENDER_DIR / "10-clickhouse-service.yaml",
     "metrics_service": RENDER_DIR / "20-clickhouse-exporter-service.yaml",
     "single_statefulset": RENDER_DIR / "11-clickhouse-single.yaml",
+    "users_config_xml": RENDER_DIR / "30-users-settings.xml",
+    "users_config_cm": RENDER_DIR / "31-users-settings-configmap.yaml",
     "init_sql": RENDER_DIR / "30-init.sql",
-    "users_config": RENDER_DIR / "30-users-settings.xml",
     "combined": RENDER_DIR / "clickhouse.yaml",
 }
 
+# GitOps toggle: when true (default), generator writes manifests suitable for Flux/Kustomize
+USE_FLUX = os.getenv("USE_FLUX", "true").lower() in ("1", "true", "yes", "y")
 
+# --- utilities --------------------------------------------------------------
 def sha256_str(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
@@ -106,7 +129,6 @@ def run(cmd: List[str], timeout: int = 60, check: bool = True) -> Dict[str, Any]
 
 
 def run_shell(cmd: str, timeout: int = 60, check: bool = True) -> Dict[str, Any]:
-    """Helper to run shell commands via bash -lc (used sparingly for heredocs)."""
     try:
         proc = subprocess.run(["bash", "-lc", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
         out = (proc.stdout or "").strip()
@@ -144,6 +166,7 @@ def validate_env_cluster() -> None:
         raise SystemExit(2)
 
 
+# --- renderers --------------------------------------------------------------
 def render_namespace(ns: str) -> Dict[str, Any]:
     return {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": ns}}
 
@@ -263,7 +286,6 @@ def render_statefulset(ns: str, template_annotations: Optional[Dict[str, str]] =
                     ]
                 },
             },
-            # Use default RollingUpdate for StatefulSet; explicit strategy can be added if desired
         },
     }
 
@@ -332,28 +354,24 @@ def _sql_bytes(val: str) -> str:
     return s
 
 
+# --- manifest generation ----------------------------------------------------
 def generate_manifests() -> Dict[str, str]:
     """
-    Generate manifests. Returns a dict of checksums used for template annotations so
+    Generate manifests. Returns checksums used for template annotations so
     callers can perform controlled rollouts when contents change.
-    Keys returned:
-      - users_config_checksum
-      - init_sql_checksum
-      - clickhouse_image_checksum
     """
     ensure_dir(RENDER_DIR)
     ns_doc = render_namespace(CH_NAMESPACE)
     svc_doc = render_service(CH_NAMESPACE)
     metrics_svc_doc = render_metrics_service(CH_NAMESPACE) if CLICKHOUSE_ENABLE_EXPORTER else None
 
-    # Render users xml and init sql first so we can compute checksums and embed them into the StatefulSet template.
+    # Render users xml and init sql then compute checksums and embed into StatefulSet annotations.
     users_xml = _users_settings_xml()
     init_sql = render_init_sql()
     users_checksum = sha256_str(users_xml)
     init_sql_checksum = sha256_str(init_sql)
     image_checksum = sha256_str(CLICKHOUSE_IMAGE or "")
 
-    # Pass annotations into the StatefulSet so changing users-config or init sql triggers a StatefulSet rollout.
     template_annotations = {
         "clickhouse/users-config-checksum": users_checksum,
         "clickhouse/init-sql-checksum": init_sql_checksum,
@@ -362,17 +380,33 @@ def generate_manifests() -> Dict[str, str]:
 
     ss_doc = render_statefulset(CH_NAMESPACE, template_annotations=template_annotations)
 
+    # write files
     atomic_write(RENDER_FILES["namespace"], yaml.safe_dump(ns_doc, sort_keys=False))
     atomic_write(RENDER_FILES["service"], yaml.safe_dump(svc_doc, sort_keys=False))
     if metrics_svc_doc:
         atomic_write(RENDER_FILES["metrics_service"], yaml.safe_dump(metrics_svc_doc, sort_keys=False))
-    atomic_write(RENDER_FILES["single_statefulset"], yaml.safe_dump(ss_doc, sort_keys=False))
-    atomic_write(RENDER_FILES["init_sql"], init_sql)
-    atomic_write(RENDER_FILES["users_config"], users_xml)
 
+    # write users XML and create a ConfigMap manifest (so GitOps/Flux can apply it)
+    atomic_write(RENDER_FILES["users_config_xml"], users_xml)
+    users_cm = {
+        "apiVersion": "v1",
+        "kind": "ConfigMap",
+        "metadata": {"name": f"{CLICKHOUSE_STS_NAME}-users-settings", "namespace": CH_NAMESPACE},
+        "data": {"10-settings.xml": users_xml},
+    }
+    atomic_write(RENDER_FILES["users_config_cm"], yaml.safe_dump(users_cm, sort_keys=False))
+
+    # init sql as file (used by post-install init step)
+    atomic_write(RENDER_FILES["init_sql"], init_sql)
+
+    # statefulset
+    atomic_write(RENDER_FILES["single_statefulset"], yaml.safe_dump(ss_doc, sort_keys=False))
+
+    # combined (optional convenience)
     parts = [yaml.safe_dump(ns_doc, sort_keys=False), yaml.safe_dump(svc_doc, sort_keys=False)]
     if metrics_svc_doc:
         parts.append(yaml.safe_dump(metrics_svc_doc, sort_keys=False))
+    parts.append(yaml.safe_dump(users_cm, sort_keys=False))
     parts.append(yaml.safe_dump(ss_doc, sort_keys=False))
     combined = "\n---\n".join(parts)
     atomic_write(RENDER_FILES["combined"], combined)
@@ -486,8 +520,6 @@ def write_state_artifact():
 
 
 def wait_for_rollout_statefulset(ns: str, name: str, timeout: int = 300) -> int:
-    """Use kubectl rollout status for StatefulSet. Returns rc (0 success)."""
-    # kubectl expects timeout as e.g. --timeout=300s
     cmd = ["kubectl", "rollout", "status", f"statefulset/{name}", "-n", ns, f"--timeout={timeout}s"]
     rc = run(cmd, timeout=timeout + 10, check=False)
     return rc["rc"]
@@ -506,62 +538,95 @@ def dump_rollout_diagnostics(ns: str, label_selector: str) -> None:
         print(r3["out"])
 
 
+# --- apply / rollout (supports USE_FLUX) -----------------------------------
 def apply_manifests():
     """
-    Apply manifests in safe order and perform a controlled rollout:
-     - Generate manifests and compute checksums/annotations
-     - Apply namespace, service(s)
-     - Apply users-config ConfigMap
-     - Ensure secret exists
-     - Apply StatefulSet (which contains annotations that force a rollout on config changes)
-     - Wait for StatefulSet rollout to complete
-     - Wait for pod readiness, run init SQL, finalize
+    Apply manifests and perform initialization.
+
+    Behavior differs by USE_FLUX:
+      - USE_FLUX=false: legacy imperative path (manually create ConfigMap, apply StatefulSet, run init SQL).
+      - USE_FLUX=true: write plain Kubernetes manifests under CH_MANIFESTS_DIR and apply them
+                      (namespace, configmap, services, statefulset). Secrets are created in-cluster,
+                      sensitive values are not written to git.
     """
     validate_env_cluster()
     ensure_kubectl()
     checksums = generate_manifests()
+
     if not CLICKHOUSE_ENABLE_EXPORTER:
-        print(f"[info] ClickHouse exporter is DISABLED. If monitoring has ENABLE_CLICKHOUSE_EXPORTER_SCRAPE=true, set CLICKHOUSE_ENABLE_EXPORTER=true to expose /metrics.")
+        print(f"[info] ClickHouse exporter is DISABLED.")
     else:
-        print("[info] ClickHouse exporter enabled; monitoring should scrape Service:", CLICKHOUSE_EXPORTER_SERVICE_NAME)
+        print("[info] ClickHouse exporter enabled; metrics service will be created.")
 
-    # Apply basic resources first
-    run(["kubectl", "apply", "-f", str(RENDER_FILES["namespace"])])
-    run(["kubectl", "apply", "-f", str(RENDER_FILES["service"])])
+    if not USE_FLUX:
+        # legacy imperative behavior (keeps existing manual ConfigMap creation)
+        run(["kubectl", "apply", "-f", str(RENDER_FILES["namespace"])])
+        run(["kubectl", "apply", "-f", str(RENDER_FILES["service"])])
+        if CLICKHOUSE_ENABLE_EXPORTER:
+            run(["kubectl", "apply", "-f", str(RENDER_FILES["metrics_service"])])
 
-    if CLICKHOUSE_ENABLE_EXPORTER and RENDER_FILES.get("metrics_service"):
-        run(["kubectl", "apply", "-f", str(RENDER_FILES["metrics_service"])])
+        # create users ConfigMap from XML (ensures it's present prior to statefulset)
+        users_xml = Path(RENDER_FILES["users_config_xml"]).read_text(encoding="utf-8")
+        users_cm_yaml = (
+            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n"
+            f"  name: {CLICKHOUSE_STS_NAME}-users-settings\n  namespace: {CH_NAMESPACE}\n"
+            "data:\n"
+            f"  10-settings.xml: |-\n"
+        )
+        for line in users_xml.splitlines():
+            users_cm_yaml += "    " + line + "\n"
+        run_shell(f"cat <<'Y' | kubectl apply -f -\n{users_cm_yaml}\nY", timeout=30, check=True)
 
-    # Apply users settings ConfigMap (so StatefulSet mounts it immediately)
-    users_cm_yaml = (
-        "apiVersion: v1\nkind: ConfigMap\nmetadata:\n"
-        f"  name: {CLICKHOUSE_STS_NAME}-users-settings\n  namespace: {CH_NAMESPACE}\n"
-        "data:\n"
-        f"  10-settings.xml: |-\n"
-    )
-    users_xml = Path(RENDER_FILES["users_config"]).read_text(encoding="utf-8")
-    for line in users_xml.splitlines():
-        users_cm_yaml += "    " + line + "\n"
-    run_shell(f"cat <<'Y' | kubectl apply -f -\n{users_cm_yaml}\nY", timeout=30, check=True)
+        # secret
+        create_secret_if_missing(CH_NAMESPACE, CLICKHOUSE_SECRET_NAME, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD)
 
-    # Ensure secret exists BEFORE applying StatefulSet so pods won't start missing credentials.
-    create_secret_if_missing(CH_NAMESPACE, CLICKHOUSE_SECRET_NAME, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD)
+        # apply statefulset and wait for rollout
+        run(["kubectl", "apply", "-f", str(RENDER_FILES["single_statefulset"])])
+        rc = wait_for_rollout_statefulset(CH_NAMESPACE, CLICKHOUSE_STS_NAME, timeout=CLICKHOUSE_INIT_TIMEOUT)
+        if rc != 0:
+            print("[error] StatefulSet rollout failed or timed out; printing diagnostics", file=sys.stderr)
+            dump_rollout_diagnostics(CH_NAMESPACE, f"app={CLICKHOUSE_APP_LABEL}")
+            raise SystemExit(4)
 
-    # Apply StatefulSet which includes template annotations computed above.
-    run(["kubectl", "apply", "-f", str(RENDER_FILES["single_statefulset"])])
+        pod = wait_for_pod_ready(CH_NAMESPACE, f"app={CLICKHOUSE_APP_LABEL}", timeout=CLICKHOUSE_INIT_TIMEOUT)
+        print("[info] clickhouse pod ready:", pod)
+        run_init_sql(CH_NAMESPACE, pod)
+        write_state_artifact()
 
-    # Wait for rollout (StatefulSet will update pods sequentially)
-    rc = wait_for_rollout_statefulset(CH_NAMESPACE, CLICKHOUSE_STS_NAME, timeout=CLICKHOUSE_INIT_TIMEOUT)
-    if rc != 0:
-        print("[error] StatefulSet rollout failed or timed out; printing diagnostics", file=sys.stderr)
-        dump_rollout_diagnostics(CH_NAMESPACE, f"app={CLICKHOUSE_APP_LABEL}")
-        raise SystemExit(4)
+    else:
+        # GitOps path: write manifests (already generated) and apply them to the cluster so Flux / controllers can reconcile immediately.
+        # Ensure namespace exists
+        try:
+            run(["kubectl", "apply", "-f", str(RENDER_FILES["namespace"])])
+        except Exception:
+            pass
 
-    # After rollout succeeded, wait for a ready pod to run init SQL
-    pod = wait_for_pod_ready(CH_NAMESPACE, f"app={CLICKHOUSE_APP_LABEL}", timeout=CLICKHOUSE_INIT_TIMEOUT)
-    print("[info] clickhouse pod ready:", pod)
-    run_init_sql(CH_NAMESPACE, pod)
-    write_state_artifact()
+        # Ensure users ConfigMap is applied (we generated a configmap manifest file)
+        run(["kubectl", "apply", "-f", str(RENDER_FILES["users_config_cm"])])
+
+        # Services
+        run(["kubectl", "apply", "-f", str(RENDER_FILES["service"])])
+        if CLICKHOUSE_ENABLE_EXPORTER:
+            run(["kubectl", "apply", "-f", str(RENDER_FILES["metrics_service"])])
+
+        # Secrets must not be written to git. Create or update in-cluster.
+        create_secret_if_missing(CH_NAMESPACE, CLICKHOUSE_SECRET_NAME, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD)
+
+        # Apply the StatefulSet
+        run(["kubectl", "apply", "-f", str(RENDER_FILES["single_statefulset"])])
+
+        # Wait for rollout
+        rc = wait_for_rollout_statefulset(CH_NAMESPACE, CLICKHOUSE_STS_NAME, timeout=CLICKHOUSE_INIT_TIMEOUT)
+        if rc != 0:
+            print("[error] StatefulSet rollout failed or timed out; printing diagnostics", file=sys.stderr)
+            dump_rollout_diagnostics(CH_NAMESPACE, f"app={CLICKHOUSE_APP_LABEL}")
+            raise SystemExit(4)
+
+        # Pod readiness and init
+        pod = wait_for_pod_ready(CH_NAMESPACE, f"app={CLICKHOUSE_APP_LABEL}", timeout=CLICKHOUSE_INIT_TIMEOUT)
+        print("[info] clickhouse pod ready:", pod)
+        run_init_sql(CH_NAMESPACE, pod)
+        write_state_artifact()
 
     # Probe exporter endpoint if enabled
     if CLICKHOUSE_ENABLE_EXPORTER:
@@ -589,7 +654,7 @@ def apply_manifests():
 
 
 def rollout_manifests():
-    print("[info] rollout started")
+    print("[info] rollout started; USE_FLUX=%s" % ("true" if USE_FLUX else "false"))
     apply_manifests()
 
 
@@ -598,10 +663,18 @@ def delete_manifests(confirm: bool = False) -> None:
         print("[error] delete requires --confirm")
         raise SystemExit(2)
     ensure_kubectl()
-    for f in ("combined", "single_statefulset", "service", "metrics_service", "namespace"):
-        p = RENDER_FILES.get(f)
+    for fkey in ("combined", "single_statefulset", "service", "metrics_service", "users_config_cm", "namespace"):
+        p = RENDER_FILES.get(fkey)
         if p and p.exists():
             run(["kubectl", "delete", "-f", str(p), "--ignore-not-found"], timeout=60, check=False)
+            try:
+                p.unlink()
+            except Exception:
+                pass
+    # remove generated auxiliary files
+    for extra in ("users_config_xml", "init_sql"):
+        p = RENDER_FILES.get(extra)
+        if p and p.exists():
             try:
                 p.unlink()
             except Exception:
@@ -616,9 +689,10 @@ def delete_manifests(confirm: bool = False) -> None:
     print("[ok] clickhouse delete complete")
 
 
+# --- CLI -------------------------------------------------------------------
 def parse_args() -> Dict[str, Any]:
     import argparse
-    p = argparse.ArgumentParser(description="clickhouse manifest generator")
+    p = argparse.ArgumentParser(description="clickhouse manifest generator / rollout")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--generate", action="store_true")
     g.add_argument("--rollout", action="store_true", help="Create or converge resources to desired state (preferred over --apply)")

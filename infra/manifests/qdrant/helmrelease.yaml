@@ -1,0 +1,75 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: qdrant
+  namespace: qdrant
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: ./infra/archive/qdrant-helm-chart/qdrant
+      sourceRef:
+        kind: GitRepository
+        name: repo
+        namespace: flux-system
+  values:
+    replicaCount: 3
+    image:
+      repository: qdrant/qdrant
+      tag: v1.16.0
+      pullPolicy: IfNotPresent
+    service:
+      type: ClusterIP
+      labels:
+        app.kubernetes.io/name: qdrant
+        app.kubernetes.io/component: qdrant
+    podAnnotations:
+      monitoring.io/scrape: 'true'
+      monitoring.io/port: '6333'
+      monitoring.io/path: /metrics
+      qdrant/config-checksum: b120714238ccdfaad8d2f3f973f01c721857e4e76e038f02a4b8fe707bfd7cc1
+    ports:
+    - name: metrics
+      containerPort: 6333
+      protocol: TCP
+    p2p:
+      port: 6335
+    cluster:
+      enabled: true
+      peers:
+      - http://qdrant-0.qdrant-headless:6335
+      - http://qdrant-1.qdrant-headless:6335
+      - http://qdrant-2.qdrant-headless:6335
+    snapshots:
+      enabled: false
+      s3:
+        bucket: ''
+        endpoint: ''
+        region: ''
+        prefix: ''
+    extraEnv:
+    - name: QDRANT__SERVICE__API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: qdrant-service-creds
+          key: QDRANT__SERVICE__API_KEY
+    resources:
+      requests:
+        cpu: '1'
+        memory: 2Gi
+      limits:
+        cpu: '1'
+        memory: 2Gi
+    tolerations: []
+    persistence:
+      enabled: false
+      size: 20Gi
+      storageClass: ''
+    config:
+      on_disk_payload: false
+      log_level: INFO
+      storage:
+        storage_path: /qdrant/storage
+        snapshots_path: /qdrant/snapshots
+    hnsw_defaults:
+      on_disk: false
