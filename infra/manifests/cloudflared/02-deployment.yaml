@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: inference
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+      annotations:
+        cloudflared/config-checksum: 39a848892cb10330fa9b39ff10117b2569a0bc4f92685ecbc62846de619cdf2f
+    spec:
+      serviceAccountName: cloudflared-sa
+      containers:
+      - name: cloudflared
+        image: cloudflare/cloudflared:2025.11.1
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        livenessProbe:
+          exec:
+            command:
+            - cloudflared
+            - --version
+          initialDelaySeconds: 15
+          periodSeconds: 60
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command:
+            - cloudflared
+            - --version
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+        args:
+        - tunnel
+        - --no-autoupdate
+        - run
+        env:
+        - name: TUNNEL_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: cloudflared-token
+              key: CLOUDFLARE_TUNNEL_TOKEN
+        - name: CLOUDFLARE_TUNNEL_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: cloudflared-token
+              key: CLOUDFLARE_TUNNEL_TOKEN
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/cloudflared/config.yml
+          subPath: config.yml
+      volumes:
+      - name: config-volume
+        configMap:
+          name: cloudflared-config

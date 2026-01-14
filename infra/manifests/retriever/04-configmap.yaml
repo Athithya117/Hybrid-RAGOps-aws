@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: retrieval-config
+  namespace: inference
+  labels:
+    app.kubernetes.io/name: retrieval
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/managed-by: retriever-generator
+    app.kubernetes.io/instance: retrieval
+    env: staging
+data:
+  COLLECTION_NAME: default_rag_collection1
+  HTTP_TIMEOUT: '10.0'
+  DENSE_DIM: '384'
+  MAX_CHUNKS_TO_LLM: '5'
+  LLM_MODEL: llama-3.1-8b-instant
+  LLM_MAX_TOKENS: '512'
+  LLM_TEMPERATURE: '0.1'
+  RERANKER_MODE: AUTO
+  RERANK_TOPK: '20'
+  AZURE_STORAGE_ACCOUNT_NAME: defaultsa515
+  AZURE_ENDPOINT_SUFFIX: core.windows.net
+  LLM_SYSTEM_PROMPT: You are an assistant that must base all factual claims ONLY on
+    the provided numbered passages. Each factual sentence MUST end with a citation
+    in the exact format [n], where n corresponds to one of the numbered passage blocks.
+    Use ONLY the provided passage numbers. Do NOT output filenames, URLs, page numbers,
+    or any other metadata. Do NOT invent citations.
+  LLM_USER_PROMPT_TEMPLATE: 'Summarize the following retrieved passages and answer
+    the question in 2-3 sentences.
+
+
+    PASSAGES:
+
+    {passages}
+
+
+    QUESTION: {question}
+
+
+    Answer:'
