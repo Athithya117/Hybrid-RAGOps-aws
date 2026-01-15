@@ -1,4 +1,4 @@
-[Demo video](infra/archive/RAG8s.mp4)
+[▶ Watch the RAG8s demo video](https://github.com/Athithya-Sakthivel/RAG8s/releases/download/demo-video/rag8s.mp4)
 ---
 **RAG8s** is an opinionated, Azure-native, Kubernetes-first framework for building and running **production-grade hybrid Retrieval-Augmented Generation (RAG) systems**.
 
