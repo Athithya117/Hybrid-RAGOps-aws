@@ -1,5 +1,4 @@
-[Watch the demo video](infra/archive/RAG8s.mp4)
-
+[Demo video](infra/archive/RAG8s.mp4)
 ---
 **RAG8s** is an opinionated, Azure-native, Kubernetes-first framework for building and running **production-grade hybrid Retrieval-Augmented Generation (RAG) systems**.
 
@@ -15,9 +14,9 @@ The framework clearly separates the RAG lifecycle into two planes:
 
 RAG8s is **Azure-native by design**. Infrastructure is declared using **Pulumi**, workloads run on **AKS**, and storage and backups use **Azure Blob Storage**. Node pools are deliberately separated to isolate system services, inference APIs, compute-heavy model workloads, and vector storage. All container images are built deterministically and deployed via standard registries.
 
-Security and operations are first-class concerns. External access is provided through **Cloudflare Tunnel**, authentication uses OAuth (Google, Microsoft, GitHub) with JWT sessions, and secrets are managed using native Kubernetes primitives. Observability is built in by default using **VictoriaMetrics**, **ClickHouse**, **Grafana**, and **Alertmanager/vmalert**.
+External access is provided through **Cloudflare Tunnel**, authentication uses OAuth (Google, Microsoft, GitHub) with JWT sessions, and secrets are managed using native Kubernetes primitives. Observability is built in by default using **VictoriaMetrics**, **ClickHouse**, **Grafana**, and **Alertmanager/vmalert**.
 
-By combining hybrid retrieval, clear batch and online separation, declarative infrastructure, and built-in observability, RAG8s serves as a **solid foundation for running RAG systems in real production environments**.
+By combining hybrid retrieval, clear batch and online separation, declarative infrastructure, and built-in observability, RAG8s serves as a solid **foundation** for running RAG systems in real production environments.
 
 ---
 
