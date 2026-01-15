@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Combined e2e for qdrant + retriever metrics -> exercises successes/failures and verifies Victoria ingestion.
 make fix-dns >/dev/null 2>&1
+
 LOG(){ printf '%s %s\n' "$(date -Iseconds)" "$*"; }
 ERR(){ printf '%s ERROR %s\n' "$(date -Iseconds)" "$*" >&2; }
 

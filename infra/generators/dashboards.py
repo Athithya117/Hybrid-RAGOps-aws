@@ -123,6 +123,7 @@ def load_env() -> Dict[str, str]:
         "GRAFANA_PLUGINS_PREINSTALL_SYNC": os.getenv("GRAFANA_PLUGINS_PREINSTALL_SYNC", ""),
         "GRAFANA_ALLOW_UNSIGNED_PLUGINS": os.getenv("GRAFANA_ALLOW_UNSIGNED_PLUGINS", ""),
     }
+
     for k in list(env.keys()):
         v = os.getenv(k)
         if v is not None:

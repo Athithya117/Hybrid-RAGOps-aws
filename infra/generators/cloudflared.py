@@ -117,14 +117,28 @@ def render_deployment(replicas: int, image: str, use_token: bool, tunnel_name: s
     }
     volume_mounts = [{"name": "config-volume", "mountPath": "/etc/cloudflared/config.yml", "subPath": config_key}]
     if use_token:
-        args_list = ["tunnel", "--no-autoupdate", "run"]
+        args_list = [
+    "tunnel",
+    "--config", "/etc/cloudflared/config.yml",
+    "--no-autoupdate",
+    "run",
+    tunnel_name,
+]
+
         container["args"] = args_list
         container["env"] = [
             {"name": "TUNNEL_TOKEN", "valueFrom": {"secretKeyRef": {"name": "cloudflared-token", "key": "CLOUDFLARE_TUNNEL_TOKEN"}}},
             {"name": "CLOUDFLARE_TUNNEL_TOKEN", "valueFrom": {"secretKeyRef": {"name": "cloudflared-token", "key": "CLOUDFLARE_TUNNEL_TOKEN"}}},
         ]
     else:
-        args_list = ["tunnel", "--no-autoupdate", "run"]
+        args_list = [
+    "tunnel",
+    "--config", "/etc/cloudflared/config.yml",
+    "--no-autoupdate",
+    "run",
+    tunnel_name,
+]
+
         if tunnel_name:
             args_list.append(tunnel_name)
         container["args"] = args_list

@@ -21,12 +21,12 @@ spec:
         prometheus.io/scrape: 'true'
         prometheus.io/port: '8200'
         prometheus.io/path: /metrics
-        gen-dense/inputs-hash: 7867cb309df5c6120285e9cad2a778933eab8ecffe0e473c2c3c1b263654c4d2
+        gen-dense/inputs-hash: 7640e717ade9b5be36d9877623391ebb2c9fb0e82f15efc3c99455e703088c3f
     spec:
       serviceAccountName: dense-sa
       containers:
       - name: dense
-        image: athithya5354/dense:v1
+        image: docker.io/athithya5354/dense:amd64-arm64-v1
         ports:
         - containerPort: 8200
         env:

@@ -4,7 +4,7 @@ metadata:
   name: cloudflared
   namespace: inference
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: cloudflared
@@ -44,8 +44,11 @@ spec:
           timeoutSeconds: 3
         args:
         - tunnel
+        - --config
+        - /etc/cloudflared/config.yml
         - --no-autoupdate
         - run
+        - rag-frontend
         env:
         - name: TUNNEL_TOKEN
           valueFrom:

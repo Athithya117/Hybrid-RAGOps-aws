@@ -4,18 +4,6 @@ metadata:
   name: monitoring
 ---
 apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: victoria-pvc
-  namespace: monitoring
-spec:
-  accessModes: ["ReadWriteOnce"]
-  resources:
-    requests:
-      storage: 10Gi
-  storageClassName: managed-premium
----
-apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: vmagent
@@ -489,8 +477,7 @@ spec:
           mountPath: /data
       volumes:
       - name: data
-        persistentVolumeClaim:
-          claimName: victoria-pvc
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

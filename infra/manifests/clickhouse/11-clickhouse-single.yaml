@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ch-single
+  namespace: observability
+spec:
+  serviceName: clickhouse
+  replicas: 1
+  selector:
+    matchLabels: &id001
+      app: clickhouse
+  template:
+    metadata:
+      labels: *id001
+      annotations:
+        clickhouse/users-config-checksum: 2f2d58bb4dcad4b22a69a7c2cf789e1baba5b2c9e27fd2945cc8ec4eac2d8fba
+        clickhouse/init-sql-checksum: 2a4c8533cdfb0c99dfb095ac21b6d1b1d07e7c6da957080b3c5b446e2865d05d
+        clickhouse/image-checksum: 8a6a695fe1c9fe0e85dcb07a15bfcced9d86111f811217fc39b28d45f08c4c50
+    spec:
+      containers:
+      - name: clickhouse
+        image: clickhouse/clickhouse-server:23.12.6
+        ports:
+        - containerPort: 8123
+          name: http
+        - containerPort: 9000
+          name: tcp
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/clickhouse
+        - name: users-config
+          mountPath: /etc/clickhouse-server/users.d
+          readOnly: true
+        resources:
+          requests:
+            cpu: '1'
+            memory: 0.5Gi
+          limits:
+            cpu: '4'
+            memory: 16Gi
+        livenessProbe:
+          exec:
+            command:
+            - bash
+            - -lc
+            - clickhouse-client --query 'SELECT 1' || exit 1
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command:
+            - bash
+            - -lc
+            - clickhouse-client --query 'SELECT 1' || exit 1
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+      - name: clickhouse-exporter
+        image: flant/clickhouse-exporter:nightly-10102021
+        args:
+        - --scrape_uri=http://127.0.0.1:8123/
+        - --telemetry.address=:9116
+        ports:
+        - containerPort: 9116
+          name: metrics
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        startupProbe:
+          httpGet:
+            path: /
+            port: 9116
+          failureThreshold: 12
+          periodSeconds: 5
+      volumes:
+      - name: users-config
+        configMap:
+          name: ch-single-users-settings
+          optional: false
+      - name: data
+        emptyDir: {}

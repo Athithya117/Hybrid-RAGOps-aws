@@ -21,7 +21,7 @@ spec:
         monitoring.io/scrape: 'true'
         monitoring.io/port: '8001'
         monitoring.io/path: /metrics
-        retriever/config-checksum: 3803942207de14dfbd95c0cc4f1bed0d2d896d783d6881a8c1810f26667363e4
+        retriever/config-checksum: 6f1f742463f970a015e79c283a55c3203f1b142ca7e351884719454c449bbc9f
     spec:
       serviceAccountName: retrieval-sa
       containers:

@@ -1,4 +1,25 @@
+**RAG8s** is an opinionated, Azure-native, Kubernetes-first framework for building and running **production-grade hybrid Retrieval-Augmented Generation (RAG) systems**.
+
+It provides a complete, end-to-end reference architecture for RAG on **Azure Kubernetes Service (AKS)**—from document ingestion to LLM inference. RAG8s is designed for teams that care about **reliability, scalability, and operational correctness**, not just model experimentation.
+
+The framework clearly separates the RAG lifecycle into two planes:
+
+* **Batch indexing plane**
+  A scheduled and idempotent pipeline that ingests documents from Azure Blob Storage, performs normalization and OCR, chunks content, generates dense and sparse embeddings, and indexes data into **Qdrant** with configurable sharding, replication, and backups.
+
+* **Online inference plane**
+  A low-latency request path that performs hybrid retrieval (dense + sparse), optional cross-encoder reranking, deterministic prompt construction with strict grounding, and LLM invocation, returning cited responses to authenticated users.
+
+RAG8s is **Azure-native by design**. Infrastructure is declared using **Pulumi**, workloads run on **AKS**, and storage and backups use **Azure Blob Storage**. Node pools are deliberately separated to isolate system services, inference APIs, compute-heavy model workloads, and vector storage. All container images are built deterministically and deployed via standard registries.
+
+Security and operations are first-class concerns. External access is provided through **Cloudflare Tunnel**, authentication uses OAuth (Google, Microsoft, GitHub) with JWT sessions, and secrets are managed using native Kubernetes primitives. Observability is built in by default using **VictoriaMetrics**, **ClickHouse**, **Grafana**, and **Alertmanager/vmalert**.
+
+By combining hybrid retrieval, clear batch and online separation, declarative infrastructure, and built-in observability, RAG8s serves as a **solid foundation for running RAG systems in real production environments**.
+
+---
+
 # Get started
+
 ## Prerequisites
 1. **Docker installed, enabled on boot, and running**
 2. **Visual Studio Code with the Dev Containers extension installed (for a deterministic environments): [https://code.visualstudio.com/docs/devcontainers/containers](https://code.visualstudio.com/docs/devcontainers/containers)**
@@ -76,7 +97,7 @@ export FORCE_DELETE=1                                     # Skip interactive con
 ```
 
 ### STEP 2: Manage platform infrastructure with Pulumi: export all required environment variables, run `make pulumi-preview` to inspect changes, `make pulumi-up` to apply them, or `make pulumi-destroy` to delete resources (destructive; requires PULUMI_FORCE_DESTROY=1). [Docs](docs/infra/azure).
-> NOTE: Node selectors and taints are not yet implemented. Only `systemnodepool` and `workernodepool` have been tested using azure for students subscription.
+> NOTE: Node selectors and taints are not yet implemented. Only `systemnodepool` and `workernodepool` have been tested.
 
 ```sh
 export PULUMI_STACK="staging"                     # Pulumi state scope (infra boundary); PROD: "prod"
@@ -120,6 +141,7 @@ export QDRANT_CPU_LIMIT="2"                                # Set equal to reques
 export QDRANT_MEMORY_REQUEST="2Gi"                         # Increase to 4Gi+ when HNSW build or mmap usage grows; must fit node memory
 export QDRANT_MEMORY_LIMIT="4Gi"                           # Always >= request; raise only to avoid OOMKills, never rely on overcommit
 ```
+
 
 ### STEP 5.1: Select the dense embedding model and embedding dimension (FastEmbed-compatible)
 
@@ -191,7 +213,8 @@ make rollout-sparse
 # make delete-sparse
 ```
 
-### STEP 7: Provision and operate the batch indexing CronJob (idempotent RAG indexing)
+
+### STEP 7: Provision and operate the batch indexing CronJob (idempotent RAG indexing). [Docs](docs/indexing_cronjob/workflow.md)
 
 Creates a Kubernetes CronJob that executes the end-to-end indexing pipeline on a schedule (`make rollout-indexing-cronjob`), supports safe teardown (`make delete-indexing-cronjob`), and allows one-off manual execution for validation and debugging (`make run-indexing-cronjob`).
 All RAG source data **must already be present** under `AZURE_CONTAINER/STORAGE_RAW_PREFIX` before the CronJob runs.
@@ -231,7 +254,7 @@ export PPTX_OCR_ENGINE="rapidocr"                     # OCR engine for PPTX-rend
 export PYTHONUNBUFFERED="1"                           # Forces Python stdout/stderr unbuffered so container logs are immediate; keep set in containers
 
 export COLLECTION_NAME="default_rag_collection1"    # Qdrant collection name; change per environment/dataset to avoid collisions
-export DENSE_DIM=512                                # Expected dense vector dimensionality; MUST match the model served at DENSE_URL
+export DENSE_DIM=384                                # Expected dense vector dimensionality; MUST match the model served at DENSE_URL
 export BATCH_SIZE="8"                               # Number of chunks sent per embedding batch; increase for throughput, decrease for memory/latency
 export UPSERT_CHUNK="500"                           # Points per Qdrant upsert call; larger reduces API overhead but increases request size
 export SPARSE_BATCH_FALLBACK="8"                    # Micro-batch size used when sparse service rejects large batches (422)
@@ -309,6 +332,7 @@ make rollout-reranker
 ### STEP 9: Rollout the retrieval service (online hybrid search, reranking, and LLM prompt assembly). [Retriever docs](docs/inference_pipeline/retrieval.md)
 
 ```sh
+
 export RETRIEVAL_IMAGE="docker.io/athithya5354/retrieval:v23"  # or build your own by running `make retrieval-image`
 export RETRIEVER_REPLICAS="1"                                 # number of pods; increase to scale, decrease to save cost
 export RETRIEVAL_RES_CPU="200m"                               # cpu request/limit; raise for CPU-heavy workloads
@@ -319,7 +343,6 @@ export RETRIEVER_HPA_ENABLED=false      # Enable/disable HPA for the retriever; 
 export RETRIEVER_HPA_MIN=1              # Minimum number of retriever pods to maintain baseline availability under low load
 export RETRIEVER_HPA_MAX=5              # Maximum number of retriever pods to cap scale-out and control resource cost
 export RETRIEVER_HPA_TARGET_CPU=60      # Target average CPU utilization (%) per pod that drives HPA scaling decisions
-
 
 export AZURE_STORAGE_CONNECTION_STRING=$(python3 infra/base_infra/get_storage_conn_string.py)
 export AZURE_ENDPOINT_SUFFIX="core.windows.net"              # Azure endpoint suffix; change for sovereign clouds
@@ -334,7 +357,7 @@ export RERANK_MARGIN="0.08"                                   # if top-second fu
 export RERANK_ALPHA="0.6"                                     # weight on reranker vs fused (0..1); higher favors reranker
 export RRF_TOP_N="10"                                         # number of fused (deduped) top results returned for reranker/LLM
 
-export GROQ_API_KEY=""                                        # GROQ LLM key; set when using GROQ (highest precedence)
+export GROQ_API_KEY=${GROQ_API_KEY}                             # GROQ LLM key; set when using GROQ (highest precedence)
 export OPENAI_API_KEY=""                                      # OpenAI API key; set when using OpenAI (fallback if GROQ not set)
 export LLM_API_KEY=""                                         # Generic LLM key; set for other providers (lowest precedence)
 export LLM_MODEL="llama-3.1-8b-instant"                       # default LLM model id; change to target a different model
@@ -352,7 +375,7 @@ PASSAGES:
 QUESTION: {question}
 
 Answer:"
-export MAX_CHUNKS_TO_LLM="5"                                  # max docs sent to LLM; raise for more context, lower for cost/perf
+export MAX_CHUNKS_TO_LLM="6"                                  # max docs sent to LLM; raise for more context, lower for cost/perf
 
 make rollout-retriever
 # make delete-retriever
@@ -383,6 +406,7 @@ make rollout-cloudflared-agents
 This step deploys the user-facing web UI together with the authentication layer into AKS.
 The service supports Google, Microsoft, and GitHub OAuth, issues JWT-based sessions, and enforces domain/org allowlists.
 Public exposure is expected to be routed through Cloudflare Tunnel configured in Step 10.
+HPA not required as pods can restart during end user logging in.
 
 ```sh
 export FRONTEND_HOSTNAME=$FRONTEND_HOSTNAME                  # Public hostname served by Cloudflare (e.g. ui.mycompany.com)
@@ -415,6 +439,7 @@ export FRONTEND_AND_AUTH_REPLICAS=1                          # Replica count; PR
 make rollout-frontend
 # make delete-frontend
 ```
+
 > This completes the RAG inference deployment. You can access the system by opening `https://<FRONTEND_HOSTNAME>` in your browser to run authenticated RAG queries and LLM-backed retrieval.
 
 ### STEP 12: Rollout observability stack (VictoriaMetrics + vmagent). [Observability docs](docs/infra/observability/monitoring)
@@ -444,7 +469,7 @@ make rollout-vm
 # make delete-vm
 ```
 
-### STEP 13: Provision alerting, SLOs, and on-call notifications (vmalert + Alertmanager)
+### STEP 13: Provision alerting, SLOs, and on-call notifications (vmalert + Alertmanager). [Docs](docs/infra/observability/monitoring/alerts.md)
 
 This step deploys the alerting control plane for the RAG platform.
 It generates and applies SLO-based PromQL rules, runs continuous evaluation via **vmalert**, and routes alerts through **Alertmanager** to Slack, PagerDuty, or webhooks.
@@ -489,7 +514,7 @@ make rollout-alert-manager
 # make delete-alert-manager
 ```
 
-### STEP 14: Deploy log storage and query backend (ClickHouse)
+### STEP 14: Deploy log storage and query backend (ClickHouse). [Docs](docs/infra/observability/logging)
 
 This step deploys **ClickHouse** as the primary log storage and query engine for the platform.
 ClickHouse stores normalized logs streamed from Vector and serves them for search, aggregation, and analytics.
@@ -526,7 +551,7 @@ make rollout-clickhouse
 # make delete-clickhouse
 ```
 
-### STEP 15: Deploy log collection agents (Vector)
+### STEP 15: Deploy log collection agents (Vector). [Docs](docs/infra/observability/logging/logging_setup.md)
 
 This step deploys **Vector** as a node-level log collection agent.
 Vector runs as a **DaemonSet**, tails Kubernetes pod logs on each node, normalizes log structure and severity, and streams logs to ClickHouse.  The setup is **stateless and No PVC required**
@@ -569,10 +594,18 @@ export QDRANT_LATENCY_THRESHOLD_SECONDS='0.8'    # p95 latency budget visualized
 
 make rollout-dashboards
 # make delete-dashboards
+
+
 ```
 
+![alt text](infra/archive/grafana/platform_observability_health.png)
+---
+![alt text](infra/archive/grafana/qdrant.png)
+---
+![alt text](infra/archive/grafana/retriever.png)
+---
 
-### STEP 17: Bootstrap GitOps reconciliation (Flux)
+### STEP 17: Bootstrap GitOps reconciliation (Optional)
 
 This step bootstraps **Flux CD** to continuously reconcile cluster state from Git.
 Flux runs in the **flux-system** namespace, authenticates to the Git repository using a **Git PAT**, and periodically applies desired state. This establishes **pull-based, drift-resistant deployments** with no runtime coupling to CI.
@@ -588,4 +621,85 @@ make setup-flux
 ```
 
 Flux components are lightweight, stateless, and do not require PVCs. Reconciliation is idempotent and safe to run continuously.
+
+
+### STEP 18: Restore Qdrant from Azure Blob Storage backup. (docs)[docs/infra/qdrant/qdrant_restore.md]
+
+This step restores **Qdrant collections** from a previously created snapshot stored in **Azure Blob Storage**.
+The restore process downloads a **backup manifest** and one or more **collection snapshots**, then rehydrates Qdrant state either **per pod** or via a **shared PVC**, depending on deployment mode.
+
+Backups are expected to already exist in the configured Blob container. This step is **destructive** to existing Qdrant data for the targeted collections.
+
+```sh
+# Azure Blob container that stores Qdrant backups
+export BACKUP_AZ_CONTAINER="backups-515"
+
+# Backup directory prefix inside the container
+# NOTE: Must match the layout used during backup creation
+export BACKUP_PREFIX="qdrant/backup"
+
+# Backup identifier (directory name under BACKUP_PREFIX)
+# Example: qdrant/backup/<BACKUP_ID>/manifest.json. example: 20260114T074813Z-090c7a56
+export BACKUP_ID="" 
+
+export PER_POD=false   # true for cluster level backups if using az disks. true if local nvme VMs
+
+make qdrant-restore
+# make qdrant-restore-dry-run
+```
+#### Notes
+
+* The restore logic currently assumes a **fixed backup directory structure** and does not auto-discover backups.
+* `BACKUP_ID` must correspond to an existing directory containing `manifest.json`.
+* Azure authentication must be consistent (either connection string–based or AAD-based) across environments.
+
+
+### STEP 19: Query logs from ClickHouse (observability) 
+
+This step queries **centralized Kubernetes and application logs** stored in **ClickHouse**.
+It uses the platform-provided helper `infra/setup/clickhouse_query.sh`, which executes queries **in-cluster** against `logs.kube_logs`, validates schema availability, and fails deterministically when invariants are violated.
+
+This step is **read-only**, safe to run continuously, and suitable for **local debugging, incident analysis, and CI gates**.
+
+```sh
+# Required: logical service name used in logs
+# Special case: service=qdrant filters by namespace='qdrant'
+export SERVICE_NAME="retrieval"
+
+# Time window (choose one strategy)
+export LAST_MINUTES="10"          # convenience shortcut
+# OR explicit window:
+# export FROM_OFFSET="30M"
+# export TO_OFFSET="10M"
+
+# Optional filters
+export LOG_LEVELS="info,error,warn"    # info,warn,error,
+export LIMIT="200"                # max rows to return
+export FORMAT="PrettyCompact"     # PrettyCompact | TSV | JSONEachRow
+
+bash infra/setup/clickhouse_query.sh \
+  --service="${SERVICE_NAME}" \
+  --lastM="${LAST_MINUTES}" \
+  --levels="${LOG_LEVELS}" \
+  --limit="${LIMIT}" \
+  --format="${FORMAT}"
+
+# CI / automation mode (fail if zero rows matched)
+# infra/setup/clickhouse_query.sh --service="${SERVICE_NAME}" --lastM=5 --strict
+```
+
+#### Notes
+
+* Queries are executed **inside the ClickHouse pod** using `clickhouse-client`; no port-forwarding is required.
+* The helper auto-discovers:
+
+  * Timestamp column (`ts`, `_time`, `timestamp`, `time`)
+  * Optional `level` and `service` columns
+* Time windows are evaluated relative to query execution time.
+* `--levels` is applied **only if** a `level` column exists.
+* `--strict` exits non-zero when zero rows are matched (intended for CI).
+* This step does **not** modify ingestion, retention, or log configuration.
+
+---
+
 

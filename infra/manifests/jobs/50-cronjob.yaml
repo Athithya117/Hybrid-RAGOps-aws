@@ -18,7 +18,7 @@ spec:
           labels:
             app: indexing-backup-cronjob
           annotations:
-            indexing/config-checksum: 4ed2470211f94cc46a329e901e7d1e039e26d3ad1cc9865e126ebdb53275ab0f
+            indexing/config-checksum: c48bb335804f56185bc3cae26a38bbfd07b2eaf41f3c2a9ec13f966455bf3d0b
         spec:
           serviceAccountName: indexer-cron-sa
           restartPolicy: Never
@@ -96,7 +96,7 @@ spec:
             - name: CSV_TARGET_TOKENS_PER_CHUNK
               value: '400'
             - name: DENSE_DIM
-              value: '512'
+              value: '384'
             - name: DENSE_URL
               value: http://dense-svc.models.svc.cluster.local:8200
             - name: ENABLE_QDRANT_BACKUP

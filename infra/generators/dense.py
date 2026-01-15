@@ -89,7 +89,7 @@ def load_config():
     cfg["MANIFESTS_DIR"] = Path(os.environ.get("MANIFESTS_DIR", "infra/manifests/dense"))
     cfg["INPUTS_HASH_PATH"] = cfg["MANIFESTS_DIR"] / ".inputs_hash"
     # image and runtime
-    cfg["IMAGE"] = os.environ.get("DENSE_IMAGE", "athithya5354/dense:v1")
+    cfg["IMAGE"] = os.environ.get("DENSE_IMAGE", "docker.io/athithya5354/dense:amd64-arm64-v1")
     cfg["NAMESPACE"] = os.environ.get("DENSE_NAMESPACE", "models")
     cfg["SERVICE_NAME"] = os.environ.get("DENSE_SERVICE_NAME", "dense")
     cfg["CONTAINER_PORT"] = int(os.environ.get("DENSE_PORT", "8200"))

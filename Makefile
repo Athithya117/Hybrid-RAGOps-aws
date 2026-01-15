@@ -92,9 +92,14 @@ rollout-reranker:
 reranker-image:
 	bash apps/reranker/test_and_push_reranker.sh
 
+delete-reranker:
+	python3 infra/generators/reranker.py --delete
+	
 setup-flux:
 	curl -s https://fluxcd.io/install.sh | sudo FLUX_VERSION=2.7.5 bash || true
-	python3 infra/setup/setup_fluxcd.py --qdrant --dense --frontend --sparse --reranker --retriever --jobs --auto-push
+	python3 infra/setup/setup_fluxcd.py --auto-push
+
+
 
 delete-flux:
 	kubectl delete ns flux-system --grace-period=0 --force --wait=false || true
@@ -138,7 +143,7 @@ rollout-dashboards:
 
 
 delete-retriever:
-	python3 infra/generators/retriever.py --delete --confirm || true
+	python3 infra/generators/retriever.py --delete || true
 
 delete-frontend:
 	python3 infra/generators/frontend_auth.py --delete --confirm || true

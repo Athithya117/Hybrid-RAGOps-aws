@@ -4,7 +4,7 @@
   "replicas": 1,
   "chart_version": "1.16.0",
   "image": "qdrant/qdrant:v1.16.0",
-  "generated_at": "2026-01-14T05:22:30Z",
+  "generated_at": "2026-01-15T03:14:28Z",
   "use_flux": false,
   "secrets_created": false
 }
