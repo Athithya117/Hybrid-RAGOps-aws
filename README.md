@@ -1,4 +1,4 @@
-[▶ Watch the RAG8s demo video](https://github.com/Athithya-Sakthivel/RAG8s/releases/download/demo-video/rag8s.mp4)
+[▶ Watch the Demo video](https://github.com/Athithya-Sakthivel/RAG8s/releases/download/demo-video/rag8s.mp4)
 ---
 **RAG8s** is an opinionated, Azure-native, Kubernetes-first framework for building and running **production-grade hybrid Retrieval-Augmented Generation (RAG) systems**.
 
@@ -99,7 +99,6 @@ export FORCE_DELETE=1                                     # Skip interactive con
 ```
 
 ### STEP 2: Manage platform infrastructure with Pulumi: export all required environment variables, run `make pulumi-preview` to inspect changes, `make pulumi-up` to apply them, or `make pulumi-destroy` to delete resources (destructive; requires PULUMI_FORCE_DESTROY=1). [Docs](docs/infra/azure).
-> NOTE: Node selectors and taints are not yet implemented. Only `systemnodepool` and `workernodepool` have been tested.
 
 ```sh
 export PULUMI_STACK="staging"                     # Pulumi state scope (infra boundary); PROD: "prod"
@@ -110,14 +109,6 @@ export AKS_SKU="standard"                         # Control-plane SLA tier; PROD
 export SYSTEM_NODE_COUNT=1                        # System pool (kube-system, CNI, CoreDNS); PROD: >=2 (prefer 3)
 export SYSTEM_NODE_VM_SIZE="Standard_B2s"         # System pool VM (infra-only); PROD: D4s_v5+ for stability
 export SYSTEM_NODE_MAX_PODS=60                    # System pod density; must align with AKS_MAX_PODS
-export BALANCED_NODE_MIN=0                        # General app pool (APIs, gateways, orchestrators); PROD: >=2 for HA
-export BALANCED_NODE_MAX=1                        # General app scale ceiling; raise with QPS/latency targets
-export BALANCED_NODE_VM_SIZE="Standard_B2s"       # App/API workloads; PROD: D4s_v5 for concurrency
-export CPU_HEAVY_NODE_MIN=0                       # CPU model pool (embeddings, rerankers, tokenizers); PROD: >=1 if hot path
-export CPU_HEAVY_NODE_MAX=0                       # CPU burst capacity (batch inference, indexing); PROD: raise as needed
-export CPU_HEAVY_NODE_VM_SIZE="Standard_B2s"      # CPU inference placeholder; PROD: F8s_v2 (AVX2, predictable clocks)
-export QDRANT_NODE_COUNT=0                        # Vector DB pool (Qdrant, HNSW, WAL); PROD: 1+ for HA/sharding
-export QDRANT_NODE_VM_SIZE="Standard_B2s"         # RAM/IO-heavy vector storage; PROD: E8ds_v5 / E16ds_v5
 export AKS_LOCATION="${AZURE_LOCATION}"   # Deployment region; change only for latency or quota management
 export ACR_NAME=acr49250                                   # Global ACR name; change only if creating a new registry (cannot rename)
 export ACR_REPO_PREFIX=rag                              # Logical repo namespace; change when multiple teams/apps share one ACR
