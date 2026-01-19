@@ -109,6 +109,9 @@ export AKS_SKU="standard"                         # Control-plane SLA tier; PROD
 export SYSTEM_NODE_COUNT=1                        # System pool (kube-system, CNI, CoreDNS); PROD: >=2 (prefer 3)
 export SYSTEM_NODE_VM_SIZE="Standard_B2s"         # System pool VM (infra-only); PROD: D4s_v5+ for stability
 export SYSTEM_NODE_MAX_PODS=60                    # System pod density; must align with AKS_MAX_PODS
+export BALANCED_NODE_MIN=0                        # General app pool (APIs, gateways, orchestrators); PROD: >=2 for HA
+export BALANCED_NODE_MAX=1                        # General app scale ceiling; raise with QPS/latency targets
+export BALANCED_NODE_VM_SIZE="Standard_B2s"       # App/API workloads; PROD: D4s_v5 for concurrency
 export AKS_LOCATION="${AZURE_LOCATION}"   # Deployment region; change only for latency or quota management
 export ACR_NAME=acr49250                                   # Global ACR name; change only if creating a new registry (cannot rename)
 export ACR_REPO_PREFIX=rag                              # Logical repo namespace; change when multiple teams/apps share one ACR
