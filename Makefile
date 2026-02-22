@@ -245,7 +245,6 @@ clean:
 
 fix-dns: fix-kind-dns
 
-# ClickHouse convenience targets
 CH_NS ?= observability
 
 .PHONY: ch-shell ch-query
