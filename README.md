@@ -1,8 +1,8 @@
 [▶ Watch the Demo video](https://github.com/Athithya-Sakthivel/RAG8s/releases/download/demo-video/rag8s.mp4)
 ---
-**RAG8s** is an opinionated, Azure-native, Kubernetes-first IDP for building and running **production-grade hybrid Retrieval-Augmented Generation (RAG) systems**.
+**RAG8s** is an opinionated, Azure-native, Kubernetes-first IDP for building and running **production-capable hybrid Retrieval-Augmented Generation (RAG) systems**.
 
-It provides a complete, end-to-end reference architecture for RAG on **Azure Kubernetes Service (AKS)**—from document ingestion to LLM inference. RAG8s is designed for teams that care about **reliability, scalability, and operational correctness**, not just model experimentation.
+It provides a complete, end-to-end reference architecture for RAG on **Azure Kubernetes Service (AKS)**—from document ingestion to LLM inference. RAG8s is designed for teams that care about **reliability, scalability, and operational correctness**. 
 
 The System clearly separates the RAG lifecycle into two planes:
 
