@@ -4,7 +4,7 @@
 
 It provides a complete, end-to-end reference architecture for RAG on **Azure Kubernetes Service (AKS)**—from document ingestion to LLM inference. RAG8s is designed for teams that care about **reliability, scalability, and operational correctness**, not just model experimentation.
 
-The framework clearly separates the RAG lifecycle into two planes:
+The System clearly separates the RAG lifecycle into two planes:
 
 * **Batch indexing plane**
   A scheduled and idempotent pipeline that ingests documents from Azure Blob Storage, performs normalization and OCR, chunks content, generates dense and sparse embeddings, and indexes data into **Qdrant** with configurable sharding, replication, and backups.
@@ -23,7 +23,7 @@ By combining hybrid retrieval, clear batch and online separation, declarative in
 # Get started
 
 ## Prerequisites
-1. **Docker installed, enabled on boot, and running**
+1. Docker installed, running *without* sudo access
 2. **Visual Studio Code with the Dev Containers extension installed (for a deterministic environments): [https://code.visualstudio.com/docs/devcontainers/containers](https://code.visualstudio.com/docs/devcontainers/containers)**
 3. **An Azure subscription with sufficient permissions (Owner or Contributor) to manage**:
    * Azure Resource Groups
