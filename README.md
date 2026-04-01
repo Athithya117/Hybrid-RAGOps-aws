@@ -12,7 +12,7 @@ The System clearly separates the RAG lifecycle into two planes:
 * **Online inference plane**
   A low-latency request path that performs hybrid retrieval (dense + sparse), optional cross-encoder reranking, deterministic prompt construction with strict grounding, and LLM invocation, returning cited responses to authenticated users.
 
-RAG8s is **Azure-native by design**. Infrastructure is declared using **Pulumi**, workloads run on **AKS**, and storage and backups use **Azure Blob Storage**. Node pools are deliberately separated to isolate system services, inference APIs, compute-heavy model workloads, and vector storage. All container images are built deterministically and deployed via standard registries.
+RAG8s is **Azure-native by design**. Infrastructure is declared using **Pulumi**, workloads run on **AKS**, and storage and backups use **Azure Blob Storage**.  All container images are built deterministically and deployed via standard registries.
 
 External access is provided through **Cloudflare Tunnel**, authentication uses OAuth (Google, Microsoft, GitHub) with JWT sessions, and secrets are managed using native Kubernetes primitives. Observability is built in by default using **VictoriaMetrics**, **ClickHouse**, **Grafana**, and **Alertmanager/vmalert**.
 
