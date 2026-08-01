@@ -1,12 +1,12 @@
-## AI Developer Platform
+## AI-IDP
 
-**AI Developer Platform** is an opinionated, Azure-native, Kubernetes-first developer platform for building, deploying, and operating production-ready AI search and knowledge applications on **Azure Kubernetes Service (AKS)**.
+**AI-IDP** is an opinionated, Azure-native, Kubernetes-first developer platform for building, deploying, and operating production-ready AI search and knowledge applications on **Azure Kubernetes Service (AKS)**.
 
 The platform provides a complete foundation for developing cloud-native AI workloads by integrating infrastructure provisioning, application deployment, networking, identity, storage, observability, and operational automation into a single, reproducible platform. Instead of assembling and maintaining these capabilities independently for every project, developers can build on a standardized platform with production-oriented defaults and consistent engineering practices.
 
 The architecture separates offline data processing from online serving to simplify scaling and operations. Background workloads ingest and transform documents, build searchable indexes, and manage data lifecycles, while independent online services handle search, ranking, prompt orchestration, and model inference. Each component can be deployed, scaled, and operated independently, enabling predictable performance and operational isolation.
 
-Built around modern cloud-native engineering principles, the platform provisions infrastructure using Infrastructure as Code, orchestrates workloads on Azure Kubernetes Service (AKS), packages applications as OCI containers, and delivers changes through automated CI/CD pipelines. Reproducible environments and declarative deployments reduce configuration drift while improving deployment reliability across development and production.
+Built around modern cloud-native engineering principles, the platform provisions infrastructure using Infrastructure as Code, orchestrates workloads on Azure Kubernetes Service (AKS), packages applications as OCI containers. Reproducible environments and declarative deployments reduce configuration drift while improving deployment reliability across development and production.
 
 Developer productivity is a core design objective. The platform provides a consistent repository structure, reproducible development environments, automated infrastructure provisioning, standardized deployment workflows, built-in operational guardrails, and production-ready defaults, allowing teams to spend more time building applications and less time managing platform infrastructure.
 
