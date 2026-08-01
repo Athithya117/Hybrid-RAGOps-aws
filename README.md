@@ -1,6 +1,6 @@
-## Azure AI Developer Platform
+## AI Developer Platform
 
-**Azure AI Developer Platform** is an opinionated, Azure-native, Kubernetes-first developer platform for building, deploying, and operating production-ready AI search and knowledge applications on **Azure Kubernetes Service (AKS)**.
+**AI Developer Platform** is an opinionated, Azure-native, Kubernetes-first developer platform for building, deploying, and operating production-ready AI search and knowledge applications on **Azure Kubernetes Service (AKS)**.
 
 The platform provides a complete foundation for developing cloud-native AI workloads by integrating infrastructure provisioning, application deployment, networking, identity, storage, observability, and operational automation into a single, reproducible platform. Instead of assembling and maintaining these capabilities independently for every project, developers can build on a standardized platform with production-oriented defaults and consistent engineering practices.
 
