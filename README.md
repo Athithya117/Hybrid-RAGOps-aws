@@ -1,24 +1,35 @@
-[▶ Watch the Demo video](https://github.com/Athithya-Sakthivel/RAG8s/releases/download/demo-video/rag8s.mp4)
----
-**RAG8s** is an opinionated, Azure-native, Kubernetes-first IDP for building and running **production-capable hybrid Retrieval-Augmented Generation (RAG) systems**.
+## Azure AI Developer Platform
 
-It provides a complete, end-to-end reference architecture for RAG on **Azure Kubernetes Service (AKS)**—from document ingestion to LLM inference. RAG8s is designed for teams that care about **reliability, scalability, and operational correctness**. 
+**Azure AI Developer Platform** is an opinionated, Azure-native, Kubernetes-first developer platform for building, deploying, and operating production-ready AI search and knowledge applications on **Azure Kubernetes Service (AKS)**.
 
-The System clearly separates the RAG lifecycle into two planes:
+The platform provides a complete foundation for developing cloud-native AI workloads by integrating infrastructure provisioning, application deployment, networking, identity, storage, observability, and operational automation into a single, reproducible platform. Instead of assembling and maintaining these capabilities independently for every project, developers can build on a standardized platform with production-oriented defaults and consistent engineering practices.
 
-* **Batch indexing plane**
-  A scheduled and idempotent pipeline that ingests documents from Azure Blob Storage, performs normalization and OCR, chunks content, generates dense and sparse embeddings, and indexes data into **Qdrant** with configurable sharding, replication, and backups.
+The architecture separates offline data processing from online serving to simplify scaling and operations. Background workloads ingest and transform documents, build searchable indexes, and manage data lifecycles, while independent online services handle search, ranking, prompt orchestration, and model inference. Each component can be deployed, scaled, and operated independently, enabling predictable performance and operational isolation.
 
-* **Online inference plane**
-  A low-latency request path that performs hybrid retrieval (dense + sparse), optional cross-encoder reranking, deterministic prompt construction with strict grounding, and LLM invocation, returning cited responses to authenticated users.
+Built around modern cloud-native engineering principles, the platform provisions infrastructure using Infrastructure as Code, orchestrates workloads on Azure Kubernetes Service (AKS), packages applications as OCI containers, and delivers changes through automated CI/CD pipelines. Reproducible environments and declarative deployments reduce configuration drift while improving deployment reliability across development and production.
 
-RAG8s is **Azure-native by design**. Infrastructure is declared using **Pulumi**, workloads run on **AKS**, and storage and backups use **Azure Blob Storage**.  All container images are built deterministically and deployed via standard registries.
+Developer productivity is a core design objective. The platform provides a consistent repository structure, reproducible development environments, automated infrastructure provisioning, standardized deployment workflows, built-in operational guardrails, and production-ready defaults, allowing teams to spend more time building applications and less time managing platform infrastructure.
 
-External access is provided through **Cloudflare Tunnel**, authentication uses OAuth (Google, Microsoft, GitHub) with JWT sessions, and secrets are managed using native Kubernetes primitives. Observability is built in by default using **VictoriaMetrics**, **ClickHouse**, **Grafana**, and **Alertmanager/vmalert**.
+Operational capabilities are integrated as first-class platform features. Identity and access management, secure ingress, secret management, storage integration, monitoring, logging, metrics, dashboards, and alerting are configured as part of the platform, providing a consistent operational experience throughout the application lifecycle.
 
-By combining hybrid retrieval, clear batch and online separation, declarative infrastructure, and built-in observability, RAG8s serves as a solid **foundation** for running RAG systems in real production environments.
+By combining Azure-native services with Kubernetes and widely adopted open-source technologies, the platform offers a consistent operating model for developing, deploying, and operating AI applications while remaining aligned with cloud-native engineering best practices.
 
----
+# Get Started
+
+## Prerequisites
+
+1. Docker installed and running without `sudo`.
+2. Visual Studio Code with the **Dev Containers** extension installed for a reproducible development environment.
+3. An Azure subscription with **Owner** or **Contributor** permissions capable of provisioning:
+
+   * Azure Resource Groups
+   * Azure Kubernetes Service (AKS)
+   * Azure Storage Accounts
+   * Managed Identities and Azure RBAC role assignments
+4. A Cloudflare account with a registered domain and permissions to create DNS records and Cloudflare Tunnels.
+
+> An Azure Free Trial or Azure for Students subscription is sufficient for development and evaluation.
+
 
 # Get started
 
@@ -35,7 +46,7 @@ By combining hybrid retrieval, clear batch and online separation, declarative in
 
 ## Clone the repo and build the devcontainer(Reproducible). This will take 20-30 minutes. 
 ```sh 
-cd $HOME && rm -rf RAG8s && git clone https://github.com/Athithya-Sakthivel/RAG8s.git && cd RAG8s && code .
+cd $HOME && rm -rf AI-IDP && git clone https://github.com/Athithya-Sakthivel/AI-IDP.git && cd RAG8s && code .
 ```
 > ctrl + shift + P -> paste `Dev containers: Rebuild Container Without Cache` and enter
 
@@ -56,7 +67,7 @@ gh auth login
 ```
 #### Create a private repo in your gh account
 ```sh
-export REPO_NAME="rag8s" # or any name
+export REPO_NAME="AI-IDP-1" # or any name
 
 git remote remove origin 2>/dev/null || true
 gh repo create "$REPO_NAME" --private >/dev/null 2>&1
