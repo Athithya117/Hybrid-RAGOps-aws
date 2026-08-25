@@ -192,7 +192,7 @@ export PULUMI_FORCE_DESTROY=1                     # Allow destructive changes (s
 ### STEP 3: Manage kubectl context — run `make set-aks-context` to connect to AKS, or `make delete-aks-context` to fully remove local AKS credentials and kubeconfig entries. 
 > If locally testing, run `make lc` to create a kind cluster, and use `make set-kind-context` to switch between AKS and kind.
 
-### STEP 4: Rollout the Qdrant StatefulSet and services into AKS by running make rollout-qdrant (remove it with make delete-qdrant).
+### STEP 4: Rollout the Qdrant StatefulSet and services into AKS by running `make rollout-qdrant` or `make delete-qdrant` to delete qdrant namespace
 
 ```sh
 export QDRANT__SERVICE__API_KEY="strongpassword1"          # Server-side API auth key; rotate on compromise or scheduled security rotation
@@ -204,6 +204,8 @@ export QDRANT_CPU_REQUEST="1"                              # Increase to 2+ if s
 export QDRANT_CPU_LIMIT="2"                                # Set equal to request for deterministic perf; raise only to allow controlled bursting
 export QDRANT_MEMORY_REQUEST="2Gi"                         # Increase to 4Gi+ when HNSW build or mmap usage grows; must fit node memory
 export QDRANT_MEMORY_LIMIT="4Gi"                           # Always >= request; raise only to avoid OOMKills, never rely on overcommit
+make rollout-qdrant
+# make delete-qdrant
 ```
 
 
@@ -445,7 +447,7 @@ make rollout-retriever
 # make delete-retriever
 ```
 
-### STEP 10: Configure Cloudflare DNS and Tunnel (Frontend Edge Exposure)**. [Edge docs](docs/infra/edge)
+### STEP 10: Configure Cloudflare DNS and Tunnel (Frontend Edge Exposure). [Edge docs](docs/infra/edge)
 
 ```sh
 # One-time local setup: authenticate with Cloudflare, create/reuse tunnel, bind public hostname, and export tunnel credentials
@@ -687,7 +689,7 @@ make setup-flux
 Flux components are lightweight, stateless, and do not require PVCs. Reconciliation is idempotent and safe to run continuously.
 
 
-### STEP 18: Restore Qdrant from Azure Blob Storage backup. (docs)[docs/infra/qdrant/qdrant_restore.md]
+### STEP 18: Restore Qdrant from Azure Blob Storage backup. [docs](docs/infra/qdrant/qdrant_restore.md)
 
 This step restores **Qdrant collections** from a previously created snapshot stored in **Azure Blob Storage**.
 The restore process downloads a **backup manifest** and one or more **collection snapshots**, then rehydrates Qdrant state either **per pod** or via a **shared PVC**, depending on deployment mode.
@@ -753,10 +755,8 @@ bash infra/setup/clickhouse_query.sh \
 ```
 
 #### Notes
-
 * Queries are executed **inside the ClickHouse pod** using `clickhouse-client`; no port-forwarding is required.
 * The helper auto-discovers:
-
   * Timestamp column (`ts`, `_time`, `timestamp`, `time`)
   * Optional `level` and `service` columns
 * Time windows are evaluated relative to query execution time.
