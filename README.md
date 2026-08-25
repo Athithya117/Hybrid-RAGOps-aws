@@ -2,17 +2,74 @@
 
 **AI-IDP** is an opinionated, Azure-native, Kubernetes-first developer platform for building, deploying, and operating production-ready AI search and knowledge applications on **Azure Kubernetes Service (AKS)**.
 
-The platform provides a complete foundation for developing cloud-native AI workloads by integrating infrastructure provisioning, application deployment, networking, identity, storage, observability, and operational automation into a single, reproducible platform. Instead of assembling and maintaining these capabilities independently for every project, developers can build on a standardized platform with production-oriented defaults and consistent engineering practices.
+### Build Applications, Not Infrastructure
 
-The architecture separates offline data processing from online serving to simplify scaling and operations. Background workloads ingest and transform documents, build searchable indexes, and manage data lifecycles, while independent online services handle search, ranking, prompt orchestration, and model inference. Each component can be deployed, scaled, and operated independently, enabling predictable performance and operational isolation.
+Every AI application requires the same foundational components: infrastructure, deployments, networking, authentication, storage, observability, and operational automation. AI-IDP delivers all of these as an integrated platform, eliminating the need to assemble and maintain them independently for each project.
 
-Built around modern cloud-native engineering principles, the platform provisions infrastructure using Infrastructure as Code, orchestrates workloads on Azure Kubernetes Service (AKS), packages applications as OCI containers. Reproducible environments and declarative deployments reduce configuration drift while improving deployment reliability across development and production.
+With AI-IDP, teams start building applications on day one, supported by production-oriented defaults, standardized patterns, and consistent engineering practices.
 
-Developer productivity is a core design objective. The platform provides a consistent repository structure, reproducible development environments, automated infrastructure provisioning, standardized deployment workflows, built-in operational guardrails, and production-ready defaults, allowing teams to spend more time building applications and less time managing platform infrastructure.
+### Developer-First Design
 
-Operational capabilities are integrated as first-class platform features. Identity and access management, secure ingress, secret management, storage integration, monitoring, logging, metrics, dashboards, and alerting are configured as part of the platform, providing a consistent operational experience throughout the application lifecycle.
+The platform is designed around developer velocity. Configuration is declarative and environment-driven. Deployment follows a simple, repeatable workflow:
 
-By combining Azure-native services with Kubernetes and widely adopted open-source technologies, the platform offers a consistent operating model for developing, deploying, and operating AI applications while remaining aligned with cloud-native engineering best practices.
+```bash
+export VARS=...     # Configure environment
+make deploy         # Provision infrastructure
+make rollout        # Ship services
+```
+
+No custom scripts. No tribal knowledge. No multi-step manual runbooks.
+
+**Core developer experience features:**
+
+- **Reproducible development environments**—clone the repository, open in a VS Code Dev Container, and begin development immediately
+- **Consistent repository structure**—every project follows the same layout, every service deploys the same way
+- **Automated infrastructure provisioning**—Infrastructure as Code manages cloud resources without manual intervention
+- **Standardized deployment workflows**—`make` targets abstract away Kubernetes and Azure complexity
+- **Built-in operational guardrails**—security best practices and operational policies enforced automatically
+- **Production-ready defaults**—sensible configurations that work out of the box, with clear extension points
+
+### Architecture: Clear Separation of Concerns
+
+The platform separates **offline data processing** from **online serving**:
+
+| Component | Responsibility | Operational Model |
+|-----------|---------------|-------------------|
+| **Background workloads** | Document ingestion, index construction, data lifecycle management | Scheduled or event-driven, scales independently |
+| **Online services** | Search, ranking, prompt orchestration, model inference | User-facing, latency-sensitive, independently scalable |
+
+This separation enables predictable performance, simplified scaling decisions, and operational isolation. Components can be deployed, scaled, and debugged independently without impacting the rest of the system.
+
+### Operations Included by Default
+
+Operational capabilities are first-class platform features, not post-deployment add-ons:
+
+- **Identity and access management**—OAuth integration (Google, Microsoft, GitHub) with JWT-based sessions and domain/org allowlists
+- **Secure ingress**—Cloudflare Tunnels for public exposure without direct cluster exposure
+- **Storage integration**—Azure Blob Storage for raw data, processed artifacts, and backups
+- **Observability**—VictoriaMetrics for metrics, ClickHouse for centralized logs, Vector for log collection, Grafana for dashboards
+- **Alerting**—SLO-based rules evaluated by vmalert, routed through Alertmanager to Slack or PagerDuty
+- **Backup and restore**—Automated snapshot workflows with configurable retention and tiering
+
+These capabilities are configured as part of the platform, providing a consistent operational experience throughout the application lifecycle.
+
+### Built on Standard Cloud-Native Technologies
+
+AI-IDP uses widely adopted open-source and cloud-native tools:
+
+- **Kubernetes** for workload orchestration
+- **Pulumi** for Infrastructure as Code
+- **OCI containers** for application packaging
+- **Open-source observability stack** (Prometheus-compatible metrics, Grafana, ClickHouse)
+
+Teams already familiar with these technologies can adopt AI-IDP without a steep learning curve. The platform standardizes their integration, removing the burden of wiring components together and maintaining the connections.
+
+### The Result
+
+AI-IDP transforms "let's build an AI application" from a platform engineering initiative into a feature development task. Teams clone the repository, configure their environment, deploy services with a single command, and focus on delivering application value rather than managing platform infrastructure.
+
+---
+
 
 # Get Started
 
