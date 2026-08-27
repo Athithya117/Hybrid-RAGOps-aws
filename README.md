@@ -144,7 +144,7 @@ echo "[INFO] A private repo '$REPO_NAME' created and pushed. Only visible from y
 export AZURE_SUBSCRIPTION_ID="" # Azure subscription hosting AKS, storage, and all RAG platform resources
 ```
 
-### STEP 1: Provision the Azure Storage Account and required Blob containers by exporting the variables below and running make create-sa (remove with make delete-sa).
+### STEP 1: Provision the Azure Storage Account and required Blob containers by exporting the variables below and running `make create-sa`. [Docs](docs/infra/azure)
 
 ```sh
 export AZURE_SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID}"   # Azure subscription ID (must already be set after az login)
@@ -174,11 +174,11 @@ export PULUMI_CONFIG_PASSPHRASE="mypassword"      # Pulumi secrets encryption; P
 export AKS_MAX_PODS=60                            # Pod density per node (Azure CNI IP pressure); PROD: raise if subnet allows
 export AKS_CLUSTER_NAME="rag-aks"                 # AKS cluster name; change only for parallel clusters/environments
 export AKS_SKU="standard"                         # Control-plane SLA tier; PROD: standard (or premium if regulated)
-export SYSTEM_NODE_COUNT=1                        # System pool (kube-system, CNI, CoreDNS); PROD: >=2 (prefer 3)
+export SYSTEM_NODE_COUNT=                        # System pool (kube-system, CNI, CoreDNS); PROD: >=2 (prefer 3)
 export SYSTEM_NODE_VM_SIZE="Standard_B2s"         # System pool VM (infra-only); PROD: D4s_v5+ for stability
 export SYSTEM_NODE_MAX_PODS=60                    # System pod density; must align with AKS_MAX_PODS
-export BALANCED_NODE_MIN=0                        # General app pool (APIs, gateways, orchestrators); PROD: >=2 for HA
-export BALANCED_NODE_MAX=1                        # General app scale ceiling; raise with QPS/latency targets
+export BALANCED_NODE_MIN=                        # General app pool (APIs, gateways, orchestrators); PROD: >=2 for HA
+export BALANCED_NODE_MAX=                        # General app scale ceiling; raise with QPS/latency targets
 export BALANCED_NODE_VM_SIZE="Standard_B2s"       # App/API workloads; PROD: D4s_v5 for concurrency
 export AKS_LOCATION="${AZURE_LOCATION}"   # Deployment region; change only for latency or quota management
 export ACR_NAME=acr49250                                   # Global ACR name; change only if creating a new registry (cannot rename)
@@ -280,7 +280,7 @@ make rollout-sparse
 ```
 
 
-### STEP 7: Provision and operate the batch indexing CronJob (idempotent RAG indexing). [Docs](docs/indexing_cronjob/workflow.md)
+### STEP 7: Provision and operate the batch indexing CronJob (idempotent, incremental RAG indexing). [Docs](docs/indexing_cronjob/workflow.md)
 
 Creates a Kubernetes CronJob that executes the end-to-end indexing pipeline on a schedule (`make rollout-indexing-cronjob`), supports safe teardown (`make delete-indexing-cronjob`), and allows one-off manual execution for validation and debugging (`make run-indexing-cronjob`).
 All RAG source data **must already be present** under `AZURE_CONTAINER/STORAGE_RAW_PREFIX` before the CronJob runs.
